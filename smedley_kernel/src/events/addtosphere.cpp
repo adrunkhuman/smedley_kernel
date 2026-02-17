@@ -36,7 +36,7 @@ namespace smedley::events
 
             // patched instructions
             mov eax, DWORD PTR[esi]
-            mov ecx, DWORD PTR ds : 0x1D587E4
+            mov ecx, DWORD PTR ds : 0x1e587e4
 
             jmp hook_ret_addr
         }

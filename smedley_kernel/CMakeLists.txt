@@ -49,3 +49,13 @@ if (DOXYGEN_FOUND)
 else (DOXYGEN_FOUND)
   message("Doxygen need to be installed to generate the doxygen documentation")
 endif (DOXYGEN_FOUND)
+
+add_custom_command(
+  OUTPUT codegen
+  COMMAND cog -I .\\codegen @generatedfiles.txt
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+)
+
+add_custom_target(cog_generate ALL DEPENDS codegen)
+
+add_dependencies(smedley_kernel cog_generate)

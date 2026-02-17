@@ -38,6 +38,8 @@ namespace dailyupdate_example
         {
             auto country = e.GetCountry();
             country->AddPrestige(clausewitz::CFixedPoint{ 1000000 });
+            auto traits = v2::CTraitDefinitionArray::instance();
+            traits[1];
         }
         void OnWesternize(events::WesternizeEvent& e)
         {
