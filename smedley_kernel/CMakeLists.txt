@@ -52,7 +52,7 @@ endif (DOXYGEN_FOUND)
 
 add_custom_command(
   OUTPUT codegen
-  COMMAND cog -I .\\codegen @generatedfiles.txt
+  COMMAND cog -r -I .\\codegen @generatedfiles.txt
   WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 )
 
