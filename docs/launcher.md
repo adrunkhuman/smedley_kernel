@@ -26,6 +26,12 @@ view_tag = "ENG" # optional; three ASCII letters and requires observer
 speed = 5 # optional; 1 through 5, applied after unattended save loading
 start_paused = false # optional; requires a save and campaign_runner; incompatible with observer
 detach = false
+telemetry_enabled = false
+telemetry_output = "C:\\traces\\gfm.jsonl" # optional; default is per-run under %LOCALAPPDATA%
+telemetry_categories = ["lifecycle", "state"] # lifecycle, state, or both
+telemetry_sample_days = 1 # 1 through 365
+telemetry_queue_capacity = 1024 # 64 through 8192
+telemetry_overwrite = false # required to replace an existing .jsonl file
 ```
 
 `mods` selects ordinary Victoria II descriptors. Each descriptor must be under
@@ -46,6 +52,7 @@ smedley_cli --game-dir "C:\Games\Victoria 2" --discover
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin "plugins\campaign runner.toml" --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --observe
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.toml --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --speed 3 --start-paused --detach
 smedley_cli --history
+smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\telemetry.toml --telemetry --telemetry-category lifecycle --telemetry-category state --telemetry-sample-days 7 --telemetry-queue-capacity 512 --detach
 ```
 
 `--dry-run` prints the resolved command line and structured preflight
@@ -54,6 +61,13 @@ diagnostics without starting a process. `--discover` enumerates valid
 stable order. `--no-inject` starts the verified game with ordinary selected mods
 but does not load the kernel or native plugins.
 
+`--telemetry` enables the profile telemetry settings. `--telemetry-output`,
+`--telemetry-category`, `--telemetry-sample-days`,
+`--telemetry-queue-capacity`, and `--telemetry-overwrite` override their corresponding profile fields. The
+shared preflight requires selected plugin ID `telemetry` when telemetry is
+enabled, accepts only `lifecycle` and `state` categories, and validates the
+documented numeric ranges. Safe mode warns and ignores every telemetry control.
+
 ## Run History
 
 Every `Launch()` attempt writes one atomic, human-readable TOML record under
@@ -61,7 +75,8 @@ Every `Launch()` attempt writes one atomic, human-readable TOML record under
 stable run ID, UTC start timestamp, outcome, known PID/exit code, profile and
 launch settings, resolved executable/command line, selected mod descriptors,
 and selected plugin IDs and manifests. They also contain paths to the Smedley
-and Victoria II logs, user directory, `economy_trace.csv`, and source save when
+and Victoria II logs, user directory, `economy_trace.csv`, telemetry JSON Lines
+trace, and source save when
 those paths can be derived. History records only reference game content; they
 never copy saves, logs, mods, plugins, or game files.
 
@@ -99,6 +114,11 @@ schema as the CLI. A loaded profile's `kernel` and `detach` values are preserved
 when saving; GUI launches themselves are always detached so the launcher stays
 responsive. **Recent runs** opens the shared local history rather than keeping a
 separate GUI-only list.
+
+The GUI includes telemetry enablement, an optional JSON Lines output browse
+field, a compact category selector (`Lifecycle + state`, `Lifecycle only`, or
+`State only`), sample-days input, queue-capacity input, and overwrite checkbox. These controls build
+the same profile and use the same preflight as the CLI.
 
 The current profile API supports unattended save loading, observer mode, and an
 optional observer view tag. It also supports an initial speed from 1 through 5

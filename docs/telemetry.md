@@ -1,0 +1,119 @@
+# Telemetry
+
+`telemetry` is Smedley's first-party, opt-in native JSON Lines plugin. It is a
+trusted DLL, not a sandbox. Enable `telemetry_enabled` and select
+`plugins/telemetry.toml`; the shared launcher preflight rejects an enabled
+profile without plugin ID `telemetry`. It requires no user C++.
+
+## Configuration
+
+Profiles use these top-level fields. Every present field is type-checked on
+load and save; the launcher repeats range, category, output, and selected-plugin
+validation before launch.
+
+| Field | Type | Default | Rules |
+| --- | --- | --- | --- |
+| `telemetry_enabled` | boolean | `false` | Requires selected plugin ID `telemetry` when injecting. |
+| `telemetry_output` | string, optional | per-run path | Must name a non-directory file. |
+| `telemetry_categories` | string array | `"lifecycle", "state"` | Non-empty, unique, values are `lifecycle` and/or `state`. |
+| `telemetry_sample_days` | integer | `1` | 1 through 365. Applies before country extraction and formatting. |
+| `telemetry_queue_capacity` | integer | `1024` | 64 through 8192 fixed record slots. |
+| `telemetry_overwrite` | boolean | `false` | Required to replace an existing output. |
+
+If no output path is supplied, a real injected launch derives
+`%LOCALAPPDATA%\Smedley\traces\<run-id>.jsonl`. The launcher creates its run ID
+only after the shared `BuildLaunchPlan` phase. Before `CreateProcessW`, it
+appends safely quoted `-smedley-run-id=<run-id>` to the injected child command
+line, appends the derived output argument when necessary, and stores the exact
+child command line and trace link in the run record. Dry runs do not create a
+run ID; safe-mode launches do not receive telemetry arguments or create a trace
+link.
+
+CLI controls are `--telemetry`, `--no-telemetry`, `--telemetry-output PATH`,
+repeatable `--telemetry-category lifecycle|state`,
+`--telemetry-sample-days N`, `--telemetry-queue-capacity N`, and
+`--telemetry-overwrite`.
+
+Outputs must end in `.jsonl` (case-insensitive). Existing outputs are rejected
+unless overwrite is explicit. Directories, reparse points, and paths colliding
+with the save, executable, kernel, selected manifests, modules, or mod
+descriptors are rejected. The plugin repeats output validation immediately
+before opening with `CREATE_NEW` by default, or `CREATE_ALWAYS` only when the
+explicit overwrite argument is present.
+
+## JSONL Envelope V1
+
+Each physical line is one UTF-8 JSON object with schema name
+`smedley.telemetry` and `schema_version` `1`. The built-in encoder escapes JSON
+controls, quotes, backslashes, and invalid UTF-8 bytes. Valid Unicode UTF-8 is
+preserved. Payload and entity objects are typed JSON, never serialized pointers.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `schema` | string | Always `smedley.telemetry`. |
+| `schema_version` | integer | Always `1`. |
+| `run_id` | string | Launcher-created run identifier. |
+| `sequence` | integer | Monotonically increasing per emitted record; queue drops can leave gaps. |
+| `wall_time_utc` | string | UTC ISO-8601 timestamp with milliseconds. |
+| `monotonic_us` | integer | Process monotonic timestamp in microseconds. |
+| `game_date_raw` | integer or `null` | Raw game date only when available from the current mapping. |
+| `event_type` | string | Stable event name such as `session.started` or `country.daily`. |
+| `category` | string | `lifecycle` or `state`. |
+| `mapping_id` | string | `v2game-3.04` for this slice. |
+| `quality` | enum | Canonical mapping level: `verified-current` or `provisional` in this slice. |
+| `entities` | object | Stable identifiers, currently `country_tag` where applicable. |
+| `payload` | object | Event-family-specific typed fields. |
+
+Absent is not the same as `null`, and neither is zero. A field is absent when
+the event family does not define it. `null` means the field is defined but
+unavailable, for example `game_date_raw` on lifecycle records. Numeric `0` is
+an observed zero. Consumers must preserve all three states.
+
+Example:
+
+```json
+{"schema":"smedley.telemetry","schema_version":1,"run_id":"9f0...","sequence":8,"wall_time_utc":"2026-07-31T12:34:56.789Z","monotonic_us":912345,"game_date_raw":12345,"event_type":"country.daily","category":"state","mapping_id":"v2game-3.04","quality":"provisional","entities":{"country_tag":"ENG"},"payload":{"treasury_raw":32768,"treasury":1.000000}}
+```
+
+## Current Events And Evidence
+
+`session.started`, `telemetry.progress`, and best-effort `telemetry.summary` are
+lifecycle records with `verified-current` quality. The progress and summary
+payloads report `accepted`, `written`,
+`dropped`, `high_water`, total and mean callback enqueue/format microseconds,
+and callback count. `written` is a snapshot before the summary itself is
+written.
+
+`country.daily` is a `state` record from `DailyUpdateEvent` with `provisional`
+quality. Its stable entity
+is the three-character country tag. Its payload contains `treasury_raw` and
+`treasury`, where `treasury = treasury_raw / 32768.0` because the exposed
+fixed-point representation is 48.15. It deliberately does not contain
+`treasury_shadow`, pointers, guessed AI intentions, candidates, scores, or
+decision reasoning. This is economy state telemetry, not a decision trace.
+
+The project mapping inventory has historical status spellings, but telemetry
+uses only canonical project evidence levels. A daily record depends on weaker
+field/date evidence, so it is always `provisional`; a non-null date never
+upgrades it. If the game-state pointer is unavailable, no country record is
+emitted and `skipped_unsampleable` increases. Westernize and AddToSphere hooks are `verified-current`, but their
+exposed inputs are pointers and the available mapping evidence does not safely
+establish both durable tags at the hook boundary. They are intentionally omitted
+from v1 rather than logging pointers or inferred relationships.
+
+## Bounded Delivery
+
+The selected plugin starts a worker after opening the output. Event callbacks
+first check category and sampling, then perform extraction and JSON formatting;
+they never perform file I/O or flush. The queue has fixed-capacity, fixed-size
+record slots. A callback uses a non-waiting queue lock; full, contended, stopped,
+or oversized records are explicitly counted as dropped. The sole worker writes
+complete JSON Lines incrementally and flushes at least once per second. An
+explicit future unload drains accepted records, appends a best-effort final
+summary using post-drain statistics, and flushes. The current kernel has no
+verified normal game-shutdown callback and does not unload plugins from
+`DllMain`; normal process exit therefore does not emit `telemetry.summary` or
+join the writer. `telemetry.progress` is emitted at least once per observed game
+date when `lifecycle` is selected. Up to the latest userspace queue and the
+one-second flush interval can be lost at real process exit. Completed prior
+lines remain independently parseable and no callbacks interleave output.

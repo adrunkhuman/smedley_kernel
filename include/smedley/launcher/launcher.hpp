@@ -61,6 +61,12 @@ namespace smedley::launcher
         int speed = 5;
         bool start_paused = false;
         bool detach = false;
+        bool telemetry_enabled = false;
+        std::optional<fs::path> telemetry_output;
+        std::vector<std::string> telemetry_categories = {"lifecycle", "state"};
+        int telemetry_sample_days = 1;
+        int telemetry_queue_capacity = 1024;
+        bool telemetry_overwrite = false;
     };
 
     struct PluginDiscovery
@@ -107,6 +113,7 @@ namespace smedley::launcher
         std::optional<fs::path> victoria_system_log;
         std::optional<fs::path> victoria_user_dir;
         std::optional<fs::path> economy_trace;
+        std::optional<fs::path> telemetry_trace;
         std::optional<fs::path> source_save;
     };
 
@@ -154,6 +161,7 @@ namespace smedley::launcher
 
     const char *RunStatusName(RunStatus status);
     fs::path DefaultRunDirectory();
+    fs::path DefaultTraceDirectory();
     bool SaveRunRecord(const fs::path &run_directory, const RunRecord &record, std::vector<Diagnostic> *diagnostics);
     std::vector<RunRecord> LoadRunHistory(const fs::path &run_directory, size_t limit, std::vector<Diagnostic> *diagnostics);
     std::vector<RunRecord> LoadRunHistory(size_t limit, std::vector<Diagnostic> *diagnostics);
@@ -162,4 +170,5 @@ namespace smedley::launcher
     bool IsPathContained(const fs::path &root, const fs::path &path);
     std::wstring QuoteWindowsArgument(const std::wstring &argument);
     std::wstring BuildWindowsCommandLine(const std::vector<std::wstring> &arguments);
+    std::wstring BuildInjectedCommandLine(const LaunchPlan &plan, const RunRecord &record);
 }

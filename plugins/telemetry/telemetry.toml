@@ -1,0 +1,4 @@
+id = "telemetry"
+name = "Structured telemetry"
+version = "1.0"
+module = "telemetry.dll"

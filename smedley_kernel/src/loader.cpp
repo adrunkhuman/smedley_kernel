@@ -13,13 +13,20 @@
 
 PLUGIN_API void LoadPlugins()
 {
-    smedley::PluginLoader::instance()->LoadPlugins();
+    (void)smedley::PluginLoader::instance()->LoadPlugins();
 }
 
 PLUGIN_API DWORD WINAPI LoadPluginsThread(LPVOID)
 {
-    LoadPlugins();
-    return 0;
+    try {
+        return smedley::PluginLoader::instance()->LoadPlugins() ? 0 : 1;
+    } catch (const std::exception &error) {
+        OutputDebugStringA((std::string("Smedley plugin initialization failed: ") + error.what()).c_str());
+        return 1;
+    } catch (...) {
+        OutputDebugStringA("Smedley plugin initialization failed with an unknown exception");
+        return 1;
+    }
 }
 
 
@@ -103,55 +110,61 @@ namespace smedley
         _logger->Info("initializing plugin loader...");
     }
 
-    void PluginLoader::LoadPlugins()
+    bool PluginLoader::LoadPlugins()
     {
-        // initialize the memory map before touching the text segment
-        memory::Map::Init();
-        // install hooks & patches
-        InstallHooks();
-
-        auto filenames = ParsePluginArguments(GetCommandLineW());
-        for (auto &filename : filenames) {
-            _plugin_defs.push_back(PluginDefinition::Read(filename));
-        }
-
-        DumpLoadedModules(*_logger);
-        for (auto &def : _plugin_defs) {
-            auto fail = [&](const std::string &reason) {
-                _logger->Critical("error loading plugin \"" + def.id + "\": " + reason);
-                MessageBoxA(NULL, "Failed trying to load plugins!", "Smedley Fatal Error", MB_ICONERROR);
-                ExitProcess(1000);
-            };
-
-            auto path = std::filesystem::absolute("plugins" / std::filesystem::path(def.module_name));
-            auto path_str = path.native();
-            HMODULE hmod = GetModuleHandleW(path_str.c_str());
-            if (hmod == NULL || hmod == INVALID_HANDLE_VALUE) {
-                fail("module \"" + NarrowCommandLineArgument(path_str) + "\" not found!");
+        if (_loaded) return true;
+        try {
+            memory::Map::Init();
+            InstallHooks();
+            std::vector<PluginDefinition> definitions;
+            for (auto &filename : ParsePluginArguments(GetCommandLineW())) {
+                definitions.push_back(PluginDefinition::Read(filename));
             }
-
-            auto creator = (PluginCreator) GetProcAddress(hmod, "CreatePlugin");
-            if (creator == NULL) {
-                fail("failed to locate address of CreatePlugin in module " + def.module_name + " (" + std::to_string(GetLastError()) + ")");
+            DumpLoadedModules(*_logger);
+            for (auto &def : definitions) {
+                const auto path = std::filesystem::absolute("plugins" / std::filesystem::path(def.module_name));
+                HMODULE hmod = GetModuleHandleW(path.c_str());
+                if (hmod == nullptr || hmod == INVALID_HANDLE_VALUE) {
+                    throw std::runtime_error("plugin module not found: " + NarrowCommandLineArgument(path.native()));
+                }
+                const auto creator = reinterpret_cast<PluginCreator>(GetProcAddress(hmod, "CreatePlugin"));
+                if (creator == nullptr) throw std::runtime_error("plugin does not export CreatePlugin: " + def.id);
+                std::unique_ptr<Plugin> plugin(creator());
+                if (!plugin) throw std::runtime_error("CreatePlugin returned null: " + def.id);
+                plugin->_definition = def;
+                plugin->_hmod = hmod;
+                plugin->_logger = std::make_unique<FileLogger>(_log_filepath, def.id, true);
+                plugin->OnLoad();
+                _plugins.push_back(plugin.release());
             }
-
-            auto plugin = creator();
-            plugin->_definition = def;
-            plugin->_hmod = hmod;
-            plugin->_logger = std::make_unique<FileLogger>(_log_filepath, def.id, true);
-            _plugins.push_back(plugin);
-            plugin->OnLoad();
+            _plugin_defs = std::move(definitions);
+            _loaded = true;
+            return true;
+        } catch (const std::exception &error) {
+            _logger->Critical("plugin initialization failed: " + std::string(error.what()));
+        } catch (...) {
+            _logger->Critical("plugin initialization failed with an unknown exception");
         }
+        UnloadPlugins();
+        return false;
     }
 
     void PluginLoader::UnloadPlugins()
     {
-        for (auto plugin : _plugins) {
-            plugin->OnUnload();
+        for (auto it = _plugins.rbegin(); it != _plugins.rend(); ++it) {
+            try {
+                (*it)->OnUnload();
+            } catch (const std::exception &error) {
+                _logger->Failure("plugin unload failed: " + std::string(error.what()));
+            } catch (...) {
+                _logger->Failure("plugin unload failed with an unknown exception");
+            }
+            delete *it;
         }
 
         _plugins.clear();
         _plugin_defs.clear();
+        _loaded = false;
     }
 
     std::vector<std::filesystem::path> PluginLoader::ParsePluginArguments(const wchar_t *command_line)

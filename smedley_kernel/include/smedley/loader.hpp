@@ -31,7 +31,7 @@ namespace smedley
     public:
         PluginLoader();
 
-        void LoadPlugins();
+        bool LoadPlugins();
         void UnloadPlugins();
 
         static PluginLoader *instance()

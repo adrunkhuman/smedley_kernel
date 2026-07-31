@@ -19,6 +19,10 @@ namespace smedley::launcher
     namespace
     {
         constexpr uintmax_t supported_executable_size = 12294656;
+        constexpr int telemetry_min_sample_days = 1;
+        constexpr int telemetry_max_sample_days = 365;
+        constexpr int telemetry_min_queue_capacity = 64;
+        constexpr int telemetry_max_queue_capacity = 8192;
         constexpr std::array<unsigned char, 32> supported_executable_hash = {
             0x62, 0xd4, 0x8c, 0x20, 0x43, 0x64, 0xdd, 0x70,
             0x65, 0x84, 0x77, 0x7c, 0x2e, 0x2b, 0x3c, 0x7a,
@@ -365,7 +369,14 @@ namespace smedley::launcher
                 AddDiagnostic(diagnostics, "inject.thread", WindowsError("CreateRemoteThread"), kernel);
                 return;
             }
-            WaitForRemoteThread(thread, "plugin initialization", diagnostics);
+            if (WaitForRemoteThread(thread, "plugin initialization", diagnostics)) {
+                DWORD exit_code = 1;
+                if (!GetExitCodeThread(thread, &exit_code)) {
+                    AddDiagnostic(diagnostics, "kernel.plugin_initialization", WindowsError("GetExitCodeThread"), kernel);
+                } else if (exit_code != 0) {
+                    AddDiagnostic(diagnostics, "kernel.plugin_initialization", "plugin initialization failed in the injected process", kernel);
+                }
+            }
             CloseHandle(thread);
         }
 
@@ -499,6 +510,117 @@ namespace smedley::launcher
                 || status == RunStatus::Exited;
         }
 
+        bool IsTelemetryCategory(const std::string &category)
+        {
+            return category == "lifecycle" || category == "state";
+        }
+
+        bool ValidateTelemetryProfile(const Profile &profile, std::vector<Diagnostic> *diagnostics, const fs::path &path = {})
+        {
+            if (profile.telemetry_output && profile.telemetry_output->empty()) {
+                AddDiagnostic(diagnostics, "telemetry.output", "telemetry_output must not be empty", path);
+                return false;
+            }
+            if (profile.telemetry_categories.empty()) {
+                AddDiagnostic(diagnostics, "telemetry.categories", "telemetry_categories must not be empty", path);
+                return false;
+            }
+            for (const auto &category : profile.telemetry_categories) {
+                if (!IsTelemetryCategory(category)) {
+                    AddDiagnostic(diagnostics, "telemetry.categories", "telemetry_categories must contain lifecycle and/or state", path);
+                    return false;
+                }
+            }
+            for (size_t index = 0; index < profile.telemetry_categories.size(); ++index) {
+                if (std::find(profile.telemetry_categories.begin(), profile.telemetry_categories.begin() + index,
+                              profile.telemetry_categories[index]) != profile.telemetry_categories.begin() + index) {
+                    AddDiagnostic(diagnostics, "telemetry.categories", "telemetry_categories must not contain duplicates", path);
+                    return false;
+                }
+            }
+            if (profile.telemetry_sample_days < telemetry_min_sample_days || profile.telemetry_sample_days > telemetry_max_sample_days) {
+                AddDiagnostic(diagnostics, "telemetry.sample_days", "telemetry_sample_days must be from 1 through 365", path);
+                return false;
+            }
+            if (profile.telemetry_queue_capacity < telemetry_min_queue_capacity || profile.telemetry_queue_capacity > telemetry_max_queue_capacity) {
+                AddDiagnostic(diagnostics, "telemetry.queue_capacity", "telemetry_queue_capacity must be from 64 through 8192", path);
+                return false;
+            }
+            return true;
+        }
+
+        bool ValidateTelemetryOutput(const Profile &profile, const fs::path &output, const LaunchPlan &plan, std::vector<Diagnostic> *diagnostics)
+        {
+            std::vector<fs::path> inputs = {plan.game_executable, plan.kernel};
+            if (profile.save) inputs.push_back(*profile.save);
+            for (const auto &mod : plan.mods) inputs.push_back(mod.descriptor_path);
+            for (const auto &plugin : plan.plugins) {
+                inputs.push_back(plugin.manifest_path);
+                inputs.push_back(plugin.module_path);
+            }
+            const auto collides = std::any_of(inputs.begin(), inputs.end(), [&](const fs::path &input) {
+                return _wcsicmp(input.lexically_normal().c_str(), output.lexically_normal().c_str()) == 0;
+            });
+            if (collides) {
+                AddDiagnostic(diagnostics, "telemetry.output_collision", "telemetry output collides with a launch input", output);
+                return false;
+            }
+            if (_wcsicmp(output.extension().c_str(), L".jsonl") != 0) {
+                AddDiagnostic(diagnostics, "telemetry.output", "telemetry_output must end in .jsonl", output);
+                return false;
+            }
+            const DWORD attributes = GetFileAttributesW(output.c_str());
+            if (attributes != INVALID_FILE_ATTRIBUTES) {
+                if ((attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0) {
+                    AddDiagnostic(diagnostics, "telemetry.output", "telemetry_output must be a normal file", output);
+                    return false;
+                }
+                if (!profile.telemetry_overwrite) {
+                    AddDiagnostic(diagnostics, "telemetry.output_exists", "telemetry output exists; set telemetry_overwrite to replace it", output);
+                    return false;
+                }
+                auto identity = [](const fs::path &path, BY_HANDLE_FILE_INFORMATION *information) {
+                    const HANDLE file = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES,
+                                                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                                                    nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+                    if (file == INVALID_HANDLE_VALUE) return false;
+                    const bool success = GetFileInformationByHandle(file, information) != FALSE;
+                    CloseHandle(file);
+                    return success;
+                };
+                BY_HANDLE_FILE_INFORMATION output_identity{};
+                if (!identity(output, &output_identity)) {
+                    AddDiagnostic(diagnostics, "telemetry.output_identity", "could not verify existing telemetry output identity", output);
+                    return false;
+                }
+                for (const auto &input : inputs) {
+                    if (GetFileAttributesW(input.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+                    BY_HANDLE_FILE_INFORMATION input_identity{};
+                    if (!identity(input, &input_identity)) {
+                        AddDiagnostic(diagnostics, "telemetry.output_identity", "could not verify launch input identity", input);
+                        return false;
+                    }
+                    if (output_identity.dwVolumeSerialNumber == input_identity.dwVolumeSerialNumber
+                        && output_identity.nFileIndexHigh == input_identity.nFileIndexHigh
+                        && output_identity.nFileIndexLow == input_identity.nFileIndexLow) {
+                        AddDiagnostic(diagnostics, "telemetry.output_collision", "telemetry output aliases a launch input", output);
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        std::wstring TelemetryCategoriesArgument(const std::vector<std::string> &categories)
+        {
+            std::wstring result;
+            for (const auto &category : categories) {
+                if (!result.empty()) result += L',';
+                result.append(category.begin(), category.end());
+            }
+            return result;
+        }
+
         RunRecord BuildRunRecord(const LaunchPlan &plan)
         {
             RunRecord record;
@@ -541,6 +663,11 @@ namespace smedley::launcher
             }
             if (std::any_of(plan.plugins.begin(), plan.plugins.end(), [](const PluginManifest &plugin) { return plugin.id == "economy_trace"; })) {
                 record.links.economy_trace = plan.profile.game_dir / L"economy_trace.csv";
+            }
+            if (plan.profile.inject && plan.profile.telemetry_enabled) {
+                record.links.telemetry_trace = plan.profile.telemetry_output
+                    ? *plan.profile.telemetry_output
+                    : DefaultTraceDirectory() / fs::u8path(record.run_id + ".jsonl");
             }
             record.links.source_save = plan.profile.save;
             return record;
@@ -662,6 +789,7 @@ namespace smedley::launcher
                     read_link("victoria_system_log", &loaded.links.victoria_system_log);
                     read_link("victoria_user_dir", &loaded.links.victoria_user_dir);
                     read_link("economy_trace", &loaded.links.economy_trace);
+                    read_link("telemetry_trace", &loaded.links.telemetry_trace);
                     read_link("source_save", &loaded.links.source_save);
                 }
                 if (const auto diagnostic_nodes = table["diagnostics"].as_array()) {
@@ -715,6 +843,15 @@ namespace smedley::launcher
         PWSTR local_app_data = nullptr;
         if (SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local_app_data) != S_OK) return {};
         const fs::path result = fs::path(local_app_data) / L"Smedley" / L"runs";
+        CoTaskMemFree(local_app_data);
+        return result;
+    }
+
+    fs::path DefaultTraceDirectory()
+    {
+        PWSTR local_app_data = nullptr;
+        if (SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local_app_data) != S_OK) return {};
+        const fs::path result = fs::path(local_app_data) / L"Smedley" / L"traces";
         CoTaskMemFree(local_app_data);
         return result;
     }
@@ -783,6 +920,7 @@ namespace smedley::launcher
             WriteOptionalRunPath(output, "victoria_system_log", record.links.victoria_system_log);
             WriteOptionalRunPath(output, "victoria_user_dir", record.links.victoria_user_dir);
             WriteOptionalRunPath(output, "economy_trace", record.links.economy_trace);
+            WriteOptionalRunPath(output, "telemetry_trace", record.links.telemetry_trace);
             WriteOptionalRunPath(output, "source_save", record.links.source_save);
             output.flush();
             if (!output) {
@@ -945,6 +1083,62 @@ namespace smedley::launcher
                 loaded.start_paused = *value;
             }
             if (const auto value = table["detach"].value<bool>()) loaded.detach = *value;
+            if (table.contains("telemetry_enabled")) {
+                const auto value = table["telemetry_enabled"].value<bool>();
+                if (!value) {
+                    AddDiagnostic(diagnostics, "profile.schema", "telemetry_enabled must be a boolean", path);
+                    return false;
+                }
+                loaded.telemetry_enabled = *value;
+            }
+            if (table.contains("telemetry_output")) {
+                const auto value = table["telemetry_output"].value<std::string>();
+                if (!value || value->empty()) {
+                    AddDiagnostic(diagnostics, "profile.schema", "telemetry_output must be a non-empty string", path);
+                    return false;
+                }
+                loaded.telemetry_output = fs::u8path(*value);
+            }
+            if (table.contains("telemetry_categories")) {
+                const auto *categories = table["telemetry_categories"].as_array();
+                if (categories == nullptr) {
+                    AddDiagnostic(diagnostics, "profile.schema", "telemetry_categories must be an array of strings", path);
+                    return false;
+                }
+                loaded.telemetry_categories.clear();
+                for (const auto &node : *categories) {
+                    const auto value = node.value<std::string>();
+                    if (!value || value->empty()) {
+                        AddDiagnostic(diagnostics, "profile.schema", "telemetry_categories must contain non-empty strings", path);
+                        return false;
+                    }
+                    loaded.telemetry_categories.push_back(*value);
+                }
+            }
+            if (table.contains("telemetry_sample_days")) {
+                const auto value = table["telemetry_sample_days"].value<int>();
+                if (!value) {
+                    AddDiagnostic(diagnostics, "profile.schema", "telemetry_sample_days must be an integer", path);
+                    return false;
+                }
+                loaded.telemetry_sample_days = *value;
+            }
+            if (table.contains("telemetry_queue_capacity")) {
+                const auto value = table["telemetry_queue_capacity"].value<int>();
+                if (!value) {
+                    AddDiagnostic(diagnostics, "profile.schema", "telemetry_queue_capacity must be an integer", path);
+                    return false;
+                }
+                loaded.telemetry_queue_capacity = *value;
+            }
+            if (table.contains("telemetry_overwrite")) {
+                const auto value = table["telemetry_overwrite"].value<bool>();
+                if (!value) {
+                    AddDiagnostic(diagnostics, "profile.schema", "telemetry_overwrite must be a boolean", path);
+                    return false;
+                }
+                loaded.telemetry_overwrite = *value;
+            }
             auto read_paths = [&](const char *key, std::vector<fs::path> *paths) {
                 if (const auto array = table[key].as_array()) {
                     for (const auto &node : *array) {
@@ -959,6 +1153,7 @@ namespace smedley::launcher
                 return true;
             };
             if (!read_paths("mods", &loaded.mods) || !read_paths("plugins", &loaded.plugins)) return false;
+            if (!ValidateTelemetryProfile(loaded, diagnostics, path)) return false;
             *profile = std::move(loaded);
             return true;
         } catch (const std::exception &error) {
@@ -969,6 +1164,7 @@ namespace smedley::launcher
 
     bool SaveProfile(const fs::path &path, const Profile &profile, std::vector<Diagnostic> *diagnostics)
     {
+        if (!ValidateTelemetryProfile(profile, diagnostics, path)) return false;
         std::ofstream output(path, std::ios::trunc);
         if (!output) {
             AddDiagnostic(diagnostics, "profile.write", "could not write profile", path);
@@ -995,6 +1191,17 @@ namespace smedley::launcher
         output << "speed = " << profile.speed << "\n";
         output << "start_paused = " << (profile.start_paused ? "true" : "false") << "\n";
         output << "detach = " << (profile.detach ? "true" : "false") << "\n";
+        output << "telemetry_enabled = " << (profile.telemetry_enabled ? "true" : "false") << "\n";
+        if (profile.telemetry_output) WriteTomlString(output, "telemetry_output", *profile.telemetry_output);
+        output << "telemetry_categories = [";
+        for (size_t i = 0; i < profile.telemetry_categories.size(); ++i) {
+            if (i) output << ", ";
+            output << "\"" << EscapeToml(profile.telemetry_categories[i]) << "\"";
+        }
+        output << "]\n";
+        output << "telemetry_sample_days = " << profile.telemetry_sample_days << "\n";
+        output << "telemetry_queue_capacity = " << profile.telemetry_queue_capacity << "\n";
+        output << "telemetry_overwrite = " << (profile.telemetry_overwrite ? "true" : "false") << "\n";
         if (!output) {
             AddDiagnostic(diagnostics, "profile.write", "could not write profile", path);
             return false;
@@ -1034,6 +1241,17 @@ namespace smedley::launcher
         return command_line;
     }
 
+    std::wstring BuildInjectedCommandLine(const LaunchPlan &plan, const RunRecord &record)
+    {
+        if (!plan.profile.inject) return plan.command_line;
+        std::wstring command_line = plan.command_line;
+        if (plan.profile.telemetry_enabled && !plan.profile.telemetry_output && record.links.telemetry_trace) {
+            command_line += L" " + QuoteWindowsArgument(L"-smedley-telemetry-output=" + record.links.telemetry_trace->wstring());
+        }
+        command_line += L" " + QuoteWindowsArgument(L"-smedley-run-id=" + std::wstring(record.run_id.begin(), record.run_id.end()));
+        return command_line;
+    }
+
     LaunchPlan BuildLaunchPlan(Profile profile)
     {
         LaunchPlan plan;
@@ -1043,8 +1261,10 @@ namespace smedley::launcher
             plan.game_executable = plan.profile.game_dir / L"v2game.exe";
             ValidateSupportedExecutable(plan.game_executable, &plan.diagnostics);
             plan.kernel = plan.profile.kernel ? Absolute(*plan.profile.kernel) : plan.profile.game_dir / L"smedley_kernel.dll";
+            if (plan.profile.inject && plan.profile.save) plan.profile.save = Absolute(*plan.profile.save);
             const bool run_controls_requested = plan.profile.speed != 5 || plan.profile.start_paused;
             bool campaign_runner_selected = false;
+            bool telemetry_selected = false;
 
             std::vector<std::wstring> arguments = {plan.game_executable.wstring()};
             std::vector<fs::path> selected_descriptors;
@@ -1071,6 +1291,12 @@ namespace smedley::launcher
             }
 
             if (plan.profile.inject) {
+                ValidateTelemetryProfile(plan.profile, &plan.diagnostics);
+                if (plan.profile.telemetry_output) {
+                    plan.profile.telemetry_output = Absolute(plan.profile.telemetry_output->is_absolute()
+                        ? *plan.profile.telemetry_output
+                        : plan.profile.game_dir / *plan.profile.telemetry_output);
+                }
                 if (!IsRegularFile(plan.kernel)) {
                     AddDiagnostic(&plan.diagnostics, "kernel.missing", "Smedley kernel does not exist", plan.kernel);
                 } else if (IsX86PE(plan.kernel, &plan.diagnostics, "kernel")) {
@@ -1093,6 +1319,7 @@ namespace smedley::launcher
                     }
                     plugin_ids.push_back(manifest.id);
                     if (manifest.id == "campaign_runner") campaign_runner_selected = true;
+                    if (manifest.id == "telemetry") telemetry_selected = true;
                     if (IsX86PE(manifest.module_path, &plan.diagnostics, "plugin module", true)) {
                         HasExport(manifest.module_path, "CreatePlugin", "plugin.export",
                                   "plugin module does not export CreatePlugin", &plan.diagnostics);
@@ -1103,6 +1330,12 @@ namespace smedley::launcher
                     || plan.profile.observer || plan.profile.view_tag.has_value() || run_controls_requested;
                 if (campaign_automation_requested && !campaign_runner_selected) {
                     AddDiagnostic(&plan.diagnostics, "campaign.plugin", "save and campaign controls require the campaign_runner plugin");
+                }
+                if (plan.profile.telemetry_enabled && !telemetry_selected) {
+                    AddDiagnostic(&plan.diagnostics, "telemetry.plugin", "telemetry requires the telemetry plugin");
+                }
+                if (plan.profile.telemetry_enabled && plan.profile.telemetry_output) {
+                    ValidateTelemetryOutput(plan.profile, *plan.profile.telemetry_output, plan, &plan.diagnostics);
                 }
                 if (run_controls_requested && !plan.profile.save) {
                     AddDiagnostic(&plan.diagnostics, "campaign.save", "speed and start_paused controls require a save");
@@ -1165,6 +1398,15 @@ namespace smedley::launcher
                 for (const auto &manifest : plan.plugins) {
                     arguments.push_back(L"-plugin=" + manifest.manifest_path.wstring());
                 }
+                if (plan.profile.telemetry_enabled && telemetry_selected) {
+                    if (plan.profile.telemetry_output) {
+                        arguments.push_back(L"-smedley-telemetry-output=" + plan.profile.telemetry_output->wstring());
+                    }
+                    arguments.push_back(L"-smedley-telemetry-categories=" + TelemetryCategoriesArgument(plan.profile.telemetry_categories));
+                    arguments.push_back(L"-smedley-telemetry-sample-days=" + std::to_wstring(plan.profile.telemetry_sample_days));
+                    arguments.push_back(L"-smedley-telemetry-queue-capacity=" + std::to_wstring(plan.profile.telemetry_queue_capacity));
+                    arguments.push_back(L"-smedley-telemetry-overwrite=" + std::to_wstring(plan.profile.telemetry_overwrite ? 1 : 0));
+                }
             } else {
                 if (!plan.profile.plugins.empty()) AddWarning(&plan.diagnostics, "safe_mode.plugins_ignored", "plugins are ignored when injection is disabled");
                 if (plan.profile.save) AddWarning(&plan.diagnostics, "safe_mode.save_ignored", "save automation is ignored when injection is disabled", *plan.profile.save);
@@ -1172,10 +1414,10 @@ namespace smedley::launcher
                 if (plan.profile.view_tag) AddWarning(&plan.diagnostics, "safe_mode.view_tag_ignored", "observer view tag is ignored when injection is disabled");
                 if (plan.profile.speed != 5) AddWarning(&plan.diagnostics, "safe_mode.speed_ignored", "speed control is ignored when injection is disabled");
                 if (plan.profile.start_paused) AddWarning(&plan.diagnostics, "safe_mode.start_paused_ignored", "start_paused is ignored when injection is disabled");
+                if (plan.profile.telemetry_enabled) AddWarning(&plan.diagnostics, "safe_mode.telemetry_ignored", "telemetry is ignored when injection is disabled");
             }
 
             if (plan.profile.inject && plan.profile.save) {
-                plan.profile.save = Absolute(*plan.profile.save);
                 if (!IsRegularFile(*plan.profile.save)) {
                     AddDiagnostic(&plan.diagnostics, "save.missing", "save file does not exist", *plan.profile.save);
                 } else if (!IsSaveInGameDirectory(*plan.profile.save)) {
@@ -1236,11 +1478,20 @@ namespace smedley::launcher
             persist();
             return result;
         }
+        if (plan.profile.inject && plan.profile.telemetry_enabled && record.links.telemetry_trace
+            && !ValidateTelemetryOutput(plan.profile, *record.links.telemetry_trace, plan, &result.diagnostics)) {
+            record.status = RunStatus::PreflightFailed;
+            persist();
+            return result;
+        }
+
+        const std::wstring command_line = BuildInjectedCommandLine(plan, record);
+        record.command_line = command_line;
 
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
         PROCESS_INFORMATION process{};
-        std::vector<wchar_t> command(plan.command_line.begin(), plan.command_line.end());
+        std::vector<wchar_t> command(command_line.begin(), command_line.end());
         command.push_back(L'\0');
         const DWORD flags = plan.profile.inject ? CREATE_SUSPENDED : 0;
         if (!CreateProcessW(plan.game_executable.c_str(), command.data(), nullptr, nullptr, FALSE, flags,

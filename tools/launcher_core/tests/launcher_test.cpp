@@ -48,6 +48,15 @@ namespace
             return configuration_dir.parent_path().parent_path().parent_path()
                 / L"plugins" / L"campaign_runner" / configuration_dir.filename() / L"campaign_runner.dll";
         }
+
+        fs::path BuiltTelemetryPlugin() const
+        {
+            wchar_t executable[MAX_PATH];
+            EXPECT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
+            const auto configuration_dir = fs::path(executable).parent_path();
+            return configuration_dir.parent_path().parent_path().parent_path()
+                / L"plugins" / L"telemetry" / configuration_dir.filename() / L"telemetry.dll";
+        }
     };
 }
 
@@ -119,6 +128,8 @@ TEST_F(LauncherCoreTest, SavesAndLoadsProfileWithSpaces)
     EXPECT_TRUE(loaded.start_paused);
     EXPECT_TRUE(loaded.detach);
     EXPECT_FALSE(loaded.inject);
+    EXPECT_FALSE(loaded.telemetry_enabled);
+    EXPECT_EQ(loaded.telemetry_categories, (std::vector<std::string>{"lifecycle", "state"}));
 }
 
 TEST_F(LauncherCoreTest, SavesAndLoadsUnicodeProfilePaths)
@@ -152,6 +163,54 @@ TEST_F(LauncherCoreTest, RejectsMalformedCampaignRunControlTypes)
     diagnostics.clear();
     Write(root / L"bad-pause.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\nstart_paused = \"true\"\n");
     EXPECT_FALSE(launcher::LoadProfile(root / L"bad-pause.toml", &profile, &diagnostics));
+    ASSERT_FALSE(diagnostics.empty());
+    EXPECT_EQ(diagnostics.back().code, "profile.schema");
+}
+
+TEST_F(LauncherCoreTest, SavesLoadsAndRejectsMalformedTelemetryProfileFields)
+{
+    launcher::Profile original;
+    original.name = "Telemetry";
+    original.game_dir = root;
+    original.telemetry_enabled = true;
+    original.telemetry_output = root / L"traces" / L"telemetry.jsonl";
+    original.telemetry_categories = {"state"};
+    original.telemetry_sample_days = 7;
+    original.telemetry_queue_capacity = 512;
+    original.telemetry_overwrite = true;
+    std::vector<launcher::Diagnostic> diagnostics;
+
+    ASSERT_TRUE(launcher::SaveProfile(root / L"telemetry.toml", original, &diagnostics));
+    launcher::Profile loaded;
+    ASSERT_TRUE(launcher::LoadProfile(root / L"telemetry.toml", &loaded, &diagnostics));
+    EXPECT_TRUE(loaded.telemetry_enabled);
+    EXPECT_EQ(loaded.telemetry_output, original.telemetry_output);
+    EXPECT_EQ(loaded.telemetry_categories, original.telemetry_categories);
+    EXPECT_EQ(loaded.telemetry_sample_days, 7);
+    EXPECT_EQ(loaded.telemetry_queue_capacity, 512);
+    EXPECT_TRUE(loaded.telemetry_overwrite);
+
+    Write(root / L"bad-telemetry.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\ntelemetry_enabled = \"true\"\n");
+    diagnostics.clear();
+    EXPECT_FALSE(launcher::LoadProfile(root / L"bad-telemetry.toml", &loaded, &diagnostics));
+    ASSERT_FALSE(diagnostics.empty());
+    EXPECT_EQ(diagnostics.back().code, "profile.schema");
+
+    Write(root / L"bad-telemetry-overwrite.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\ntelemetry_overwrite = \"true\"\n");
+    diagnostics.clear();
+    EXPECT_FALSE(launcher::LoadProfile(root / L"bad-telemetry-overwrite.toml", &loaded, &diagnostics));
+    ASSERT_FALSE(diagnostics.empty());
+    EXPECT_EQ(diagnostics.back().code, "profile.schema");
+
+    Write(root / L"bad-telemetry-categories.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\ntelemetry_categories = \"state\"\n");
+    diagnostics.clear();
+    EXPECT_FALSE(launcher::LoadProfile(root / L"bad-telemetry-categories.toml", &loaded, &diagnostics));
+    ASSERT_FALSE(diagnostics.empty());
+    EXPECT_EQ(diagnostics.back().code, "profile.schema");
+
+    Write(root / L"bad-telemetry-sample.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\ntelemetry_sample_days = \"7\"\n");
+    diagnostics.clear();
+    EXPECT_FALSE(launcher::LoadProfile(root / L"bad-telemetry-sample.toml", &loaded, &diagnostics));
     ASSERT_FALSE(diagnostics.empty());
     EXPECT_EQ(diagnostics.back().code, "profile.schema");
 }
@@ -251,6 +310,65 @@ TEST_F(LauncherCoreTest, AddsCampaignRunControlArgumentsAndRejectsPausedObserver
     plan = launcher::BuildLaunchPlan(profile);
     EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
         return diagnostic.code == "observer.start_paused";
+    }));
+}
+
+TEST_F(LauncherCoreTest, ValidatesTelemetryPluginAndBuildsPerRunTraceCommand)
+{
+    const auto plugin_binary = BuiltTelemetryPlugin();
+    ASSERT_TRUE(fs::is_regular_file(plugin_binary));
+    fs::copy_file(plugin_binary, root / L"plugins" / L"telemetry.dll");
+    Write(root / L"plugins" / L"telemetry.toml",
+          "id = \"telemetry\"\nname = \"Telemetry\"\nversion = \"1\"\nmodule = \"telemetry.dll\"\n");
+
+    launcher::Profile profile;
+    profile.game_dir = root;
+    profile.plugins = {L"plugins/telemetry.toml"};
+    profile.telemetry_enabled = true;
+    profile.telemetry_categories = {"lifecycle", "state"};
+    profile.telemetry_sample_days = 2;
+    profile.telemetry_queue_capacity = 256;
+    const auto plan = launcher::BuildLaunchPlan(profile);
+
+    EXPECT_FALSE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "telemetry.plugin" || diagnostic.code == "telemetry.categories";
+    }));
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-categories=lifecycle,state"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-sample-days=2"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-queue-capacity=256"), std::wstring::npos);
+
+    profile.telemetry_output = root / L"trace.txt";
+    const auto bad_extension_plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(bad_extension_plan.diagnostics.begin(), bad_extension_plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "telemetry.output";
+    }));
+    profile.telemetry_output = root / L"plugins" / L"telemetry.toml";
+    profile.telemetry_overwrite = true;
+    const auto collision_plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(collision_plan.diagnostics.begin(), collision_plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "telemetry.output_collision";
+    }));
+
+    const auto aliased_output = root / L"trace.jsonl";
+    ASSERT_TRUE(CreateHardLinkW(aliased_output.c_str(), (root / L"plugins" / L"telemetry.toml").c_str(), nullptr));
+    profile.telemetry_output = aliased_output;
+    const auto alias_collision_plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(alias_collision_plan.diagnostics.begin(), alias_collision_plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "telemetry.output_collision";
+    }));
+    profile.telemetry_output.reset();
+
+    auto record = launcher::CreateRunRecord(plan);
+    record.run_id = "run-id";
+    record.links.telemetry_trace = root / L"traces" / L"run-id.jsonl";
+    const auto command = launcher::BuildInjectedCommandLine(plan, record);
+    EXPECT_NE(command.find(L"-smedley-run-id=run-id"), std::wstring::npos);
+    EXPECT_NE(command.find(L"-smedley-telemetry-output="), std::wstring::npos);
+
+    profile.plugins.clear();
+    const auto invalid_plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(invalid_plan.diagnostics.begin(), invalid_plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "telemetry.plugin";
     }));
 }
 
@@ -504,6 +622,21 @@ TEST_F(LauncherCoreTest, DerivesModUserDirectoryAndEconomyTraceOnlyWhenUnambiguo
     record = launcher::CreateRunRecord(plan);
     EXPECT_FALSE(record.links.victoria_user_dir.has_value());
     EXPECT_FALSE(record.links.victoria_system_log.has_value());
+}
+
+TEST_F(LauncherCoreTest, PersistsTelemetryTraceLinksWithoutLaunching)
+{
+    launcher::LaunchPlan plan;
+    plan.profile.game_dir = root;
+    plan.profile.telemetry_enabled = true;
+    plan.profile.telemetry_output = root / L"custom trace.jsonl";
+    auto record = launcher::CreateRunRecord(plan);
+    EXPECT_EQ(record.links.telemetry_trace, plan.profile.telemetry_output);
+
+    plan.profile.telemetry_output.reset();
+    record = launcher::CreateRunRecord(plan);
+    ASSERT_TRUE(record.links.telemetry_trace.has_value());
+    EXPECT_EQ(record.links.telemetry_trace->extension(), L".jsonl");
 }
 
 TEST_F(LauncherCoreTest, RejectsUnknownRunStatus)

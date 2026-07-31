@@ -21,6 +21,12 @@ struct Options
     std::optional<bool> observer;
     std::optional<int> speed;
     std::optional<bool> start_paused;
+    std::optional<bool> telemetry_enabled;
+    std::optional<fs::path> telemetry_output;
+    std::vector<std::string> telemetry_categories;
+    std::optional<int> telemetry_sample_days;
+    std::optional<int> telemetry_queue_capacity;
+    std::optional<bool> telemetry_overwrite;
     bool dry_run = false;
     bool discover = false;
     bool history = false;
@@ -42,6 +48,12 @@ void PrintUsage()
         << "  --view-tag TAG  Select an initial observer view\n"
         << "  --speed N       Set initial campaign speed from 1 through 5 (default: 5)\n"
         << "  --start-paused  Leave a loaded campaign paused; incompatible with --observe\n"
+        << "  --telemetry     Enable the built-in structured telemetry plugin\n"
+        << "  --telemetry-output PATH  JSON Lines trace path (default: %LOCALAPPDATA%\\Smedley\\traces\\<run-id>.jsonl)\n"
+        << "  --telemetry-category NAME  lifecycle or state; may be repeated\n"
+        << "  --telemetry-sample-days N  State sample interval from 1 through 365 (default: 1)\n"
+        << "  --telemetry-queue-capacity N  Bounded record queue from 64 through 8192 (default: 1024)\n"
+        << "  --telemetry-overwrite  Replace an existing telemetry output file\n"
         << "  --detach        Return after Victoria 2 starts\n"
         << "  --discover      List GAME_DIR plugins and mods\n"
         << "  --history       List the 20 most recent launcher runs\n"
@@ -62,20 +74,27 @@ Options ParseArguments(int argc, wchar_t **argv)
         if (argument == L"--observe") { options.observer = true; continue; }
         if (argument == L"--no-inject") { options.inject = false; continue; }
         if (argument == L"--start-paused") { options.start_paused = true; continue; }
-        if (argument == L"--speed") {
-            if (++i == argc) throw std::runtime_error("missing --speed value");
+        if (argument == L"--telemetry") { options.telemetry_enabled = true; continue; }
+        if (argument == L"--no-telemetry") { options.telemetry_enabled = false; continue; }
+        if (argument == L"--telemetry-overwrite") { options.telemetry_overwrite = true; continue; }
+        if (argument == L"--speed" || argument == L"--telemetry-sample-days" || argument == L"--telemetry-queue-capacity") {
+            if (++i == argc) throw std::runtime_error("missing numeric argument value");
             const std::wstring value = argv[i];
             size_t parsed = 0;
             try {
-                options.speed = std::stoi(value, &parsed);
+                const int number = std::stoi(value, &parsed);
+                if (argument == L"--speed") options.speed = number;
+                else if (argument == L"--telemetry-sample-days") options.telemetry_sample_days = number;
+                else options.telemetry_queue_capacity = number;
             } catch (const std::exception &) {
-                throw std::runtime_error("--speed must be an integer from 1 through 5");
+                throw std::runtime_error("numeric telemetry and speed options must be integers");
             }
-            if (parsed != value.size()) throw std::runtime_error("--speed must be an integer from 1 through 5");
+            if (parsed != value.size()) throw std::runtime_error("numeric telemetry and speed options must be integers");
             continue;
         }
         if (argument != L"--profile" && argument != L"--game-dir" && argument != L"--kernel"
-            && argument != L"--mod" && argument != L"--plugin" && argument != L"--save" && argument != L"--view-tag") {
+            && argument != L"--mod" && argument != L"--plugin" && argument != L"--save" && argument != L"--view-tag"
+            && argument != L"--telemetry-output" && argument != L"--telemetry-category") {
             throw std::runtime_error("unknown argument");
         }
         if (++i == argc) throw std::runtime_error("missing argument value");
@@ -86,6 +105,16 @@ Options ParseArguments(int argc, wchar_t **argv)
         else if (argument == L"--mod") options.mods.push_back(value);
         else if (argument == L"--plugin") options.plugins.push_back(value);
         else if (argument == L"--save") options.save = value;
+        else if (argument == L"--telemetry-output") options.telemetry_output = value;
+        else if (argument == L"--telemetry-category") {
+            const auto category = value.wstring();
+            std::string narrow_category;
+            for (const wchar_t character : category) {
+                if (character > 0x7f) throw std::runtime_error("--telemetry-category must be ASCII");
+                narrow_category += static_cast<char>(character);
+            }
+            options.telemetry_categories.push_back(std::move(narrow_category));
+        }
         else options.view_tag = value.wstring();
     }
     return options;
@@ -107,6 +136,7 @@ void PrintPlan(const launcher::LaunchPlan &plan)
     std::wcout << L"game:    " << plan.game_executable << L"\n"
                << L"inject:  " << (plan.profile.inject ? L"enabled" : L"disabled") << L"\n";
     if (plan.profile.inject) std::wcout << L"kernel:  " << plan.kernel << L"\n";
+    if (plan.profile.telemetry_enabled) std::wcout << L"telemetry: enabled\n";
     for (const auto &mod : plan.mods) std::wcout << L"mod:     " << mod.descriptor_path << L"\n";
     for (const auto &plugin : plan.plugins) std::wcout << L"plugin:  " << plugin.manifest_path << L"\n";
     if (plan.profile.save) std::wcout << L"save:    " << *plan.profile.save << L"\n";
@@ -150,6 +180,12 @@ int wmain(int argc, wchar_t **argv)
         if (options.observer) profile.observer = *options.observer;
         if (options.speed) profile.speed = *options.speed;
         if (options.start_paused) profile.start_paused = *options.start_paused;
+        if (options.telemetry_enabled) profile.telemetry_enabled = *options.telemetry_enabled;
+        if (options.telemetry_output) profile.telemetry_output = *options.telemetry_output;
+        if (!options.telemetry_categories.empty()) profile.telemetry_categories = options.telemetry_categories;
+        if (options.telemetry_sample_days) profile.telemetry_sample_days = *options.telemetry_sample_days;
+        if (options.telemetry_queue_capacity) profile.telemetry_queue_capacity = *options.telemetry_queue_capacity;
+        if (options.telemetry_overwrite) profile.telemetry_overwrite = *options.telemetry_overwrite;
         profile.mods.insert(profile.mods.end(), options.mods.begin(), options.mods.end());
         profile.plugins.insert(profile.plugins.end(), options.plugins.begin(), options.plugins.end());
         if (profile.game_dir.empty()) throw std::runtime_error("--game-dir is required unless supplied by --profile");

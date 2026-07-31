@@ -3,7 +3,7 @@
 Smedley is an instrumentation, automation, and native extension framework for
 Victoria II: Heart of Darkness 3.04. It includes a graphical launcher, a
 scriptable CLI, plugin preflight, unattended campaign loading, safe observer
-mode, and economy tracing. Ordinary players and modders use profiles and the
+mode, economy tracing, and bounded structured telemetry. Ordinary players and modders use profiles and the
 launcher; C++ is only needed to build Smedley or write native plugins.
 
 This fork currently supports one exact English x86 `v2game.exe`:
@@ -67,6 +67,14 @@ country, and verifies each transition against live game state.
 `economy_trace` records daily country treasury snapshots to CSV. It is an early
 instrumentation plugin, not yet the versioned JSON Lines telemetry system
 planned for broader tracing.
+
+`telemetry` is the opt-in JSON Lines telemetry plugin. Enable it in a profile,
+the CLI, or the native launcher and select its trusted manifest like any other
+native plugin. It records lifecycle events and sampled country economy state to
+an explicit `.jsonl` output or `%LOCALAPPDATA%\Smedley\traces\<run-id>.jsonl`.
+See [`docs/telemetry.md`](docs/telemetry.md) for the schema, configuration, and
+current evidence limits. Country economy records are state snapshots, not AI
+decision reasoning.
 
 `v2up` and `dailyupdate_example` are inherited native plugin examples. Gameplay
 changes remain opt-in.

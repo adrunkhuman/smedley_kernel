@@ -10,6 +10,7 @@
 #include <cwctype>
 #include <filesystem>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,13 @@ namespace
         launch_button,
         status_text,
         recent_runs_button,
+        telemetry_enabled_check,
+        telemetry_output_edit,
+        browse_telemetry_button,
+        telemetry_categories_combo,
+        telemetry_sample_days_edit,
+        telemetry_queue_capacity_edit,
+        telemetry_overwrite_check,
     };
 
     std::wstring Utf8ToWide(const std::string &value)
@@ -133,7 +141,7 @@ namespace
         return true;
     }
 
-    bool BrowseForFile(HWND owner, const wchar_t *title, const wchar_t *filter, std::wstring *path, bool save)
+    bool BrowseForFile(HWND owner, const wchar_t *title, const wchar_t *filter, std::wstring *path, bool save, const wchar_t *extension = nullptr)
     {
         std::vector<wchar_t> buffer(32768, L'\0');
         if (!path->empty()) wcsncpy_s(buffer.data(), buffer.size(), path->c_str(), _TRUNCATE);
@@ -144,7 +152,7 @@ namespace
         dialog.lpstrFile = buffer.data();
         dialog.nMaxFile = static_cast<DWORD>(buffer.size());
         dialog.lpstrTitle = title;
-        dialog.lpstrDefExt = save ? L"toml" : nullptr;
+        dialog.lpstrDefExt = save ? extension : nullptr;
         dialog.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | (save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
         if (!(save ? GetSaveFileNameW(&dialog) : GetOpenFileNameW(&dialog))) return false;
         *path = buffer.data();
@@ -311,6 +319,7 @@ namespace
                 AddAvailableLink(L"Victoria II system log", links.victoria_system_log);
                 AddAvailableLink(L"Victoria II user directory", links.victoria_user_dir);
                 AddAvailableLink(L"Economy trace", links.economy_trace);
+                AddAvailableLink(L"Telemetry trace", links.telemetry_trace);
                 AddAvailableLink(L"Source save", links.source_save);
             }
             if (!link_paths_.empty()) SendMessageW(links_, CB_SETCURSEL, 0, 0);
@@ -404,7 +413,7 @@ namespace
 
             dpi_ = GetDeviceDpi();
             window_ = CreateWindowExW(WS_EX_CONTROLPARENT, window_class_name, L"Smedley Launcher", WS_OVERLAPPEDWINDOW,
-                                      CW_USEDEFAULT, CW_USEDEFAULT, Scale(900), Scale(690), nullptr, nullptr, instance, this);
+                                      CW_USEDEFAULT, CW_USEDEFAULT, Scale(900), Scale(790), nullptr, nullptr, instance, this);
             if (!window_) return false;
             CreateControls();
             RefreshDiscovery();
@@ -514,6 +523,22 @@ namespace
 
             safe_mode_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"&Safe mode (do not inject Smedley)", safe_mode_check);
 
+            telemetry_enabled_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"Enable structured &telemetry", telemetry_enabled_check);
+            telemetry_overwrite_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"Allow telemetry output &overwrite", telemetry_overwrite_check);
+            telemetry_output_label_ = AddLabel(L"Telemetry &output:");
+            telemetry_output_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", telemetry_output_edit);
+            AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Browse...", browse_telemetry_button);
+            telemetry_categories_label_ = AddLabel(L"Telemetry &categories:");
+            telemetry_categories_ = AddControl(CBS_DROPDOWNLIST | WS_TABSTOP, L"COMBOBOX", L"", telemetry_categories_combo);
+            SendMessageW(telemetry_categories_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Lifecycle + state"));
+            SendMessageW(telemetry_categories_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Lifecycle only"));
+            SendMessageW(telemetry_categories_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"State only"));
+            SendMessageW(telemetry_categories_, CB_SETCURSEL, 0, 0);
+            telemetry_sample_days_label_ = AddLabel(L"Sample &days:");
+            telemetry_sample_days_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"1", telemetry_sample_days_edit);
+            telemetry_queue_capacity_label_ = AddLabel(L"&Queue capacity:");
+            telemetry_queue_capacity_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"1024", telemetry_queue_capacity_edit);
+
             save_label_ = AddLabel(L"Campaign &save:");
             save_path_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", save_path_edit);
             AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Browse...", browse_save_button);
@@ -585,12 +610,28 @@ namespace
 
             PlaceLabel(plugin_label_, y, label_width, row, margin);
             y += row;
-            const int bottom_fixed = Scale(26 * 6 + 30 + 130 + 44);
+            const int bottom_fixed = Scale(26 * 10 + 30 + 130 + 44);
             const int plugin_height = std::max(Scale(100), height - y - bottom_fixed);
             MoveWindow(plugins_, margin, y, right - margin, plugin_height, TRUE);
             y += plugin_height + Scale(4);
 
             MoveWindow(safe_mode_, margin, y, right - margin, Scale(22), TRUE);
+            y += row;
+
+            MoveWindow(telemetry_enabled_, margin, y, right - margin, Scale(22), TRUE);
+            y += row;
+            MoveWindow(telemetry_overwrite_, margin, y, right - margin, Scale(22), TRUE);
+            y += row;
+            PlaceLabel(telemetry_output_label_, y, label_width, row, margin);
+            MoveWindow(telemetry_output_, margin + label_width, y, right - margin - label_width - button_width - Scale(4), Scale(22), TRUE);
+            MoveWindow(GetDlgItem(window_, browse_telemetry_button), right - button_width, y, button_width, Scale(22), TRUE);
+            y += row;
+            PlaceLabel(telemetry_categories_label_, y, label_width, row, margin);
+            MoveWindow(telemetry_categories_, margin + label_width, y, Scale(180), Scale(200), TRUE);
+            PlaceLabel(telemetry_sample_days_label_, y, Scale(90), row, margin + label_width + Scale(195));
+            MoveWindow(telemetry_sample_days_, margin + label_width + Scale(285), y, Scale(70), Scale(22), TRUE);
+            PlaceLabel(telemetry_queue_capacity_label_, y, Scale(100), row, margin + label_width + Scale(370));
+            MoveWindow(telemetry_queue_capacity_, margin + label_width + Scale(470), y, Scale(80), Scale(22), TRUE);
             y += row;
 
             PlaceLabel(save_label_, y, label_width, row, margin);
@@ -638,15 +679,22 @@ namespace
                     SetText(save_path_, path);
                     RefreshPlan();
                 }
+            } else if (id == browse_telemetry_button && notification == BN_CLICKED) {
+                std::wstring path = GetText(telemetry_output_);
+                if (BrowseForFile(window_, L"Save telemetry trace", L"JSON Lines traces (*.jsonl)\0*.jsonl\0All files\0*.*\0", &path, true, L"jsonl")) {
+                    SetText(telemetry_output_, path);
+                    RefreshPlan();
+                }
             } else if (id == launch_button && notification == BN_CLICKED) LaunchGame();
             else if (id == recent_runs_button && notification == BN_CLICKED) RecentRunsWindow::Show(window_);
-            else if ((id == safe_mode_check || id == observer_check || id == start_paused_check) && notification == BN_CLICKED) RefreshPlan();
+            else if ((id == safe_mode_check || id == observer_check || id == start_paused_check || id == telemetry_enabled_check || id == telemetry_overwrite_check) && notification == BN_CLICKED) RefreshPlan();
             else if (id == mod_combo && notification == CBN_SELCHANGE) {
                 retained_mods_.clear();
                 unsupported_multi_mod_ = false;
                 RefreshPlan();
-            } else if (id == speed_combo && notification == CBN_SELCHANGE) RefreshPlan();
-            else if ((id == game_dir_edit || id == save_path_edit || id == view_tag_edit || id == profile_name_edit)
+            } else if ((id == speed_combo || id == telemetry_categories_combo) && notification == CBN_SELCHANGE) RefreshPlan();
+            else if ((id == game_dir_edit || id == save_path_edit || id == view_tag_edit || id == profile_name_edit || id == telemetry_output_edit
+                      || id == telemetry_sample_days_edit || id == telemetry_queue_capacity_edit)
                        && notification == EN_KILLFOCUS) {
                 if (id == game_dir_edit) RefreshDiscovery();
                 else RefreshPlan();
@@ -683,6 +731,21 @@ namespace
             if (!view_tag.empty()) profile.view_tag = view_tag;
             profile.speed = static_cast<int>(SendMessageW(speed_, CB_GETCURSEL, 0, 0)) + 1;
             profile.start_paused = SendMessageW(start_paused_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            profile.telemetry_enabled = SendMessageW(telemetry_enabled_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            profile.telemetry_overwrite = SendMessageW(telemetry_overwrite_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            const auto telemetry_output = GetText(telemetry_output_);
+            if (!telemetry_output.empty()) profile.telemetry_output = fs::path(telemetry_output);
+            const int category_selection = static_cast<int>(SendMessageW(telemetry_categories_, CB_GETCURSEL, 0, 0));
+            if (category_selection == 1) profile.telemetry_categories = {"lifecycle"};
+            else if (category_selection == 2) profile.telemetry_categories = {"state"};
+            else profile.telemetry_categories = {"lifecycle", "state"};
+            try {
+                profile.telemetry_sample_days = std::stoi(GetText(telemetry_sample_days_));
+                profile.telemetry_queue_capacity = std::stoi(GetText(telemetry_queue_capacity_));
+            } catch (const std::exception &) {
+                profile.telemetry_sample_days = 0;
+                profile.telemetry_queue_capacity = 0;
+            }
             return profile;
         }
 
@@ -833,6 +896,14 @@ namespace
             SendMessageW(observer_, BM_SETCHECK, profile.observer ? BST_CHECKED : BST_UNCHECKED, 0);
             SendMessageW(speed_, CB_SETCURSEL, profile.speed >= 1 && profile.speed <= 5 ? profile.speed - 1 : -1, 0);
             SendMessageW(start_paused_, BM_SETCHECK, profile.start_paused ? BST_CHECKED : BST_UNCHECKED, 0);
+            SendMessageW(telemetry_enabled_, BM_SETCHECK, profile.telemetry_enabled ? BST_CHECKED : BST_UNCHECKED, 0);
+            SendMessageW(telemetry_overwrite_, BM_SETCHECK, profile.telemetry_overwrite ? BST_CHECKED : BST_UNCHECKED, 0);
+            SetText(telemetry_output_, profile.telemetry_output ? profile.telemetry_output->wstring() : L"");
+            const int telemetry_categories = profile.telemetry_categories == std::vector<std::string>{"lifecycle"} ? 1
+                : profile.telemetry_categories == std::vector<std::string>{"state"} ? 2 : 0;
+            SendMessageW(telemetry_categories_, CB_SETCURSEL, telemetry_categories, 0);
+            SetText(telemetry_sample_days_, std::to_wstring(profile.telemetry_sample_days));
+            SetText(telemetry_queue_capacity_, std::to_wstring(profile.telemetry_queue_capacity));
             retained_detach_ = profile.detach;
             // A loaded profile intentionally replaces, rather than merges with, old selections.
             discovered_mods_.clear();
@@ -847,7 +918,7 @@ namespace
         void SaveProfile()
         {
             std::wstring path = GetText(profile_path_);
-            if (!BrowseForFile(window_, L"Save Smedley profile", L"Smedley profiles (*.toml)\0*.toml\0All files\0*.*\0", &path, true)) return;
+            if (!BrowseForFile(window_, L"Save Smedley profile", L"Smedley profiles (*.toml)\0*.toml\0All files\0*.*\0", &path, true, L"toml")) return;
             std::vector<launcher::Diagnostic> diagnostics;
             if (!launcher::SaveProfile(path, BuildProfile(), &diagnostics)) {
                 operation_diagnostics_ = std::move(diagnostics);
@@ -885,6 +956,16 @@ namespace
         HWND plugin_label_ = nullptr;
         HWND plugins_ = nullptr;
         HWND safe_mode_ = nullptr;
+        HWND telemetry_enabled_ = nullptr;
+        HWND telemetry_overwrite_ = nullptr;
+        HWND telemetry_output_label_ = nullptr;
+        HWND telemetry_output_ = nullptr;
+        HWND telemetry_categories_label_ = nullptr;
+        HWND telemetry_categories_ = nullptr;
+        HWND telemetry_sample_days_label_ = nullptr;
+        HWND telemetry_sample_days_ = nullptr;
+        HWND telemetry_queue_capacity_label_ = nullptr;
+        HWND telemetry_queue_capacity_ = nullptr;
         HWND save_label_ = nullptr;
         HWND save_path_ = nullptr;
         HWND observer_ = nullptr;
