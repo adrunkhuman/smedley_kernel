@@ -25,6 +25,18 @@ namespace
         uint8_t deleted;
         uint8_t padding[3];
     };
+
+    struct CountryLookup
+    {
+        int32_t ordinal;
+        const void *country;
+    };
+
+    const void *ResolveCountry(const void *context, int32_t ordinal)
+    {
+        const auto *lookup = static_cast<const CountryLookup *>(context);
+        return ordinal == lookup->ordinal ? lookup->country : nullptr;
+    }
 }
 
 TEST(InterestProbeTest, CollectsBoundedStateAndBankCandidates)
@@ -119,6 +131,96 @@ TEST(InterestProbeTest, RejectsMalformedProvinceVector)
 
     const auto sample = interest_probe::CollectSample(country.data(), 0);
     EXPECT_NE(sample.flags & interest_probe::SAMPLE_STATE_VECTOR_INVALID, 0u);
+}
+
+TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
+{
+    std::array<std::byte, 0x1608> debtor{};
+    std::array<std::byte, 0x1608> destination{};
+    std::array<std::byte, 0x28> creditor{};
+    std::array<std::byte, 0x28> debtor_bank{};
+    std::array<std::byte, 0x28> destination_bank{};
+    std::array<std::byte, 0x290> destination_state{};
+    std::array<void *, 1> creditors{creditor.data()};
+    Node destination_node{destination_state.data(), nullptr, nullptr, 0, {}};
+    const char debtor_tag[4] = {'S', 'W', 'E', '\0'};
+    const char destination_tag[4] = {'E', 'N', 'G', '\0'};
+    const int32_t destination_ordinal = 7;
+    const int64_t creditor_interest = 15;
+    const int64_t creditor_debt = 90;
+    const uint8_t was_paid = 1;
+    const int64_t destination_bank_interest = 40;
+    const int64_t destination_state_savings = 120;
+    const int64_t destination_state_interest = 30;
+    const void *debtor_bank_pointer = debtor_bank.data();
+    const void *destination_bank_pointer = destination_bank.data();
+    const void *destination_state_head = &destination_node;
+    const int destination_state_count = 1;
+    const void *creditor_begin = creditors.data();
+    const void *creditor_end = creditors.data() + creditors.size();
+
+    Write(&debtor, 0x1c, debtor_tag);
+    Write(&debtor, 0xe88, debtor_bank_pointer);
+    Write(&debtor, 0xe8c, creditor_begin);
+    Write(&debtor, 0xe90, creditor_end);
+    Write(&debtor, 0xe94, creditor_end);
+    Write(&destination, 0x1c, destination_tag);
+    Write(&destination, 0x20, destination_ordinal);
+    Write(&destination, 0xe44, destination_state_head);
+    Write(&destination, 0xe48, destination_state_head);
+    Write(&destination, 0xe4c, destination_state_count);
+    Write(&destination, 0xe88, destination_bank_pointer);
+    Write(&destination_bank, 0x20, destination_bank_interest);
+    Write(&destination_state, 0x258, destination_state_savings);
+    Write(&destination_state, 0x260, destination_state_interest);
+    Write(&creditor, 0x08, destination_tag);
+    Write(&creditor, 0x0c, destination_ordinal);
+    Write(&creditor, 0x10, creditor_interest);
+    Write(&creditor, 0x18, creditor_debt);
+    Write(&creditor, 0x20, was_paid);
+    const CountryLookup lookup{destination_ordinal, destination.data()};
+
+    const auto sample = interest_probe::CollectSample(debtor.data(), 1234, ResolveCountry, &lookup);
+    EXPECT_EQ(sample.creditor_count, 1u);
+    EXPECT_EQ(sample.creditor_destinations, 1u);
+    EXPECT_EQ(sample.creditors_was_paid, 1u);
+    EXPECT_EQ(sample.creditor_interest_raw, creditor_interest);
+    EXPECT_EQ(sample.creditor_debt_raw, creditor_debt);
+    EXPECT_EQ(sample.destination_bank_interest_raw, destination_bank_interest);
+    EXPECT_EQ(sample.destination_state_savings_raw, destination_state_savings);
+    EXPECT_EQ(sample.destination_state_interest_raw, destination_state_interest);
+    EXPECT_EQ(sample.flags, 0u);
+}
+
+TEST(InterestProbeTest, RejectsMismatchedCreditorDestination)
+{
+    std::array<std::byte, 0x1608> debtor{};
+    std::array<std::byte, 0x1608> destination{};
+    std::array<std::byte, 0x28> creditor{};
+    std::array<std::byte, 0x28> debtor_bank{};
+    std::array<void *, 1> creditors{creditor.data()};
+    const char debtor_tag[4] = {'S', 'W', 'E', '\0'};
+    const char creditor_tag[4] = {'E', 'N', 'G', '\0'};
+    const char destination_tag[4] = {'F', 'R', 'A', '\0'};
+    const int32_t destination_ordinal = 7;
+    const void *debtor_bank_pointer = debtor_bank.data();
+    const void *creditor_begin = creditors.data();
+    const void *creditor_end = creditors.data() + creditors.size();
+
+    Write(&debtor, 0x1c, debtor_tag);
+    Write(&debtor, 0xe88, debtor_bank_pointer);
+    Write(&debtor, 0xe8c, creditor_begin);
+    Write(&debtor, 0xe90, creditor_end);
+    Write(&debtor, 0xe94, creditor_end);
+    Write(&destination, 0x1c, destination_tag);
+    Write(&destination, 0x20, destination_ordinal);
+    Write(&creditor, 0x08, creditor_tag);
+    Write(&creditor, 0x0c, destination_ordinal);
+    const CountryLookup lookup{destination_ordinal, destination.data()};
+
+    const auto sample = interest_probe::CollectSample(debtor.data(), 1234, ResolveCountry, &lookup);
+    EXPECT_EQ(sample.creditor_destinations, 0u);
+    EXPECT_NE(sample.flags & interest_probe::SAMPLE_CREDITOR_DESTINATION_INVALID, 0u);
 }
 
 TEST(InterestProbeTest, PairQueueRejectsOnlyCompletePairsAtCapacity)

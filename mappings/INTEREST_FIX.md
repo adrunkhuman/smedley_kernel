@@ -15,7 +15,9 @@ All addresses below are RVAs in the cataloged Victoria II 3.04 executable.
 | --- | --- | --- |
 | `CCountry::DailyUpdate` `0x00108590` | `verified-current` | Its only direct call to `PayDailyInterest` is at `0x00108d3e`, with the country pointer already on the stack. The checked kernel trampoline invoked the original call and emitted 1,897 ordered runtime boundary pairs. |
 | `CCountry::PayDailyInterest` `0x00123c30` | `verified-runtime` | The paired boundary run observed current-country treasury reductions on all 12 calls with creditor entries. Its sole direct caller and `ret 4` cleanup are statically established. |
-| Creditor destination bank path | `verified-static-callsites` | `PayDailyInterest` reads the current country creditor vector at `+0xe8c`, resolves a destination country from each creditor tag at `+0x8`, and credits destination bank `+0x20`. Destination values have not yet been observed by the probe. |
+| Creditor destination bank path | `verified-runtime` | `PayDailyInterest` reads the current country creditor vector at `+0xe8c`, resolves a destination country from each creditor tag/ordinal at `+0x8`, and credits destination bank `+0x20`. All 12 creditor-bearing fixture calls resolved every entry and conserved the exact debtor treasury loss in the summed destination-bank gain. |
+| Creditor `+0x8/+0x10/+0x18/+0x20` | `verified-runtime` | Static code reads the tag/ordinal at `+0x8`, multiplies the 64-bit `+0x18` value by the 64-bit `+0x10` value in its payment calculation, and updates the byte at `+0x20` on payment. The destination run validated every tag/ordinal and observed `+0x20 == 1` for every paid entry; the economic names on the two 64-bit fields remain candidates. |
+| Destination bank `+0x20` | `verified-runtime` | The static add target and all 12 exact before/after pairs agree. Cumulative raw gain was `+87,242`, exactly negating debtor treasury delta `-87,242`. Other historical `CBank` fields remain unverified. |
 | `PayDailyInterest` boundary `0x00108d3e` | `verified-runtime` | The kernel replaces the sole direct call with a register/flags-preserving trampoline, emits `before`, invokes the original callee, emits `after`, and resumes at `0x00108d43`. Both subscribed and unsubscribed runtime fixtures reached exact targets. |
 | Country state list `+0xe44` | `verified-current` | Current country update code walks node data at `+0`, next at `+8`, and terminates at null. State-creation callers maintain head `+0xe44`, tail `+0xe48`, and count `+0xe4c`; the seven-day runtime probe walked every reported state without a mismatch. |
 | State constructor `0x000cdc60` | `verified-static-callsites` | Three callers allocate `0x290` bytes. The constructor initializes 64-bit slots `+0x258` and `+0x260` to zero. |
@@ -42,6 +44,9 @@ emits `before` and `after` observations around the original callee. Each phase:
 - caps traversal at 512 states and 1,024 four-byte vector elements per state;
 - records state-list count agreement, candidate state totals, creditor count,
   treasury, and bank interest;
+- caps creditor destination traversal at 64 entries, validates each destination
+  tag and ordinal against the bounded game-state country vector, and records
+  candidate creditor values plus aggregate destination bank/state values;
 - retains only the copied `before` POD until `after`, then atomically enqueues
   one fixed-size pair in a 1,024-slot single-producer queue; and
 - reports dropped pairs and collection time while a worker performs all CSV I/O.
@@ -117,14 +122,44 @@ installed artifact repeated a one-day subscribed smoke with 271 complete pairs,
 zero flags or dropped pairs, exact-target pause, a responsive process, and the
 same unchanged source-save hash.
 
+## Destination conservation run
+
+The hardened probe then repeated the seven-day fixture with bounded creditor
+decoding and destination-country resolution. Run
+`fb9aff46-9194-4cb3-9e4f-c8ab8ffa0bec` advanced from raw date `59883384` to
+the exact target `59883552`, remained responsive and paused, and preserved the
+source-save hash. The closed CSV had SHA-256
+`1686e0c5ee9a5dabc8fcd1737fcecc51b9da70cff9f18c21bdd36c9aa8b9b1a8`.
+
+Its 3,794 rows again formed exactly 1,897 ordered pairs across seven dates and
+271 country slots per date. All 12 creditor-bearing pairs resolved every entry:
+creditor and destination counts agreed, every observed paid byte was one, and
+there were no malformed pairs, quality flags, or dropped pairs.
+
+Every one of those 12 calls satisfied exact raw fixed-point conservation:
+
+```text
+debtor treasury delta + summed destination bank delta = 0
+```
+
+The cumulative debtor delta was `-87,242` and cumulative destination-bank delta
+was `+87,242`. Individual transfers ranged from `4,947` to `10,365` raw units.
+Creditor `+0x10/+0x18`, destination state `+0x258/+0x260`, and creditor count
+did not change within any call. This verifies the immediate country-to-bank
+transfer; it does not establish the later state-to-POP distribution or the
+economic names of the provisional state fields.
+
+The expanded collection phases consumed 55,704 microseconds total: 14.68
+microseconds per phase on average and 619 microseconds at the observed maximum.
+The additional cost occurs only for the opt-in probe and remains bounded by the
+creditor and state traversal limits.
+
 ## Required evidence before mutation
 
-1. Decode each creditor destination and correlate its bank and state candidates
-   at the now-verified exact `PayDailyInterest` boundary.
-2. Add bounded POP-level sampling and prove that POP `+0x250` sums use the same
+1. Add bounded POP-level sampling and prove that POP `+0x250` sums use the same
    scale as state `+0x258`.
-3. Invoke `CPop::GiveMoney` only in a disposable controlled fixture and verify
+2. Invoke `CPop::GiveMoney` only in a disposable controlled fixture and verify
    POP money plus cash-flow bucket `7` independently.
-4. Define integer allocation, rounding, remainder ownership, conservation, and
+3. Define integer allocation, rounding, remainder ownership, conservation, and
    zero/negative-value behavior before implementing an independently selectable
    fix.

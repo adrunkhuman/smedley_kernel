@@ -54,7 +54,7 @@ rva = 0x00123c30
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
-source = "paired runtime observations verified current-country treasury reductions on all calls with creditor entries; the sole direct caller at RVA 0x00108d3e and ret 4 cleanup are statically established; destination-bank flow remains verified-static-callsites in INTEREST_FIX.md"
+source = "paired runtime observations verified current-country treasury reductions and exact conservation into resolved destination-bank +0x20 values on all 12 calls with creditor entries; the sole direct caller at RVA 0x00108d3e and ret 4 cleanup are statically established"
 
 [[symbols]]
 name = "CState constructor"
@@ -565,6 +565,17 @@ fields = [
 ]
 
 [[layouts]]
+name = "CCreditor"
+status = "verified-runtime"
+source = "PayDailyInterest static data flow plus 12 exact supplied-save boundary pairs; tag/ordinal and paid semantics are verified while the two 64-bit economic names remain candidates"
+fields = [
+  { name = "destination_tag", offset = 0x08 },
+  { name = "interest_candidate", offset = 0x10 },
+  { name = "debt_candidate", offset = 0x18 },
+  { name = "was_paid", offset = 0x20 },
+]
+
+[[layouts]]
 name = "CFlag"
 status = "historical-unverified"
 size = 0x20
@@ -627,7 +638,7 @@ fields = [
 [[layouts]]
 name = "CBank"
 status = "historical-unverified"
-source = "parent of commit 967a1a4 native/handles/CBank.hpp"
+source = "parent of commit 967a1a4 native/handles/CBank.hpp; interest_payments +0x20 alone is verified-runtime by PayDailyInterest static flow and 12 exact destination pairs"
 fields = [
   { name = "country", offset = 0x08 },
   { name = "money", offset = 0x10 },

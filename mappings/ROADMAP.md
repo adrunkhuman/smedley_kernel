@@ -58,9 +58,7 @@ need an explicit policy and reproducible runtime fixture.
    benchmark policy.
 3. Find `CGuiTypes::LookupString` by following references to known names such
    as `tax_0_slider` and `take_loan`.
-4. Decode creditor destinations and correlate their bank/state candidates with
-   the now-verified exact `PayDailyInterest` boundary. See `INTEREST_FIX.md`.
-5. Add bounded POP-level savings instrumentation, then dynamically validate
+4. Add bounded POP-level savings instrumentation, then dynamically validate
    `CPop::GiveMoney` at `0x55a5f0` before restoring the interest fix.
 
 ## Runtime acceptance tests

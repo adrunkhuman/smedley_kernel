@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstring>
 #include <limits>
@@ -22,9 +23,14 @@ namespace interest_probe
         constexpr size_t state_savings_offset = 0x258;
         constexpr size_t state_interest_offset = 0x260;
         constexpr size_t bank_interest_offset = 0x20;
+        constexpr size_t creditor_tag_offset = 0x08;
+        constexpr size_t creditor_interest_offset = 0x10;
+        constexpr size_t creditor_debt_offset = 0x18;
+        constexpr size_t creditor_was_paid_offset = 0x20;
         constexpr uint32_t max_states = 512;
         constexpr uint32_t max_provinces_per_state = 1024;
         constexpr uint32_t max_creditors = 4096;
+        constexpr uint32_t max_creditor_destinations = 64;
 
         struct ListNode
         {
@@ -109,9 +115,21 @@ namespace interest_probe
             }
             *sum += value;
         }
+
+        bool IsTagKey(uint32_t key)
+        {
+            const auto *bytes = reinterpret_cast<const uint8_t *>(&key);
+            if (bytes[3] != 0) return false;
+            for (size_t index = 0; index < 3; ++index) {
+                const uint8_t value = bytes[index];
+                if (!((value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9'))) return false;
+            }
+            return true;
+        }
     }
 
-    Sample CollectSample(const void *country, int32_t date_raw)
+    Sample CollectSample(const void *country, int32_t date_raw,
+                         CountryResolver resolver, const void *resolver_context)
     {
         Sample sample{};
         sample.date_raw = date_raw;
@@ -191,6 +209,69 @@ namespace interest_probe
         if (!ReadAt(country, country_creditors_offset, &creditors)
             || !VectorCount(creditors, sizeof(void *), max_creditors, &sample.creditor_count)) {
             sample.flags |= SAMPLE_CREDITOR_VECTOR_INVALID;
+            return sample;
+        }
+        if (resolver == nullptr || sample.creditor_count == 0) return sample;
+        if (sample.creditor_count > max_creditor_destinations) sample.flags |= SAMPLE_CREDITOR_DESTINATION_LIMIT;
+
+        std::array<int32_t, max_creditor_destinations> destination_ordinals{};
+        const uint32_t creditor_limit = (std::min)(sample.creditor_count, max_creditor_destinations);
+        for (uint32_t index = 0; index < creditor_limit; ++index) {
+            const void *creditor = nullptr;
+            if (!ReadAt(creditors.begin, index * sizeof(void *), &creditor) || creditor == nullptr) {
+                sample.flags |= SAMPLE_CREDITOR_UNREADABLE;
+                continue;
+            }
+            uint32_t key = 0;
+            int32_t ordinal = -1;
+            int64_t interest = 0;
+            int64_t debt = 0;
+            uint8_t was_paid = 0;
+            if (!ReadAt(creditor, creditor_tag_offset, &key)
+                || !ReadAt(creditor, creditor_tag_offset + sizeof(key), &ordinal)
+                || !ReadAt(creditor, creditor_interest_offset, &interest)
+                || !ReadAt(creditor, creditor_debt_offset, &debt)
+                || !ReadAt(creditor, creditor_was_paid_offset, &was_paid)) {
+                sample.flags |= SAMPLE_CREDITOR_UNREADABLE;
+                continue;
+            }
+            if (!IsTagKey(key) || ordinal < 0 || was_paid > 1) {
+                sample.flags |= SAMPLE_CREDITOR_TAG_INVALID;
+                continue;
+            }
+            AddChecked(interest, &sample.creditor_interest_raw, &sample.flags);
+            AddChecked(debt, &sample.creditor_debt_raw, &sample.flags);
+            if (was_paid != 0) ++sample.creditors_was_paid;
+
+            bool duplicate = false;
+            for (uint32_t prior = 0; prior < sample.creditor_destinations; ++prior) {
+                if (destination_ordinals[prior] == ordinal) {
+                    duplicate = true;
+                    break;
+                }
+            }
+            if (duplicate) {
+                sample.flags |= SAMPLE_CREDITOR_DUPLICATE_DESTINATION;
+                continue;
+            }
+            const void *destination = resolver(resolver_context, ordinal);
+            uint32_t destination_key = 0;
+            int32_t destination_ordinal = -1;
+            if (!ReadAt(destination, country_tag_offset, &destination_key)
+                || !ReadAt(destination, country_tag_offset + sizeof(destination_key), &destination_ordinal)
+                || destination_key != key || destination_ordinal != ordinal) {
+                sample.flags |= SAMPLE_CREDITOR_DESTINATION_INVALID;
+                continue;
+            }
+            const Sample destination_sample = CollectSample(destination, date_raw);
+            if (destination_sample.flags != 0) {
+                sample.flags |= SAMPLE_CREDITOR_DESTINATION_INVALID;
+                continue;
+            }
+            destination_ordinals[sample.creditor_destinations++] = ordinal;
+            AddChecked(destination_sample.bank_interest_raw, &sample.destination_bank_interest_raw, &sample.flags);
+            AddChecked(destination_sample.state_savings_raw, &sample.destination_state_savings_raw, &sample.flags);
+            AddChecked(destination_sample.state_interest_raw, &sample.destination_state_interest_raw, &sample.flags);
         }
         return sample;
     }

@@ -17,6 +17,11 @@ namespace interest_probe
         SAMPLE_CREDITOR_VECTOR_INVALID = 1u << 8,
         SAMPLE_DATE_UNAVAILABLE = 1u << 9,
         SAMPLE_EVENT_CALLBACK_FAILURE = 1u << 10,
+        SAMPLE_CREDITOR_UNREADABLE = 1u << 11,
+        SAMPLE_CREDITOR_TAG_INVALID = 1u << 12,
+        SAMPLE_CREDITOR_DESTINATION_INVALID = 1u << 13,
+        SAMPLE_CREDITOR_DESTINATION_LIMIT = 1u << 14,
+        SAMPLE_CREDITOR_DUPLICATE_DESTINATION = 1u << 15,
     };
 
     struct Sample
@@ -29,13 +34,23 @@ namespace interest_probe
         uint32_t states_with_savings = 0;
         uint32_t states_with_interest = 0;
         uint32_t creditor_count = 0;
+        uint32_t creditor_destinations = 0;
+        uint32_t creditors_was_paid = 0;
         int64_t treasury_raw = 0;
         int64_t state_savings_raw = 0;
         int64_t state_interest_raw = 0;
         int64_t bank_interest_raw = 0;
+        int64_t creditor_interest_raw = 0;
+        int64_t creditor_debt_raw = 0;
+        int64_t destination_bank_interest_raw = 0;
+        int64_t destination_state_savings_raw = 0;
+        int64_t destination_state_interest_raw = 0;
         uint32_t flags = 0;
         uint32_t collection_us = 0;
     };
 
-    Sample CollectSample(const void *country, int32_t date_raw);
+    using CountryResolver = const void *(*)(const void *context, int32_t ordinal);
+
+    Sample CollectSample(const void *country, int32_t date_raw,
+                         CountryResolver resolver = nullptr, const void *resolver_context = nullptr);
 }
