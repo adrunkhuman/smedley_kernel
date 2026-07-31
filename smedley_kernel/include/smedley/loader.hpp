@@ -1,6 +1,7 @@
 #pragma once
 
 #include "plugin.hpp"
+#include "plugin_abi_runtime.hpp"
 #include <memory>
 #include <filesystem>
 #include <string>
@@ -16,6 +17,12 @@ namespace smedley
      */
     class PluginLoader
     {
+        struct LoadedPlugin
+        {
+            Plugin *legacy = nullptr;
+            std::unique_ptr<PluginAbiV1Instance> abi_v1;
+        };
+
         std::string _gamedir;
         std::string _userdir;
         std::string _plugindir;
@@ -25,7 +32,7 @@ namespace smedley
 
         bool _loaded;
         std::vector<PluginDefinition> _plugin_defs;
-        std::vector<Plugin *> _plugins;
+        std::vector<LoadedPlugin> _plugins;
 
         static PluginLoader *_instance;
     public:

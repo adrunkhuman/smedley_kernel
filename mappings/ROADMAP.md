@@ -30,6 +30,10 @@
   in-memory callbacks, and queues a signature-checked native pause. Runtime run
   `b076f162-9700-40c3-9c9b-7f56c53991b3` completed the pause with readback while
   both Victoria II Lua DLLs remained loaded; see `SCRIPTING.md`.
+- Native plugins can advertise the fixed-width C lifecycle ABI v1 while legacy
+  `CreatePlugin` modules remain compatible. Supplied-game run
+  `5fca45a1-a770-41e4-8eab-ed472c0ddfc9` loaded one of each in a responsive
+  process; normal-exit callbacks remain blocked on a verified shutdown path.
 
 ## Immediate blocker
 

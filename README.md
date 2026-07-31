@@ -7,9 +7,12 @@ mode, economy tracing, and bounded structured telemetry. Ordinary players and mo
 launcher; constrained Lua scripts can extend supported behavior without C++.
 C++ is only needed to build Smedley or write native plugins.
 
-Native plugins may submit bounded typed records through the versioned C
-extension API in [`include/smedley/telemetry.h`](include/smedley/telemetry.h).
-They resolve telemetry dynamically and never require it as a dependency.
+New native plugins can use the narrow versioned C lifecycle ABI documented in
+[`docs/native-plugins.md`](docs/native-plugins.md); existing plugins retain a
+legacy compatibility path. Native plugins may submit bounded typed records
+through the separate C extension API in
+[`include/smedley/telemetry.h`](include/smedley/telemetry.h). They resolve
+telemetry dynamically and never require it as a dependency.
 
 This fork currently supports one exact English x86 `v2game.exe`:
 
@@ -108,7 +111,9 @@ as the user running Victoria II. Install only open, trusted plugins. Ordinary
 Victoria II data mods do not cross this native-code trust boundary.
 
 The current release supports Windows, MSVC x86, and the executable identified
-above. Plugin dependency versions, general third-party plugin settings, broad
+above. The native C ABI currently covers lifecycle, not game services. Plugin
+dependency versions, general third-party plugin settings, broad
 AI decision telemetry, profiling, and profiler-backed engine optimizations remain in active
-development. See the repository's GitHub issues for the current roadmap and
+development. Normal-exit plugin callbacks also await a verified game shutdown
+boundary. See the repository's GitHub issues for the current roadmap and
 [`mappings/`](mappings/) for reverse-engineering evidence.

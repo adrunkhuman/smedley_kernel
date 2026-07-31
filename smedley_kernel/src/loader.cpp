@@ -120,6 +120,7 @@ namespace smedley
             for (auto &filename : ParsePluginArguments(GetCommandLineW())) {
                 definitions.push_back(PluginDefinition::Read(filename));
             }
+            _plugins.reserve(definitions.size());
             DumpLoadedModules(*_logger);
             for (auto &def : definitions) {
                 const auto path = std::filesystem::absolute("plugins" / std::filesystem::path(def.module_name));
@@ -127,15 +128,55 @@ namespace smedley
                 if (hmod == nullptr || hmod == INVALID_HANDLE_VALUE) {
                     throw std::runtime_error("plugin module not found: " + NarrowCommandLineArgument(path.native()));
                 }
+                const auto get_api = reinterpret_cast<SmedleyPluginGetApiV1Fn>(
+                    GetProcAddress(hmod, SMEDLEY_PLUGIN_GET_API_V1_SYMBOL));
+                if (get_api != nullptr) {
+                    SmedleyPluginApiV1 api{};
+                    api.struct_size = sizeof(api);
+                    api.version = SMEDLEY_PLUGIN_ABI_VERSION_V1;
+                    SmedleyPluginResult result = SMEDLEY_PLUGIN_FAILURE;
+                    try {
+                        result = get_api(&api);
+                    } catch (...) {
+                        throw std::runtime_error("plugin ABI v1 discovery threw an exception: " + def.id);
+                    }
+                    if (result != SMEDLEY_PLUGIN_SUCCESS) {
+                        throw std::runtime_error("plugin ABI v1 discovery failed with result "
+                            + std::to_string(result) + ": " + def.id);
+                    }
+                    auto instance = std::make_unique<PluginAbiV1Instance>(api);
+                    std::string error;
+                    if (!instance->Start(&error)) throw std::runtime_error(error + ": " + def.id);
+                    LoadedPlugin loaded;
+                    loaded.abi_v1 = std::move(instance);
+                    _plugins.push_back(std::move(loaded));
+                    _logger->Info("loaded plugin through C ABI v1: " + def.id);
+                    continue;
+                }
+
                 const auto creator = reinterpret_cast<PluginCreator>(GetProcAddress(hmod, "CreatePlugin"));
-                if (creator == nullptr) throw std::runtime_error("plugin does not export CreatePlugin: " + def.id);
+                if (creator == nullptr) {
+                    throw std::runtime_error("plugin exports neither SmedleyPluginGetApiV1 nor CreatePlugin: " + def.id);
+                }
                 std::unique_ptr<Plugin> plugin(creator());
                 if (!plugin) throw std::runtime_error("CreatePlugin returned null: " + def.id);
                 plugin->_definition = def;
                 plugin->_hmod = hmod;
                 plugin->_logger = std::make_unique<FileLogger>(_log_filepath, def.id, true);
-                plugin->OnLoad();
-                _plugins.push_back(plugin.release());
+                try {
+                    plugin->OnLoad();
+                } catch (...) {
+                    try {
+                        plugin->OnUnload();
+                    } catch (...) {
+                        _logger->Failure("legacy plugin rollback unload failed: " + def.id);
+                    }
+                    throw;
+                }
+                LoadedPlugin loaded;
+                loaded.legacy = plugin.release();
+                _plugins.push_back(std::move(loaded));
+                _logger->Info("loaded plugin through legacy C++ ABI: " + def.id);
             }
             _plugin_defs = std::move(definitions);
             _loaded = true;
@@ -152,14 +193,26 @@ namespace smedley
     void PluginLoader::UnloadPlugins()
     {
         for (auto it = _plugins.rbegin(); it != _plugins.rend(); ++it) {
-            try {
-                (*it)->OnUnload();
-            } catch (const std::exception &error) {
-                _logger->Failure("plugin unload failed: " + std::string(error.what()));
-            } catch (...) {
-                _logger->Failure("plugin unload failed with an unknown exception");
+            if (it->abi_v1) {
+                std::vector<std::string> errors;
+                it->abi_v1->Stop(&errors);
+                for (const auto &error : errors) _logger->Failure(error);
+                continue;
             }
-            delete *it;
+            if (it->legacy != nullptr) {
+                try {
+                    it->legacy->OnUnload();
+                } catch (const std::exception &error) {
+                    _logger->Failure("plugin unload failed: " + std::string(error.what()));
+                } catch (...) {
+                    _logger->Failure("plugin unload failed with an unknown exception");
+                }
+                try {
+                    delete it->legacy;
+                } catch (...) {
+                    _logger->Failure("plugin destruction failed with an unknown exception");
+                }
+            }
         }
 
         _plugins.clear();

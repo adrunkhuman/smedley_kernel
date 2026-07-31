@@ -1,4 +1,5 @@
 #include <smedley/launcher/launcher.hpp>
+#include <smedley/plugin_abi.h>
 
 #include <windows.h>
 #include <bcrypt.h>
@@ -347,6 +348,23 @@ namespace smedley::launcher
             FreeLibrary(module);
             if (!present) {
                 AddDiagnostic(diagnostics, code, description, module_path);
+            }
+            return present;
+        }
+
+        bool HasPluginExport(const fs::path &module_path, std::vector<Diagnostic> *diagnostics)
+        {
+            HMODULE module = LoadLibraryExW(module_path.c_str(), nullptr, DONT_RESOLVE_DLL_REFERENCES);
+            if (!module) {
+                AddDiagnostic(diagnostics, "plugin.export", WindowsError("LoadLibraryExW"), module_path);
+                return false;
+            }
+            const bool present = GetProcAddress(module, SMEDLEY_PLUGIN_GET_API_V1_SYMBOL) != nullptr
+                || GetProcAddress(module, "CreatePlugin") != nullptr;
+            FreeLibrary(module);
+            if (!present) {
+                AddDiagnostic(diagnostics, "plugin.export",
+                              "plugin module exports neither SmedleyPluginGetApiV1 nor CreatePlugin", module_path);
             }
             return present;
         }
@@ -1496,8 +1514,7 @@ namespace smedley::launcher
                     if (manifest.id == "telemetry") telemetry_selected = true;
                     if (manifest.id == "scripting") scripting_selected = true;
                     if (IsX86PE(manifest.module_path, &plan.diagnostics, "plugin module", true)) {
-                        HasExport(manifest.module_path, "CreatePlugin", "plugin.export",
-                                  "plugin module does not export CreatePlugin", &plan.diagnostics);
+                        HasPluginExport(manifest.module_path, &plan.diagnostics);
                     }
                     plan.plugins.push_back(std::move(manifest));
                 }

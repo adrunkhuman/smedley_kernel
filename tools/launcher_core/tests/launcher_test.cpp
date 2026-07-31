@@ -66,6 +66,15 @@ namespace
             return configuration_dir.parent_path().parent_path().parent_path()
                 / L"plugins" / L"scripting" / configuration_dir.filename() / L"scripting.dll";
         }
+
+        fs::path BuiltAbiFixture() const
+        {
+            wchar_t executable[MAX_PATH];
+            EXPECT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
+            const auto configuration_dir = fs::path(executable).parent_path();
+            return configuration_dir.parent_path().parent_path().parent_path()
+                / L"smedley_kernel" / configuration_dir.filename() / L"smedley_plugin_abi_fixture.dll";
+        }
     };
 }
 
@@ -374,6 +383,26 @@ TEST_F(LauncherCoreTest, AddsCampaignRunControlArgumentsAndRejectsPausedObserver
     EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
         return diagnostic.code == "observer.start_paused";
     }));
+}
+
+TEST_F(LauncherCoreTest, AcceptsPluginWithOnlyTheCAbiV1Export)
+{
+    const auto plugin_binary = BuiltAbiFixture();
+    ASSERT_TRUE(fs::is_regular_file(plugin_binary));
+    fs::copy_file(plugin_binary, root / L"plugins" / L"abi_fixture.dll");
+    Write(root / L"plugins" / L"abi_fixture.toml",
+          "id = \"abi_fixture\"\nname = \"ABI Fixture\"\nversion = \"1\"\nmodule = \"abi_fixture.dll\"\n");
+
+    launcher::Profile profile;
+    profile.game_dir = root;
+    profile.plugins = {L"plugins/abi_fixture.toml"};
+    const auto plan = launcher::BuildLaunchPlan(profile);
+
+    EXPECT_TRUE(std::none_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "plugin.export";
+    }));
+    ASSERT_EQ(plan.plugins.size(), 1u);
+    EXPECT_EQ(plan.plugins.front().id, "abi_fixture");
 }
 
 TEST_F(LauncherCoreTest, WiresBenchmarkTargetsAndRejectsUnsafeCombinations)
