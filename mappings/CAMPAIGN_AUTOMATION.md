@@ -32,11 +32,15 @@ handlers run; the harness dispatches native GUI signals rather than coordinates.
 11. The runner invokes the registered native `debug` command with argument
     `fow`, verifies the process-global byte at RVA `0xb092fb` is `0`, and leaves the map fully
     visible.
-12. The runner invokes the native speed-up handler until `CGameState+0xb28`
-    equals `4`, displayed by Victoria II as speed 5.
+12. The runner invokes the native speed-up or speed-down handler until
+    `CGameState+0xb28` matches the selected speed minus one, reading the field
+    after every call. Both paths are runtime-verified against the supported
+    executable; the retained speed-down probe selected speed 2 from a higher
+    initial speed and checked each decrement.
 13. The runner checks the pause state at `CInGameIdler+0x1538`, invokes
-    `CInGameIdler::TogglePause` at RVA `0x26a2c0` only when the value is `1`, and
-    verifies that it changed to `0`.
+    `CInGameIdler::TogglePause` at RVA `0x26a2c0` when the value differs from the
+    requested state, and verifies the result. Observer mode rejects
+    `start_paused` because its watchdog requires simulation advancement.
 14. While observer mode remains active, nine duplicated generic message
     dispatcher hooks skip visible popup and `CPauseGame` construction. This
     covers configurable notifications including technology, invention, upper

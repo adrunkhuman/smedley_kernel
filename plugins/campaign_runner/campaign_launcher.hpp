@@ -11,6 +11,11 @@ namespace smedley
     class Logger;
 }
 
+namespace smedley::v2
+{
+    class CCurrentGameState;
+}
+
 namespace campaign_runner
 {
     class CampaignLauncher
@@ -18,7 +23,7 @@ namespace campaign_runner
     public:
         explicit CampaignLauncher(smedley::Logger &logger) noexcept;
 
-        bool Start(std::wstring save_path, bool observe, std::wstring observer_view_tag);
+        bool Start(std::wstring save_path, bool observe, std::wstring observer_view_tag, int speed, bool start_paused);
         void Stop();
         void CaptureConsoleCommandManager(smedley::v2::CConsoleCmdManager *manager);
         void CaptureFrontendController(void *controller);
@@ -34,6 +39,7 @@ namespace campaign_runner
 
         bool ScheduleTimer(UINT delay, const char *failure_message);
         bool CheckSignatures() const;
+        bool SelectSpeed(smedley::v2::CCurrentGameState *game_state);
         bool InstallControllerHooks();
         bool DispatchMainMenuSinglePlayer();
         bool DispatchControlSignal(const char *name);
@@ -58,6 +64,8 @@ namespace campaign_runner
         bool observer_monitoring_ = false;
         bool observer_view_switch_pending_ = false;
         bool speed_ready_ = false;
+        int target_speed_ = 5;
+        bool start_paused_ = false;
         size_t observer_ai_count_before_switch_ = 0;
         std::string observer_target_tag_;
         std::string initial_observer_view_tag_;

@@ -321,14 +321,29 @@ namespace campaign_runner
     bool CampaignLauncher::Start(
         std::wstring save_path,
         bool observe,
-        std::wstring observer_view_tag)
+        std::wstring observer_view_tag,
+        int speed,
+        bool start_paused)
     {
         save_path_ = std::move(save_path);
         observe_ = observe;
+        target_speed_ = speed;
+        start_paused_ = start_paused;
         observer_enabled_ = false;
+        speed_ready_ = false;
         suppress_message_popups = false;
         suppressed_message_count = 0;
         launcher_instance = this;
+        if (target_speed_ < 1 || target_speed_ > 5) {
+            logger_.Failure("campaign speed must be from 1 through 5");
+            launcher_instance = nullptr;
+            return false;
+        }
+        if (observe_ && start_paused_) {
+            logger_.Failure("observer mode cannot start paused because its watchdog requires advancement");
+            launcher_instance = nullptr;
+            return false;
+        }
         if (!observer_view_tag.empty()) {
             if (!observe || observer_view_tag.size() != 3) {
                 logger_.Failure("observer view tag requires --observe and three ASCII letters");
@@ -605,9 +620,13 @@ namespace campaign_runner
         const auto console_command_handler = smedley::memory::Map::base_addr + 0x20eb0;
         constexpr unsigned char console_command_handler_expected[] = {
             0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8, 0x6a, 0xff};
+        // The leading global pointer is relocated by ASLR; validate the invariant handler body.
         const auto speed_up_handler_body = smedley::memory::Map::base_addr + 0x32ee96;
         constexpr unsigned char speed_up_handler_body_expected[] = {
             0x8b, 0x81, 0x28, 0x0b, 0x00, 0x00, 0x40, 0x83, 0xf8, 0x04};
+        const auto speed_down_handler_body = smedley::memory::Map::base_addr + 0x32efe6;
+        constexpr unsigned char speed_down_handler_body_expected[] = {
+            0x8b, 0x81, 0x28, 0x0b, 0x00, 0x00, 0x48, 0x83, 0xf8, 0x04};
         const auto tag_handler = smedley::memory::Map::base_addr + 0x1f720;
         constexpr unsigned char tag_handler_expected[] = {0x55, 0x8b, 0xec, 0x6a, 0xff};
         if (std::memcmp(reinterpret_cast<const void *>(load_save), load_save_expected, sizeof(load_save_expected)) != 0
@@ -627,12 +646,41 @@ namespace campaign_runner
                 speed_up_handler_body_expected,
                 sizeof(speed_up_handler_body_expected)) != 0
             || std::memcmp(
+                reinterpret_cast<const void *>(speed_down_handler_body),
+                speed_down_handler_body_expected,
+                sizeof(speed_down_handler_body_expected)) != 0
+            || std::memcmp(
                 reinterpret_cast<const void *>(tag_handler),
                 tag_handler_expected,
                 sizeof(tag_handler_expected)) != 0) {
             logger_.Failure("campaign automation signature mismatch; save loading disabled");
             return false;
         }
+        return true;
+    }
+
+    bool CampaignLauncher::SelectSpeed(smedley::v2::CCurrentGameState *game_state)
+    {
+        int speed = game_state->speed_index();
+        const int target_index = target_speed_ - 1;
+        if (speed < 0 || speed > 4) {
+            logger_.Failure("native speed index is outside the supported range");
+            return false;
+        }
+        using SpeedFn = void (__cdecl *)();
+        const auto change_speed = reinterpret_cast<SpeedFn>(
+            smedley::memory::Map::base_addr + (speed < target_index ? 0x32ee90 : 0x32efe0));
+        while (speed != target_index) {
+            const int expected = speed + (speed < target_index ? 1 : -1);
+            change_speed();
+            const int actual = game_state->speed_index();
+            if (actual != expected) {
+                logger_.Failure("native speed handler did not produce the requested speed index");
+                return false;
+            }
+            speed = actual;
+        }
+        logger_.Info(std::string("selected native speed ") + std::to_string(target_speed_));
         return true;
     }
 
@@ -1115,25 +1163,24 @@ namespace campaign_runner
                 launcher->observe_ = false;
             }
             if (!launcher->speed_ready_) {
-                const auto speed_before = game_state->speed_index();
-                if (speed_before < 0 || speed_before > 4) {
+                if (!launcher->SelectSpeed(game_state)) {
                     suppress_message_popups = false;
-                    launcher->logger_.Failure("native speed index is outside the supported range");
-                    return;
-                }
-                using SpeedUpFn = void (__cdecl *)();
-                const auto speed_up = reinterpret_cast<SpeedUpFn>(
-                    smedley::memory::Map::base_addr + 0x32ee90);
-                while (game_state->speed_index() < 4) {
-                    speed_up();
-                }
-                if (game_state->speed_index() != 4) {
-                    suppress_message_popups = false;
-                    launcher->logger_.Failure("failed to select native speed 5");
                     return;
                 }
                 launcher->speed_ready_ = true;
-                launcher->logger_.Info("selected native speed 5");
+            }
+            if (launcher->start_paused_) {
+                if (pause_state == 0) {
+                    idler->TogglePause();
+                    pause_state = idler->pause_state();
+                }
+                if (pause_state != 1) {
+                    suppress_message_popups = false;
+                    launcher->logger_.Failure("could not leave campaign paused at requested start state");
+                } else {
+                    launcher->logger_.Info("left campaign paused at requested start state");
+                }
+                return;
             }
             if (pause_state == 0) {
                 launcher->logger_.Info("campaign is already unpaused");

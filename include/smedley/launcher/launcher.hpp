@@ -58,6 +58,8 @@ namespace smedley::launcher
         std::optional<fs::path> save;
         bool observer = false;
         std::optional<std::wstring> view_tag;
+        int speed = 5;
+        bool start_paused = false;
         bool detach = false;
     };
 

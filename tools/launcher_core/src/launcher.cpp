@@ -478,6 +478,22 @@ namespace smedley::launcher
             if (const auto value = table["save"].value<std::string>()) loaded.save = fs::u8path(*value);
             if (const auto value = table["observer"].value<bool>()) loaded.observer = *value;
             if (const auto value = table["view_tag"].value<std::string>()) loaded.view_tag = std::wstring(value->begin(), value->end());
+            if (table.contains("speed")) {
+                const auto value = table["speed"].value<int>();
+                if (!value) {
+                    AddDiagnostic(diagnostics, "profile.schema", "speed must be an integer", path);
+                    return false;
+                }
+                loaded.speed = *value;
+            }
+            if (table.contains("start_paused")) {
+                const auto value = table["start_paused"].value<bool>();
+                if (!value) {
+                    AddDiagnostic(diagnostics, "profile.schema", "start_paused must be a boolean", path);
+                    return false;
+                }
+                loaded.start_paused = *value;
+            }
             if (const auto value = table["detach"].value<bool>()) loaded.detach = *value;
             auto read_paths = [&](const char *key, std::vector<fs::path> *paths) {
                 if (const auto array = table[key].as_array()) {
@@ -526,6 +542,8 @@ namespace smedley::launcher
         if (profile.save) WriteTomlString(output, "save", *profile.save);
         output << "observer = " << (profile.observer ? "true" : "false") << "\n";
         if (profile.view_tag) output << "view_tag = \"" << WideToUtf8(*profile.view_tag) << "\"\n";
+        output << "speed = " << profile.speed << "\n";
+        output << "start_paused = " << (profile.start_paused ? "true" : "false") << "\n";
         output << "detach = " << (profile.detach ? "true" : "false") << "\n";
         if (!output) {
             AddDiagnostic(diagnostics, "profile.write", "could not write profile", path);
@@ -575,6 +593,8 @@ namespace smedley::launcher
             plan.game_executable = plan.profile.game_dir / L"v2game.exe";
             ValidateSupportedExecutable(plan.game_executable, &plan.diagnostics);
             plan.kernel = plan.profile.kernel ? Absolute(*plan.profile.kernel) : plan.profile.game_dir / L"smedley_kernel.dll";
+            const bool run_controls_requested = plan.profile.speed != 5 || plan.profile.start_paused;
+            bool campaign_runner_selected = false;
 
             std::vector<std::wstring> arguments = {plan.game_executable.wstring()};
             std::vector<fs::path> selected_descriptors;
@@ -622,14 +642,26 @@ namespace smedley::launcher
                         continue;
                     }
                     plugin_ids.push_back(manifest.id);
+                    if (manifest.id == "campaign_runner") campaign_runner_selected = true;
                     if (IsX86PE(manifest.module_path, &plan.diagnostics, "plugin module", true)) {
                         HasExport(manifest.module_path, "CreatePlugin", "plugin.export",
                                   "plugin module does not export CreatePlugin", &plan.diagnostics);
                     }
                     plan.plugins.push_back(std::move(manifest));
                 }
-                if (plan.profile.observer && std::find(plugin_ids.begin(), plugin_ids.end(), "campaign_runner") == plugin_ids.end()) {
-                    AddDiagnostic(&plan.diagnostics, "observer.plugin", "observer requires the campaign_runner plugin");
+                const bool campaign_automation_requested = plan.profile.save.has_value()
+                    || plan.profile.observer || plan.profile.view_tag.has_value() || run_controls_requested;
+                if (campaign_automation_requested && !campaign_runner_selected) {
+                    AddDiagnostic(&plan.diagnostics, "campaign.plugin", "save and campaign controls require the campaign_runner plugin");
+                }
+                if (run_controls_requested && !plan.profile.save) {
+                    AddDiagnostic(&plan.diagnostics, "campaign.save", "speed and start_paused controls require a save");
+                }
+                if (plan.profile.speed < 1 || plan.profile.speed > 5) {
+                    AddDiagnostic(&plan.diagnostics, "campaign.speed", "speed must be from 1 through 5");
+                }
+                if (plan.profile.observer && plan.profile.start_paused) {
+                    AddDiagnostic(&plan.diagnostics, "observer.start_paused", "observer mode cannot start paused because its watchdog requires advancement");
                 }
                 for (const auto &manifest : plan.plugins) {
                     for (const auto &dependency : manifest.dependencies) {
@@ -688,6 +720,8 @@ namespace smedley::launcher
                 if (plan.profile.save) AddWarning(&plan.diagnostics, "safe_mode.save_ignored", "save automation is ignored when injection is disabled", *plan.profile.save);
                 if (plan.profile.observer) AddWarning(&plan.diagnostics, "safe_mode.observer_ignored", "observer settings are ignored when injection is disabled");
                 if (plan.profile.view_tag) AddWarning(&plan.diagnostics, "safe_mode.view_tag_ignored", "observer view tag is ignored when injection is disabled");
+                if (plan.profile.speed != 5) AddWarning(&plan.diagnostics, "safe_mode.speed_ignored", "speed control is ignored when injection is disabled");
+                if (plan.profile.start_paused) AddWarning(&plan.diagnostics, "safe_mode.start_paused_ignored", "start_paused is ignored when injection is disabled");
             }
 
             if (plan.profile.inject && plan.profile.save) {
@@ -697,7 +731,13 @@ namespace smedley::launcher
                 } else if (!IsSaveInGameDirectory(*plan.profile.save)) {
                     AddDiagnostic(&plan.diagnostics, "save.outside_user_dir", "save must be inside Victoria II save games", *plan.profile.save);
                 }
-                if (plan.profile.inject) arguments.push_back(L"-smedley-save=" + plan.profile.save->wstring());
+                if (plan.profile.inject) {
+                    arguments.push_back(L"-smedley-save=" + plan.profile.save->wstring());
+                    if (plan.profile.speed >= 1 && plan.profile.speed <= 5) {
+                        arguments.push_back(L"-smedley-speed=" + std::to_wstring(plan.profile.speed));
+                    }
+                    if (plan.profile.start_paused) arguments.push_back(L"-smedley-start-paused");
+                }
             }
             if (plan.profile.inject && plan.profile.observer && !plan.profile.save) {
                 AddDiagnostic(&plan.diagnostics, "observer.save", "observer requires a save");

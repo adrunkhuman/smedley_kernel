@@ -23,7 +23,7 @@ Next, build the binaries:
 cmake --build build --config Release
 ```
 
-(Optional) Install Smedley & V2UP in the game directory
+(Optional) Install Smedley, plugins, and `smedley_launcher.exe` in the game directory
 
 ```
 cmake --install build

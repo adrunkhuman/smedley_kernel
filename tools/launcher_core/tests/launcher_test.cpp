@@ -97,6 +97,8 @@ TEST_F(LauncherCoreTest, SavesAndLoadsProfileWithSpaces)
     original.save = root / L"save games" / L"my save.v2";
     original.observer = true;
     original.view_tag = L"ENG";
+    original.speed = 3;
+    original.start_paused = true;
     original.detach = true;
     std::vector<launcher::Diagnostic> diagnostics;
 
@@ -112,6 +114,8 @@ TEST_F(LauncherCoreTest, SavesAndLoadsProfileWithSpaces)
     EXPECT_EQ(loaded.save, original.save);
     EXPECT_EQ(loaded.view_tag, original.view_tag);
     EXPECT_TRUE(loaded.observer);
+    EXPECT_EQ(loaded.speed, original.speed);
+    EXPECT_TRUE(loaded.start_paused);
     EXPECT_TRUE(loaded.detach);
     EXPECT_FALSE(loaded.inject);
 }
@@ -131,6 +135,24 @@ TEST_F(LauncherCoreTest, SavesAndLoadsUnicodeProfilePaths)
 
     EXPECT_EQ(loaded.game_dir, original.game_dir);
     EXPECT_EQ(loaded.mods, original.mods);
+    EXPECT_EQ(loaded.speed, 5);
+    EXPECT_FALSE(loaded.start_paused);
+}
+
+TEST_F(LauncherCoreTest, RejectsMalformedCampaignRunControlTypes)
+{
+    launcher::Profile profile;
+    std::vector<launcher::Diagnostic> diagnostics;
+    Write(root / L"bad-speed.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\nspeed = \"2\"\n");
+    EXPECT_FALSE(launcher::LoadProfile(root / L"bad-speed.toml", &profile, &diagnostics));
+    ASSERT_FALSE(diagnostics.empty());
+    EXPECT_EQ(diagnostics.back().code, "profile.schema");
+
+    diagnostics.clear();
+    Write(root / L"bad-pause.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\nstart_paused = \"true\"\n");
+    EXPECT_FALSE(launcher::LoadProfile(root / L"bad-pause.toml", &profile, &diagnostics));
+    ASSERT_FALSE(diagnostics.empty());
+    EXPECT_EQ(diagnostics.back().code, "profile.schema");
 }
 
 TEST_F(LauncherCoreTest, RejectsPathTraversalOutsideGameDirectory)
@@ -183,6 +205,8 @@ TEST_F(LauncherCoreTest, NoInjectionIgnoresStaleAutomationSettings)
     profile.save = root / L"missing save.v2";
     profile.observer = true;
     profile.view_tag = L"not-a-tag";
+    profile.speed = 3;
+    profile.start_paused = true;
 
     const auto plan = launcher::BuildLaunchPlan(profile);
 
@@ -191,6 +215,57 @@ TEST_F(LauncherCoreTest, NoInjectionIgnoresStaleAutomationSettings)
     }));
     EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
         return diagnostic.code == "safe_mode.observer_ignored" && diagnostic.severity == launcher::Severity::Warning;
+    }));
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "safe_mode.speed_ignored" && diagnostic.severity == launcher::Severity::Warning;
+    }));
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "safe_mode.start_paused_ignored" && diagnostic.severity == launcher::Severity::Warning;
+    }));
+}
+
+TEST_F(LauncherCoreTest, AddsCampaignRunControlArgumentsAndRejectsPausedObserver)
+{
+    const auto plugin_binary = BuiltCampaignPlugin();
+    ASSERT_TRUE(fs::is_regular_file(plugin_binary));
+    fs::copy_file(plugin_binary, root / L"plugins" / L"campaign_runner.dll");
+    Write(root / L"plugins" / L"campaign_runner.toml",
+          "id = \"campaign_runner\"\nname = \"Campaign Runner\"\nversion = \"1\"\nmodule = \"campaign_runner.dll\"\n");
+
+    launcher::Profile profile;
+    profile.game_dir = root;
+    profile.plugins = {L"plugins/campaign_runner.toml"};
+    profile.save = root / L"missing.v2";
+    profile.speed = 3;
+    profile.start_paused = true;
+    auto plan = launcher::BuildLaunchPlan(profile);
+
+    EXPECT_NE(plan.command_line.find(L"-smedley-speed=3"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-start-paused"), std::wstring::npos);
+    EXPECT_FALSE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "campaign.plugin" || diagnostic.code == "campaign.save" || diagnostic.code == "campaign.speed";
+    }));
+
+    profile.observer = true;
+    plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "observer.start_paused";
+    }));
+}
+
+TEST_F(LauncherCoreTest, RejectsRunControlsWithoutSaveAndCampaignRunner)
+{
+    launcher::Profile profile;
+    profile.game_dir = root;
+    profile.speed = 2;
+
+    const auto plan = launcher::BuildLaunchPlan(profile);
+
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "campaign.plugin";
+    }));
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "campaign.save";
     }));
 }
 

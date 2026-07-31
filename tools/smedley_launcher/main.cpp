@@ -1,0 +1,690 @@
+#include <smedley/launcher/launcher.hpp>
+
+#include <windows.h>
+#include <commctrl.h>
+#include <commdlg.h>
+#include <shobjidl.h>
+
+#include <algorithm>
+#include <filesystem>
+#include <optional>
+#include <string>
+#include <vector>
+
+namespace launcher = smedley::launcher;
+namespace fs = std::filesystem;
+
+namespace
+{
+    constexpr wchar_t window_class_name[] = L"SmedleyLauncherWindow";
+
+    enum ControlId
+    {
+        profile_path_edit = 100,
+        load_profile_button,
+        save_profile_button,
+        profile_name_edit,
+        game_dir_edit,
+        browse_game_button,
+        refresh_button,
+        mod_combo,
+        plugin_list,
+        safe_mode_check,
+        save_path_edit,
+        browse_save_button,
+        observer_check,
+        view_tag_edit,
+        speed_combo,
+        start_paused_check,
+        diagnostics_edit,
+        launch_button,
+        status_text,
+    };
+
+    std::wstring Utf8ToWide(const std::string &value)
+    {
+        if (value.empty()) return {};
+        const int length = MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0);
+        if (length == 0) return L"<invalid UTF-8 diagnostic>";
+        std::wstring result(length, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), length);
+        return result;
+    }
+
+    std::string WideToUtf8(const std::wstring &value)
+    {
+        if (value.empty()) return {};
+        const int length = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+        std::string result(length, '\0');
+        WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()), result.data(), length, nullptr, nullptr);
+        return result;
+    }
+
+    std::wstring SeverityName(launcher::Severity severity)
+    {
+        switch (severity) {
+        case launcher::Severity::Info: return L"info";
+        case launcher::Severity::Warning: return L"warning";
+        case launcher::Severity::Error: return L"error";
+        }
+        return L"unknown";
+    }
+
+    std::wstring GetText(HWND control)
+    {
+        const int length = GetWindowTextLengthW(control);
+        std::wstring result(length + 1, L'\0');
+        GetWindowTextW(control, result.data(), static_cast<int>(result.size()));
+        result.resize(length);
+        return result;
+    }
+
+    void SetText(HWND control, const std::wstring &value)
+    {
+        SetWindowTextW(control, value.c_str());
+    }
+
+    fs::path AbsolutePath(const fs::path &path)
+    {
+        std::error_code error;
+        const auto result = fs::absolute(path, error);
+        return error ? path.lexically_normal() : result.lexically_normal();
+    }
+
+    fs::path ResolveSelectedPath(const fs::path &game_dir, const fs::path &selected)
+    {
+        return AbsolutePath(selected.is_absolute() ? selected : game_dir / selected);
+    }
+
+    fs::path ExecutableDirectory()
+    {
+        std::vector<wchar_t> buffer(32768, L'\0');
+        const auto length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+        if (length == 0 || length == buffer.size()) return {};
+        return fs::path(std::wstring(buffer.data(), length)).parent_path();
+    }
+
+    bool BrowseForFolder(HWND owner, std::wstring *path)
+    {
+        IFileDialog *dialog = nullptr;
+        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) return false;
+        FILEOPENDIALOGOPTIONS options = 0;
+        dialog->GetOptions(&options);
+        dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+        dialog->SetTitle(L"Select Victoria II game directory");
+        const HRESULT shown = dialog->Show(owner);
+        if (shown != S_OK) {
+            dialog->Release();
+            return false;
+        }
+        IShellItem *item = nullptr;
+        const HRESULT selected = dialog->GetResult(&item);
+        dialog->Release();
+        if (FAILED(selected)) return false;
+        PWSTR selected_path = nullptr;
+        const HRESULT displayed = item->GetDisplayName(SIGDN_FILESYSPATH, &selected_path);
+        item->Release();
+        if (FAILED(displayed)) return false;
+        *path = selected_path;
+        CoTaskMemFree(selected_path);
+        return true;
+    }
+
+    bool BrowseForFile(HWND owner, const wchar_t *title, const wchar_t *filter, std::wstring *path, bool save)
+    {
+        std::vector<wchar_t> buffer(32768, L'\0');
+        if (!path->empty()) wcsncpy_s(buffer.data(), buffer.size(), path->c_str(), _TRUNCATE);
+        OPENFILENAMEW dialog{};
+        dialog.lStructSize = sizeof(dialog);
+        dialog.hwndOwner = owner;
+        dialog.lpstrFilter = filter;
+        dialog.lpstrFile = buffer.data();
+        dialog.nMaxFile = static_cast<DWORD>(buffer.size());
+        dialog.lpstrTitle = title;
+        dialog.lpstrDefExt = save ? L"toml" : nullptr;
+        dialog.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | (save ? OFN_OVERWRITEPROMPT : OFN_FILEMUSTEXIST);
+        if (!(save ? GetSaveFileNameW(&dialog) : GetOpenFileNameW(&dialog))) return false;
+        *path = buffer.data();
+        return true;
+    }
+
+    class LauncherWindow
+    {
+    public:
+        bool Create(HINSTANCE instance)
+        {
+            WNDCLASSW window_class{};
+            window_class.hInstance = instance;
+            window_class.lpszClassName = window_class_name;
+            window_class.lpfnWndProc = WindowProc;
+            window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+            window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+            if (!RegisterClassW(&window_class) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+
+            dpi_ = GetDeviceDpi();
+            window_ = CreateWindowExW(WS_EX_CONTROLPARENT, window_class_name, L"Smedley Launcher", WS_OVERLAPPEDWINDOW,
+                                      CW_USEDEFAULT, CW_USEDEFAULT, Scale(900), Scale(690), nullptr, nullptr, instance, this);
+            if (!window_) return false;
+            CreateControls();
+            RefreshDiscovery();
+            ShowWindow(window_, SW_SHOWNORMAL);
+            UpdateWindow(window_);
+            return true;
+        }
+
+        HWND window() const { return window_; }
+
+    private:
+        static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+        {
+            auto *self = reinterpret_cast<LauncherWindow *>(GetWindowLongPtrW(window, GWLP_USERDATA));
+            if (message == WM_NCCREATE) {
+                const auto *create = reinterpret_cast<const CREATESTRUCTW *>(lparam);
+                self = static_cast<LauncherWindow *>(create->lpCreateParams);
+                SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+                self->window_ = window;
+            }
+            return self ? self->HandleMessage(message, wparam, lparam) : DefWindowProcW(window, message, wparam, lparam);
+        }
+
+        LRESULT HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
+        {
+            switch (message) {
+            case WM_GETMINMAXINFO: {
+                auto *info = reinterpret_cast<MINMAXINFO *>(lparam);
+                info->ptMinTrackSize.x = Scale(690);
+                info->ptMinTrackSize.y = Scale(540);
+                return 0;
+            }
+            case WM_SIZE:
+                Layout(LOWORD(lparam), HIWORD(lparam));
+                return 0;
+            case WM_DPICHANGED: {
+                dpi_ = HIWORD(wparam);
+                const auto *suggested = reinterpret_cast<const RECT *>(lparam);
+                SetWindowPos(window_, nullptr, suggested->left, suggested->top,
+                             suggested->right - suggested->left, suggested->bottom - suggested->top,
+                             SWP_NOZORDER | SWP_NOACTIVATE);
+                return 0;
+            }
+            case WM_COMMAND:
+                OnCommand(LOWORD(wparam), HIWORD(wparam));
+                return 0;
+            case WM_NOTIFY:
+                OnNotify(reinterpret_cast<const NMHDR *>(lparam));
+                return 0;
+            case WM_DESTROY:
+                PostQuitMessage(0);
+                return 0;
+            }
+            return DefWindowProcW(window_, message, wparam, lparam);
+        }
+
+        UINT GetDeviceDpi() const
+        {
+            HDC device = GetDC(nullptr);
+            const UINT dpi = device ? static_cast<UINT>(GetDeviceCaps(device, LOGPIXELSX)) : 96;
+            if (device) ReleaseDC(nullptr, device);
+            return dpi;
+        }
+
+        int Scale(int value) const { return MulDiv(value, static_cast<int>(dpi_), 96); }
+
+        HWND AddControl(DWORD style, const wchar_t *class_name, const wchar_t *text, int id)
+        {
+            const HWND control = CreateWindowExW(0, class_name, text, WS_CHILD | WS_VISIBLE | style,
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(id), nullptr, nullptr);
+            SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE);
+            return control;
+        }
+
+        HWND AddLabel(const wchar_t *text)
+        {
+            return AddControl(SS_LEFT, L"STATIC", text, 0);
+        }
+
+        void CreateControls()
+        {
+            profile_label_ = AddLabel(L"&Profile file:");
+            profile_path_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", profile_path_edit);
+            AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"&Load...", load_profile_button);
+            AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"&Save...", save_profile_button);
+
+            name_label_ = AddLabel(L"Profile &name:");
+            profile_name_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"Smedley", profile_name_edit);
+
+            game_label_ = AddLabel(L"&Game directory:");
+            game_dir_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", game_dir_edit);
+            const auto executable_dir = ExecutableDirectory();
+            if (fs::is_regular_file(executable_dir / L"v2game.exe")) SetText(game_dir_, executable_dir.wstring());
+            AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"&Browse...", browse_game_button);
+            AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"&Refresh", refresh_button);
+
+            mod_label_ = AddLabel(L"&Mod (optional):");
+            mods_ = AddControl(CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL, L"COMBOBOX", L"", mod_combo);
+
+            plugin_label_ = AddLabel(L"&Native plugins (trusted DLLs):");
+            plugins_ = AddControl(LVS_REPORT | LVS_SHOWSELALWAYS | LVS_SINGLESEL | WS_TABSTOP | WS_BORDER,
+                                  WC_LISTVIEWW, L"", plugin_list);
+            ListView_SetExtendedListViewStyle(plugins_, LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+            AddPluginColumn(L"Plugin", 230);
+            AddPluginColumn(L"Version", 85);
+            AddPluginColumn(L"Manifest", 300);
+
+            safe_mode_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"&Safe mode (do not inject Smedley)", safe_mode_check);
+
+            save_label_ = AddLabel(L"Campaign &save:");
+            save_path_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", save_path_edit);
+            AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Browse...", browse_save_button);
+
+            observer_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"&Observer mode", observer_check);
+            view_tag_label_ = AddLabel(L"View &tag:");
+            view_tag_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", view_tag_edit);
+            speed_label_ = AddLabel(L"&Speed:");
+            speed_ = AddControl(CBS_DROPDOWNLIST | WS_TABSTOP, L"COMBOBOX", L"", speed_combo);
+            for (int value = 1; value <= 5; ++value) {
+                const auto text = std::to_wstring(value);
+                SendMessageW(speed_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
+            }
+            SendMessageW(speed_, CB_SETCURSEL, 4, 0);
+            start_paused_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"Start &paused", start_paused_check);
+
+            diagnostics_label_ = AddLabel(L"&Diagnostics:");
+            diagnostics_ = AddControl(WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL | WS_TABSTOP,
+                                      L"EDIT", L"", diagnostics_edit);
+            status_ = AddControl(SS_LEFT, L"STATIC", L"", status_text);
+            launch_ = AddControl(BS_DEFPUSHBUTTON | WS_TABSTOP, L"BUTTON", L"&Launch Victoria II", launch_button);
+        }
+
+        void AddPluginColumn(const wchar_t *heading, int width)
+        {
+            LVCOLUMNW column{};
+            column.mask = LVCF_TEXT | LVCF_WIDTH;
+            column.pszText = const_cast<wchar_t *>(heading);
+            column.cx = Scale(width);
+            ListView_InsertColumn(plugins_, plugin_column_count_++, &column);
+        }
+
+        void PlaceLabel(HWND label, int y, int label_width, int row, int margin)
+        {
+            MoveWindow(label, margin, y + Scale(4), label_width - Scale(4), row - Scale(4), TRUE);
+        }
+
+        void Layout(int width, int height)
+        {
+            if (!profile_path_) return;
+            const int margin = Scale(12);
+            const int label_width = Scale(122);
+            const int row = Scale(26);
+            const int button_width = Scale(82);
+            const int small_button_width = Scale(76);
+            const int right = std::max(width - margin, margin + Scale(500));
+            int y = margin;
+
+            PlaceLabel(profile_label_, y, label_width, row, margin);
+            MoveWindow(profile_path_, margin + label_width, y, right - margin - label_width - button_width * 2 - Scale(8), Scale(22), TRUE);
+            MoveWindow(GetDlgItem(window_, load_profile_button), right - button_width * 2 - Scale(4), y, button_width, Scale(22), TRUE);
+            MoveWindow(GetDlgItem(window_, save_profile_button), right - button_width, y, button_width, Scale(22), TRUE);
+            y += row;
+
+            PlaceLabel(name_label_, y, label_width, row, margin);
+            MoveWindow(profile_name_, margin + label_width, y, right - margin - label_width, Scale(22), TRUE);
+            y += row;
+
+            PlaceLabel(game_label_, y, label_width, row, margin);
+            MoveWindow(game_dir_, margin + label_width, y, right - margin - label_width - button_width - small_button_width - Scale(8), Scale(22), TRUE);
+            MoveWindow(GetDlgItem(window_, browse_game_button), right - button_width - small_button_width - Scale(4), y, button_width, Scale(22), TRUE);
+            MoveWindow(GetDlgItem(window_, refresh_button), right - small_button_width, y, small_button_width, Scale(22), TRUE);
+            y += row;
+
+            PlaceLabel(mod_label_, y, label_width, row, margin);
+            MoveWindow(mods_, margin + label_width, y, right - margin - label_width, Scale(300), TRUE);
+            y += row;
+
+            PlaceLabel(plugin_label_, y, label_width, row, margin);
+            y += row;
+            const int bottom_fixed = Scale(26 * 6 + 30 + 130 + 44);
+            const int plugin_height = std::max(Scale(100), height - y - bottom_fixed);
+            MoveWindow(plugins_, margin, y, right - margin, plugin_height, TRUE);
+            y += plugin_height + Scale(4);
+
+            MoveWindow(safe_mode_, margin, y, right - margin, Scale(22), TRUE);
+            y += row;
+
+            PlaceLabel(save_label_, y, label_width, row, margin);
+            MoveWindow(save_path_, margin + label_width, y, right - margin - label_width - button_width - Scale(4), Scale(22), TRUE);
+            MoveWindow(GetDlgItem(window_, browse_save_button), right - button_width, y, button_width, Scale(22), TRUE);
+            y += row;
+
+            MoveWindow(observer_, margin, y, Scale(140), Scale(22), TRUE);
+            PlaceLabel(view_tag_label_, y, Scale(80), row, margin + Scale(150));
+            MoveWindow(view_tag_, margin + Scale(225), y, Scale(86), Scale(22), TRUE);
+            y += row;
+            PlaceLabel(speed_label_, y, Scale(60), row, margin);
+            MoveWindow(speed_, margin + Scale(62), y, Scale(70), Scale(300), TRUE);
+            MoveWindow(start_paused_, margin + Scale(145), y, Scale(150), Scale(22), TRUE);
+            y += row;
+
+            PlaceLabel(diagnostics_label_, y, label_width, row, margin);
+            y += row;
+            const int button_height = Scale(28);
+            const int diagnostic_height = std::max(Scale(80), height - y - button_height - margin * 2);
+            MoveWindow(diagnostics_, margin, y, right - margin, diagnostic_height, TRUE);
+            y += diagnostic_height + Scale(5);
+            MoveWindow(status_, margin, y + Scale(5), right - margin - Scale(170), Scale(20), TRUE);
+            MoveWindow(launch_, right - Scale(160), y, Scale(160), button_height, TRUE);
+            ListView_SetColumnWidth(plugins_, 0, Scale(230));
+            ListView_SetColumnWidth(plugins_, 1, Scale(85));
+            ListView_SetColumnWidth(plugins_, 2, std::max(Scale(100), right - margin - Scale(315)));
+        }
+
+        void OnCommand(int id, int notification)
+        {
+            if (id == load_profile_button && notification == BN_CLICKED) LoadProfile();
+            else if (id == save_profile_button && notification == BN_CLICKED) SaveProfile();
+            else if (id == browse_game_button && notification == BN_CLICKED) {
+                std::wstring path = GetText(game_dir_);
+                if (BrowseForFolder(window_, &path)) {
+                    SetText(game_dir_, path);
+                    RefreshDiscovery();
+                }
+            } else if (id == refresh_button && notification == BN_CLICKED) RefreshDiscovery();
+            else if (id == browse_save_button && notification == BN_CLICKED) {
+                std::wstring path = GetText(save_path_);
+                if (BrowseForFile(window_, L"Select Victoria II save", L"Victoria II saves (*.v2)\0*.v2\0All files\0*.*\0", &path, false)) {
+                    SetText(save_path_, path);
+                    RefreshPlan();
+                }
+            } else if (id == launch_button && notification == BN_CLICKED) LaunchGame();
+            else if ((id == safe_mode_check || id == observer_check || id == start_paused_check) && notification == BN_CLICKED) RefreshPlan();
+            else if (id == mod_combo && notification == CBN_SELCHANGE) {
+                retained_mods_.clear();
+                unsupported_multi_mod_ = false;
+                RefreshPlan();
+            } else if (id == speed_combo && notification == CBN_SELCHANGE) RefreshPlan();
+            else if ((id == game_dir_edit || id == save_path_edit || id == view_tag_edit || id == profile_name_edit)
+                       && notification == EN_KILLFOCUS) {
+                if (id == game_dir_edit) RefreshDiscovery();
+                else RefreshPlan();
+            }
+        }
+
+        void OnNotify(const NMHDR *notification)
+        {
+            if (!suppress_notifications_ && notification->idFrom == plugin_list && notification->code == LVN_ITEMCHANGED) {
+                const auto *change = reinterpret_cast<const NMLISTVIEW *>(notification);
+                if ((change->uChanged & LVIF_STATE) != 0
+                    && ((change->uOldState ^ change->uNewState) & LVIS_STATEIMAGEMASK) != 0) {
+                    RefreshPlan();
+                }
+            }
+        }
+
+        launcher::Profile BuildProfile() const
+        {
+            launcher::Profile profile;
+            profile.name = WideToUtf8(GetText(profile_name_));
+            profile.game_dir = GetText(game_dir_);
+            profile.kernel = retained_kernel_;
+            profile.inject = SendMessageW(safe_mode_, BM_GETCHECK, 0, 0) != BST_CHECKED;
+            profile.detach = retained_detach_;
+            if (const auto selected = SelectedMod()) profile.mods.push_back(*selected);
+            profile.mods.insert(profile.mods.end(), retained_mods_.begin(), retained_mods_.end());
+            profile.plugins = SelectedPlugins();
+            profile.plugins.insert(profile.plugins.end(), retained_plugins_.begin(), retained_plugins_.end());
+            const auto save = GetText(save_path_);
+            if (!save.empty()) profile.save = fs::path(save);
+            profile.observer = SendMessageW(observer_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            const auto view_tag = GetText(view_tag_);
+            if (!view_tag.empty()) profile.view_tag = view_tag;
+            profile.speed = static_cast<int>(SendMessageW(speed_, CB_GETCURSEL, 0, 0)) + 1;
+            profile.start_paused = SendMessageW(start_paused_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            return profile;
+        }
+
+        std::vector<fs::path> SelectedPlugins() const
+        {
+            std::vector<fs::path> paths;
+            for (size_t index = 0; index < discovered_plugins_.size(); ++index) {
+                if ((ListView_GetItemState(plugins_, static_cast<int>(index), LVIS_STATEIMAGEMASK) & LVIS_STATEIMAGEMASK)
+                    == INDEXTOSTATEIMAGEMASK(2)) {
+                    paths.push_back(discovered_plugins_[index].manifest_path);
+                }
+            }
+            return paths;
+        }
+
+        std::optional<fs::path> SelectedMod() const
+        {
+            const int selected = static_cast<int>(SendMessageW(mods_, CB_GETCURSEL, 0, 0));
+            if (selected <= 0 || static_cast<size_t>(selected - 1) >= discovered_mods_.size()) return std::nullopt;
+            return discovered_mods_[selected - 1].descriptor_path;
+        }
+
+        void RefreshDiscovery(std::vector<fs::path> requested_mods = {},
+                               std::vector<fs::path> requested_plugins = {})
+        {
+            if (requested_mods.empty()) {
+                if (const auto selected = SelectedMod()) requested_mods.push_back(*selected);
+                requested_mods.insert(requested_mods.end(), retained_mods_.begin(), retained_mods_.end());
+            }
+            if (requested_plugins.empty()) {
+                requested_plugins = SelectedPlugins();
+                requested_plugins.insert(requested_plugins.end(), retained_plugins_.begin(), retained_plugins_.end());
+            }
+            const fs::path game_dir = GetText(game_dir_);
+            discovery_diagnostics_.clear();
+            discovered_mods_.clear();
+            discovered_plugins_.clear();
+            if (!game_dir.empty()) {
+                const auto mods = launcher::DiscoverMods(game_dir);
+                const auto plugins = launcher::DiscoverPlugins(game_dir);
+                discovered_mods_ = mods.mods;
+                discovered_plugins_ = plugins.plugins;
+                discovery_diagnostics_.insert(discovery_diagnostics_.end(), mods.diagnostics.begin(), mods.diagnostics.end());
+                discovery_diagnostics_.insert(discovery_diagnostics_.end(), plugins.diagnostics.begin(), plugins.diagnostics.end());
+            }
+            PopulateDiscovery(game_dir, requested_mods, requested_plugins);
+            RefreshPlan();
+        }
+
+        void PopulateDiscovery(const fs::path &game_dir, const std::vector<fs::path> &requested_mods,
+                                const std::vector<fs::path> &requested_plugins)
+        {
+            suppress_notifications_ = true;
+            SendMessageW(mods_, CB_RESETCONTENT, 0, 0);
+            SendMessageW(mods_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"None"));
+            int selected_mod = 0;
+            retained_mods_ = requested_mods;
+            unsupported_multi_mod_ = requested_mods.size() > 1;
+            const auto selected_mod_path = requested_mods.empty() ? fs::path{} : ResolveSelectedPath(game_dir, requested_mods.front());
+            for (size_t index = 0; index < discovered_mods_.size(); ++index) {
+                const auto name = Utf8ToWide(discovered_mods_[index].name);
+                SendMessageW(mods_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name.c_str()));
+                if (!requested_mods.empty() && AbsolutePath(discovered_mods_[index].descriptor_path) == selected_mod_path) {
+                    selected_mod = static_cast<int>(index + 1);
+                    retained_mods_.erase(retained_mods_.begin());
+                }
+            }
+            SendMessageW(mods_, CB_SETCURSEL, selected_mod, 0);
+
+            ListView_DeleteAllItems(plugins_);
+            retained_plugins_ = requested_plugins;
+            for (size_t index = 0; index < discovered_plugins_.size(); ++index) {
+                const auto name = Utf8ToWide(discovered_plugins_[index].name);
+                const auto version = Utf8ToWide(discovered_plugins_[index].version);
+                const auto manifest = discovered_plugins_[index].manifest_path.wstring();
+                LVITEMW item{};
+                item.mask = LVIF_TEXT;
+                item.iItem = static_cast<int>(index);
+                item.pszText = const_cast<wchar_t *>(name.c_str());
+                ListView_InsertItem(plugins_, &item);
+                ListView_SetItemText(plugins_, static_cast<int>(index), 1, const_cast<wchar_t *>(version.c_str()));
+                ListView_SetItemText(plugins_, static_cast<int>(index), 2, const_cast<wchar_t *>(manifest.c_str()));
+                const auto selected = std::find_if(retained_plugins_.begin(), retained_plugins_.end(), [&](const auto &path) {
+                    return ResolveSelectedPath(game_dir, path) == AbsolutePath(discovered_plugins_[index].manifest_path);
+                });
+                if (selected != retained_plugins_.end()) {
+                    ListView_SetCheckState(plugins_, static_cast<int>(index), TRUE);
+                    retained_plugins_.erase(selected);
+                }
+            }
+            if (unsupported_multi_mod_) {
+                discovery_diagnostics_.push_back({
+                    launcher::Severity::Error,
+                    "gui.multiple_mods",
+                    "this launcher UI supports one mod; choose one mod to replace the loaded multi-mod selection",
+                    {}});
+            }
+            suppress_notifications_ = false;
+        }
+
+        void RefreshPlan()
+        {
+            operation_diagnostics_.clear();
+            plan_ = launcher::BuildLaunchPlan(BuildProfile());
+            DisplayDiagnostics(plan_.diagnostics);
+            const bool has_errors = unsupported_multi_mod_ || launcher::HasErrors(plan_.diagnostics);
+            EnableWindow(launch_, !has_errors);
+            SetText(status_, has_errors ? L"Fix preflight errors before launching." : L"Ready. Launches detached.");
+        }
+
+        void DisplayDiagnostics(const std::vector<launcher::Diagnostic> &current)
+        {
+            std::wstring text;
+            auto append = [&](const std::vector<launcher::Diagnostic> &diagnostics) {
+                for (const auto &diagnostic : diagnostics) {
+                    text += SeverityName(diagnostic.severity) + L" [" + Utf8ToWide(diagnostic.code) + L"] "
+                        + Utf8ToWide(diagnostic.message);
+                    if (!diagnostic.path.empty()) text += L" (" + diagnostic.path.wstring() + L")";
+                    text += L"\r\n";
+                }
+            };
+            append(discovery_diagnostics_);
+            append(current);
+            append(operation_diagnostics_);
+            if (text.empty()) text = L"No diagnostics.";
+            SetText(diagnostics_, text);
+        }
+
+        void LoadProfile()
+        {
+            std::wstring path = GetText(profile_path_);
+            if (!BrowseForFile(window_, L"Load Smedley profile", L"Smedley profiles (*.toml)\0*.toml\0All files\0*.*\0", &path, false)) return;
+            launcher::Profile profile;
+            std::vector<launcher::Diagnostic> diagnostics;
+            if (!launcher::LoadProfile(path, &profile, &diagnostics)) {
+                operation_diagnostics_ = std::move(diagnostics);
+                DisplayDiagnostics(plan_.diagnostics);
+                SetText(status_, L"Could not load profile.");
+                return;
+            }
+            SetText(profile_path_, path);
+            SetText(profile_name_, Utf8ToWide(profile.name));
+            SetText(game_dir_, profile.game_dir.wstring());
+            retained_kernel_ = profile.kernel;
+            SetText(save_path_, profile.save ? profile.save->wstring() : L"");
+            SetText(view_tag_, profile.view_tag.value_or(L""));
+            SendMessageW(safe_mode_, BM_SETCHECK, profile.inject ? BST_UNCHECKED : BST_CHECKED, 0);
+            SendMessageW(observer_, BM_SETCHECK, profile.observer ? BST_CHECKED : BST_UNCHECKED, 0);
+            SendMessageW(speed_, CB_SETCURSEL, profile.speed >= 1 && profile.speed <= 5 ? profile.speed - 1 : -1, 0);
+            SendMessageW(start_paused_, BM_SETCHECK, profile.start_paused ? BST_CHECKED : BST_UNCHECKED, 0);
+            retained_detach_ = profile.detach;
+            // A loaded profile intentionally replaces, rather than merges with, old selections.
+            discovered_mods_.clear();
+            discovered_plugins_.clear();
+            retained_mods_.clear();
+            retained_plugins_.clear();
+            RefreshDiscovery(profile.mods, profile.plugins);
+            operation_diagnostics_ = std::move(diagnostics);
+            DisplayDiagnostics(plan_.diagnostics);
+        }
+
+        void SaveProfile()
+        {
+            std::wstring path = GetText(profile_path_);
+            if (!BrowseForFile(window_, L"Save Smedley profile", L"Smedley profiles (*.toml)\0*.toml\0All files\0*.*\0", &path, true)) return;
+            std::vector<launcher::Diagnostic> diagnostics;
+            if (!launcher::SaveProfile(path, BuildProfile(), &diagnostics)) {
+                operation_diagnostics_ = std::move(diagnostics);
+                DisplayDiagnostics(plan_.diagnostics);
+                SetText(status_, L"Could not save profile.");
+                return;
+            }
+            SetText(profile_path_, path);
+            RefreshPlan();
+            SetText(status_, L"Profile saved.");
+        }
+
+        void LaunchGame()
+        {
+            RefreshPlan();
+            if (unsupported_multi_mod_ || launcher::HasErrors(plan_.diagnostics)) return;
+            auto detached_plan = plan_;
+            detached_plan.profile.detach = true;
+            const auto result = launcher::Launch(detached_plan);
+            operation_diagnostics_ = result.diagnostics;
+            DisplayDiagnostics({});
+            if (result.started) SetText(status_, L"Victoria II launched (PID " + std::to_wstring(result.process_id) + L").");
+            else SetText(status_, L"Launch failed. See diagnostics.");
+        }
+
+        HWND window_ = nullptr;
+        HWND profile_label_ = nullptr;
+        HWND profile_path_ = nullptr;
+        HWND name_label_ = nullptr;
+        HWND profile_name_ = nullptr;
+        HWND game_label_ = nullptr;
+        HWND game_dir_ = nullptr;
+        HWND mod_label_ = nullptr;
+        HWND mods_ = nullptr;
+        HWND plugin_label_ = nullptr;
+        HWND plugins_ = nullptr;
+        HWND safe_mode_ = nullptr;
+        HWND save_label_ = nullptr;
+        HWND save_path_ = nullptr;
+        HWND observer_ = nullptr;
+        HWND view_tag_label_ = nullptr;
+        HWND view_tag_ = nullptr;
+        HWND speed_label_ = nullptr;
+        HWND speed_ = nullptr;
+        HWND start_paused_ = nullptr;
+        HWND diagnostics_label_ = nullptr;
+        HWND diagnostics_ = nullptr;
+        HWND status_ = nullptr;
+        HWND launch_ = nullptr;
+        UINT dpi_ = 96;
+        int plugin_column_count_ = 0;
+        bool suppress_notifications_ = false;
+        bool unsupported_multi_mod_ = false;
+        bool retained_detach_ = true;
+        launcher::LaunchPlan plan_;
+        std::optional<fs::path> retained_kernel_;
+        std::vector<fs::path> retained_mods_;
+        std::vector<fs::path> retained_plugins_;
+        std::vector<launcher::ModDescriptor> discovered_mods_;
+        std::vector<launcher::PluginManifest> discovered_plugins_;
+        std::vector<launcher::Diagnostic> discovery_diagnostics_;
+        std::vector<launcher::Diagnostic> operation_diagnostics_;
+    };
+}
+
+int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
+{
+    static_assert(sizeof(void *) == 4, "build smedley_launcher for x86 Victoria 2");
+    SetProcessDPIAware();
+    INITCOMMONCONTROLSEX common_controls{sizeof(common_controls), ICC_LISTVIEW_CLASSES};
+    if (!InitCommonControlsEx(&common_controls)) return 1;
+    const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    LauncherWindow launcher_window;
+    if (!launcher_window.Create(instance)) return 1;
+    MSG message;
+    while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if (!IsDialogMessageW(launcher_window.window(), &message)) {
+            TranslateMessage(&message);
+            DispatchMessageW(&message);
+        }
+    }
+    if (SUCCEEDED(com)) CoUninitialize();
+    return static_cast<int>(message.wParam);
+}

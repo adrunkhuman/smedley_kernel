@@ -1,67 +1,75 @@
 # Smedley
 
-Smedley is an API and plugin loader for Victoria 2, similar to Minecraft Forge. Smedley plugins can alter and enhance gameplay in ways that base Victoria 2 mods cannot, and have access to real game objects instead of relying on effects/triggers to change the game state.
+Smedley is an instrumentation, automation, and native extension framework for
+Victoria II: Heart of Darkness 3.04. It includes a graphical launcher, a
+scriptable CLI, plugin preflight, unattended campaign loading, safe observer
+mode, and economy tracing. Ordinary players and modders use profiles and the
+launcher; C++ is only needed to build Smedley or write native plugins.
 
-# The Smedley Kernel
+This fork currently supports one exact English x86 `v2game.exe`:
 
-Smedley is made of two components, the bootstrapper (launcher) and kernel. The bootstrapper launches the game, and is responsible for injecting the kernel and the user's selected plugins into the game. The bootstrapper source can be found on the [project page.](https://github.com/shenso/smedley_bootstrapper)
+| Property | Supported value |
+| --- | --- |
+| Version | Victoria II: Heart of Darkness 3.04 |
+| SHA-256 | `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648` |
+| Size | `12294656` bytes |
 
-The kernel is responsible for initializing plugins and the facilities used by them. Despite being separate components the bootstrapper will be bundled with releases on this project page.
+The launcher rejects any other executable before injection.
 
-## V2UP and 3rd party plugin disclaimer
+## Install And Launch
 
-V2UP is the flagship mod of Smedley and comes bundled with it. I intend to add various fixes and improvements to it that still mean to carry on the spirit of game.
+Build and install the x86 Release configuration by following
+[`BUILDING.md`](BUILDING.md). Installed files are placed in the configured game
+directory.
 
-Please keep in mind when installing 3rd party plugins that these are not Victoria 2 mods. These are dll files, and are capable of doing anything an exe file can do on your computer when loaded. Please only install and load plugins from sources you trust. I would suggest not using closed-source plugins. I may try to leverage the game's lua runtime or something similar to allow for sandboxing in the future.
+Run `smedley_launcher.exe` from the Victoria II directory. It automatically
+discovers the game, ordinary `.mod` descriptors, and Smedley plugin manifests.
+Choose a mod and trusted plugins, inspect the diagnostics, then launch. Safe
+mode starts the verified original game without injecting Smedley, which provides
+a recovery path for broken plugin configurations.
 
-## Command-line launcher
+Profiles are documented TOML files shared by the GUI and CLI. They preserve the
+game directory, mod and plugin selections, campaign save, observer settings,
+initial speed, pause state, and launch behavior. See
+[`docs/launcher.md`](docs/launcher.md) for the schema and examples.
 
-`smedley_cli` starts Victoria 2, injects the Smedley kernel and optional plugins,
-then resumes the game without using the graphical bootstrapper.
+## CLI
+
+The CLI supports desktop-free automation and dry-run validation:
 
 ```powershell
-smedley_cli --game-dir "C:\path\to\Victoria 2" --detach
-smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/v2up.toml --detach
-smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/campaign_runner.toml --save "C:\path\to\autosave.v2" --detach
-smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/campaign_runner.toml --save "C:\path\to\autosave.v2" --observe --detach
-smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/campaign_runner.toml --save "C:\path\to\autosave.v2" --observe --view-tag ENG --detach
-smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/campaign_runner.toml --plugin plugins/economy_trace.toml --save "C:\path\to\autosave.v2" --detach
+smedley_cli --game-dir "C:\Games\Victoria 2" --discover
+smedley_cli --game-dir "C:\Games\Victoria 2" --mod mod\GFM.mod --no-inject --detach
+smedley_cli --profile "C:\Profiles\gfm-observer.toml" --dry-run
+smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.toml --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --speed 5 --observe --view-tag ENG --detach
 ```
 
-Use `--dry-run` to validate paths without starting the game. Plugin definition
-paths currently cannot contain spaces because the kernel's command-line parser
-does not support quoted plugin arguments.
+Paths may contain spaces and Unicode characters. `--dry-run` performs the same
+shared preflight as a real launch without creating a process.
 
-With `--save`, `campaign_runner` uses native GUI dispatch on Victoria 2's
-frontend thread to enter Single Player, select the named save through the
-normal loader, and enter campaign mode. No mouse or keyboard input is
-synthesized. After verifying the in-game idler through RTTI, the runner unpauses
-the campaign through Victoria 2's native pause controller.
-An optional `--observe` returns the loaded save's player country to native AI
-control before unpausing. The current tag remains as a safe UI viewing
-perspective, but the runner verifies that no country remains marked as human
-controlled and that the former player country has rejoined the AI scheduler.
-It then invokes the native `fow` command and verifies full-map visibility before
-selecting native speed 5 and unpausing. All nine configurable message popup
-dispatchers and their attached pause actions are bypassed only while observer
-mode is active; message effects, logs, map notices, and AI processing remain
-intact.
-If the UI viewing country is annexed, the watchdog pauses, switches the view to
-a living AI country through native `tag`, returns that country to AI, verifies
-the scheduler, and resumes.
+## Built-In Tools
 
-Observer mode disables the unsafe native `tag` console command and registers
-`switch TAG`. The replacement pauses before the native transition, recreates
-and verifies the target AI, and only then resumes. Native `tag` behavior remains
-unchanged outside observer mode.
-`--view-tag TAG` performs the same verified transaction once after observer
-startup and is useful for reproducible automation.
+`campaign_runner` loads a selected save through Victoria II's native frontend
+operations. It can choose speed 1 through 5, preserve a paused start, or enter
+observer mode. Observer mode returns every country to AI control, enables full
+map visibility, suppresses modal message pauses, safely changes the viewing
+country, and verifies each transition against live game state.
 
-The independent `economy_trace` plugin writes `economy_trace.csv` in the game
-directory. Each daily country update records the raw game date, country tag,
-treasury, and an adjacent treasury snapshot whose exact purpose is not yet
-known. Treasury uses 48.15 fixed point and is divided by 32768 for the displayed
-value. Load both plugins when campaign automation and economy output are needed.
+`economy_trace` records daily country treasury snapshots to CSV. It is an early
+instrumentation plugin, not yet the versioned JSON Lines telemetry system
+planned for broader tracing.
 
-See [`mappings/CAMPAIGN_AUTOMATION.md`](mappings/CAMPAIGN_AUTOMATION.md) for
-the verified native frontend sequence and its runtime mappings.
+`v2up` and `dailyupdate_example` are inherited native plugin examples. Gameplay
+changes remain opt-in.
+
+## Trust And Limits
+
+Smedley plugins are native DLLs. They are not sandboxed and have the same access
+as the user running Victoria II. Install only open, trusted plugins. Ordinary
+Victoria II data mods do not cross this native-code trust boundary.
+
+The current release supports Windows, MSVC x86, and the executable identified
+above. Plugin dependency versions, per-plugin settings, broad structured
+telemetry, profiling, and profiler-backed engine optimizations remain in active
+development. See the repository's GitHub issues for the current roadmap and
+[`mappings/`](mappings/) for reverse-engineering evidence.

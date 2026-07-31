@@ -19,6 +19,8 @@ struct Options
     std::optional<bool> inject;
     std::optional<bool> detach;
     std::optional<bool> observer;
+    std::optional<int> speed;
+    std::optional<bool> start_paused;
     bool dry_run = false;
     bool discover = false;
     bool help = false;
@@ -37,6 +39,8 @@ void PrintUsage()
         << "  --save PATH     Save file for campaign_runner\n"
         << "  --observe       Return the player country to AI control before unpausing\n"
         << "  --view-tag TAG  Select an initial observer view\n"
+        << "  --speed N       Set initial campaign speed from 1 through 5 (default: 5)\n"
+        << "  --start-paused  Leave a loaded campaign paused; incompatible with --observe\n"
         << "  --detach        Return after Victoria 2 starts\n"
         << "  --discover      List GAME_DIR plugins and mods\n"
         << "  --dry-run       Print diagnostics and the resolved launch plan\n"
@@ -54,6 +58,19 @@ Options ParseArguments(int argc, wchar_t **argv)
         if (argument == L"--detach") { options.detach = true; continue; }
         if (argument == L"--observe") { options.observer = true; continue; }
         if (argument == L"--no-inject") { options.inject = false; continue; }
+        if (argument == L"--start-paused") { options.start_paused = true; continue; }
+        if (argument == L"--speed") {
+            if (++i == argc) throw std::runtime_error("missing --speed value");
+            const std::wstring value = argv[i];
+            size_t parsed = 0;
+            try {
+                options.speed = std::stoi(value, &parsed);
+            } catch (const std::exception &) {
+                throw std::runtime_error("--speed must be an integer from 1 through 5");
+            }
+            if (parsed != value.size()) throw std::runtime_error("--speed must be an integer from 1 through 5");
+            continue;
+        }
         if (argument != L"--profile" && argument != L"--game-dir" && argument != L"--kernel"
             && argument != L"--mod" && argument != L"--plugin" && argument != L"--save" && argument != L"--view-tag") {
             throw std::runtime_error("unknown argument");
@@ -115,6 +132,8 @@ int wmain(int argc, wchar_t **argv)
         if (options.inject) profile.inject = *options.inject;
         if (options.detach) profile.detach = *options.detach;
         if (options.observer) profile.observer = *options.observer;
+        if (options.speed) profile.speed = *options.speed;
+        if (options.start_paused) profile.start_paused = *options.start_paused;
         profile.mods.insert(profile.mods.end(), options.mods.begin(), options.mods.end());
         profile.plugins.insert(profile.plugins.end(), options.plugins.begin(), options.plugins.end());
         if (profile.game_dir.empty()) throw std::runtime_error("--game-dir is required unless supplied by --profile");

@@ -395,9 +395,9 @@ source = "campaign_runner invoked this until runtime readback CCurrentGameState+
 name = "Speed-down message handler"
 rva = 0x0032efe0
 kind = "function"
-status = "verified-static-callsites"
+status = "verified-runtime"
 signature = "8b 0d e8 88 25 01 8b 81 28 0b 00 00 48 83 f8 04"
-source = "decrements CCurrentGameState+0xb28 and clamps the result to 0"
+source = "campaign_runner selected profile speed 2 at runtime with exact per-step CCurrentGameState+0xb28 readback"
 
 [[symbols]]
 name = "Application message/render service pump"

@@ -15,6 +15,14 @@ The topbar binds `button_speedup` and `button_speeddown` to callbacks at RVAs
 `0x26a1b0`. Their message handlers at RVAs `0x32ee90` and `0x32efe0` update the
 speed index.
 
+`campaign_runner` checks the invariant handler bodies after the ASLR-relocated
+global pointer before calling either message handler. It reads
+`CGameState+0xb28` after every call and rejects a transition that does not move
+exactly one index toward the requested profile speed. Both directions are
+`verified-runtime`: a launcher run on 2026-07-31 selected speed 2 from the
+loaded campaign's higher initial speed, read back each decrement, and then
+verified that the campaign remained paused as requested.
+
 ## Daily pacing
 
 RVA `0x282bd0` selects these thresholds before advancing the simulation date:
