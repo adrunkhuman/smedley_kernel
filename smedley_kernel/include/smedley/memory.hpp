@@ -4,6 +4,8 @@
 
 #include "apimacros.hpp"
 #include <cstdint>
+#include <cstring>
+#include <stdexcept>
 #include <vector>
 #include <windows.h>
 #include <memoryapi.h>
@@ -43,6 +45,7 @@ namespace smedley::memory
      * @returns if n is valid
      */
     bool Hook(uintptr_t addr, void *jmp, int n, std::vector<uint8_t> *old_instr);
+    bool RestoreHook(uintptr_t addr, const std::vector<uint8_t> &instructions) noexcept;
 
     /**
      * Hooks a function at its prologue. Automatically generates the trampoline to

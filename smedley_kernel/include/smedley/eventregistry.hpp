@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -45,6 +46,7 @@ namespace smedley
         {
             inline bool operator()(Handler a, Handler b) const { return a.priority < b.priority; }
         } _handler_compare_lt{};
+        SMEDLEY_API static uint32_t _notification_depth;
 
         // should be defined for each event by template specialization
         SMEDLEY_API static Handlers _handlers;
@@ -59,6 +61,7 @@ namespace smedley
          */
         static void Register(Plugin *plugin, const std::string &id, std::function<void(Ev &)> fn, EventHandlerPriority priority = EventHandlerPriority::LOWEST)
         {
+            if (_notification_depth != 0) throw std::logic_error("cannot register an event handler during notification");
             auto handler_exists = [&plugin, &id](const Handler &h) { return h.key_plugin == plugin && h.key_str == id; };
             if (std::find_if(_handlers.begin(), _handlers.end(), handler_exists) == _handlers.end()) {
                 Handler eh{plugin, id, fn, priority};
@@ -75,6 +78,7 @@ namespace smedley
          */
         static void Unregister(Plugin *plugin, const std::string &id)
         {
+            if (_notification_depth != 0) throw std::logic_error("cannot unregister an event handler during notification");
             auto handler_exists = [plugin, &id](const Handler &h) { return h.key_plugin == plugin && h.key_str == id; };
             auto iter = std::find_if(_handlers.begin(), _handlers.end(), handler_exists);
             if (iter != _handlers.end()) {
@@ -87,9 +91,31 @@ namespace smedley
          */
         static void Notify(Ev &e)
         {
-            for (auto iter = _handlers.begin(); iter != _handlers.end() && !e.is_cancelled(); iter++) {
-                (*iter).fn(e);
+            ++_notification_depth;
+            try {
+                for (auto iter = _handlers.begin(); iter != _handlers.end() && !e.is_cancelled(); iter++) {
+                    (*iter).fn(e);
+                }
+            } catch (...) {
+                --_notification_depth;
+                throw;
             }
+            --_notification_depth;
+        }
+
+        static uint32_t NotifyContained(Ev &e) noexcept
+        {
+            uint32_t failures = 0;
+            ++_notification_depth;
+            for (auto iter = _handlers.begin(); iter != _handlers.end() && !e.is_cancelled(); iter++) {
+                try {
+                    (*iter).fn(e);
+                } catch (...) {
+                    ++failures;
+                }
+            }
+            --_notification_depth;
+            return failures;
         }
     };
 

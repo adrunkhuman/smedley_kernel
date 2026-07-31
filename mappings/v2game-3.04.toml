@@ -33,6 +33,14 @@ signature = "8b 4c 24 64 5f"
 source = "commit 794c98e plugins/v2up/plugin.cpp"
 
 [[symbols]]
+name = "PayDailyInterest boundary event hook"
+rva = 0x00108d3e
+kind = "hook"
+status = "verified-runtime"
+signature = "e8 ed ae 01 00"
+source = "sole direct call from CCountry::DailyUpdate to RVA 0x00123c30; a seven-day run produced 1,897 complete before/after country pairs and an unsubscribed smoke run preserved exact date advancement"
+
+[[symbols]]
 name = "CCountry::MonthlyUpdate event hook"
 rva = 0x0010c2a6
 kind = "hook"
@@ -44,9 +52,9 @@ source = "smedley_kernel/include/smedley/events/monthlyupdate.hpp"
 name = "CCountry::PayDailyInterest"
 rva = 0x00123c30
 kind = "function"
-status = "verified-static-callsites"
+status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
-source = "single direct caller at RVA 0x00108d3e; function reads country creditor vector +0xe8c, credits country bank +0xe88 field +0x20, and returns with ret 4"
+source = "paired runtime observations verified current-country treasury reductions on all calls with creditor entries; the sole direct caller at RVA 0x00108d3e and ret 4 cleanup are statically established; destination-bank flow remains verified-static-callsites in INTEREST_FIX.md"
 
 [[symbols]]
 name = "CState constructor"

@@ -31,18 +31,33 @@ namespace smedley::memory
             0xc3, // ret
         };
 
-        uint8_t *trampoline = new uint8_t[sizeof(trampoline_template)];
+        auto *trampoline = static_cast<uint8_t *>(VirtualAlloc(
+            nullptr, sizeof(trampoline_template), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+        if (trampoline == nullptr) throw std::runtime_error("could not allocate heap-hook trampoline");
         uintptr_t trampoline_jmp = (reinterpret_cast<uintptr_t>(HeapInitHook) + 9) - reinterpret_cast<uintptr_t>((trampoline + sizeof(trampoline_template)));
 
         std::copy(std::begin(trampoline_template), std::end(trampoline_template), trampoline);
         *reinterpret_cast<uintptr_t *>(trampoline + 3) = trampoline_jmp;
         *reinterpret_cast<uintptr_t *>(trampoline + 9) = Map::base_addr + 0x00b202e8;
-        {
-            DWORD old_protect;
-            VirtualProtect(trampoline, sizeof(trampoline_template), PAGE_EXECUTE_READWRITE, &old_protect);
+        DWORD old_protect;
+        if (!VirtualProtect(trampoline, sizeof(trampoline_template), PAGE_EXECUTE_READ, &old_protect)) {
+            VirtualFree(trampoline, 0, MEM_RELEASE);
+            throw std::runtime_error("could not make heap-hook trampoline executable");
         }
-
-        Hook(Map::base_addr + 0x006babee, trampoline, 8, nullptr);
+        if (!FlushInstructionCache(GetCurrentProcess(), trampoline, sizeof(trampoline_template))) {
+            DWORD ignored;
+            VirtualProtect(trampoline, sizeof(trampoline_template), old_protect, &ignored);
+            VirtualFree(trampoline, 0, MEM_RELEASE);
+            throw std::runtime_error("could not flush the heap-hook trampoline instruction cache");
+        }
+        try {
+            Hook(Map::base_addr + 0x006babee, trampoline, 8, nullptr);
+        } catch (...) {
+            DWORD ignored;
+            VirtualProtect(trampoline, sizeof(trampoline_template), old_protect, &ignored);
+            VirtualFree(trampoline, 0, MEM_RELEASE);
+            throw;
+        }
     }
 
     void Patch(uintptr_t addr, uint8_t *instr, int n)
@@ -66,24 +81,48 @@ namespace smedley::memory
         }
 
         offset = reinterpret_cast<uintptr_t>(jmp) - addr - 5;
+        const std::vector<uint8_t> original(bytes_addr, bytes_addr + n);
 
-        VirtualProtect(lpv_addr, n, PAGE_EXECUTE_READWRITE, &old_protect);
+        if (!VirtualProtect(lpv_addr, n, PAGE_EXECUTE_READWRITE, &old_protect)) {
+            throw std::runtime_error("could not make hook target writable");
+        }
 
         if (old_instr != nullptr) {
-            uint8_t *ptr;
-            old_instr->clear();
-            for (int i = 0; i < n; i++) {
-                ptr = bytes_addr + i;
-                old_instr->push_back(*ptr);
-            }
+            *old_instr = original;
         }
 
         std::memset(bytes_addr + 1, 0x90, n - 1); // fill the dest with noops for padding
         *bytes_addr = 0xe9;
         *reinterpret_cast<DWORD *>(bytes_addr + 1) = offset;
 
-        VirtualProtect(lpv_addr, n, old_protect, &old_protect);
+        if (!FlushInstructionCache(GetCurrentProcess(), lpv_addr, n)) {
+            std::copy(original.begin(), original.end(), bytes_addr);
+            FlushInstructionCache(GetCurrentProcess(), lpv_addr, n);
+            DWORD ignored;
+            VirtualProtect(lpv_addr, n, old_protect, &ignored);
+            throw std::runtime_error("could not flush the hook instruction cache");
+        }
+        DWORD ignored;
+        if (!VirtualProtect(lpv_addr, n, old_protect, &ignored)) {
+            std::copy(original.begin(), original.end(), bytes_addr);
+            FlushInstructionCache(GetCurrentProcess(), lpv_addr, n);
+            VirtualProtect(lpv_addr, n, old_protect, &ignored);
+            throw std::runtime_error("could not restore hook target protection");
+        }
 
         return true;
+    }
+
+    bool RestoreHook(uintptr_t addr, const std::vector<uint8_t> &instructions) noexcept
+    {
+        if (instructions.empty()) return false;
+        auto *target = reinterpret_cast<void *>(addr);
+        DWORD old_protect;
+        if (!VirtualProtect(target, instructions.size(), PAGE_EXECUTE_READWRITE, &old_protect)) return false;
+        std::memcpy(target, instructions.data(), instructions.size());
+        const bool flushed = FlushInstructionCache(GetCurrentProcess(), target, instructions.size()) != FALSE;
+        DWORD ignored;
+        const bool restored = VirtualProtect(target, instructions.size(), old_protect, &ignored) != FALSE;
+        return flushed && restored;
     }
 }

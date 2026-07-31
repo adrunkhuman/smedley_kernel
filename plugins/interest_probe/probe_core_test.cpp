@@ -1,4 +1,5 @@
 #include "probe_core.hpp"
+#include "pair_queue.hpp"
 
 #include <gtest/gtest.h>
 
@@ -118,4 +119,26 @@ TEST(InterestProbeTest, RejectsMalformedProvinceVector)
 
     const auto sample = interest_probe::CollectSample(country.data(), 0);
     EXPECT_NE(sample.flags & interest_probe::SAMPLE_STATE_VECTOR_INVALID, 0u);
+}
+
+TEST(InterestProbeTest, PairQueueRejectsOnlyCompletePairsAtCapacity)
+{
+    interest_probe::PairQueue<4> queue;
+    for (int date = 1; date <= 3; ++date) {
+        interest_probe::SamplePair pair{};
+        pair.before.date_raw = date;
+        pair.after.date_raw = date;
+        ASSERT_TRUE(queue.TryPush(pair));
+    }
+    interest_probe::SamplePair rejected{};
+    EXPECT_FALSE(queue.TryPush(rejected));
+
+    for (int date = 1; date <= 3; ++date) {
+        interest_probe::SamplePair pair{};
+        ASSERT_TRUE(queue.TryPop(&pair));
+        EXPECT_EQ(pair.before.date_raw, date);
+        EXPECT_EQ(pair.after.date_raw, date);
+    }
+    interest_probe::SamplePair empty{};
+    EXPECT_FALSE(queue.TryPop(&empty));
 }

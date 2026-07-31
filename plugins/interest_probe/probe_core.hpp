@@ -16,6 +16,7 @@ namespace interest_probe
         SAMPLE_BANK_UNREADABLE = 1u << 7,
         SAMPLE_CREDITOR_VECTOR_INVALID = 1u << 8,
         SAMPLE_DATE_UNAVAILABLE = 1u << 9,
+        SAMPLE_EVENT_CALLBACK_FAILURE = 1u << 10,
     };
 
     struct Sample
