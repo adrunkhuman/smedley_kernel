@@ -15,8 +15,9 @@ handlers run; the harness dispatches native GUI signals rather than coordinates.
    registry at `+0x704`.
 4. Native press and release dispatchers at RVAs `0x5ee510` and `0x5ee550`
    enter the Single Player lobby.
-5. The plugin writes the save filename to the Single Player controller at
-   `+0x590`, then sets `+0x5bc=1` and `+0x5bd=0`.
+5. The plugin confirms the requested save filename is present at `+0x590`,
+   constructing it only when that game string is empty; it rejects a different
+   existing value. It then sets `+0x5bc=1` and `+0x5bd=0`.
 6. Victoria 2's normal lobby update calls `CCurrentGameState::LoadSave` from
    call RVA `0x36f8b3`, performs its complete post-load contract, clears
    `+0x5bc`, and sets `+0x5bd`.
@@ -116,3 +117,24 @@ scheduler list.
 `economy_trace` is a separate observer and can be loaded alongside
 `campaign_runner` when CSV output is needed. Do not call pause or speed
 functions based on a non-null pointer alone; verify the idler phase first.
+
+## Lifecycle Telemetry
+
+With an already active optional telemetry plugin, the runner dynamically
+resolves its C ABI and emits `verified-runtime` records after the requested
+save filename is confirmed present and the save flags are written, `+0x5bd`
+observation, RTTI entry readback, observer postconditions,
+speed readback, and final pause readback above. The Win32 timer callback context
+is not independently established as a game UI thread, so telemetry makes no
+thread guarantee. `observer.configured` waits for an observed valid view after
+any requested switch. View tags are exactly three normalized uppercase ASCII
+alphanumeric characters, including dynamic tags such as `D01`.
+
+Runtime acceptance on July 31, 2026 used `benchmark.v2`, observer view `ENG`,
+speed 5, and the lifecycle/state telemetry categories. Records observed the
+save-selection flags, load-complete flag, `CInGameIdler`, speed 5 readback, final
+unpaused readback, and ENG observer postconditions in that order. The resulting
+trace `f2d403e1-82f8-46b8-8832-a136c822d38a` advanced 515 game days and
+validated 1,039 strictly ordered records with no sequence gaps, drops, write
+failure, or campaign-runner telemetry warning. This validates the emission
+points; it does not establish a general timer-callback thread contract.

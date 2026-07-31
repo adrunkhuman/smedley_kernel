@@ -1,4 +1,5 @@
 #include "campaign_launcher.hpp"
+#include "campaign_save_selection.hpp"
 
 #include <smedley/log.hpp>
 #include <smedley/memory.hpp>
@@ -8,6 +9,7 @@
 #include <smedley/v2/gamestate.hpp>
 
 #include <cstring>
+#include <cctype>
 #include <filesystem>
 #include <new>
 #include <sstream>
@@ -346,14 +348,14 @@ namespace campaign_runner
         }
         if (!observer_view_tag.empty()) {
             if (!observe || observer_view_tag.size() != 3) {
-                logger_.Failure("observer view tag requires --observe and three ASCII letters");
+                logger_.Failure("observer view tag requires --observe and three ASCII alphanumeric characters");
                 launcher_instance = nullptr;
                 return false;
             }
             for (const auto character : observer_view_tag) {
-                if (!((character >= L'A' && character <= L'Z')
-                      || (character >= L'a' && character <= L'z'))) {
-                    logger_.Failure("observer view tag requires --observe and three ASCII letters");
+                if (!((character >= L'A' && character <= L'Z') || (character >= L'a' && character <= L'z')
+                      || (character >= L'0' && character <= L'9'))) {
+                    logger_.Failure("observer view tag requires --observe and three ASCII alphanumeric characters");
                     launcher_instance = nullptr;
                     return false;
                 }
@@ -489,12 +491,12 @@ namespace campaign_runner
         }
         std::string requested_tag = arguments[0].c_str();
         if (requested_tag.size() != 3) {
-            return smedley::v2::CConsoleCmd::SResult("TAG must be 3 letters", false);
+            return smedley::v2::CConsoleCmd::SResult("TAG must be 3 ASCII alphanumeric characters", false);
         }
         for (auto &character : requested_tag) {
-            if (!((character >= 'A' && character <= 'Z')
-                  || (character >= 'a' && character <= 'z'))) {
-                return smedley::v2::CConsoleCmd::SResult("TAG must be 3 letters", false);
+            if (!((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z')
+                  || (character >= '0' && character <= '9'))) {
+                return smedley::v2::CConsoleCmd::SResult("TAG must be 3 ASCII alphanumeric characters", false);
             }
             if (character >= 'a' && character <= 'z') {
                 character = character - 'a' + 'A';
@@ -662,6 +664,7 @@ namespace campaign_runner
     bool CampaignLauncher::SelectSpeed(smedley::v2::CCurrentGameState *game_state)
     {
         int speed = game_state->speed_index();
+        const int previous_speed = speed + 1;
         const int target_index = target_speed_ - 1;
         if (speed < 0 || speed > 4) {
             logger_.Failure("native speed index is outside the supported range");
@@ -680,8 +683,35 @@ namespace campaign_runner
             }
             speed = actual;
         }
+        ReportTelemetryResult(telemetry_.SpeedConfigured(previous_speed, speed + 1, target_speed_));
         logger_.Info(std::string("selected native speed ") + std::to_string(target_speed_));
         return true;
+    }
+
+    void CampaignLauncher::ReportTelemetryResult(SmedleyTelemetryResult result)
+    {
+        if (result == SMEDLEY_TELEMETRY_INVALID && !telemetry_invalid_logged_) {
+            telemetry_invalid_logged_ = true;
+            logger_.Warn("campaign lifecycle telemetry rejected an invalid ABI record");
+        } else if (result == SMEDLEY_TELEMETRY_DROPPED && !telemetry_dropped_logged_) {
+            telemetry_dropped_logged_ = true;
+            logger_.Warn("campaign lifecycle telemetry queue dropped a record");
+        }
+    }
+
+    void CampaignLauncher::EmitObserverConfiguredIfReady(smedley::v2::CCurrentGameState *game_state)
+    {
+        if (!observer_ai_ready_ || observer_view_switch_pending_ || game_state->has_human_controlled_country()
+            || *reinterpret_cast<unsigned char *>(smedley::memory::Map::base_addr + 0xb092fb) != 0) return;
+        const auto ordinal = game_state->player_tag().ordinal();
+        const auto *country = ordinal <= 0 ? nullptr : game_state->country(ordinal);
+        if (country == nullptr || !country->exists() || game_state->player_control_state(ordinal) != 0
+            || country->ai() == nullptr || !game_state->is_scheduled_ai(country->ai())) return;
+        const char *tag = country->tag().str();
+        if (tag == nullptr || std::strlen(tag) != 3 || !std::all_of(tag, tag + 3, [](unsigned char character) {
+            return (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9');
+        })) return;
+        ReportTelemetryResult(telemetry_.ObserverConfigured(tag));
     }
 
     bool CampaignLauncher::InstallControllerHooks()
@@ -915,6 +945,9 @@ namespace campaign_runner
                 return;
             }
             auto pause_state = idler->pause_state();
+            if (!launcher->pause_before_configuration_) launcher->pause_before_configuration_ = pause_state == 1;
+            launcher->ReportTelemetryResult(launcher->telemetry_.Entered(
+                launcher->observer_enabled_, launcher->target_speed_, launcher->start_paused_));
             if (launcher->observer_monitoring_) {
                 const auto suppressed = suppressed_message_count;
                 if (suppressed != launcher->observed_suppressed_messages_) {
@@ -1072,6 +1105,7 @@ namespace campaign_runner
                     stop_monitoring("observer simulation paused outside generic message dispatch", false);
                     return;
                 }
+                launcher->EmitObserverConfiguredIfReady(game_state);
                 return;
             }
             if (launcher->observe_) {
@@ -1179,11 +1213,21 @@ namespace campaign_runner
                     launcher->logger_.Failure("could not leave campaign paused at requested start state");
                 } else {
                     launcher->logger_.Info("left campaign paused at requested start state");
+                    if (!launcher->final_pause_recorded_) {
+                        launcher->final_pause_recorded_ = true;
+                        launcher->ReportTelemetryResult(launcher->telemetry_.PauseConfigured(
+                            launcher->pause_before_configuration_.value_or(true), true, true));
+                    }
                 }
                 return;
             }
             if (pause_state == 0) {
                 launcher->logger_.Info("campaign is already unpaused");
+                if (!launcher->final_pause_recorded_) {
+                    launcher->final_pause_recorded_ = true;
+                    launcher->ReportTelemetryResult(launcher->telemetry_.PauseConfigured(
+                        launcher->pause_before_configuration_.value_or(false), false, false));
+                }
                 if (launcher->observer_ai_ready_) {
                     launcher->observer_monitoring_ = true;
                     if (!launcher->ScheduleTimer(1'000, "failed to schedule observer pause watchdog")) {
@@ -1201,6 +1245,11 @@ namespace campaign_runner
             idler->TogglePause();
             if (idler->pause_state() == 0) {
                 launcher->logger_.Info("unpaused campaign through CInGameIdler");
+                if (!launcher->final_pause_recorded_) {
+                    launcher->final_pause_recorded_ = true;
+                    launcher->ReportTelemetryResult(launcher->telemetry_.PauseConfigured(
+                        launcher->pause_before_configuration_.value_or(true), false, false));
+                }
                 if (launcher->observer_ai_ready_) {
                     launcher->observer_monitoring_ = true;
                     if (!launcher->ScheduleTimer(1'000, "failed to schedule observer pause watchdog")) {
@@ -1232,19 +1281,26 @@ namespace campaign_runner
             return;
         }
         if (!launcher->save_selection_requested_) {
-            launcher->save_selection_requested_ = true;
             auto *selected_save = reinterpret_cast<smedley::sstd::string *>(
                 reinterpret_cast<unsigned char *>(controller) + 0x590);
+            const auto filename = fs::path(launcher->save_path_).filename().string();
+            const std::string existing(selected_save->c_str(), selected_save->size());
+            if (!CanSelectRequestedSave(filename, existing)) {
+                launcher->logger_.Failure("frontend save selection already names a different save; automation stopped");
+                return;
+            }
             if (selected_save->size() == 0) {
-                const auto filename = fs::path(launcher->save_path_).filename().string();
                 new (selected_save) smedley::sstd::string(filename.c_str());
             }
             *(reinterpret_cast<unsigned char *>(controller) + 0x5bc) = 1;
             *(reinterpret_cast<unsigned char *>(controller) + 0x5bd) = 0;
+            launcher->save_selection_requested_ = true;
+            launcher->ReportTelemetryResult(launcher->telemetry_.SaveSelectionRequested());
             launcher->ScheduleTimer(5'000, "failed to schedule save-selection check");
             return;
         }
         if (*(reinterpret_cast<unsigned char *>(controller) + 0x5bd) != 0) {
+            launcher->ReportTelemetryResult(launcher->telemetry_.SaveLoadCompleted());
             if (!launcher->DispatchControlSignal("play_button")) {
                 return;
             }

@@ -1,16 +1,19 @@
 add_library(smedley_telemetry_core STATIC telemetry_core.cpp)
 target_compile_definitions(smedley_telemetry_core PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_include_directories(smedley_telemetry_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(smedley_telemetry_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} "${CMAKE_SOURCE_DIR}/include")
 
 add_library(telemetry MODULE plugin.cpp)
 target_link_libraries(telemetry PRIVATE smedley_kernel smedley_telemetry_core shell32)
 target_include_directories(telemetry PRIVATE "../../smedley_kernel/include")
+target_compile_definitions(telemetry PRIVATE SMEDLEY_TELEMETRY_BUILD)
 
 if(BUILD_TESTING)
   add_executable(smedley_telemetry_core_tests telemetry_core_test.cpp)
   target_link_libraries(smedley_telemetry_core_tests PRIVATE smedley_telemetry_core GTest::gtest_main)
   include(GoogleTest)
   gtest_discover_tests(smedley_telemetry_core_tests)
+  add_library(smedley_telemetry_header_c OBJECT telemetry_header_c_test.c)
+  target_include_directories(smedley_telemetry_header_c PRIVATE "${CMAKE_SOURCE_DIR}/include")
 endif()
 
 if(EXISTS ${PLUGINS_DIR})

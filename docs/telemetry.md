@@ -64,7 +64,7 @@ preserved. Payload and entity objects are typed JSON, never serialized pointers.
 | `event_type` | string | Stable event name such as `session.started` or `country.daily`. |
 | `category` | string | `lifecycle` or `state`. |
 | `mapping_id` | string | `v2game-3.04` for this slice. |
-| `quality` | enum | Canonical mapping level: `verified-current` or `provisional` in this slice. |
+| `quality` | enum | Canonical mapping level: `verified-runtime`, `verified-current`, `verified-static-callsites`, `provisional`, `historical-unverified`, or `historical-skeleton`. Built-in records currently use `verified-current`, `verified-runtime`, and `provisional`. |
 | `entities` | object | Stable identifiers, currently `country_tag` where applicable. |
 | `payload` | object | Event-family-specific typed fields. |
 
@@ -151,3 +151,57 @@ the destination only after the complete source snapshot validates. It rejects
 reparse paths, hard-linked destinations, and input/output aliases. CSV text
 cells beginning with `=`, `+`, `-`, or `@` receive a leading apostrophe to avoid
 spreadsheet formula interpretation; JSON numeric cells remain numeric.
+
+## Native Extension ABI And Lifecycle
+
+`include/smedley/telemetry.h` defines stable C ABI v1. Extensions do not link
+against `telemetry.dll`; they may resolve exactly `SmedleyTelemetryEmitV1` from
+an already loaded `telemetry.dll` with `GetModuleHandleW` and `GetProcAddress`.
+First-party `campaign_runner` additionally confirms that telemetry is in its own
+plugin directory. Extensions should make the equivalent trust check for their
+installation and must not use `LoadLibrary` or derive a DLL path from run
+metadata. Results are `unavailable`, `filtered`, `accepted`, `dropped`, and
+`invalid`.
+
+The ABI contains only fixed-width C values and bounded UTF-8 pointer/length
+pairs. Records and fields include `struct_size`, `version`, and zero reserved
+fields. Input is consumed synchronously and copied before return. The sink is
+thread-safe but provides no caller-thread guarantee. It owns run ID, sequence,
+wall time, and monotonic time. Identifiers cap at 48 bytes, strings at 128,
+at most eight entity and payload fields combined, and the encoder rejects final records over 1024
+bytes. Scalars are null, bool, int64, double, or UTF-8 string; raw JSON is not
+accepted.
+
+V1 array elements must have exactly the published V1 `struct_size`; a larger
+element has no stride in this ABI and is rejected. Future layouts therefore use
+a new version and symbol, or a future ABI with an explicit array stride. The
+export catches all internal exceptions and reports `dropped`; `invalid` means
+the caller's ABI record failed validation. Lifecycle observation points retry
+only while the sink is unavailable; accepted, filtered, dropped, and invalid
+outcomes are terminal for that observed transition. One-shot actions remain
+best effort if telemetry becomes active only after the action.
+
+| Event | Typed data | Quality and observation |
+| --- | --- | --- |
+| `session.started` | `plugin` | `verified-current`, after writer startup. |
+| `campaign.save_selection_requested` | `source="campaign_runner"` | `verified-runtime`, after the requested filename is present in `+0x590` and `+0x5bc`/`+0x5bd` are written; no save name/path. |
+| `campaign.save_load_completed` | none | `verified-runtime`, first nonzero `+0x5bd`, before play dispatch; controller completion only. |
+| `campaign.entered` | observer/speed/pause requests | `verified-runtime`, first successful `CInGameIdler` RTTI readback. |
+| `observer.configured` | `viewing_country`; full AI/map booleans | `verified-runtime`, only after no human control, AI scheduling, FOW disable, and observed valid view. Pending initial switches delay it. |
+| `speed.configured` | previous/current/requested speed | `verified-runtime`, after handler readback, including no-op configuration. |
+| `pause.configured` | previous/current/requested pause | `verified-runtime`, once after final readback; observer setup pauses are not final. |
+| `date.regressed` | previous/current/delta raw date | `provisional`, lower date observed by the daily callback; not proof of reload. |
+
+Campaign lifecycle records exist only with `campaign_runner` selected and an
+active telemetry sink. They obey only the `lifecycle` category, never state
+country/date filters. This slice makes no Westernize, sphere, AI-reasoning, or
+reload claim. A queue drop can create gaps; unavailable and filtered results
+are intentionally quiet.
+
+The July 31, 2026 observer acceptance run
+`f2d403e1-82f8-46b8-8832-a136c822d38a` recorded save selection, load
+completion, campaign entry, speed and pause configuration, then delayed
+`observer.configured` until the requested ENG view had restored AI control.
+After 515 game days the trace contained 1,039 strictly ordered records with no
+gaps, drops, or write failure. The game remained responsive and the reported
+mean daily-callback enqueue/format cost was 0.217 microseconds.

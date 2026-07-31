@@ -1509,10 +1509,11 @@ namespace smedley::launcher
             if (plan.profile.inject && plan.profile.view_tag) {
                 const auto &tag = *plan.profile.view_tag;
                 const bool valid_tag = tag.size() == 3 && std::all_of(tag.begin(), tag.end(), [](wchar_t character) {
-                    return (character >= L'A' && character <= L'Z') || (character >= L'a' && character <= L'z');
+                    return (character >= L'A' && character <= L'Z') || (character >= L'a' && character <= L'z')
+                        || (character >= L'0' && character <= L'9');
                 });
                 if (!plan.profile.observer || !valid_tag) {
-                    AddDiagnostic(&plan.diagnostics, "observer.view_tag", "view_tag requires observer and exactly three ASCII letters");
+                    AddDiagnostic(&plan.diagnostics, "observer.view_tag", "view_tag requires observer and exactly three ASCII alphanumeric characters");
                 } else if (plan.profile.inject) {
                     std::wstring normalized = tag;
                     std::transform(normalized.begin(), normalized.end(), normalized.begin(), towupper);

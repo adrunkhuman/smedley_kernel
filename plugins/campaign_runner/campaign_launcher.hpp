@@ -1,9 +1,11 @@
 #pragma once
 
 #include <smedley/v2/console.hpp>
+#include "campaign_telemetry.hpp"
 #include <windows.h>
 
 #include <atomic>
+#include <optional>
 #include <string>
 
 namespace smedley
@@ -40,6 +42,8 @@ namespace campaign_runner
         bool ScheduleTimer(UINT delay, const char *failure_message);
         bool CheckSignatures() const;
         bool SelectSpeed(smedley::v2::CCurrentGameState *game_state);
+        void ReportTelemetryResult(SmedleyTelemetryResult result);
+        void EmitObserverConfiguredIfReady(smedley::v2::CCurrentGameState *game_state);
         bool InstallControllerHooks();
         bool DispatchMainMenuSinglePlayer();
         bool DispatchControlSignal(const char *name);
@@ -66,9 +70,14 @@ namespace campaign_runner
         bool speed_ready_ = false;
         int target_speed_ = 5;
         bool start_paused_ = false;
+        bool final_pause_recorded_ = false;
+        std::optional<bool> pause_before_configuration_;
         size_t observer_ai_count_before_switch_ = 0;
         std::string observer_target_tag_;
         std::string initial_observer_view_tag_;
+        CampaignTelemetry telemetry_;
+        bool telemetry_invalid_logged_ = false;
+        bool telemetry_dropped_logged_ = false;
         smedley::v2::CConsoleCmd::SCommandData *native_tag_command_ = nullptr;
         smedley::v2::CConsoleCmd::SCommandData *observer_switch_command_ = nullptr;
         smedley::v2::CConsoleCmdManager *observer_command_manager_ = nullptr;

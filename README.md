@@ -6,6 +6,10 @@ scriptable CLI, plugin preflight, unattended campaign loading, safe observer
 mode, economy tracing, and bounded structured telemetry. Ordinary players and modders use profiles and the
 launcher; C++ is only needed to build Smedley or write native plugins.
 
+Native plugins may submit bounded typed records through the versioned C
+extension API in [`include/smedley/telemetry.h`](include/smedley/telemetry.h).
+They resolve telemetry dynamically and never require it as a dependency.
+
 This fork currently supports one exact English x86 `v2game.exe`:
 
 | Property | Supported value |

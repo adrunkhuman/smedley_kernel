@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <limits>
@@ -35,13 +36,105 @@ namespace smedley::telemetry
         bool IsSafeRunId(std::string_view value)
         {
             return !value.empty() && value.size() <= 64 && std::all_of(value.begin(), value.end(), [](unsigned char character) {
-                return std::isalnum(character) || character == '-';
+                return (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z')
+                    || (character >= '0' && character <= '9') || character == '-';
             });
         }
 
         bool IsKnownCategory(std::string_view category)
         {
             return category == "lifecycle" || category == "state";
+        }
+
+        bool IsCanonicalQuality(std::string_view quality)
+        {
+            return quality == "verified-runtime" || quality == "verified-current"
+                || quality == "verified-static-callsites" || quality == "provisional"
+                || quality == "historical-unverified" || quality == "historical-skeleton";
+        }
+
+        bool IsIdentifier(std::string_view value)
+        {
+            return !value.empty() && value.size() <= SMEDLEY_TELEMETRY_MAX_IDENTIFIER_BYTES
+                && std::all_of(value.begin(), value.end(), [](unsigned char character) {
+                    return (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z')
+                        || (character >= '0' && character <= '9') || character == '.' || character == '_'
+                        || character == '-';
+                });
+        }
+
+        bool IsValidText(const char *data, uint32_t length, size_t maximum, bool identifier)
+        {
+            if (length > maximum || (length != 0 && data == nullptr)) return false;
+            const std::string_view value(data == nullptr ? "" : data, length);
+            if (!identifier && length == 0) return true;
+            if (identifier && !IsIdentifier(value)) return false;
+            for (size_t index = 0; index < value.size();) {
+                size_t character_length = 0;
+                if (!IsValidUtf8(value, index, &character_length)) return false;
+                index += character_length;
+            }
+            return true;
+        }
+
+        bool ValidateFields(const SmedleyTelemetryFieldV1 *fields, uint32_t count, std::string *error)
+        {
+            if (count > SMEDLEY_TELEMETRY_MAX_FIELDS || (count != 0 && fields == nullptr)) {
+                *error = "invalid field array";
+                return false;
+            }
+            for (uint32_t index = 0; index < count; ++index) {
+                const auto &field = fields[index];
+                if (field.struct_size != sizeof(field) || field.version != SMEDLEY_TELEMETRY_ABI_VERSION_V1
+                    || field.reserved != 0 || !IsValidText(field.key, field.key_length,
+                                                           SMEDLEY_TELEMETRY_MAX_IDENTIFIER_BYTES, true)) {
+                    *error = "invalid field header or key";
+                    return false;
+                }
+                if (field.type > SMEDLEY_TELEMETRY_UTF8_STRING
+                    || (field.type == SMEDLEY_TELEMETRY_BOOL && field.value.bool_value > 1)
+                    || (field.type == SMEDLEY_TELEMETRY_DOUBLE && !std::isfinite(field.value.double_value))
+                    || (field.type == SMEDLEY_TELEMETRY_UTF8_STRING
+                        && (field.value.string_value.reserved != 0
+                            || !IsValidText(field.value.string_value.data, field.value.string_value.length,
+                                            SMEDLEY_TELEMETRY_MAX_STRING_BYTES, false)))) {
+                    *error = "invalid field value";
+                    return false;
+                }
+                for (uint32_t previous = 0; previous < index; ++previous) {
+                    if (field.key_length == fields[previous].key_length
+                        && std::memcmp(field.key, fields[previous].key, field.key_length) == 0) {
+                        *error = "duplicate field key";
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        void AppendFields(std::string *json, const SmedleyTelemetryFieldV1 *fields, uint32_t count)
+        {
+            json->push_back('{');
+            for (uint32_t index = 0; index < count; ++index) {
+                if (index != 0) json->push_back(',');
+                const auto &field = fields[index];
+                json->append("\"");
+                json->append(EscapeJson(std::string_view(field.key, field.key_length)));
+                json->append("\":");
+                switch (field.type) {
+                case SMEDLEY_TELEMETRY_NULL: json->append("null"); break;
+                case SMEDLEY_TELEMETRY_BOOL: json->append(field.value.bool_value ? "true" : "false"); break;
+                case SMEDLEY_TELEMETRY_INT64: json->append(std::to_string(field.value.int64_value)); break;
+                case SMEDLEY_TELEMETRY_DOUBLE: json->append(std::to_string(field.value.double_value)); break;
+                case SMEDLEY_TELEMETRY_UTF8_STRING:
+                    json->append("\"");
+                    json->append(EscapeJson(std::string_view(field.value.string_value.data == nullptr ? "" : field.value.string_value.data,
+                                                              field.value.string_value.length)));
+                    json->append("\"");
+                    break;
+                }
+            }
+            json->push_back('}');
         }
 
         bool IsCountryTag(std::string_view tag)
@@ -196,6 +289,166 @@ namespace smedley::telemetry
         record += ",\"entities\":" + envelope.entities_json;
         record += ",\"payload\":" + envelope.payload_json + "}";
         return record;
+    }
+
+    bool ValidateRecordV1(const SmedleyTelemetryRecordV1 *record, std::string *error)
+    {
+        if (record == nullptr || error == nullptr) return false;
+        if (record->struct_size != sizeof(*record) || record->version != SMEDLEY_TELEMETRY_ABI_VERSION_V1
+            || (record->flags & ~SMEDLEY_TELEMETRY_RECORD_HAS_GAME_DATE) != 0 || record->reserved != 0
+            || record->reserved_date != 0 || std::any_of(std::begin(record->reserved_tail), std::end(record->reserved_tail), [](uint32_t value) { return value != 0; })) {
+            *error = "invalid record header";
+            return false;
+        }
+        if (!IsValidText(record->event_type, record->event_type_length, SMEDLEY_TELEMETRY_MAX_IDENTIFIER_BYTES, true)
+            || !IsValidText(record->category, record->category_length, SMEDLEY_TELEMETRY_MAX_IDENTIFIER_BYTES, true)
+            || !IsValidText(record->mapping_id, record->mapping_id_length, SMEDLEY_TELEMETRY_MAX_IDENTIFIER_BYTES, true)
+            || !IsValidText(record->quality, record->quality_length, SMEDLEY_TELEMETRY_MAX_IDENTIFIER_BYTES, true)) {
+            *error = "invalid record identifier";
+            return false;
+        }
+        if (!IsKnownCategory(std::string_view(record->category, record->category_length))
+            || !IsCanonicalQuality(std::string_view(record->quality, record->quality_length))) {
+            *error = "unknown record category or quality";
+            return false;
+        }
+        if (record->entity_field_count > SMEDLEY_TELEMETRY_MAX_FIELDS
+            || record->payload_field_count > SMEDLEY_TELEMETRY_MAX_FIELDS
+            || record->entity_field_count > SMEDLEY_TELEMETRY_MAX_FIELDS - record->payload_field_count) {
+            *error = "too many total fields";
+            return false;
+        }
+        return ValidateFields(record->entity_fields, record->entity_field_count, error)
+            && ValidateFields(record->payload_fields, record->payload_field_count, error);
+    }
+
+    bool FormatRecordV1(const SmedleyTelemetryRecordV1 *record, std::string_view run_id, uint64_t sequence,
+                        std::string_view wall_time_utc, uint64_t monotonic_us, std::string *line, std::string *error)
+    {
+        if (line == nullptr || sequence == 0 || !IsSafeRunId(run_id)
+            || !IsValidText(wall_time_utc.data(), static_cast<uint32_t>(wall_time_utc.size()), 64, false)
+            || !ValidateRecordV1(record, error)) {
+            if (error != nullptr && error->empty()) *error = "invalid telemetry envelope metadata";
+            return false;
+        }
+        Envelope envelope;
+        envelope.run_id = std::string(run_id);
+        envelope.sequence = sequence;
+        envelope.wall_time_utc = std::string(wall_time_utc);
+        envelope.monotonic_us = monotonic_us;
+        if ((record->flags & SMEDLEY_TELEMETRY_RECORD_HAS_GAME_DATE) != 0) envelope.game_date_raw = record->game_date_raw;
+        envelope.event_type.assign(record->event_type, record->event_type_length);
+        envelope.category.assign(record->category, record->category_length);
+        envelope.mapping_id.assign(record->mapping_id, record->mapping_id_length);
+        envelope.quality.assign(record->quality, record->quality_length);
+        envelope.entities_json.clear();
+        envelope.payload_json.clear();
+        AppendFields(&envelope.entities_json, record->entity_fields, record->entity_field_count);
+        AppendFields(&envelope.payload_json, record->payload_fields, record->payload_field_count);
+        *line = FormatEnvelope(envelope);
+        if (line->size() > kMaxRecordBytes) {
+            *error = "formatted record exceeds bounded record size";
+            return false;
+        }
+        return true;
+    }
+
+    bool PrepareRecordV1(const SmedleyTelemetryRecordV1 *record, std::string_view run_id,
+                         std::string_view wall_time_utc, uint64_t monotonic_us, PreparedRecordV1 *prepared, std::string *error)
+    {
+        if (prepared == nullptr || !FormatRecordV1(record, run_id, (std::numeric_limits<uint64_t>::max)(),
+                                                   wall_time_utc, monotonic_us, &prepared->line, error)) return false;
+        const std::string marker = "\"sequence\":" + std::to_string((std::numeric_limits<uint64_t>::max)());
+        const size_t marker_offset = prepared->line.find(marker);
+        if (marker_offset == std::string::npos) {
+            if (error != nullptr) *error = "could not locate prepared sequence";
+            return false;
+        }
+        prepared->sequence_offset = marker_offset + std::strlen("\"sequence\":");
+        return true;
+    }
+
+    bool FinalizeRecordV1(const PreparedRecordV1 &prepared, uint64_t sequence, std::string *line)
+    {
+        constexpr size_t max_sequence_digits = 20;
+        if (line == nullptr || sequence == 0
+            || prepared.sequence_offset + max_sequence_digits > prepared.line.size()) return false;
+        *line = prepared.line;
+        line->replace(prepared.sequence_offset, max_sequence_digits, std::to_string(sequence));
+        return true;
+    }
+
+    bool PrepareEnvelope(const Envelope &envelope, PreparedRecordV1 *prepared)
+    {
+        if (prepared == nullptr) return false;
+        Envelope maximum_sequence = envelope;
+        maximum_sequence.sequence = (std::numeric_limits<uint64_t>::max)();
+        prepared->line = FormatEnvelope(maximum_sequence);
+        if (prepared->line.size() > kMaxRecordBytes) return false;
+        const std::string marker = "\"sequence\":" + std::to_string((std::numeric_limits<uint64_t>::max)());
+        const size_t marker_offset = prepared->line.find(marker);
+        if (marker_offset == std::string::npos) return false;
+        prepared->sequence_offset = marker_offset + std::strlen("\"sequence\":");
+        return true;
+    }
+
+    SmedleyTelemetryResult PublishPreparedRecord(const PreparedRecordV1 &prepared, std::atomic<uint64_t> *sequence,
+                                                 std::mutex *emission_mutex, bool blocking,
+                                                 const std::function<bool(std::string_view)> &enqueue,
+                                                 const std::function<void()> &mark_dropped)
+    {
+        if (sequence == nullptr || emission_mutex == nullptr || !enqueue || !mark_dropped) return SMEDLEY_TELEMETRY_UNAVAILABLE;
+        std::unique_lock<std::mutex> lock(*emission_mutex, std::defer_lock);
+        if (blocking) lock.lock();
+        else if (!lock.try_lock()) {
+            uint64_t current = sequence->load(std::memory_order_relaxed);
+            while (current != (std::numeric_limits<uint64_t>::max)()
+                   && !sequence->compare_exchange_weak(current, current + 1, std::memory_order_relaxed)) {}
+            mark_dropped();
+            return SMEDLEY_TELEMETRY_DROPPED;
+        }
+        uint64_t current = sequence->load(std::memory_order_relaxed);
+        while (current != (std::numeric_limits<uint64_t>::max)()
+               && !sequence->compare_exchange_weak(current, current + 1, std::memory_order_relaxed)) {}
+        if (current == (std::numeric_limits<uint64_t>::max)()) {
+            mark_dropped();
+            return SMEDLEY_TELEMETRY_DROPPED;
+        }
+        std::string line;
+        if (!FinalizeRecordV1(prepared, current + 1, &line)) {
+            mark_dropped();
+            return SMEDLEY_TELEMETRY_DROPPED;
+        }
+        try {
+            if (enqueue(line)) return SMEDLEY_TELEMETRY_ACCEPTED;
+        } catch (...) {
+            mark_dropped();
+            return SMEDLEY_TELEMETRY_DROPPED;
+        }
+        return SMEDLEY_TELEMETRY_DROPPED;
+    }
+
+    SmedleyTelemetryResult DispatchRecordV1(const Config *config, const SmedleyTelemetryRecordV1 *record,
+                                            uint64_t *sequence, const std::function<bool(std::string_view)> &enqueue)
+    {
+        if (config == nullptr || sequence == nullptr || !enqueue) return SMEDLEY_TELEMETRY_UNAVAILABLE;
+        std::string error;
+        if (!ValidateRecordV1(record, &error)) return SMEDLEY_TELEMETRY_INVALID;
+        if (!HasCategory(*config, std::string_view(record->category, record->category_length))) return SMEDLEY_TELEMETRY_FILTERED;
+        if (*sequence == (std::numeric_limits<uint64_t>::max)()) return SMEDLEY_TELEMETRY_DROPPED;
+        PreparedRecordV1 prepared;
+        if (!PrepareRecordV1(record, config->run_id, UtcNow(), MonotonicMicroseconds(), &prepared, &error)) {
+            return SMEDLEY_TELEMETRY_INVALID;
+        }
+        const uint64_t next_sequence = *sequence + 1;
+        std::string line;
+        if (!FinalizeRecordV1(prepared, next_sequence, &line)) return SMEDLEY_TELEMETRY_DROPPED;
+        *sequence = next_sequence;
+        try {
+            return enqueue(line) ? SMEDLEY_TELEMETRY_ACCEPTED : SMEDLEY_TELEMETRY_DROPPED;
+        } catch (...) {
+            return SMEDLEY_TELEMETRY_DROPPED;
+        }
     }
 
     bool ValidateConfig(const Config &config, std::string *error)
@@ -420,6 +673,14 @@ namespace smedley::telemetry
         return *date == **last_sampled_date;
     }
 
+    bool ObserveDateRegression(int current_date, std::optional<int> *last_observed_date, int64_t *delta)
+    {
+        const bool regressed = last_observed_date && *last_observed_date && current_date < **last_observed_date;
+        if (delta != nullptr) *delta = regressed ? static_cast<int64_t>(current_date) - static_cast<int64_t>(**last_observed_date) : 0;
+        if (last_observed_date != nullptr) *last_observed_date = current_date;
+        return regressed;
+    }
+
     BoundedQueue::BoundedQueue(size_t capacity) : slots_(capacity), lengths_(capacity) {}
 
     bool BoundedQueue::Push(std::string_view line)
@@ -539,6 +800,11 @@ namespace smedley::telemetry
         if (!started_ || !queue_.TryPush(line)) return false;
         wake_.notify_one();
         return true;
+    }
+
+    void Writer::MarkDropped()
+    {
+        queue_.dropped_.fetch_add(1, std::memory_order_relaxed);
     }
 
     bool Writer::WriteInitial(std::string_view line)

@@ -267,6 +267,28 @@ TEST(LauncherArgumentTest, QuotesEmptyEmbeddedAndTrailingSlashArguments)
     EXPECT_EQ(launcher::QuoteWindowsArgument(L"C:\\Game Dir\\"), L"\"C:\\Game Dir\\\\\"");
 }
 
+TEST_F(LauncherCoreTest, NormalizesDynamicObserverViewTag)
+{
+    launcher::Profile profile;
+    profile.game_dir = root;
+    profile.inject = true;
+    profile.save = root / L"save games" / L"campaign.v2";
+    profile.observer = true;
+    profile.view_tag = L"d01";
+    const auto plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::none_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "observer.view_tag";
+    }));
+    EXPECT_EQ(plan.profile.view_tag, std::optional<std::wstring>(L"D01"));
+    EXPECT_NE(plan.command_line.find(L"-smedley-view-tag=D01"), std::wstring::npos);
+
+    profile.view_tag = L"D-1";
+    const auto invalid = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(invalid.diagnostics.begin(), invalid.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "observer.view_tag";
+    }));
+}
+
 TEST_F(LauncherCoreTest, NoInjectionIgnoresStaleAutomationSettings)
 {
     launcher::Profile profile;

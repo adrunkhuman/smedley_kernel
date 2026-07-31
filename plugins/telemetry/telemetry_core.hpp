@@ -12,9 +12,12 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <type_traits>
 #include <vector>
 
 #include <windows.h>
+
+#include <smedley/telemetry.h>
 
 namespace smedley::telemetry
 {
@@ -22,6 +25,14 @@ namespace smedley::telemetry
     constexpr int kMinQueueCapacity = 64;
     constexpr int kMaxQueueCapacity = 8192;
     constexpr int kMaxSampleDays = 365;
+
+    static_assert(std::is_standard_layout_v<SmedleyTelemetryFieldV1>);
+    static_assert(std::is_standard_layout_v<SmedleyTelemetryRecordV1>);
+#if INTPTR_MAX == INT32_MAX
+    static_assert(sizeof(SmedleyTelemetryUtf8V1) == 12 && offsetof(SmedleyTelemetryUtf8V1, reserved) == 8);
+    static_assert(sizeof(SmedleyTelemetryFieldV1) == 40 && offsetof(SmedleyTelemetryFieldV1, value) == 24);
+    static_assert(sizeof(SmedleyTelemetryRecordV1) == 88 && offsetof(SmedleyTelemetryRecordV1, reserved_tail) == 72);
+#endif
 
     struct Config
     {
@@ -60,8 +71,27 @@ namespace smedley::telemetry
         bool write_failed = false;
     };
 
+    struct PreparedRecordV1
+    {
+        std::string line;
+        size_t sequence_offset = 0;
+    };
+
     std::string EscapeJson(std::string_view value);
     std::string FormatEnvelope(const Envelope &envelope);
+    bool ValidateRecordV1(const SmedleyTelemetryRecordV1 *record, std::string *error);
+    bool FormatRecordV1(const SmedleyTelemetryRecordV1 *record, std::string_view run_id, uint64_t sequence,
+                        std::string_view wall_time_utc, uint64_t monotonic_us, std::string *line, std::string *error);
+    bool PrepareRecordV1(const SmedleyTelemetryRecordV1 *record, std::string_view run_id,
+                         std::string_view wall_time_utc, uint64_t monotonic_us, PreparedRecordV1 *prepared, std::string *error);
+    bool FinalizeRecordV1(const PreparedRecordV1 &prepared, uint64_t sequence, std::string *line);
+    bool PrepareEnvelope(const Envelope &envelope, PreparedRecordV1 *prepared);
+    SmedleyTelemetryResult PublishPreparedRecord(const PreparedRecordV1 &prepared, std::atomic<uint64_t> *sequence,
+                                                 std::mutex *emission_mutex, bool blocking,
+                                                 const std::function<bool(std::string_view)> &enqueue,
+                                                 const std::function<void()> &mark_dropped);
+    SmedleyTelemetryResult DispatchRecordV1(const Config *config, const SmedleyTelemetryRecordV1 *record,
+                                            uint64_t *sequence, const std::function<bool(std::string_view)> &enqueue);
     bool ValidateConfig(const Config &config, std::string *error);
     bool ParseLaunchArguments(const std::vector<std::wstring> &arguments, Config *config, std::string *error);
     bool HasCategory(const Config &config, std::string_view category);
@@ -71,6 +101,7 @@ namespace smedley::telemetry
     uint64_t MonotonicMicroseconds();
     uint64_t QpcToMicroseconds(uint64_t counter, uint64_t frequency);
     bool ShouldSampleDate(std::optional<int> date, int sample_days, std::optional<int> *last_sampled_date);
+    bool ObserveDateRegression(int current_date, std::optional<int> *last_observed_date, int64_t *delta);
 
     class BoundedQueue
     {
@@ -109,6 +140,7 @@ namespace smedley::telemetry
         bool Start(std::string *error);
         bool WriteInitial(std::string_view line);
         bool TryWrite(std::string_view line);
+        void MarkDropped();
         void Stop(const std::function<std::string(const QueueStats &)> &summary_builder = {});
         QueueStats stats() const;
 
