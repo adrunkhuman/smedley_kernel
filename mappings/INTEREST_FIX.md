@@ -7,6 +7,33 @@ supported fix: it depended on a generated 469,301-line layout, mutated
 provisional fields, and used floating-point proportional allocation without a
 conservation test.
 
+## Documented game mechanics
+
+The Victoria 2 Wiki [Loans](https://vic2.paradoxwikis.com/Loans) page (permanent
+revision
+[`22984`](https://vic2.paradoxwikis.com/index.php?title=Loans&oldid=22984)) is a
+community-maintained description of intended and observed gameplay, not proof
+of executable internals. It reports that:
+
+- POP surplus money is deposited in the POP's national bank and may be lent to
+  sovereign countries;
+- a borrower uses its own national bank before foreign banks and repays its own
+  bank last;
+- daily interest is based on domestic and foreign bank debt, effective interest
+  modifiers, and division by 30; and
+- charged interest is not paid to depositor POPs, producing the reported
+  liquidity bug, although the page notes that this may be an intentional money
+  sink rather than an accidental omission.
+
+The supported executable independently corroborates the debt-times-rate daily
+calculation and the immediate debtor-to-creditor-bank transfer described below.
+The fix should therefore distribute the game's exact credited integer amount;
+it must not reimplement the interest formula or merge domestic and foreign
+modifier behavior. The wiki also supports savings-weighted POP distribution as
+the gameplay model, while runtime evidence remains authoritative for storage,
+scale, ordering, and safe mutation. The feature must remain opt-in because
+restoring the payment changes the vanilla money supply.
+
 ## Current static evidence
 
 All addresses below are RVAs in the cataloged Victoria II 3.04 executable.
@@ -54,6 +81,15 @@ emits `before` and `after` observations around the original callee. Each phase:
 - retains only the copied `before` POD until `after`, then atomically enqueues
   one fixed-size pair in a 1,024-slot single-producer queue; and
 - reports dropped pairs and collection time while a worker performs all CSV I/O.
+
+The current investigation build also snapshots the same country at the existing
+`DailyUpdateEvent` entry and copies its bank `+0x20` and aggregate state `+0x260`
+values into the later boundary pair when country and date match. This read-only
+correlation tests whether the country update clears the bank accumulator into
+the state candidate without introducing another hook. It additionally records
+all-country bank/state totals, capped at 512 country slots, after the final
+country's interest boundary and at the first country entry on each date,
+bracketing the global post-country phase without retaining game pointers.
 
 `flags=0x0` means the structural checks passed. Any nonzero flag makes the row
 unsuitable for semantic promotion. The two state columns deliberately include
@@ -219,10 +255,58 @@ The campaign still reached raw date `59883552`, remained responsive and paused,
 and preserved the source-save hash. This verifies the narrow ABI and field
 effects; it does not yet define a production allocation algorithm.
 
+## Bank clearing correlation
+
+Run `6e69ee23-75a0-4441-8cf4-7129e19a749b` paired each country at
+`DailyUpdateEvent` entry with its later `PayDailyInterest` boundary. Its 3,794
+rows formed all 1,897 expected pairs with every start snapshot available, zero
+quality flags, and zero drops. Country bank `+0x20` and aggregate state `+0x260`
+never changed between those boundaries; bank `+0x20` was already zero at every
+country entry. The closed CSV SHA-256 was
+`1a98cad7ee6b246c464ce5b50a69a0c6f6d56f40b6f692b2aef5ca29d9e9626b`.
+
+Run `472db1b0-c70d-4979-91ad-aec05858d3e2` then bracketed the global
+post-country phase. It again produced 3,794 rows, all 1,897 ordered pairs, seven
+first-country snapshots, and seven final-country snapshots with no flags or
+drops. The final country was ordinal 271 (`D50`); the first was ordinal 1
+(`REB`). The closed CSV SHA-256 was
+`aad060bd69d2c9ecc56afc4afd618fd621b40a819daa643d95a0b29b27726367`.
+
+The five complete nonzero cross-date transitions were:
+
+| Date at final boundary | Global bank `+0x20` | State `+0x260` then | State `+0x260` next entry | State delta |
+| --- | ---: | ---: | ---: | ---: |
+| `59883432` | 11,353 | 0 | 1,268 | 1,268 |
+| `59883456` | 15,108 | 1,268 | 2,817 | 1,549 |
+| `59883480` | 15,108 | 2,817 | 4,561 | 1,744 |
+| `59883504` | 15,108 | 4,561 | 6,479 | 1,918 |
+| `59883528` | 15,108 | 6,479 | 8,555 | 2,076 |
+
+In every transition, global bank `+0x20` was zero at the next first-country
+entry. The engine therefore clears the complete `71,785` raw bank accumulator
+inside this bracket, while aggregate state `+0x260` rises by only `8,555`.
+Those state changes may include other activity, so this result proves neither a
+conversion ratio nor causation. It does prove that state `+0x260` is not an
+exact conserved representation of the cleared creditor interest and must not be
+used as the production payout total.
+
+The production design should instead derive each payout from the exact
+per-destination bank delta across `PayDailyInterest`, which is already the
+verified debtor transfer amount. Depositor savings may determine shares, but
+must not determine or recompute the total interest. Both runs preserved the
+source-save hash and ended paused and responsive.
+
+After adding the 512-country cap and extending callback timing over the global
+scans, one-day smoke run `f3416e70-4f81-46be-b389-6c3231ba60e9` produced all
+271 ordered pairs with both global snapshots, no flags or drops, and the same
+unchanged source-save hash. The first and final global scans now appeared in
+`collection_us` at 3,376 and 3,370 microseconds respectively instead of being
+excluded from the reported callback cost.
+
 ## Required evidence before mutation
 
-1. Correlate the later destination-bank clearing path with state `+0x260`
-   assignment before treating that field as distributable interest.
+1. Record and validate each individual destination-bank delta rather than only
+   its already-conserved aggregate.
 2. Define integer allocation, rounding, remainder ownership, conservation, and
    zero/negative-value behavior before implementing an independently selectable
    fix.

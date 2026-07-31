@@ -274,6 +274,7 @@ namespace interest_probe
         ReadAt(country, country_tag_offset, &tag);
         std::memcpy(sample.country_tag, tag, sizeof(tag));
         sample.country_tag[3] = '\0';
+        ReadAt(country, country_tag_offset + sizeof(uint32_t), &sample.country_ordinal);
         ReadAt(country, country_treasury_offset, &sample.treasury_raw);
 
         const ListNode *node = nullptr;

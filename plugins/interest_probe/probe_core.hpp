@@ -29,12 +29,14 @@ namespace interest_probe
         SAMPLE_POP_LIMIT = 1u << 20,
         SAMPLE_DUPLICATE_PROVINCE = 1u << 21,
         SAMPLE_DUPLICATE_POP = 1u << 22,
+        SAMPLE_DAILY_START_UNAVAILABLE = 1u << 23,
     };
 
     struct Sample
     {
         int32_t date_raw = 0;
         char country_tag[4]{};
+        int32_t country_ordinal = -1;
         int32_t state_count_reported = 0;
         uint32_t states_walked = 0;
         uint32_t province_element_candidates = 0;
@@ -59,6 +61,12 @@ namespace interest_probe
         int64_t destination_state_interest_raw = 0;
         int64_t destination_pop_savings_raw = 0;
         int64_t destination_pop_savings_state_scale_raw = 0;
+        int64_t daily_start_bank_interest_raw = 0;
+        int64_t daily_start_state_interest_raw = 0;
+        uint8_t daily_start_available = 0;
+        int64_t global_bank_interest_raw = 0;
+        int64_t global_state_interest_raw = 0;
+        uint8_t global_snapshot_available = 0;
         uint32_t flags = 0;
         uint32_t collection_us = 0;
     };
