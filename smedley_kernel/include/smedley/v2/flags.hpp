@@ -3,6 +3,7 @@
 #include "../clausewitz/persistent.hpp"
 #include "../clausewitz/types.hpp"
 #include "../std/string.hpp"
+#include <cstddef>
 
 namespace smedley::v2
 {
@@ -13,6 +14,7 @@ namespace smedley::v2
         bool val;
     };
 
+    static_assert(offsetof(CFlag, val) == 0x1c);
     static_assert(sizeof(CFlag) == 0x20);
 
     /**
@@ -21,6 +23,15 @@ namespace smedley::v2
      */
     class CFlags : public clausewitz::CTernary<CFlag *>, public clausewitz::CPersistent
     {
+    public:
+        bool Has(const char *key)
+        {
+            if (key == nullptr) {
+                return false;
+            }
+            const auto *flag = Get(key);
+            return flag != nullptr && flag->val;
+        }
     };
 
     static_assert(sizeof(CFlags) == 0x2c);

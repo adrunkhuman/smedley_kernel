@@ -309,6 +309,7 @@ namespace smedley::v2
 
     public:
         const CCountryTag &tag() const { return _tag; }
+        bool HasCountryFlag(const char *key) { return _flags.Has(key); }
         int64_t treasury_raw() const { return _treasury.raw_value(); }
         int64_t treasury_shadow_raw() const { return _treasury_delta.raw_value(); }
 

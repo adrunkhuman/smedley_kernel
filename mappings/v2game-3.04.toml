@@ -247,6 +247,83 @@ status = "verified-runtime"
 signature = "8f c2 f5 3c 8f c2 f5 3c 8f c2 f5 3c 0a d7 23 3d 8f c2 75 3d"
 source = "five floats 0.03, 0.03, 0.03, 0.04, 0.06 indexed by CGameState+0xb28 at RVA 0x28568b"
 
+[[symbols]]
+name = "CAIKing land recruitment planner candidate"
+rva = 0x0041fb00
+kind = "function"
+status = "historical-unverified"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+
+[[symbols]]
+name = "CAIKing naval recruitment planner candidate"
+rva = 0x00420760
+kind = "function"
+status = "historical-unverified"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+
+[[symbols]]
+name = "CAIKing land cleanup candidate"
+rva = 0x0041e280
+kind = "function"
+status = "historical-unverified"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+
+[[symbols]]
+name = "CAIKing naval cleanup candidate"
+rva = 0x0041e5b0
+kind = "function"
+status = "historical-unverified"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+
+[[symbols]]
+name = "CAIKing railroad selector candidate"
+rva = 0x004582d0
+kind = "function"
+status = "historical-unverified"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+
+[[symbols]]
+name = "CAIKing naval-base selector candidate"
+rva = 0x00458460
+kind = "function"
+status = "historical-unverified"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+
+[[symbols]]
+name = "CAIKing fort selector candidate"
+rva = 0x00458560
+kind = "function"
+status = "historical-unverified"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+
+[[symbols]]
+name = "Building-definition registry initializer candidate"
+rva = 0x000dad40
+kind = "function"
+status = "historical-unverified"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+
+[[symbols]]
+name = "EAX-state random helper candidate"
+rva = 0x005b7610
+kind = "function"
+status = "historical-unverified"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+
+[[symbols]]
+name = "Narrow Great Power sphere manager candidate"
+rva = 0x004363f0
+kind = "function"
+status = "historical-unverified"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+
+[[symbols]]
+name = "Great Power sphere action selector candidate"
+rva = 0x00437330
+kind = "function"
+status = "historical-unverified"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+
 [[layouts]]
 name = "CGameState"
 status = "current-unverified"
@@ -281,6 +358,7 @@ source = "smedley_kernel/include/smedley/v2/country.hpp"
 fields = [
   { name = "expenses", offset = 0x00b0 },
   { name = "incomes", offset = 0x00d0 },
+  { name = "flags", offset = 0x01b0 },
   { name = "treasury", offset = 0x0e78 },
   { name = "treasury_shadow", offset = 0x0e80 },
   { name = "bank", offset = 0x0e88 },
@@ -289,6 +367,22 @@ fields = [
   { name = "tariffs", offset = 0x1440 },
   { name = "tax_base", offset = 0x1560 },
 ]
+
+[[layouts]]
+name = "CFlag"
+status = "historical-unverified"
+size = 0x20
+source = "size and key layout from existing flags.hpp; PMIA 1.9.0 independently corroborates value at +0x1c"
+fields = [
+  { name = "key", offset = 0x00 },
+  { name = "value", offset = 0x1c },
+]
+
+[[layouts]]
+name = "CFlags"
+status = "historical-unverified"
+size = 0x2c
+source = "size from existing flags.hpp; PMIA 1.9.0 calls CTernary<CFlag *>::Get(const char *) on CCountry+0x1b0"
 
 [[layouts]]
 name = "CProvince"
