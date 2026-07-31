@@ -19,12 +19,14 @@ namespace smedley::v2
          */
         struct SCommandData
         {
+            using Handler = SResult (*)(const sstd::vector<sstd::string> &argv);
+
             bool is_allowed; /// command is only accessible in the dev environment when false
             const char *name;
             int num_aliases;
             const char *aliases[3];
             const char *description;
-            SResult (*handler)(const sstd::vector<sstd::string> &argv);
+            Handler handler;
             int num_args;
             const char *args[10];
         };

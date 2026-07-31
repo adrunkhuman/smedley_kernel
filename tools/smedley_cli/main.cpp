@@ -18,6 +18,7 @@ struct Options
     fs::path game_dir;
     fs::path kernel;
     fs::path save;
+    std::wstring view_tag;
     std::vector<fs::path> plugins;
     bool detach = false;
     bool dry_run = false;
@@ -37,6 +38,7 @@ void PrintUsage()
         << "  --plugin PATH  Plugin TOML file; may be repeated\n"
         << "  --save PATH    Save file for an automation plugin to load\n"
         << "  --observe      Return the player country to AI control before unpausing\n"
+        << "  --view-tag TAG Select an initial observer view through safe switching\n"
         << "  --detach       Return after Victoria 2 starts\n"
         << "  --dry-run      Check paths without starting Victoria 2\n"
         << "  --help         Show this help\n";
@@ -64,7 +66,7 @@ Options ParseArguments(int argc, wchar_t **argv)
             continue;
         }
         if (arg != L"--game-dir" && arg != L"--kernel" && arg != L"--plugin"
-            && arg != L"--save") {
+            && arg != L"--save" && arg != L"--view-tag") {
             throw std::runtime_error("unknown argument");
         }
         if (++i == argc) {
@@ -76,6 +78,8 @@ Options ParseArguments(int argc, wchar_t **argv)
             options.kernel = argv[i];
         } else if (arg == L"--save") {
             options.save = argv[i];
+        } else if (arg == L"--view-tag") {
+            options.view_tag = argv[i];
         } else {
             options.plugins.emplace_back(argv[i]);
         }
@@ -94,6 +98,20 @@ Options ParseArguments(int argc, wchar_t **argv)
     if (options.observe) {
         if (options.save.empty()) {
             throw std::runtime_error("--observe requires --save");
+        }
+    }
+    if (!options.view_tag.empty()) {
+        if (!options.observe || options.view_tag.size() != 3) {
+            throw std::runtime_error("--view-tag requires --observe and exactly three ASCII letters");
+        }
+        for (auto &character : options.view_tag) {
+            if (!((character >= L'A' && character <= L'Z')
+                  || (character >= L'a' && character <= L'z'))) {
+                throw std::runtime_error("--view-tag requires --observe and exactly three ASCII letters");
+            }
+            if (character >= L'a' && character <= L'z') {
+                character = character - L'a' + L'A';
+            }
         }
     }
     return options;
@@ -339,6 +357,9 @@ int wmain(int argc, wchar_t **argv)
         if (options.observe) {
             command_line += L" -smedley-observe";
         }
+        if (!options.view_tag.empty()) {
+            command_line += L" -smedley-view-tag=" + options.view_tag;
+        }
 
         std::wcout << L"game:   " << game << L"\n"
                    << L"kernel: " << options.kernel << L"\n";
@@ -350,6 +371,9 @@ int wmain(int argc, wchar_t **argv)
         }
         if (options.observe) {
             std::wcout << L"observe: enabled\n";
+        }
+        if (!options.view_tag.empty()) {
+            std::wcout << L"view tag: " << options.view_tag << L"\n";
         }
         if (options.dry_run) {
             return 0;

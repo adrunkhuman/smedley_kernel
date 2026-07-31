@@ -85,6 +85,20 @@ return-to-AI transition, verifies scheduler restoration, and resumes. This
 annexation failover is statically validated but awaits an actual runtime
 annexation in the corrected build.
 
+For manual view changes, observer mode replaces native `tag` with an error and
+registers `switch TAG`. `switch` validates a living scheduled-AI target, pauses,
+calls the saved native handler, waits for its asynchronous ownership transition,
+returns the target to AI, verifies exact scheduler restoration, and resumes.
+Outside observer mode, native `tag` is not modified.
+`--view-tag TAG` dispatches that same registered `switch` command once after the
+observer watchdog starts, providing a deterministic initial view and an
+end-to-end automation path for testing the transaction.
+
+Runtime acceptance with `--view-tag ENG` switched the view from JAN to ENG,
+restored ENG's AI and exact scheduler count one second later, and resumed the
+simulation. A subsequent native `tag FRA` command was rejected by the
+observer-only replacement handler.
+
 A subsequent observer test bypassed six generic message dispatches while
 `economy_trace` advanced about 3,085 days without a watchdog-detected pause.
 After expanding coverage to all nine dispatchers, a smoke run suppressed six

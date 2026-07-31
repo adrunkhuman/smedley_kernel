@@ -104,6 +104,19 @@ namespace smedley::sstd
             ++_last;
         }
 
+        bool erase_value(const T &value)
+        {
+            for (auto *current = _first; current != _last; ++current) {
+                if (*current != value) {
+                    continue;
+                }
+                std::memmove(current, current + 1, (_last - current - 1) * sizeof(T));
+                --_last;
+                return true;
+            }
+            return false;
+        }
+
         inline size_type capacity() const noexcept { return _end - _first; }
         inline size_type size() const noexcept { return _last - _first; }
 

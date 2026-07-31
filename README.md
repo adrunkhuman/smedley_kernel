@@ -24,6 +24,7 @@ smedley_cli --game-dir "C:\path\to\Victoria 2" --detach
 smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/v2up.toml --detach
 smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/campaign_runner.toml --save "C:\path\to\autosave.v2" --detach
 smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/campaign_runner.toml --save "C:\path\to\autosave.v2" --observe --detach
+smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/campaign_runner.toml --save "C:\path\to\autosave.v2" --observe --view-tag ENG --detach
 smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/campaign_runner.toml --plugin plugins/economy_trace.toml --save "C:\path\to\autosave.v2" --detach
 ```
 
@@ -48,6 +49,13 @@ intact.
 If the UI viewing country is annexed, the watchdog pauses, switches the view to
 a living AI country through native `tag`, returns that country to AI, verifies
 the scheduler, and resumes.
+
+Observer mode disables the unsafe native `tag` console command and registers
+`switch TAG`. The replacement pauses before the native transition, recreates
+and verifies the target AI, and only then resumes. Native `tag` behavior remains
+unchanged outside observer mode.
+`--view-tag TAG` performs the same verified transaction once after observer
+startup and is useful for reproducible automation.
 
 The independent `economy_trace` plugin writes `economy_trace.csv` in the game
 directory. Each daily country update records the raw game date, country tag,

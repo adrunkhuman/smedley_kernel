@@ -318,40 +318,229 @@ namespace campaign_runner
     {
     }
 
-    bool CampaignLauncher::Start(std::wstring save_path, bool observe)
+    bool CampaignLauncher::Start(
+        std::wstring save_path,
+        bool observe,
+        std::wstring observer_view_tag)
     {
         save_path_ = std::move(save_path);
         observe_ = observe;
+        observer_enabled_ = false;
         suppress_message_popups = false;
         suppressed_message_count = 0;
         launcher_instance = this;
+        if (!observer_view_tag.empty()) {
+            if (!observe || observer_view_tag.size() != 3) {
+                logger_.Failure("observer view tag requires --observe and three ASCII letters");
+                launcher_instance = nullptr;
+                return false;
+            }
+            for (const auto character : observer_view_tag) {
+                if (!((character >= L'A' && character <= L'Z')
+                      || (character >= L'a' && character <= L'z'))) {
+                    logger_.Failure("observer view tag requires --observe and three ASCII letters");
+                    launcher_instance = nullptr;
+                    return false;
+                }
+                initial_observer_view_tag_.push_back(static_cast<char>(
+                    character >= L'a' && character <= L'z'
+                        ? character - L'a' + L'A'
+                        : character));
+            }
+        }
         if (save_path_.empty()) {
             logger_.Warn("no unattended save argument found");
             return false;
         }
         if (!CheckSignatures() || !InstallControllerHooks()) {
+            observe_ = false;
+            launcher_instance = nullptr;
             return false;
         }
+        observer_enabled_ = observe;
         logger_.Info("waiting for the frontend before unattended save loading");
         return true;
     }
 
     void CampaignLauncher::Stop()
     {
+        auto *game_state = smedley::v2::CCurrentGameState::instance();
+        if (observer_view_switch_pending_ && game_state != nullptr) {
+            auto *target = game_state->country(observer_target_ordinal_);
+            if (target != nullptr
+                && target->exists()
+                && game_state->player_control_state(observer_target_ordinal_) > 0
+                && target->ai() == nullptr) {
+                game_state->ReturnCountryToAI(target->tag());
+            }
+        }
         if (save_timer_ != 0) {
             KillTimer(nullptr, save_timer_);
             save_timer_ = 0;
         }
         suppress_message_popups = false;
+        if (native_tag_command_ != nullptr
+            && native_tag_command_->handler == &CampaignLauncher::RejectNativeTag) {
+            native_tag_command_->handler = native_tag_handler_;
+        }
+        if (observer_command_manager_ != nullptr && observer_switch_command_ != nullptr) {
+            if (observer_command_manager_->commands().erase_value(observer_switch_command_)) {
+                delete observer_switch_command_;
+            }
+        }
+        observer_switch_command_ = nullptr;
+        observer_command_manager_ = nullptr;
+        observer_console_ready_ = false;
         launcher_instance = nullptr;
     }
 
     void CampaignLauncher::CaptureConsoleCommandManager(smedley::v2::CConsoleCmdManager *manager)
     {
-        console_manager_.store(manager, std::memory_order_release);
-        if (manager != nullptr) {
-            logger_.Info("captured native console command manager");
+        if (manager == nullptr) {
+            return;
         }
+        console_manager_.store(manager, std::memory_order_release);
+        logger_.Info("captured native console command manager");
+        if (!observer_enabled_) {
+            return;
+        }
+        if (observer_console_ready_ && observer_command_manager_ == manager) {
+            return;
+        }
+        if (observer_command_manager_ != nullptr && observer_command_manager_ != manager) {
+            // The old manager is no longer active; its command metadata remains
+            // process-lifetime storage so a late callback cannot dangle.
+            native_tag_command_ = nullptr;
+            native_tag_handler_ = nullptr;
+            observer_switch_command_ = nullptr;
+            observer_console_ready_ = false;
+        }
+        observer_command_manager_ = manager;
+        native_tag_command_ = manager->FindCommand("tag");
+        const auto expected_handler = smedley::memory::Map::base_addr + 0x1f720;
+        if (native_tag_command_ == nullptr
+            || reinterpret_cast<uintptr_t>(native_tag_command_->handler) != expected_handler) {
+            logger_.Failure("native tag command is unavailable; safe observer switching disabled");
+            return;
+        }
+        native_tag_handler_ = native_tag_command_->handler;
+        native_tag_command_->handler = &CampaignLauncher::RejectNativeTag;
+        if (manager->FindCommand("switch") != nullptr) {
+            logger_.Failure("console command switch already exists; safe observer switching disabled");
+            native_tag_command_->handler = native_tag_handler_;
+            return;
+        }
+        observer_switch_command_ = new smedley::v2::CConsoleCmd::SCommandData{};
+        observer_switch_command_->is_allowed = true;
+        observer_switch_command_->name = "switch";
+        observer_switch_command_->description = "Change observer view while preserving country AI.";
+        observer_switch_command_->handler = &CampaignLauncher::HandleObserverSwitch;
+        observer_switch_command_->num_args = 1;
+        observer_switch_command_->args[0] = "TAG";
+        manager->commands().push_back(observer_switch_command_);
+        observer_console_ready_ = true;
+        logger_.Info("registered observer-safe switch command and disabled native tag");
+    }
+
+    smedley::v2::CConsoleCmd::SResult CampaignLauncher::RejectNativeTag(
+        const smedley::sstd::vector<smedley::sstd::string> &)
+    {
+        if (launcher_instance != nullptr) {
+            launcher_instance->logger_.Warn("blocked native tag command in observer mode");
+        }
+        return smedley::v2::CConsoleCmd::SResult("tag disabled; use switch TAG", false);
+    }
+
+    smedley::v2::CConsoleCmd::SResult CampaignLauncher::HandleObserverSwitch(
+        const smedley::sstd::vector<smedley::sstd::string> &arguments)
+    {
+        if (launcher_instance == nullptr) {
+            return smedley::v2::CConsoleCmd::SResult("observer unavailable", false);
+        }
+        return launcher_instance->RequestObserverSwitch(arguments);
+    }
+
+    smedley::v2::CConsoleCmd::SResult CampaignLauncher::RequestObserverSwitch(
+        const smedley::sstd::vector<smedley::sstd::string> &arguments)
+    {
+        if (!observer_enabled_ || !observer_monitoring_) {
+            return smedley::v2::CConsoleCmd::SResult("observer not ready", false);
+        }
+        if (observer_view_switch_pending_) {
+            return smedley::v2::CConsoleCmd::SResult("switch already pending", false);
+        }
+        if (arguments.size() != 1) {
+            return smedley::v2::CConsoleCmd::SResult("usage: switch TAG", false);
+        }
+        std::string requested_tag = arguments[0].c_str();
+        if (requested_tag.size() != 3) {
+            return smedley::v2::CConsoleCmd::SResult("TAG must be 3 letters", false);
+        }
+        for (auto &character : requested_tag) {
+            if (!((character >= 'A' && character <= 'Z')
+                  || (character >= 'a' && character <= 'z'))) {
+                return smedley::v2::CConsoleCmd::SResult("TAG must be 3 letters", false);
+            }
+            if (character >= 'a' && character <= 'z') {
+                character = character - 'a' + 'A';
+            }
+        }
+
+        auto *game_state = smedley::v2::CCurrentGameState::instance();
+        auto *idler = game_state == nullptr ? nullptr : game_state->idler();
+        if (!IsInGameIdler(idler)) {
+            return smedley::v2::CConsoleCmd::SResult("campaign unavailable", false);
+        }
+        smedley::v2::CCountry *target = nullptr;
+        for (size_t ordinal = 1; ordinal < game_state->country_count(); ++ordinal) {
+            auto *candidate = game_state->country(static_cast<int>(ordinal));
+            if (candidate != nullptr
+                && std::strcmp(candidate->tag().str(), requested_tag.c_str()) == 0) {
+                target = candidate;
+                break;
+            }
+        }
+        if (target == nullptr || !target->exists()) {
+            return smedley::v2::CConsoleCmd::SResult("country does not exist", false);
+        }
+        if (target->tag().ordinal() == game_state->player_tag().ordinal()) {
+            return smedley::v2::CConsoleCmd::SResult("already viewing country");
+        }
+        if (game_state->player_control_state(target->tag().ordinal()) != 0
+            || target->ai() == nullptr
+            || !game_state->is_scheduled_ai(target->ai())) {
+            return smedley::v2::CConsoleCmd::SResult("target AI is not healthy", false);
+        }
+
+        auto pause_state = idler->pause_state();
+        const bool paused_by_command = pause_state == 0;
+        if (pause_state == 0) {
+            idler->TogglePause();
+            pause_state = idler->pause_state();
+        }
+        if (pause_state != 1) {
+            return smedley::v2::CConsoleCmd::SResult("failed to pause", false);
+        }
+
+        observer_target_ordinal_ = target->tag().ordinal();
+        observer_target_tag_ = requested_tag;
+        observer_ai_count_before_switch_ = game_state->country_ai_count();
+        observer_view_switch_pending_ = true;
+        observer_attempts_ = 0;
+        smedley::sstd::vector<smedley::sstd::string> native_arguments;
+        native_arguments.push_back(smedley::sstd::string(requested_tag.c_str()));
+        const auto result = native_tag_handler_(native_arguments);
+        if (!result.success) {
+            observer_view_switch_pending_ = false;
+            observer_target_ordinal_ = 0;
+            observer_target_tag_.clear();
+            if (paused_by_command) {
+                idler->TogglePause();
+            }
+            return result;
+        }
+        logger_.Info(std::string("requested observer-safe switch to ") + requested_tag);
+        return smedley::v2::CConsoleCmd::SResult("observer switch queued");
     }
 
     bool CampaignLauncher::ScheduleTimer(UINT delay, const char *failure_message)
@@ -714,6 +903,21 @@ namespace campaign_runner
                         std::string(reason)
                         + (ownership_clean ? "" : "; observer ownership cleanup failed"));
                 };
+                if (!launcher->initial_observer_view_tag_.empty()
+                    && !launcher->observer_view_switch_pending_) {
+                    smedley::sstd::vector<smedley::sstd::string> arguments;
+                    arguments.push_back(
+                        smedley::sstd::string(launcher->initial_observer_view_tag_.c_str()));
+                    auto *command_manager = launcher->console_manager_.load(std::memory_order_acquire);
+                    const auto result = command_manager == nullptr
+                        ? smedley::v2::CConsoleCmd::SResult("console unavailable", false)
+                        : command_manager->ExecuteCommand("switch", arguments);
+                    launcher->initial_observer_view_tag_.clear();
+                    if (!result.success) {
+                        stop_monitoring("initial observer view switch failed", false);
+                    }
+                    return;
+                }
                 const auto view_ordinal = game_state->player_tag().ordinal();
                 auto *view_country = game_state->country(view_ordinal);
                 if (launcher->observer_view_switch_pending_
@@ -750,10 +954,9 @@ namespace campaign_runner
                             stop_monitoring("no living AI country is available for observer view failover", false);
                             return;
                         }
-                        auto *tag_command = command_manager->FindCommand("tag");
                         const auto expected_handler = smedley::memory::Map::base_addr + 0x1f720;
-                        if (tag_command == nullptr
-                            || reinterpret_cast<uintptr_t>(tag_command->handler) != expected_handler) {
+                        if (launcher->native_tag_handler_ == nullptr
+                            || reinterpret_cast<uintptr_t>(launcher->native_tag_handler_) != expected_handler) {
                             stop_monitoring(
                                 "native tag command handler does not match the supported executable",
                                 false);
@@ -762,15 +965,16 @@ namespace campaign_runner
                         launcher->observer_target_ordinal_ = target->tag().ordinal();
                         launcher->observer_target_tag_ = target->tag().str();
                         launcher->observer_ai_count_before_switch_ = game_state->country_ai_count();
+                        launcher->observer_view_switch_pending_ = true;
+                        launcher->observer_attempts_ = 0;
                         smedley::sstd::vector<smedley::sstd::string> arguments;
                         arguments.push_back(smedley::sstd::string(launcher->observer_target_tag_.c_str()));
-                        const auto result = command_manager->ExecuteCommand("tag", arguments);
+                        const auto result = launcher->native_tag_handler_(arguments);
                         if (!result.success) {
+                            launcher->observer_view_switch_pending_ = false;
                             stop_monitoring("native observer view failover command failed", false);
                             return;
                         }
-                        launcher->observer_view_switch_pending_ = true;
-                        launcher->observer_attempts_ = 0;
                         launcher->logger_.Info(
                             std::string("requested observer view failover to ")
                             + launcher->observer_target_tag_);
@@ -823,6 +1027,17 @@ namespace campaign_runner
                 return;
             }
             if (launcher->observe_) {
+                if (!launcher->observer_console_ready_) {
+                    ++launcher->observer_attempts_;
+                    if (launcher->observer_attempts_ < 30) {
+                        launcher->ScheduleTimer(1'000, "failed to schedule observer console setup");
+                    } else {
+                        launcher->logger_.Failure(
+                            "safe observer console commands were not installed within 30 seconds");
+                    }
+                    return;
+                }
+                launcher->observer_attempts_ = 0;
                 if (pause_state == 0) {
                     idler->TogglePause();
                     pause_state = idler->pause_state();

@@ -67,7 +67,8 @@ namespace campaign_runner
             const auto save = ReadArgument(L"-smedley-save=");
             launcher_->Start(
                 save.has_value() ? *save : std::wstring{},
-                HasArgument(L"-smedley-observe"));
+                HasArgument(L"-smedley-observe"),
+                ReadArgument(L"-smedley-view-tag=").value_or(std::wstring{}));
         }
 
         void OnUnload() override

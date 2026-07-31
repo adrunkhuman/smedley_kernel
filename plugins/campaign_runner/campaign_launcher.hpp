@@ -1,5 +1,6 @@
 #pragma once
 
+#include <smedley/v2/console.hpp>
 #include <windows.h>
 
 #include <atomic>
@@ -8,10 +9,6 @@
 namespace smedley
 {
     class Logger;
-    namespace v2
-    {
-        class CConsoleCmdManager;
-    }
 }
 
 namespace campaign_runner
@@ -21,11 +18,16 @@ namespace campaign_runner
     public:
         explicit CampaignLauncher(smedley::Logger &logger) noexcept;
 
-        bool Start(std::wstring save_path, bool observe);
+        bool Start(std::wstring save_path, bool observe, std::wstring observer_view_tag);
         void Stop();
         void CaptureConsoleCommandManager(smedley::v2::CConsoleCmdManager *manager);
         void CaptureFrontendController(void *controller);
         void CaptureMainMenuController(void *controller);
+
+        static smedley::v2::CConsoleCmd::SResult HandleObserverSwitch(
+            const smedley::sstd::vector<smedley::sstd::string> &arguments);
+        static smedley::v2::CConsoleCmd::SResult RejectNativeTag(
+            const smedley::sstd::vector<smedley::sstd::string> &arguments);
 
     private:
         static void CALLBACK SaveTimerCallback(HWND, UINT, UINT_PTR timer, DWORD);
@@ -35,6 +37,8 @@ namespace campaign_runner
         bool InstallControllerHooks();
         bool DispatchMainMenuSinglePlayer();
         bool DispatchControlSignal(const char *name);
+        smedley::v2::CConsoleCmd::SResult RequestObserverSwitch(
+            const smedley::sstd::vector<smedley::sstd::string> &arguments);
 
         smedley::Logger &logger_;
         std::wstring save_path_;
@@ -48,12 +52,19 @@ namespace campaign_runner
         bool save_selection_requested_ = false;
         bool play_requested_ = false;
         bool observe_ = false;
+        bool observer_enabled_ = false;
         bool observer_ai_ready_ = false;
+        bool observer_console_ready_ = false;
         bool observer_monitoring_ = false;
         bool observer_view_switch_pending_ = false;
         bool speed_ready_ = false;
         size_t observer_ai_count_before_switch_ = 0;
         std::string observer_target_tag_;
+        std::string initial_observer_view_tag_;
+        smedley::v2::CConsoleCmd::SCommandData *native_tag_command_ = nullptr;
+        smedley::v2::CConsoleCmd::SCommandData *observer_switch_command_ = nullptr;
+        smedley::v2::CConsoleCmdManager *observer_command_manager_ = nullptr;
+        smedley::v2::CConsoleCmd::SCommandData::Handler native_tag_handler_ = nullptr;
         std::atomic<smedley::v2::CConsoleCmdManager *> console_manager_ = nullptr;
         std::atomic<void *> frontend_controller_ = nullptr;
         std::atomic<void *> main_menu_controller_ = nullptr;
