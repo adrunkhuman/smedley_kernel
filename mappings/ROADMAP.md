@@ -25,6 +25,11 @@
   run-for-days targets are implemented. Two identical 365-day observer runs
   paused at the exact target with a 0.50 percent throughput difference and no
   telemetry gaps, drops, or source-save mutation.
+- The built-in `scripting` plugin runs source-visible Lua in private bounded
+  states off the game callback, delivers copied daily snapshots, schedules
+  in-memory callbacks, and queues a signature-checked native pause. Runtime run
+  `b076f162-9700-40c3-9c9b-7f56c53991b3` completed the pause with readback while
+  both Victoria II Lua DLLs remained loaded; see `SCRIPTING.md`.
 
 ## Immediate blocker
 

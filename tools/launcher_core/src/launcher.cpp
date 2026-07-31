@@ -27,6 +27,14 @@ namespace smedley::launcher
         constexpr int run_max_days = 1000000;
         constexpr int run_min_timeout_seconds = 1;
         constexpr int run_max_timeout_seconds = 86400;
+        constexpr int script_min_instruction_budget = 1000;
+        constexpr int script_max_instruction_budget = 10000000;
+        constexpr int script_min_memory_bytes = 262144;
+        constexpr int script_max_memory_bytes = 67108864;
+        constexpr int script_min_queue_capacity = 16;
+        constexpr int script_max_queue_capacity = 4096;
+        constexpr size_t script_max_count = 16;
+        constexpr uintmax_t script_max_file_bytes = 1024 * 1024;
         constexpr std::array<unsigned char, 32> supported_executable_hash = {
             0x62, 0xd4, 0x8c, 0x20, 0x43, 0x64, 0xdd, 0x70,
             0x65, 0x84, 0x77, 0x7c, 0x2e, 0x2b, 0x3c, 0x7a,
@@ -62,6 +70,29 @@ namespace smedley::launcher
             }
             if (profile.run_timeout_seconds < run_min_timeout_seconds || profile.run_timeout_seconds > run_max_timeout_seconds) {
                 AddDiagnostic(diagnostics, "campaign.run_timeout", "run_timeout_seconds must be from 1 through 86400", path);
+                return false;
+            }
+            return true;
+        }
+
+        bool ValidateScriptingProfile(const Profile &profile, std::vector<Diagnostic> *diagnostics, const fs::path &path)
+        {
+            if (profile.scripts.size() > script_max_count) {
+                AddDiagnostic(diagnostics, "scripting.scripts", "no more than 16 scripts may be selected", path);
+                return false;
+            }
+            if (profile.script_instruction_budget < script_min_instruction_budget
+                || profile.script_instruction_budget > script_max_instruction_budget) {
+                AddDiagnostic(diagnostics, "scripting.instruction_budget", "script_instruction_budget must be from 1000 through 10000000", path);
+                return false;
+            }
+            if (profile.script_memory_bytes < script_min_memory_bytes || profile.script_memory_bytes > script_max_memory_bytes) {
+                AddDiagnostic(diagnostics, "scripting.memory_bytes", "script_memory_bytes must be from 262144 through 67108864", path);
+                return false;
+            }
+            if (profile.script_queue_capacity < script_min_queue_capacity
+                || profile.script_queue_capacity > script_max_queue_capacity) {
+                AddDiagnostic(diagnostics, "scripting.queue_capacity", "script_queue_capacity must be from 16 through 4096", path);
                 return false;
             }
             return true;
@@ -599,6 +630,7 @@ namespace smedley::launcher
                 inputs.push_back(plugin.manifest_path);
                 inputs.push_back(plugin.module_path);
             }
+            for (const auto &script : plan.profile.scripts) inputs.push_back(script);
             const auto collides = std::any_of(inputs.begin(), inputs.end(), [&](const fs::path &input) {
                 return _wcsicmp(input.lexically_normal().c_str(), output.lexically_normal().c_str()) == 0;
             });
@@ -678,6 +710,7 @@ namespace smedley::launcher
             record.start_paused = plan.profile.start_paused;
             for (const auto &mod : plan.mods) record.mod_descriptors.push_back(mod.descriptor_path);
             for (const auto &plugin : plan.plugins) record.plugins.push_back({plugin.id, plugin.manifest_path});
+            record.scripts = plan.profile.scripts;
             if (const auto base_user_dir = VictoriaBaseUserDirectory()) {
                 record.links.smedley_log = *base_user_dir / L"logs" / L"smedley.log";
                 if (const auto user_dir = ResolveVictoriaUserDirectory(*base_user_dir, plan.mods)) {
@@ -805,6 +838,13 @@ namespace smedley::launcher
                         loaded.plugins.push_back({*id, fs::u8path(*manifest_path)});
                     }
                 }
+                if (const auto scripts = table["scripts"].as_array()) {
+                    for (const auto &node : *scripts) {
+                        const auto value = node.value<std::string>();
+                        if (!value) throw std::runtime_error("scripts must contain strings");
+                        loaded.scripts.push_back(fs::u8path(*value));
+                    }
+                }
                 if (const auto *links = table["links"].as_table()) {
                     auto read_link = [&](const char *key, std::optional<fs::path> *destination) {
                         if (const auto value = (*links)[key].value<std::string>()) *destination = fs::u8path(*value);
@@ -921,6 +961,7 @@ namespace smedley::launcher
             WriteTomlString(output, "executable", record.executable);
             output << "command_line = \"" << EscapeToml(WideToUtf8(record.command_line)) << "\"\n";
             WriteRunPathArray(output, "mod_descriptors", record.mod_descriptors);
+            WriteRunPathArray(output, "scripts", record.scripts);
             if (record.save) WriteTomlString(output, "save", *record.save);
             output << "observer = " << (record.observer ? "true" : "false") << "\n";
             output << "speed = " << record.speed << "\n";
@@ -1232,22 +1273,41 @@ namespace smedley::launcher
                 }
                 loaded.telemetry_overwrite = *value;
             }
+            auto read_script_integer = [&](const char *key, int *destination) {
+                if (!table.contains(key)) return true;
+                const auto value = table[key].value<int>();
+                if (!value) {
+                    AddDiagnostic(diagnostics, "profile.schema", std::string(key) + " must be an integer", path);
+                    return false;
+                }
+                *destination = *value;
+                return true;
+            };
+            if (!read_script_integer("script_instruction_budget", &loaded.script_instruction_budget)
+                || !read_script_integer("script_memory_bytes", &loaded.script_memory_bytes)
+                || !read_script_integer("script_queue_capacity", &loaded.script_queue_capacity)) return false;
             auto read_paths = [&](const char *key, std::vector<fs::path> *paths) {
-                if (const auto array = table[key].as_array()) {
-                    for (const auto &node : *array) {
-                        const auto value = node.value<std::string>();
-                        if (!value) {
-                            AddDiagnostic(diagnostics, "profile.schema", std::string(key) + " must contain strings", path);
-                            return false;
-                        }
-                        paths->emplace_back(fs::u8path(*value));
+                if (!table.contains(key)) return true;
+                const auto array = table[key].as_array();
+                if (array == nullptr) {
+                    AddDiagnostic(diagnostics, "profile.schema", std::string(key) + " must be an array of strings", path);
+                    return false;
+                }
+                for (const auto &node : *array) {
+                    const auto value = node.value<std::string>();
+                    if (!value) {
+                        AddDiagnostic(diagnostics, "profile.schema", std::string(key) + " must contain strings", path);
+                        return false;
                     }
+                    paths->emplace_back(fs::u8path(*value));
                 }
                 return true;
             };
-            if (!read_paths("mods", &loaded.mods) || !read_paths("plugins", &loaded.plugins)) return false;
+            if (!read_paths("mods", &loaded.mods) || !read_paths("plugins", &loaded.plugins)
+                || !read_paths("scripts", &loaded.scripts)) return false;
             if (!ValidateTelemetryProfile(loaded, diagnostics, path)) return false;
             if (!ValidateRunProfile(loaded, diagnostics, path)) return false;
+            if (!ValidateScriptingProfile(loaded, diagnostics, path)) return false;
             *profile = std::move(loaded);
             return true;
         } catch (const std::exception &error) {
@@ -1258,7 +1318,8 @@ namespace smedley::launcher
 
     bool SaveProfile(const fs::path &path, const Profile &profile, std::vector<Diagnostic> *diagnostics)
     {
-        if (!ValidateTelemetryProfile(profile, diagnostics, path) || !ValidateRunProfile(profile, diagnostics, path)) return false;
+        if (!ValidateTelemetryProfile(profile, diagnostics, path) || !ValidateRunProfile(profile, diagnostics, path)
+            || !ValidateScriptingProfile(profile, diagnostics, path)) return false;
         std::ofstream output(path, std::ios::trunc);
         if (!output) {
             AddDiagnostic(diagnostics, "profile.write", "could not write profile", path);
@@ -1307,6 +1368,10 @@ namespace smedley::launcher
         output << "telemetry_sample_days = " << profile.telemetry_sample_days << "\n";
         output << "telemetry_queue_capacity = " << profile.telemetry_queue_capacity << "\n";
         output << "telemetry_overwrite = " << (profile.telemetry_overwrite ? "true" : "false") << "\n";
+        write_paths("scripts", profile.scripts);
+        output << "script_instruction_budget = " << profile.script_instruction_budget << "\n";
+        output << "script_memory_bytes = " << profile.script_memory_bytes << "\n";
+        output << "script_queue_capacity = " << profile.script_queue_capacity << "\n";
         if (!output) {
             AddDiagnostic(diagnostics, "profile.write", "could not write profile", path);
             return false;
@@ -1371,6 +1436,7 @@ namespace smedley::launcher
             const bool run_controls_requested = plan.profile.speed != 5 || plan.profile.start_paused || target_run_requested;
             bool campaign_runner_selected = false;
             bool telemetry_selected = false;
+            bool scripting_selected = false;
 
             std::vector<std::wstring> arguments = {plan.game_executable.wstring()};
             std::vector<fs::path> selected_descriptors;
@@ -1399,6 +1465,7 @@ namespace smedley::launcher
             if (plan.profile.inject) {
                 ValidateTelemetryProfile(plan.profile, &plan.diagnostics);
                 ValidateRunProfile(plan.profile, &plan.diagnostics, {});
+                ValidateScriptingProfile(plan.profile, &plan.diagnostics, {});
                 if (plan.profile.telemetry_output) {
                     plan.profile.telemetry_output = Absolute(plan.profile.telemetry_output->is_absolute()
                         ? *plan.profile.telemetry_output
@@ -1427,6 +1494,7 @@ namespace smedley::launcher
                     plugin_ids.push_back(manifest.id);
                     if (manifest.id == "campaign_runner") campaign_runner_selected = true;
                     if (manifest.id == "telemetry") telemetry_selected = true;
+                    if (manifest.id == "scripting") scripting_selected = true;
                     if (IsX86PE(manifest.module_path, &plan.diagnostics, "plugin module", true)) {
                         HasExport(manifest.module_path, "CreatePlugin", "plugin.export",
                                   "plugin module does not export CreatePlugin", &plan.diagnostics);
@@ -1440,6 +1508,45 @@ namespace smedley::launcher
                 }
                 if (plan.profile.telemetry_enabled && !telemetry_selected) {
                     AddDiagnostic(&plan.diagnostics, "telemetry.plugin", "telemetry requires the telemetry plugin");
+                }
+                std::vector<fs::path> resolved_scripts;
+                const auto script_root = plan.profile.game_dir / L"scripts";
+                for (const auto &selected : plan.profile.scripts) {
+                    const auto script_path = Absolute(selected.is_absolute() ? selected : plan.profile.game_dir / selected);
+                    if (ContainsParentTraversal(selected) || !IsPathContained(script_root, script_path)) {
+                        AddDiagnostic(&plan.diagnostics, "scripting.path_traversal", "selected scripts must be inside GAME_DIR/scripts", script_path);
+                        continue;
+                    }
+                    if (!IsRegularFile(script_path)) {
+                        AddDiagnostic(&plan.diagnostics, "scripting.missing", "selected script does not exist", script_path);
+                        continue;
+                    }
+                    if (_wcsicmp(script_path.extension().c_str(), L".lua") != 0) {
+                        AddDiagnostic(&plan.diagnostics, "scripting.extension", "selected scripts must end in .lua", script_path);
+                        continue;
+                    }
+                    std::error_code size_error;
+                    const auto size = fs::file_size(script_path, size_error);
+                    if (size_error || size == 0 || size > script_max_file_bytes) {
+                        AddDiagnostic(&plan.diagnostics, "scripting.size", "selected scripts must be non-empty and no larger than 1 MiB", script_path);
+                        continue;
+                    }
+                    if (std::any_of(resolved_scripts.begin(), resolved_scripts.end(), [&](const fs::path &resolved) {
+                            return _wcsicmp(resolved.c_str(), script_path.c_str()) == 0;
+                        })) {
+                        AddDiagnostic(&plan.diagnostics, "scripting.duplicate", "script was selected more than once", script_path);
+                        continue;
+                    }
+                    resolved_scripts.push_back(script_path);
+                }
+                plan.profile.scripts = std::move(resolved_scripts);
+                if (!plan.profile.scripts.empty() && !scripting_selected) {
+                    AddDiagnostic(&plan.diagnostics, "scripting.plugin", "scripts require the scripting plugin");
+                }
+                if (plan.profile.scripts.empty()
+                    && (plan.profile.script_instruction_budget != 100000 || plan.profile.script_memory_bytes != 8388608
+                        || plan.profile.script_queue_capacity != 256)) {
+                    AddWarning(&plan.diagnostics, "scripting.settings_ignored", "script limits are ignored when no scripts are selected");
                 }
                 if (plan.profile.telemetry_enabled && plan.profile.telemetry_output) {
                     ValidateTelemetryOutput(plan.profile, *plan.profile.telemetry_output, plan, &plan.diagnostics);
@@ -1531,6 +1638,14 @@ namespace smedley::launcher
                     arguments.push_back(L"-smedley-telemetry-queue-capacity=" + std::to_wstring(plan.profile.telemetry_queue_capacity));
                     arguments.push_back(L"-smedley-telemetry-overwrite=" + std::to_wstring(plan.profile.telemetry_overwrite ? 1 : 0));
                 }
+                if (!plan.profile.scripts.empty() && scripting_selected) {
+                    for (const auto &script : plan.profile.scripts) {
+                        arguments.push_back(L"-smedley-script=" + script.wstring());
+                    }
+                    arguments.push_back(L"-smedley-script-instruction-budget=" + std::to_wstring(plan.profile.script_instruction_budget));
+                    arguments.push_back(L"-smedley-script-memory-bytes=" + std::to_wstring(plan.profile.script_memory_bytes));
+                    arguments.push_back(L"-smedley-script-queue-capacity=" + std::to_wstring(plan.profile.script_queue_capacity));
+                }
             } else {
                 if (!plan.profile.plugins.empty()) AddWarning(&plan.diagnostics, "safe_mode.plugins_ignored", "plugins are ignored when injection is disabled");
                 if (plan.profile.save) AddWarning(&plan.diagnostics, "safe_mode.save_ignored", "save automation is ignored when injection is disabled", *plan.profile.save);
@@ -1541,6 +1656,7 @@ namespace smedley::launcher
                 if (target_run_requested) AddWarning(&plan.diagnostics, "safe_mode.run_target_ignored", "benchmark run target is ignored when injection is disabled");
                 else if (plan.profile.run_timeout_seconds != 600) AddWarning(&plan.diagnostics, "safe_mode.run_timeout_ignored", "benchmark timeout is ignored without a benchmark target");
                 if (plan.profile.telemetry_enabled) AddWarning(&plan.diagnostics, "safe_mode.telemetry_ignored", "telemetry is ignored when injection is disabled");
+                if (!plan.profile.scripts.empty()) AddWarning(&plan.diagnostics, "safe_mode.scripts_ignored", "scripts are ignored when injection is disabled");
             }
 
             if (plan.profile.inject && plan.profile.save) {

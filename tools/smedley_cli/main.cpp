@@ -34,6 +34,10 @@ struct Options
     std::optional<int> telemetry_sample_days;
     std::optional<int> telemetry_queue_capacity;
     std::optional<bool> telemetry_overwrite;
+    std::vector<fs::path> scripts;
+    std::optional<int> script_instruction_budget;
+    std::optional<int> script_memory_bytes;
+    std::optional<int> script_queue_capacity;
     bool dry_run = false;
     bool discover = false;
     bool history = false;
@@ -67,6 +71,10 @@ void PrintUsage()
         << "  --telemetry-sample-days N  State sample interval from 1 through 365 (default: 1)\n"
         << "  --telemetry-queue-capacity N  Bounded record queue from 64 through 8192 (default: 1024)\n"
         << "  --telemetry-overwrite  Replace an existing telemetry output file\n"
+        << "  --script PATH   Lua source under GAME_DIR/scripts; may be repeated\n"
+        << "  --script-instruction-budget N  Per-callback Lua instruction limit (default: 100000)\n"
+        << "  --script-memory-bytes N  Memory limit per Lua script (default: 8388608)\n"
+        << "  --script-queue-capacity N  Bounded event queue from 16 through 4096 (default: 256)\n"
         << "  --detach        Return after Victoria 2 starts\n"
         << "  --discover      List GAME_DIR plugins and mods\n"
         << "  --history       List the 20 most recent launcher runs\n"
@@ -92,7 +100,9 @@ Options ParseArguments(int argc, wchar_t **argv)
         if (argument == L"--telemetry-overwrite") { options.telemetry_overwrite = true; continue; }
         if (argument == L"--speed" || argument == L"--telemetry-sample-days" || argument == L"--telemetry-queue-capacity"
             || argument == L"--telemetry-start-date-raw" || argument == L"--telemetry-end-date-raw"
-            || argument == L"--run-days" || argument == L"--run-until-date-raw" || argument == L"--run-timeout-seconds") {
+            || argument == L"--run-days" || argument == L"--run-until-date-raw" || argument == L"--run-timeout-seconds"
+            || argument == L"--script-instruction-budget" || argument == L"--script-memory-bytes"
+            || argument == L"--script-queue-capacity") {
             if (++i == argc) throw std::runtime_error("missing numeric argument value");
             const std::wstring value = argv[i];
             size_t parsed = 0;
@@ -105,7 +115,10 @@ Options ParseArguments(int argc, wchar_t **argv)
                 else if (argument == L"--telemetry-end-date-raw") options.telemetry_end_date_raw = number;
                 else if (argument == L"--run-days") options.run_days = number;
                 else if (argument == L"--run-until-date-raw") options.run_until_date_raw = number;
-                else options.run_timeout_seconds = number;
+                else if (argument == L"--run-timeout-seconds") options.run_timeout_seconds = number;
+                else if (argument == L"--script-instruction-budget") options.script_instruction_budget = number;
+                else if (argument == L"--script-memory-bytes") options.script_memory_bytes = number;
+                else options.script_queue_capacity = number;
             } catch (const std::exception &) {
                 throw std::runtime_error("numeric options must be integers");
             }
@@ -114,7 +127,8 @@ Options ParseArguments(int argc, wchar_t **argv)
         }
         if (argument != L"--profile" && argument != L"--game-dir" && argument != L"--kernel"
             && argument != L"--mod" && argument != L"--plugin" && argument != L"--save" && argument != L"--view-tag"
-            && argument != L"--telemetry-output" && argument != L"--telemetry-category" && argument != L"--telemetry-country") {
+            && argument != L"--telemetry-output" && argument != L"--telemetry-category" && argument != L"--telemetry-country"
+            && argument != L"--script") {
             throw std::runtime_error("unknown argument");
         }
         if (++i == argc) throw std::runtime_error("missing argument value");
@@ -126,6 +140,7 @@ Options ParseArguments(int argc, wchar_t **argv)
         else if (argument == L"--plugin") options.plugins.push_back(value);
         else if (argument == L"--save") options.save = value;
         else if (argument == L"--telemetry-output") options.telemetry_output = value;
+        else if (argument == L"--script") options.scripts.push_back(value);
         else if (argument == L"--telemetry-category") {
             const auto category = value.wstring();
             std::string narrow_category;
@@ -169,6 +184,7 @@ void PrintPlan(const launcher::LaunchPlan &plan)
                << L"inject:  " << (plan.profile.inject ? L"enabled" : L"disabled") << L"\n";
     if (plan.profile.inject) std::wcout << L"kernel:  " << plan.kernel << L"\n";
     if (plan.profile.telemetry_enabled) std::wcout << L"telemetry: enabled\n";
+    for (const auto &script : plan.profile.scripts) std::wcout << L"script:  " << script << L"\n";
     for (const auto &mod : plan.mods) std::wcout << L"mod:     " << mod.descriptor_path << L"\n";
     for (const auto &plugin : plan.plugins) std::wcout << L"plugin:  " << plugin.manifest_path << L"\n";
     if (plan.profile.save) std::wcout << L"save:    " << *plan.profile.save << L"\n";
@@ -224,8 +240,12 @@ int wmain(int argc, wchar_t **argv)
         if (options.telemetry_sample_days) profile.telemetry_sample_days = *options.telemetry_sample_days;
         if (options.telemetry_queue_capacity) profile.telemetry_queue_capacity = *options.telemetry_queue_capacity;
         if (options.telemetry_overwrite) profile.telemetry_overwrite = *options.telemetry_overwrite;
+        if (options.script_instruction_budget) profile.script_instruction_budget = *options.script_instruction_budget;
+        if (options.script_memory_bytes) profile.script_memory_bytes = *options.script_memory_bytes;
+        if (options.script_queue_capacity) profile.script_queue_capacity = *options.script_queue_capacity;
         profile.mods.insert(profile.mods.end(), options.mods.begin(), options.mods.end());
         profile.plugins.insert(profile.plugins.end(), options.plugins.begin(), options.plugins.end());
+        profile.scripts.insert(profile.scripts.end(), options.scripts.begin(), options.scripts.end());
         if (profile.game_dir.empty()) throw std::runtime_error("--game-dir is required unless supplied by --profile");
 
         if (options.discover) {

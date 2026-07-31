@@ -57,6 +57,15 @@ namespace
             return configuration_dir.parent_path().parent_path().parent_path()
                 / L"plugins" / L"telemetry" / configuration_dir.filename() / L"telemetry.dll";
         }
+
+        fs::path BuiltScriptingPlugin() const
+        {
+            wchar_t executable[MAX_PATH];
+            EXPECT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
+            const auto configuration_dir = fs::path(executable).parent_path();
+            return configuration_dir.parent_path().parent_path().parent_path()
+                / L"plugins" / L"scripting" / configuration_dir.filename() / L"scripting.dll";
+        }
     };
 }
 
@@ -112,6 +121,10 @@ TEST_F(LauncherCoreTest, SavesAndLoadsProfileWithSpaces)
     original.detach = true;
     original.run_days = 365;
     original.run_timeout_seconds = 900;
+    original.scripts = {fs::path(L"scripts/observer.lua"), fs::path(L"scripts/report.lua")};
+    original.script_instruction_budget = 250000;
+    original.script_memory_bytes = 4194304;
+    original.script_queue_capacity = 128;
     std::vector<launcher::Diagnostic> diagnostics;
 
     ASSERT_TRUE(launcher::SaveProfile(root / L"profile.toml", original, &diagnostics));
@@ -131,6 +144,10 @@ TEST_F(LauncherCoreTest, SavesAndLoadsProfileWithSpaces)
     EXPECT_TRUE(loaded.detach);
     EXPECT_EQ(loaded.run_days, original.run_days);
     EXPECT_EQ(loaded.run_timeout_seconds, 900);
+    EXPECT_EQ(loaded.scripts, original.scripts);
+    EXPECT_EQ(loaded.script_instruction_budget, 250000);
+    EXPECT_EQ(loaded.script_memory_bytes, 4194304);
+    EXPECT_EQ(loaded.script_queue_capacity, 128);
     EXPECT_FALSE(loaded.inject);
     EXPECT_FALSE(loaded.telemetry_enabled);
     EXPECT_EQ(loaded.telemetry_categories, (std::vector<std::string>{"lifecycle", "state"}));
@@ -475,6 +492,80 @@ TEST_F(LauncherCoreTest, RejectsRunControlsWithoutSaveAndCampaignRunner)
     }));
 }
 
+TEST_F(LauncherCoreTest, ValidatesAndBuildsConstrainedScriptingArguments)
+{
+    const auto plugin_binary = BuiltScriptingPlugin();
+    ASSERT_TRUE(fs::is_regular_file(plugin_binary));
+    fs::copy_file(plugin_binary, root / L"plugins" / L"scripting.dll");
+    Write(root / L"plugins" / L"scripting.toml",
+          "id = \"scripting\"\nname = \"Lua scripting\"\nversion = \"1\"\nmodule = \"scripting.dll\"\n");
+    fs::create_directories(root / L"scripts");
+    Write(root / L"scripts" / L"observer.lua", "function on_daily(event) end\n");
+
+    launcher::Profile profile;
+    profile.game_dir = root;
+    profile.plugins = {L"plugins/scripting.toml"};
+    profile.scripts = {L"scripts/observer.lua"};
+    profile.script_instruction_budget = 200000;
+    profile.script_memory_bytes = 4194304;
+    profile.script_queue_capacity = 128;
+    auto plan = launcher::BuildLaunchPlan(profile);
+
+    EXPECT_FALSE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code.rfind("scripting.", 0) == 0 && diagnostic.severity == launcher::Severity::Error;
+    }));
+    EXPECT_EQ(plan.profile.scripts, (std::vector<fs::path>{root / L"scripts" / L"observer.lua"}));
+    EXPECT_NE(plan.command_line.find(L"-smedley-script="), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-script-instruction-budget=200000"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-script-memory-bytes=4194304"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-script-queue-capacity=128"), std::wstring::npos);
+
+    profile.plugins.clear();
+    plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "scripting.plugin";
+    }));
+
+    profile.inject = false;
+    plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "safe_mode.scripts_ignored" && diagnostic.severity == launcher::Severity::Warning;
+    }));
+    EXPECT_EQ(plan.command_line.find(L"-smedley-script="), std::wstring::npos);
+}
+
+TEST_F(LauncherCoreTest, RejectsUnsafeDuplicateAndMalformedScripts)
+{
+    fs::create_directories(root / L"scripts");
+    Write(root / L"scripts" / L"duplicate.lua", "return true\n");
+    Write(root / L"outside.lua", "return true\n");
+    launcher::Profile profile;
+    profile.game_dir = root;
+    profile.scripts = {L"scripts/duplicate.lua", L"scripts/duplicate.lua", L"outside.lua"};
+    const auto plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "scripting.duplicate";
+    }));
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "scripting.path_traversal";
+    }));
+
+    Write(root / L"bad-script-profile.toml",
+          "name = \"Bad\"\ngame_dir = \"C:/Game\"\nscript_memory_bytes = \"large\"\n");
+    launcher::Profile loaded;
+    std::vector<launcher::Diagnostic> diagnostics;
+    EXPECT_FALSE(launcher::LoadProfile(root / L"bad-script-profile.toml", &loaded, &diagnostics));
+    ASSERT_FALSE(diagnostics.empty());
+    EXPECT_EQ(diagnostics.back().code, "profile.schema");
+
+    Write(root / L"bad-script-list.toml",
+          "name = \"Bad\"\ngame_dir = \"C:/Game\"\nscripts = \"scripts/one.lua\"\n");
+    diagnostics.clear();
+    EXPECT_FALSE(launcher::LoadProfile(root / L"bad-script-list.toml", &loaded, &diagnostics));
+    ASSERT_FALSE(diagnostics.empty());
+    EXPECT_EQ(diagnostics.back().code, "profile.schema");
+}
+
 TEST_F(LauncherCoreTest, IgnoresCustomBenchmarkTimeoutWithoutTarget)
 {
     launcher::Profile profile;
@@ -533,6 +624,7 @@ TEST_F(LauncherCoreTest, SavesAndLoadsCompleteRunRecordInConfiguredDirectory)
     original.command_line = L"\"C:\\Victoria \u03a9\\v2game.exe\" \"-mod=quoted \\\"mod\\\"\"";
     original.mod_descriptors = {root / L"mod" / L"\u03a9.mod"};
     original.plugins = {{"economy_trace", root / L"plugins" / L"economy_trace.toml"}};
+    original.scripts = {root / L"scripts" / L"observer.lua"};
     original.save = root / L"save games" / L"source \u03a9.v2";
     original.observer = true;
     original.speed = 4;
@@ -560,6 +652,7 @@ TEST_F(LauncherCoreTest, SavesAndLoadsCompleteRunRecordInConfiguredDirectory)
     EXPECT_EQ(loaded.executable, original.executable);
     EXPECT_EQ(loaded.command_line, original.command_line);
     EXPECT_EQ(loaded.mod_descriptors, original.mod_descriptors);
+    EXPECT_EQ(loaded.scripts, original.scripts);
     ASSERT_EQ(loaded.plugins.size(), 1u);
     EXPECT_EQ(loaded.plugins[0].id, "economy_trace");
     EXPECT_EQ(loaded.plugins[0].manifest_path, original.plugins[0].manifest_path);

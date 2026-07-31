@@ -9,6 +9,10 @@ Smedley requires the following to be built:
 
 Smedley currently only supports building with MSVC (the compiler used to build v2game).
 
+The initial configure downloads pinned GoogleTest and Lua 5.1.5 source archives.
+Lua is linked privately into the optional scripting plugin; it is not resolved
+from Victoria II's Lua DLLs. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
 ## Building
 
 First one must configure CMake to use the Visual Studio generator and target the x86 architecture. In command prompt or your preferred shell environment, run the following command in the project directory:

@@ -794,6 +794,10 @@ namespace
             profile.mods.insert(profile.mods.end(), retained_mods_.begin(), retained_mods_.end());
             profile.plugins = SelectedPlugins();
             profile.plugins.insert(profile.plugins.end(), retained_plugins_.begin(), retained_plugins_.end());
+            profile.scripts = retained_scripts_;
+            profile.script_instruction_budget = retained_script_instruction_budget_;
+            profile.script_memory_bytes = retained_script_memory_bytes_;
+            profile.script_queue_capacity = retained_script_queue_capacity_;
             const auto save = GetText(save_path_);
             if (!save.empty()) profile.save = fs::path(save);
             profile.observer = SendMessageW(observer_, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -1029,6 +1033,10 @@ namespace
             SetText(run_until_date_, profile.run_until_date_raw ? std::to_wstring(*profile.run_until_date_raw) : L"");
             SetText(run_timeout_, std::to_wstring(profile.run_timeout_seconds));
             retained_detach_ = profile.detach;
+            retained_scripts_ = profile.scripts;
+            retained_script_instruction_budget_ = profile.script_instruction_budget;
+            retained_script_memory_bytes_ = profile.script_memory_bytes;
+            retained_script_queue_capacity_ = profile.script_queue_capacity;
             // A loaded profile intentionally replaces, rather than merges with, old selections.
             discovered_mods_.clear();
             discovered_plugins_.clear();
@@ -1123,6 +1131,10 @@ namespace
         std::optional<fs::path> retained_kernel_;
         std::vector<fs::path> retained_mods_;
         std::vector<fs::path> retained_plugins_;
+        std::vector<fs::path> retained_scripts_;
+        int retained_script_instruction_budget_ = 100000;
+        int retained_script_memory_bytes_ = 8388608;
+        int retained_script_queue_capacity_ = 256;
         std::vector<launcher::ModDescriptor> discovered_mods_;
         std::vector<launcher::PluginManifest> discovered_plugins_;
         std::vector<launcher::Diagnostic> discovery_diagnostics_;

@@ -35,6 +35,10 @@ telemetry_categories = ["lifecycle", "state"] # lifecycle, state, or both
 telemetry_sample_days = 1 # 1 through 365
 telemetry_queue_capacity = 1024 # 64 through 8192
 telemetry_overwrite = false # required to replace an existing .jsonl file
+scripts = ["scripts/examples/country_log.lua"] # optional Lua source under GAME_DIR/scripts
+script_instruction_budget = 100000 # 1000 through 10000000 per chunk/callback
+script_memory_bytes = 8388608 # 262144 through 67108864 per script
+script_queue_capacity = 256 # 16 through 4096 copied events
 ```
 
 `mods` selects ordinary Victoria II descriptors. Each descriptor must be under
@@ -45,6 +49,11 @@ telemetry_overwrite = false # required to replace an existing .jsonl file
 are injected native code. A plugin is not sandboxed and has the same authority
 as the user running Victoria II. Load DLLs and manifests only from trusted
 sources.
+
+`scripts` selects source-visible Lua files under `GAME_DIR/scripts`. It requires
+the trusted built-in `scripting` plugin, but user scripts execute in independent
+bounded Lua states and never receive Victoria II's Lua state. See
+[`scripting.md`](scripting.md) for the API and limits.
 
 ## CLI
 
@@ -57,6 +66,7 @@ smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.to
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.toml --plugin plugins\telemetry.toml --telemetry --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --speed 5 --run-days 365 --run-timeout-seconds 600 --detach
 smedley_cli --history
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\telemetry.toml --telemetry --telemetry-category lifecycle --telemetry-category state --telemetry-sample-days 7 --telemetry-queue-capacity 512 --detach
+smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\scripting.toml --script scripts\examples\country_log.lua --detach
 ```
 
 `--dry-run` prints the resolved command line and structured preflight
@@ -71,6 +81,11 @@ but does not load the kernel or native plugins.
 shared preflight requires selected plugin ID `telemetry` when telemetry is
 enabled, accepts only `lifecycle` and `state` categories, and validates the
 documented numeric ranges. Safe mode warns and ignores every telemetry control.
+
+`--script` may be repeated. The three `--script-*` limit options override the
+profile defaults. Shared preflight contains scripts under `GAME_DIR/scripts`,
+requires plugin ID `scripting`, and warns that all script controls are ignored
+in safe mode.
 
 ## Run History
 
@@ -124,6 +139,10 @@ field, a compact category selector (`Lifecycle + state`, `Lifecycle only`, or
 `State only`), sample-days input, queue-capacity input, and overwrite checkbox. These controls build
 the same profile and use the same preflight as the CLI.
 
+The GUI preserves and launches script paths and limits loaded from a profile.
+Adding or removing scripts currently uses the profile file or CLI; the GUI does
+not yet provide a script list editor.
+
 The current profile API supports unattended save loading, observer mode, and an
 optional observer view tag. It also supports an initial speed from 1 through 5
 and a start-paused checkbox. Non-default run controls require both a save and
@@ -152,7 +171,8 @@ assertion is implemented or claimed.
 
 The core resolves exact plugin IDs listed in optional `dependencies` and
 `conflicts` arrays. It does not yet resolve version ranges, write plugin
-settings, or validate game/mod runtime behavior.
+settings beyond the built-in telemetry and scripting contracts, or validate
+game/mod runtime behavior.
 It only accepts the one verified executable identity and x86 PE kernel/plugin
 DLLs. No-injection and injected launches still require the same verified game.
 Run history records launcher outcomes, not game health: `started` does not

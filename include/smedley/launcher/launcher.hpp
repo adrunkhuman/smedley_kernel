@@ -75,6 +75,10 @@ namespace smedley::launcher
         int telemetry_sample_days = 1;
         int telemetry_queue_capacity = 1024;
         bool telemetry_overwrite = false;
+        std::vector<fs::path> scripts;
+        int script_instruction_budget = 100000;
+        int script_memory_bytes = 8388608;
+        int script_queue_capacity = 256;
     };
 
     struct PluginDiscovery
@@ -140,6 +144,7 @@ namespace smedley::launcher
         std::wstring command_line;
         std::vector<fs::path> mod_descriptors;
         std::vector<RunPlugin> plugins;
+        std::vector<fs::path> scripts;
         std::optional<fs::path> save;
         bool observer = false;
         int speed = 5;

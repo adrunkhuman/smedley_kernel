@@ -4,7 +4,8 @@ Smedley is an instrumentation, automation, and native extension framework for
 Victoria II: Heart of Darkness 3.04. It includes a graphical launcher, a
 scriptable CLI, plugin preflight, unattended campaign loading, safe observer
 mode, economy tracing, and bounded structured telemetry. Ordinary players and modders use profiles and the
-launcher; C++ is only needed to build Smedley or write native plugins.
+launcher; constrained Lua scripts can extend supported behavior without C++.
+C++ is only needed to build Smedley or write native plugins.
 
 Native plugins may submit bounded typed records through the versioned C
 extension API in [`include/smedley/telemetry.h`](include/smedley/telemetry.h).
@@ -89,6 +90,14 @@ decision reasoning.
 traces without external dependencies. Run `smedley_trace summary TRACE.jsonl` or
 see [`docs/telemetry.md`](docs/telemetry.md) for all commands.
 
+`scripting` runs selected source-visible Lua 5.1 files without exposing
+Victoria II's mutable Lua state. Scripts receive copied daily snapshots and can
+log, schedule an in-memory callback, or queue the verified native pause
+transaction. Independent memory limits, instruction limits, a nonblocking
+bounded event queue, and per-script error disablement contain failures. See
+[`docs/scripting.md`](docs/scripting.md) for profile settings, examples, and the
+explicit non-sandbox trust boundary.
+
 `v2up` and `dailyupdate_example` are inherited native plugin examples. Gameplay
 changes remain opt-in.
 
@@ -99,7 +108,7 @@ as the user running Victoria II. Install only open, trusted plugins. Ordinary
 Victoria II data mods do not cross this native-code trust boundary.
 
 The current release supports Windows, MSVC x86, and the executable identified
-above. Plugin dependency versions, per-plugin settings, broad structured
-telemetry, profiling, and profiler-backed engine optimizations remain in active
+above. Plugin dependency versions, general third-party plugin settings, broad
+AI decision telemetry, profiling, and profiler-backed engine optimizations remain in active
 development. See the repository's GitHub issues for the current roadmap and
 [`mappings/`](mappings/) for reverse-engineering evidence.

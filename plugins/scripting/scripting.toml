@@ -1,0 +1,4 @@
+id = "scripting"
+name = "Lua scripting"
+version = "1.0"
+module = "scripting.dll"
