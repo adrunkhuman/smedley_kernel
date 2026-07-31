@@ -186,6 +186,7 @@ TEST(InterestProbeTest, AggregatesOpaqueCreditorsWithoutPollutingPopTraversal)
     const int64_t interest = 15;
     const int64_t debt = 90;
     const uint8_t was_paid = 1;
+    const char no_country_tag[4] = {'-', '-', '-', '\0'};
     const void *bank_pointer = bank.data();
     const void *creditor_begin = creditors.data();
     const void *creditor_end = creditors.data() + creditors.size();
@@ -194,6 +195,7 @@ TEST(InterestProbeTest, AggregatesOpaqueCreditorsWithoutPollutingPopTraversal)
     Write(&country, 0xe8c, creditor_begin);
     Write(&country, 0xe90, creditor_end);
     Write(&country, 0xe94, creditor_end);
+    Write(&creditor, 0x08, no_country_tag);
     Write(&creditor, 0x10, interest);
     Write(&creditor, 0x18, debt);
     Write(&creditor, 0x20, was_paid);
@@ -205,9 +207,18 @@ TEST(InterestProbeTest, AggregatesOpaqueCreditorsWithoutPollutingPopTraversal)
     EXPECT_EQ(aggregate.creditor_debt_raw, debt);
     EXPECT_EQ(aggregate.flags, 0u);
 
+    const CountryLookup lookup{};
+    const auto resolved = interest_probe::CollectSample(
+        country.data(), 1234, ResolveCountry, nullptr, &lookup);
+    EXPECT_EQ(resolved.creditor_count, 1u);
+    EXPECT_EQ(resolved.creditor_destinations, 0u);
+    EXPECT_EQ(resolved.creditors_was_paid, 1u);
+    EXPECT_EQ(resolved.creditor_interest_raw, interest);
+    EXPECT_EQ(resolved.creditor_debt_raw, debt);
+    EXPECT_EQ(resolved.flags, 0u);
+
     const uint8_t invalid_paid = 2;
     Write(&creditor, 0x20, invalid_paid);
-    const CountryLookup lookup{};
     uint32_t candidate_count = 0;
     interest_probe::Sample quality{};
     EXPECT_TRUE(interest_probe::CollectCountryPops(country.data(), 1234, ResolveProvince, &lookup,
@@ -446,6 +457,17 @@ TEST(InterestProbeTest, RejectsChangedDestinationOrder)
 
     EXPECT_FALSE(interest_probe::ComputeDestinationTransfers(before, &after));
     EXPECT_NE(after.flags & interest_probe::SAMPLE_DESTINATION_TRANSFER_INVALID, 0u);
+}
+
+TEST(InterestProbeTest, AcceptsResidualTreasurySinkBeyondDestinationTransfer)
+{
+    EXPECT_TRUE(interest_probe::TreasuryLossCoversTransfer(100, 75, 25));
+    EXPECT_TRUE(interest_probe::TreasuryLossCoversTransfer(100, 70, 25));
+    EXPECT_FALSE(interest_probe::TreasuryLossCoversTransfer(100, 80, 25));
+    EXPECT_FALSE(interest_probe::TreasuryLossCoversTransfer(100, 101, 0));
+    EXPECT_FALSE(interest_probe::TreasuryLossCoversTransfer(100, 75, -1));
+    EXPECT_FALSE(interest_probe::TreasuryLossCoversTransfer(
+        (std::numeric_limits<int64_t>::min)(), (std::numeric_limits<int64_t>::min)(), 1));
 }
 
 TEST(InterestProbeTest, RejectsFlaggedBeforeSample)

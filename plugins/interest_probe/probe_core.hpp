@@ -51,6 +51,9 @@ namespace interest_probe
         uint32_t creditor_count = 0;
         uint32_t creditor_destinations = 0;
         uint32_t creditors_was_paid = 0;
+        uint32_t invalid_creditor_key = 0;
+        int32_t invalid_creditor_ordinal = 0;
+        uint8_t invalid_creditor_was_paid = 0;
         uint32_t destination_provinces_resolved = 0;
         uint32_t destination_province_attempts = 0;
         uint32_t destination_pop_lists = 0;
@@ -103,6 +106,7 @@ namespace interest_probe
                          CountryResolver country_resolver = nullptr, ProvinceResolver province_resolver = nullptr,
                          const void *resolver_context = nullptr, const void **immediate_pop = nullptr);
     bool ComputeDestinationTransfers(const Sample &before, Sample *after);
+    bool TreasuryLossCoversTransfer(int64_t before_treasury, int64_t after_treasury, int64_t transfer);
     bool CollectCountryPops(const void *country, int32_t date_raw,
                             ProvinceResolver province_resolver, const void *resolver_context,
                             PopCandidate *candidates, size_t candidate_capacity,

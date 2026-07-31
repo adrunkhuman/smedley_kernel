@@ -34,6 +34,11 @@ the gameplay model, while runtime evidence remains authoritative for storage,
 scale, ordering, and safe mutation. The feature must remain opt-in because
 restoring the payment changes the vanilla money supply.
 
+The executable's ordinal-zero creditor form charges the debtor without a
+destination-bank credit. The fix leaves that residual vanilla sink unchanged.
+It distributes only observed nonzero-ordinal destination-bank gains and requires
+the current-country treasury loss to be at least their exact sum.
+
 ## Current static evidence
 
 All addresses below are RVAs in the cataloged Victoria II 3.04 executable.
@@ -42,7 +47,7 @@ All addresses below are RVAs in the cataloged Victoria II 3.04 executable.
 | --- | --- | --- |
 | `CCountry::DailyUpdate` `0x00108590` | `verified-current` | Its only direct call to `PayDailyInterest` is at `0x00108d3e`, with the country pointer already on the stack. The checked kernel trampoline invoked the original call and emitted 1,897 ordered runtime boundary pairs. |
 | `CCountry::PayDailyInterest` `0x00123c30` | `verified-runtime` | The paired boundary run observed current-country treasury reductions on all 12 calls with creditor entries. Its sole direct caller and `ret 4` cleanup are statically established. |
-| Creditor destination bank path | `verified-runtime` | `PayDailyInterest` reads the current country creditor vector at `+0xe8c`, resolves a destination country from each creditor tag/ordinal at `+0x8`, and credits destination bank `+0x20`. All 12 creditor-bearing fixture calls resolved every entry and conserved the exact debtor treasury loss in the summed destination-bank gain. |
+| Creditor destination bank path | `verified-runtime` | `PayDailyInterest` reads the current country creditor vector at `+0xe8c`. A nonzero ordinal at creditor `+0x0c` resolves a destination country and credits bank `+0x20`; the branch at VA `0x00524022` skips that credit when the ordinal is zero. All 12 creditor-bearing seven-day fixture calls contained only country destinations and conserved the exact debtor treasury loss in the summed destination-bank gain. A later diagnostic captured 22 rejected rows with the same no-country key `0x2d2d2d` (`---`), ordinal zero, and paid byte one. Ordinal-zero entries are retained in aggregate telemetry but excluded from destination conservation and POP payout. |
 | Creditor `+0x8/+0x10/+0x18/+0x20` | `verified-runtime` | Static code reads the tag/ordinal at `+0x8`, multiplies the 64-bit `+0x18` value by the 64-bit `+0x10` value in its payment calculation, and updates the byte at `+0x20` on payment. The destination run validated every tag/ordinal and observed `+0x20 == 1` for every paid entry; the economic names on the two 64-bit fields remain candidates. |
 | Destination bank `+0x20` | `verified-runtime` | The static add target and repeated exact before/after runs agree. The individual-destination run observed 40 positive transfers across 12 calls; every child sum exactly matched its aggregate bank delta and negated the corresponding debtor treasury loss. Other historical `CBank` fields remain unverified. |
 | `PayDailyInterest` boundary `0x00108d3e` | `verified-runtime` | The kernel replaces the sole direct call with a register/flags-preserving trampoline, emits `before`, invokes the original callee, emits `after`, and resumes at `0x00108d43`. Both subscribed and unsubscribed runtime fixtures reached exact targets. |
@@ -72,7 +77,8 @@ emits `before` and `after` observations around the original callee. Each phase:
 - caps traversal at 512 states and 1,024 four-byte vector elements per state;
 - records state-list count agreement, candidate state totals, creditor count,
   treasury, and bank interest;
-- caps creditor destination traversal at 64 entries, validates each destination
+- caps creditor destination traversal at 64 entries, skips the executable's
+  ordinal-zero no-destination form, validates each nonzero destination
   tag and ordinal against the bounded game-state country vector, and records
   candidate creditor values plus aggregate destination bank/state values;
 - attempts at most 4,096 destination province resolutions, validates at most 128
@@ -369,8 +375,9 @@ For each creditor-bearing call it:
 
 1. captures bounded destination-bank balances before and after the original
    game function;
-2. requires the individual bank deltas to sum exactly and to equal the debtor's
-   treasury loss;
+2. requires the individual nonzero-ordinal bank deltas to sum exactly and not
+   exceed the debtor's treasury loss; the ordinal-zero residual remains a
+   vanilla sink;
 3. traverses at most 4,096 destination provinces and 100,000 POPs across the
    complete callback, rejecting duplicate POP identities across all
    destinations;
@@ -389,13 +396,21 @@ I/O; a bounded worker writes `interest_fix.csv`.
 
 The CSV columns after `paid_pop_count` now include `province_count`,
 `verified_pop_count`, `transfer_raw`, `payout_raw`, `callback_us`, both
-structured telemetry result codes, and `dropped_results`. `no_transfer` records
+structured telemetry result codes, the first invalid creditor key/ordinal/paid
+byte when applicable, and `dropped_results`. `no_transfer` records
 a valid creditor-bearing boundary with no positive destination-bank delta.
 Telemetry result codes
 follow the C ABI: 0 unavailable, 1 filtered, 2 accepted, 3 dropped, and 4
 invalid. `interest.fix.health` is emitted for every finalized creditor-bearing
 attempt; `interest.fix.value` is emitted only for `paid`, so a failed or partial
 attempt cannot expose an intended payout as an observed result.
+
+Sixty-day regression run `b88ce485-ed56-4634-9bb0-0927b0a83117` exercised the
+ordinal-zero form after the diagnostic correction. It reached the exact target
+with zero telemetry gaps, drops, or writer failure and produced 181 `paid` plus
+322 `no_transfer` health records, all with flags zero. Every paid result had a
+paired value record, both monthly economic snapshots were complete, and the
+source-save hash remained unchanged.
 
 Fix-enabled observer smoke run `5095e066-93e8-4faf-9060-dfa0199becd8`
 completed two exact days with zero gaps, drops, or writer failure. SWE traversed

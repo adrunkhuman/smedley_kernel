@@ -137,10 +137,11 @@ With both `interest_fix` and `telemetry` selected, the fix emits:
 | `interest.fix.value` | exact bank transfer, derived POP payout, paid and verified POP counts | Emitted only after a successful `paid` result. |
 
 Both records use `verified-runtime` quality. The health shape uses the ABI limit
-of eight combined entity/payload fields exactly. Telemetry delivery is
-nonblocking and independent of mutation: unavailable, filtered, dropped, or
-invalid telemetry never changes whether the fix pays POPs. `interest_fix.csv`
-records the two telemetry result codes for independent diagnosis.
+of eight combined entity/payload fields exactly. They use the reliable bounded
+emitter so lock contention alone cannot hide a fix result; unavailable,
+filtered, full-queue, or invalid telemetry remains independent of mutation and
+never changes whether the fix pays POPs. `interest_fix.csv` records the two
+telemetry result codes for independent diagnosis.
 
 The project mapping inventory has historical status spellings, but telemetry
 uses only canonical project evidence levels. A daily record depends on weaker
@@ -161,9 +162,9 @@ state records are excluded by date or country filters;
 they never perform file I/O or flush. The queue has fixed-capacity, fixed-size
 record slots. Ordinary callbacks use a non-waiting queue lock; full, contended,
 stopped, or oversized records are explicitly counted as dropped. The four
-low-frequency economic records use the reliable emitter after a selected world
-scan so lock contention alone cannot split a snapshot; the queue remains bounded
-and publication still performs no file I/O. The sole worker writes
+low-frequency economic records and opt-in interest-fix result records use the
+reliable emitter so lock contention alone cannot split their evidence; the queue
+remains bounded and publication still performs no file I/O. The sole worker writes
 complete JSON Lines incrementally and flushes at least once per second. An
 explicit future unload drains accepted records, appends a best-effort final
 summary using post-drain statistics, and flushes. The current kernel has no

@@ -49,6 +49,9 @@ namespace interest_probe
             uint32_t pop_count = 0;
             uint32_t paid_pop_count = 0;
             uint32_t verified_pop_count = 0;
+            uint32_t invalid_creditor_key = 0;
+            int32_t invalid_creditor_ordinal = 0;
+            uint8_t invalid_creditor_was_paid = 0;
             int64_t transfer_raw = 0;
             int64_t payout_raw = 0;
             uint64_t callback_us = 0;
@@ -138,7 +141,8 @@ namespace interest_probe
             if (!output_) throw std::runtime_error("cannot open interest_fix.csv in the game directory");
             output_ << "date_raw,country,status,flags,destination_count,pop_count,paid_pop_count,"
                        "province_count,verified_pop_count,transfer_raw,payout_raw,callback_us,"
-                       "health_telemetry_result,value_telemetry_result,dropped_results\n";
+                       "health_telemetry_result,value_telemetry_result,invalid_creditor_key,"
+                       "invalid_creditor_ordinal,invalid_creditor_was_paid,dropped_results\n";
             output_.flush();
             if (!output_) throw std::runtime_error("cannot initialize interest_fix.csv in the game directory");
             worker_ = std::thread([this] { WriteResults(); });
@@ -182,6 +186,12 @@ namespace interest_probe
             result.date_raw = after.date_raw;
             std::memcpy(result.country_tag, after.country_tag, sizeof(result.country_tag));
             result.flags = pending_before_.flags | after.flags;
+            const Sample &diagnostic = after.invalid_creditor_key != 0
+                || after.invalid_creditor_ordinal != 0 || after.invalid_creditor_was_paid != 0
+                ? after : pending_before_;
+            result.invalid_creditor_key = diagnostic.invalid_creditor_key;
+            result.invalid_creditor_ordinal = diagnostic.invalid_creditor_ordinal;
+            result.invalid_creditor_was_paid = diagnostic.invalid_creditor_was_paid;
             if (pending_before_.date_raw != after.date_raw
                 || std::memcmp(pending_before_.country_tag, after.country_tag, sizeof(after.country_tag)) != 0
                 || !ComputeDestinationTransfers(pending_before_, &after)) {
@@ -201,8 +211,8 @@ namespace interest_probe
                 }
                 return;
             }
-            if (pending_before_.treasury_raw < (std::numeric_limits<int64_t>::min)() + after.destination_transfer_raw
-                || after.treasury_raw != pending_before_.treasury_raw - after.destination_transfer_raw) {
+            if (!TreasuryLossCoversTransfer(
+                    pending_before_.treasury_raw, after.treasury_raw, after.destination_transfer_raw)) {
                 result.status = FixStatus::conservation_failed;
                 Publish(result);
                 return;
@@ -356,7 +366,7 @@ namespace interest_probe
             };
             static_assert(1 + std::size(health) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
             result.health_telemetry_result = telemetry_.Emit(
-                "interest.fix.health", "verified-runtime", result.date_raw, &country, 1, health, 7);
+                "interest.fix.health", "verified-runtime", result.date_raw, &country, 1, health, 7, true);
             const SmedleyTelemetryFieldV1 value[] = {
                 TelemetryIntField("transfer_raw", result.transfer_raw),
                 TelemetryIntField("payout_raw", result.payout_raw),
@@ -366,7 +376,7 @@ namespace interest_probe
             static_assert(1 + std::size(value) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
             if (result.status == FixStatus::paid) {
                 result.value_telemetry_result = telemetry_.Emit(
-                    "interest.fix.value", "verified-runtime", result.date_raw, &country, 1, value, 4);
+                    "interest.fix.value", "verified-runtime", result.date_raw, &country, 1, value, 4, true);
             }
             if (!queue_.TryPush(result)) dropped_.fetch_add(1, std::memory_order_relaxed);
         }
@@ -382,7 +392,9 @@ namespace interest_probe
                             << result.pop_count << ',' << result.paid_pop_count << ',' << result.province_count << ','
                             << result.verified_pop_count << ',' << result.transfer_raw << ',' << result.payout_raw << ','
                             << result.callback_us << ',' << result.health_telemetry_result << ','
-                            << result.value_telemetry_result << ','
+                            << result.value_telemetry_result << ",0x" << std::hex << result.invalid_creditor_key
+                            << std::dec << ',' << result.invalid_creditor_ordinal << ','
+                            << static_cast<uint32_t>(result.invalid_creditor_was_paid) << ','
                             << dropped_.load(std::memory_order_relaxed) << '\n';
                     wrote = true;
                 }

@@ -410,8 +410,17 @@ namespace interest_probe
                 if (was_paid != 0) ++sample.creditors_was_paid;
                 continue;
             }
+            if (ordinal == 0 && was_paid <= 1) {
+                AddChecked(interest, &sample.creditor_interest_raw, &sample.flags);
+                AddChecked(debt, &sample.creditor_debt_raw, &sample.flags);
+                if (was_paid != 0) ++sample.creditors_was_paid;
+                continue;
+            }
             if (!IsTagKey(key) || ordinal < 0 || was_paid > 1) {
                 sample.flags |= SAMPLE_CREDITOR_TAG_INVALID;
+                sample.invalid_creditor_key = key;
+                sample.invalid_creditor_ordinal = ordinal;
+                sample.invalid_creditor_was_paid = was_paid;
                 continue;
             }
             AddChecked(interest, &sample.creditor_interest_raw, &sample.flags);
@@ -532,6 +541,13 @@ namespace interest_probe
             return false;
         }
         return true;
+    }
+
+    bool TreasuryLossCoversTransfer(int64_t before_treasury, int64_t after_treasury, int64_t transfer)
+    {
+        return transfer >= 0
+            && before_treasury >= (std::numeric_limits<int64_t>::min)() + transfer
+            && after_treasury <= before_treasury - transfer;
     }
 
     bool CollectCountryPops(const void *country, int32_t date_raw,
