@@ -1,0 +1,16 @@
+add_library(interest_probe_core STATIC probe_core.cpp)
+target_include_directories(interest_probe_core PUBLIC ".")
+
+add_library(interest_probe MODULE plugin.cpp)
+target_link_libraries(interest_probe interest_probe_core smedley_kernel)
+target_include_directories(interest_probe PRIVATE "../../smedley_kernel/include")
+
+add_executable(interest_probe_test probe_core_test.cpp)
+target_link_libraries(interest_probe_test interest_probe_core GTest::gtest_main)
+include(GoogleTest)
+gtest_discover_tests(interest_probe_test DISCOVERY_TIMEOUT 30)
+
+if(EXISTS ${PLUGINS_DIR})
+  install(TARGETS interest_probe DESTINATION ${PLUGINS_DIR})
+  install(FILES interest_probe.toml DESTINATION ${PLUGINS_DIR})
+endif()

@@ -44,9 +44,17 @@ source = "smedley_kernel/include/smedley/events/monthlyupdate.hpp"
 name = "CCountry::PayDailyInterest"
 rva = 0x00123c30
 kind = "function"
-status = "verified-current"
+status = "verified-static-callsites"
 signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
-source = "models/v2/classes/CCountry.toml"
+source = "single direct caller at RVA 0x00108d3e; function reads country creditor vector +0xe8c, credits country bank +0xe88 field +0x20, and returns with ret 4"
+
+[[symbols]]
+name = "CState constructor"
+rva = 0x000cdc60
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 6a ff 68 64 af b5 00"
+source = "callers at RVAs 0x000fc0cb, 0x00121785, and 0x001218fb allocate 0x290 bytes; constructor initializes 64-bit slots +0x258 and +0x260"
 
 [[symbols]]
 name = "Native tag console-command handler"
@@ -276,9 +284,9 @@ source = "parent of commit 967a1a4"
 name = "CPop::GiveMoney"
 rva = 0x0055a5f0
 kind = "function"
-status = "verified-historical"
+status = "verified-static-callsites"
 signature = "55 8b ec 83 b8 84 01 00 00 00"
-source = "commit 794c98e smedley_kernel/include/functions/pop.hpp"
+source = "15 direct callers corroborate EAX CPop pointer, ESI cash-flow type, stack-passed 64-bit amount, and ret 8; historical provenance is commit 794c98e"
 
 [[symbols]]
 name = "Game heap initialization hook"
@@ -538,6 +546,7 @@ fields = [
   { name = "incomes", offset = 0x00d0 },
   { name = "flags", offset = 0x01b0 },
   { name = "ai", offset = 0x0208 },
+  { name = "states", offset = 0x0e44 },
   { name = "treasury", offset = 0x0e78 },
   { name = "treasury_shadow", offset = 0x0e80 },
   { name = "bank", offset = 0x0e88 },
@@ -564,6 +573,17 @@ size = 0x2c
 source = "size from existing flags.hpp; PMIA 1.9.0 calls CTernary<CFlag *>::Get(const char *) on CCountry+0x1b0"
 
 [[layouts]]
+name = "CState"
+status = "provisional"
+size = 0x0290
+source = "constructor RVA 0x000cdc60 and three allocation call sites establish size and 64-bit field shape; a seven-day supplied-save probe walked all 597 reported states and accepted stable +0x48 four-byte vector shapes, while vector and economic semantics remain provisional"
+fields = [
+  { name = "provinces_candidate", offset = 0x0048 },
+  { name = "savings_in_bank_candidate", offset = 0x0258 },
+  { name = "interest_payments_candidate", offset = 0x0260 },
+]
+
+[[layouts]]
 name = "CProvince"
 status = "current-unverified"
 size = 0x0398
@@ -580,7 +600,8 @@ fields = [
 [[layouts]]
 name = "CPop"
 status = "historical-unverified"
-source = "parent of commit 967a1a4 native/handles/CPop.hpp"
+size = 0x0288
+source = "parent of commit 967a1a4 native/handles/CPop.hpp; current allocation and list-walk call sites corroborate size 0x288 and next +0x27c"
 fields = [
   { name = "size", offset = 0x0058 },
   { name = "province", offset = 0x0064 },

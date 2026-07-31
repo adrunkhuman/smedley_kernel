@@ -82,6 +82,12 @@ is not a verified clean exit, save, or state-assertion workflow.
 instrumentation plugin, not yet the versioned JSON Lines telemetry system
 planned for broader tracing.
 
+`interest_probe` is a read-only reverse-engineering tool for the creditor-POP
+interest investigation. It writes bounded provisional state, creditor, and bank
+observations to `interest_probe.csv` without applying the historical fix. Its
+fields and limits are documented in
+[`mappings/INTEREST_FIX.md`](mappings/INTEREST_FIX.md).
+
 `telemetry` is the opt-in JSON Lines telemetry plugin. Enable it in a profile,
 the CLI, or the native launcher and select its trusted manifest like any other
 native plugin. It records lifecycle events and sampled country economy state to

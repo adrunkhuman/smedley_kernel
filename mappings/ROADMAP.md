@@ -4,7 +4,7 @@
 
 - The CLI can start the exact cataloged `v2game.exe`, inject the kernel and a
   plugin, initialize both, and reach a responsive main window.
-- The executable identity and 29 signatures are machine-checked.
+- The executable identity and 52 signatures are machine-checked.
 - Current country, province, and game-state layouts plus removed historical
   POP, bank, and GUI evidence are recorded without presenting hypotheses as
   verified facts.
@@ -58,10 +58,11 @@ need an explicit policy and reproducible runtime fixture.
    benchmark policy.
 3. Find `CGuiTypes::LookupString` by following references to known names such
    as `tax_0_slider` and `take_loan`.
-4. Dynamically verify historical POP constructor candidates at `0x554a40`,
-   `0x554f40`, and `0x555450` before restoring `CPop` fields.
-5. Validate `CPop::GiveMoney` at `0x55a5f0`, then restore read-only POP money
-   and savings instrumentation before restoring the interest fix.
+4. Establish the correct pre/post-update correlation boundary for the bounded
+   `interest_probe`; the seven-day state/vector shape run is complete. See
+   `INTEREST_FIX.md`.
+5. Add bounded POP-level savings instrumentation, then dynamically validate
+   `CPop::GiveMoney` at `0x55a5f0` before restoring the interest fix.
 
 ## Runtime acceptance tests
 
