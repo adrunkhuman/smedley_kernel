@@ -2,6 +2,7 @@
 
 #include "plugin.hpp"
 #include <memory>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include <toml.hpp>
@@ -41,8 +42,9 @@ namespace smedley
 
             return _instance;
         }
+
+        static std::vector<std::filesystem::path> ParsePluginArguments(const wchar_t *command_line);
     private:
-        std::vector<std::string> ParseCommandLine(const std::string &cmdline);
         void LoadPluginModule();
     };
 

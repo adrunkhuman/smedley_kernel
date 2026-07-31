@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <windows.h>
+#include <shellapi.h>
 #include <direct.h>
 #include <psapi.h>
 #include <shlobj.h>
@@ -24,6 +25,14 @@ PLUGIN_API DWORD WINAPI LoadPluginsThread(LPVOID)
 
 namespace smedley
 {
+
+    std::string NarrowCommandLineArgument(const std::wstring &value)
+    {
+        const auto length = WideCharToMultiByte(CP_ACP, 0, value.c_str(), static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+        std::string result(length, '\0');
+        WideCharToMultiByte(CP_ACP, 0, value.c_str(), static_cast<int>(value.size()), result.data(), length, nullptr, nullptr);
+        return result;
+    }
 
     // a PLUGIN_API export required by all smedley plugins. for most plugins this
     // should just be simple boilerplate allocating and instantiating the plugin
@@ -82,10 +91,10 @@ namespace smedley
             throw std::runtime_error("failed to find documents folder");
         }
         std::wstring tmp_ws(documents_path_ws);
-        std::string documents_path(tmp_ws.begin(), tmp_ws.end());
+        std::string documents_path = NarrowCommandLineArgument(tmp_ws);
         tmp_ws = std::wstring(cwd_buf);
         
-        _gamedir = std::string(tmp_ws.begin(), tmp_ws.end());;
+        _gamedir = NarrowCommandLineArgument(tmp_ws);
         _userdir = documents_path + "\\Paradox Interactive\\Victoria II";
         _plugindir = _gamedir + "\\plugins";
         _log_filepath = _userdir + "\\logs\\smedley.log";
@@ -101,7 +110,7 @@ namespace smedley
         // install hooks & patches
         InstallHooks();
 
-        auto filenames = ParseCommandLine(GetCommandLineA());
+        auto filenames = ParsePluginArguments(GetCommandLineW());
         for (auto &filename : filenames) {
             _plugin_defs.push_back(PluginDefinition::Read(filename));
         }
@@ -118,7 +127,7 @@ namespace smedley
             auto path_str = path.native();
             HMODULE hmod = GetModuleHandleW(path_str.c_str());
             if (hmod == NULL || hmod == INVALID_HANDLE_VALUE) {
-                fail("module \"" + std::string(path_str.begin(), path_str.end()) + "\" not found!");
+                fail("module \"" + NarrowCommandLineArgument(path_str) + "\" not found!");
             }
 
             auto creator = (PluginCreator) GetProcAddress(hmod, "CreatePlugin");
@@ -145,23 +154,24 @@ namespace smedley
         _plugin_defs.clear();
     }
 
-    std::vector<std::string> PluginLoader::ParseCommandLine(const std::string &cmdline)
+    std::vector<std::filesystem::path> PluginLoader::ParsePluginArguments(const wchar_t *command_line)
     {
-        const std::string prefix = "-plugin=";
-        std::vector<std::string> targets;
-        std::vector<std::string> argv;
-        int argc;
-
-        argv = SplitString(cmdline, ' ');
-        argc = argv.size();
+        const std::wstring prefix = L"-plugin=";
+        std::vector<std::filesystem::path> targets;
+        int argc = 0;
+        wchar_t **argv = CommandLineToArgvW(command_line, &argc);
+        if (argv == nullptr) {
+            return targets;
+        }
         for (int i = 1; i < argc; i++) {
-            if (argv[i].rfind(prefix, 0) != 0) {
+            const std::wstring argument = argv[i];
+            if (argument.rfind(prefix, 0) != 0) {
                 continue;
             }
-
-            targets.push_back(argv[i].substr(prefix.length()));
+            const auto filename = argument.substr(prefix.length());
+            targets.emplace_back(filename);
         }
-
+        LocalFree(argv);
         return targets;
     }
 

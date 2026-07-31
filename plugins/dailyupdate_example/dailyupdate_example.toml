@@ -1,4 +1,4 @@
 id = "daily_update_example"
 name = "Daily update example"
 version = "1.0"
-module = "daily_update_example.dll"
+module = "dailyupdate_example.dll"

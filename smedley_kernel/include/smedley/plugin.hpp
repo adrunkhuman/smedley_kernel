@@ -4,6 +4,7 @@
 #include "log.hpp"
 #include <memory>
 #include <optional>
+#include <filesystem>
 #include <string>
 #include <vector>
 #include <windows.h>
@@ -50,7 +51,7 @@ namespace smedley
 
         void operator=(const PluginDefinition &def) { id = def.id; name = def.name; description = def.description; module_name = def.module_name; }
 
-        static PluginDefinition Read(const std::string &filename);
+        static PluginDefinition Read(const std::filesystem::path &filename);
     };
 
     /**

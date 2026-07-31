@@ -25,10 +25,10 @@ namespace smedley
     {
     }
 
-    PluginDefinition PluginDefinition::Read(const std::string &filename)
+    PluginDefinition PluginDefinition::Read(const std::filesystem::path &filename)
     {
         PluginDefinition def{};
-        auto tbl = toml::parse_file(filename);
+        auto tbl = toml::parse_file(filename.wstring());
 
         std::optional<std::string> id = tbl["id"].value<std::string>();
         std::optional<std::string> name = tbl["name"].value<std::string>();

@@ -12,6 +12,7 @@ include_directories("include/smedley")
 # add sources
 add_library (smedley_kernel SHARED ${kernel_sources})
 target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL LUA_BUILD_AS_DLL LUA_LIB)
+target_link_libraries(smedley_kernel PRIVATE shell32)
 
 # setup testing
 add_executable(smedley_run_tests ${test_sources})
