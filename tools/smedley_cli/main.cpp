@@ -23,6 +23,7 @@ struct Options
     std::optional<bool> start_paused;
     bool dry_run = false;
     bool discover = false;
+    bool history = false;
     bool help = false;
 };
 
@@ -43,6 +44,7 @@ void PrintUsage()
         << "  --start-paused  Leave a loaded campaign paused; incompatible with --observe\n"
         << "  --detach        Return after Victoria 2 starts\n"
         << "  --discover      List GAME_DIR plugins and mods\n"
+        << "  --history       List the 20 most recent launcher runs\n"
         << "  --dry-run       Print diagnostics and the resolved launch plan\n"
         << "  --help          Show this help\n";
 }
@@ -55,6 +57,7 @@ Options ParseArguments(int argc, wchar_t **argv)
         if (argument == L"--help") { options.help = true; continue; }
         if (argument == L"--dry-run") { options.dry_run = true; continue; }
         if (argument == L"--discover") { options.discover = true; continue; }
+        if (argument == L"--history") { options.history = true; continue; }
         if (argument == L"--detach") { options.detach = true; continue; }
         if (argument == L"--observe") { options.observer = true; continue; }
         if (argument == L"--no-inject") { options.inject = false; continue; }
@@ -119,6 +122,19 @@ int wmain(int argc, wchar_t **argv)
             PrintUsage();
             return 0;
         }
+        if (options.history) {
+            std::vector<launcher::Diagnostic> diagnostics;
+            const auto records = launcher::LoadRunHistory(20, &diagnostics);
+            PrintDiagnostics(diagnostics);
+            for (const auto &record : records) {
+                std::cout << record.started_at_utc << " " << launcher::RunStatusName(record.status)
+                          << " " << record.profile_name << " PID=";
+                if (record.process_id) std::cout << *record.process_id;
+                else std::cout << "-";
+                std::cout << " " << record.metadata_path.string() << '\n';
+            }
+            return launcher::HasErrors(diagnostics) ? 1 : 0;
+        }
         launcher::Profile profile;
         std::vector<launcher::Diagnostic> diagnostics;
         if (options.profile_path && !launcher::LoadProfile(*options.profile_path, &profile, &diagnostics)) {
@@ -149,14 +165,15 @@ int wmain(int argc, wchar_t **argv)
         }
 
         const auto plan = launcher::BuildLaunchPlan(std::move(profile));
-        PrintDiagnostics(plan.diagnostics);
         if (options.dry_run) {
+            PrintDiagnostics(plan.diagnostics);
             PrintPlan(plan);
             return launcher::HasErrors(plan.diagnostics) ? 1 : 0;
         }
         const auto result = launcher::Launch(plan);
         PrintDiagnostics(result.diagnostics);
-        if (!result.started) return 1;
+        if (!result.metadata_path.empty()) std::cout << "Run metadata: " << result.metadata_path.string() << '\n';
+        if (!result.started || launcher::HasErrors(result.diagnostics)) return 1;
         std::cout << "Victoria 2 started (PID " << result.process_id << ")\n";
         return static_cast<int>(result.exit_code);
     } catch (const std::exception &error) {

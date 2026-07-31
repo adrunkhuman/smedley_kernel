@@ -3,9 +3,11 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <commdlg.h>
+#include <shellapi.h>
 #include <shobjidl.h>
 
 #include <algorithm>
+#include <cwctype>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -39,6 +41,7 @@ namespace
         diagnostics_edit,
         launch_button,
         status_text,
+        recent_runs_button,
     };
 
     std::wstring Utf8ToWide(const std::string &value)
@@ -147,6 +150,244 @@ namespace
         *path = buffer.data();
         return true;
     }
+
+    class RecentRunsWindow
+    {
+    public:
+        static void Show(HWND owner)
+        {
+            WNDCLASSW window_class{};
+            window_class.hInstance = GetModuleHandleW(nullptr);
+            window_class.lpszClassName = L"SmedleyRecentRunsWindow";
+            window_class.lpfnWndProc = WindowProc;
+            window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+            window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+            RegisterClassW(&window_class);
+            auto *self = new RecentRunsWindow;
+            const HWND window = CreateWindowExW(WS_EX_CONTROLPARENT, window_class.lpszClassName, L"Smedley Recent Runs",
+                                                WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,
+                                                860, 440, owner, nullptr, window_class.hInstance, self);
+            if (!window) delete self;
+        }
+
+    private:
+        enum : int { run_list = 1, reload_button, metadata_button, link_combo, open_link_button, history_status };
+
+        static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+        {
+            auto *self = reinterpret_cast<RecentRunsWindow *>(GetWindowLongPtrW(window, GWLP_USERDATA));
+            if (message == WM_NCCREATE) {
+                self = static_cast<RecentRunsWindow *>(reinterpret_cast<const CREATESTRUCTW *>(lparam)->lpCreateParams);
+                SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+                self->window_ = window;
+            }
+            if (!self) return DefWindowProcW(window, message, wparam, lparam);
+            if (message == WM_NCDESTROY) {
+                SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+                delete self;
+                return 0;
+            }
+            return self->HandleMessage(message, wparam, lparam);
+        }
+
+        LRESULT HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
+        {
+            switch (message) {
+            case WM_CREATE:
+                CreateControls();
+                Reload();
+                return 0;
+            case WM_SIZE:
+                Layout(LOWORD(lparam), HIWORD(lparam));
+                return 0;
+            case WM_COMMAND:
+                if (LOWORD(wparam) == reload_button && HIWORD(wparam) == BN_CLICKED) Reload();
+                else if (LOWORD(wparam) == metadata_button && HIWORD(wparam) == BN_CLICKED) OpenMetadata();
+                else if (LOWORD(wparam) == open_link_button && HIWORD(wparam) == BN_CLICKED) OpenSelectedLink();
+                else if (LOWORD(wparam) == link_combo && HIWORD(wparam) == CBN_SELCHANGE) EnableWindow(open_link_, SelectedLink().has_value());
+                return 0;
+            case WM_NOTIFY: {
+                const auto *notification = reinterpret_cast<const NMHDR *>(lparam);
+                if (notification->idFrom == run_list && notification->code == LVN_ITEMCHANGED) UpdateSelection();
+                if (notification->idFrom == run_list && notification->code == NM_DBLCLK) OpenMetadata();
+                return 0;
+            }
+            }
+            return DefWindowProcW(window_, message, wparam, lparam);
+        }
+
+        HWND AddControl(DWORD style, const wchar_t *class_name, const wchar_t *text, int id)
+        {
+            const HWND control = CreateWindowExW(0, class_name, text, WS_CHILD | WS_VISIBLE | style,
+                                                  0, 0, 0, 0, window_, reinterpret_cast<HMENU>(id), nullptr, nullptr);
+            SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE);
+            return control;
+        }
+
+        void CreateControls()
+        {
+            list_ = AddControl(LVS_REPORT | LVS_SHOWSELALWAYS | LVS_SINGLESEL | WS_TABSTOP | WS_BORDER,
+                               WC_LISTVIEWW, L"", run_list);
+            ListView_SetExtendedListViewStyle(list_, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+            AddColumn(L"Started (UTC)", 195);
+            AddColumn(L"Status", 130);
+            AddColumn(L"Profile", 250);
+            AddColumn(L"PID", 90);
+            AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"&Reload", reload_button);
+            metadata_ = AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Open &metadata", metadata_button);
+            links_ = AddControl(CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL, L"COMBOBOX", L"", link_combo);
+            open_link_ = AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Open &link", open_link_button);
+            status_ = AddControl(SS_LEFT, L"STATIC", L"", history_status);
+        }
+
+        void AddColumn(const wchar_t *name, int width)
+        {
+            LVCOLUMNW column{};
+            column.mask = LVCF_TEXT | LVCF_WIDTH;
+            column.pszText = const_cast<wchar_t *>(name);
+            column.cx = width;
+            ListView_InsertColumn(list_, columns_++, &column);
+        }
+
+        void Layout(int width, int height)
+        {
+            const int margin = 12;
+            MoveWindow(list_, margin, margin, std::max(300, width - margin * 2), std::max(130, height - 100), TRUE);
+            const int y = std::max(150, height - 78);
+            MoveWindow(GetDlgItem(window_, reload_button), margin, y, 85, 26, TRUE);
+            MoveWindow(metadata_, margin + 92, y, 115, 26, TRUE);
+            MoveWindow(links_, margin + 214, y, std::max(150, width - 390), 220, TRUE);
+            MoveWindow(open_link_, std::max(310, width - 166), y, 100, 26, TRUE);
+            MoveWindow(status_, margin, y + 32, std::max(200, width - margin * 2), 24, TRUE);
+        }
+
+        std::optional<size_t> SelectedRecord() const
+        {
+            const int index = ListView_GetNextItem(list_, -1, LVNI_SELECTED);
+            if (index < 0 || static_cast<size_t>(index) >= records_.size()) return std::nullopt;
+            return static_cast<size_t>(index);
+        }
+
+        std::optional<fs::path> SelectedLink() const
+        {
+            const int index = static_cast<int>(SendMessageW(links_, CB_GETCURSEL, 0, 0));
+            if (index < 0 || static_cast<size_t>(index) >= link_paths_.size()) return std::nullopt;
+            return link_paths_[index];
+        }
+
+        void Reload()
+        {
+            diagnostics_.clear();
+            records_ = launcher::LoadRunHistory(100, &diagnostics_);
+            ListView_DeleteAllItems(list_);
+            for (size_t index = 0; index < records_.size(); ++index) {
+                const auto started = Utf8ToWide(records_[index].started_at_utc);
+                const auto status = Utf8ToWide(launcher::RunStatusName(records_[index].status));
+                const auto profile = Utf8ToWide(records_[index].profile_name);
+                const auto pid = records_[index].process_id ? std::to_wstring(*records_[index].process_id) : L"-";
+                LVITEMW item{};
+                item.mask = LVIF_TEXT;
+                item.iItem = static_cast<int>(index);
+                item.pszText = const_cast<wchar_t *>(started.c_str());
+                ListView_InsertItem(list_, &item);
+                ListView_SetItemText(list_, static_cast<int>(index), 1, const_cast<wchar_t *>(status.c_str()));
+                ListView_SetItemText(list_, static_cast<int>(index), 2, const_cast<wchar_t *>(profile.c_str()));
+                ListView_SetItemText(list_, static_cast<int>(index), 3, const_cast<wchar_t *>(pid.c_str()));
+            }
+            const auto message = diagnostics_.empty() ? L"Select a run to open its metadata or an available linked location."
+                                                      : L"Some run records could not be read. Reload after correcting them.";
+            SetText(status_, message);
+            UpdateSelection();
+        }
+
+        void UpdateSelection()
+        {
+            SendMessageW(links_, CB_RESETCONTENT, 0, 0);
+            link_paths_.clear();
+            EnableWindow(metadata_, SelectedRecord().has_value());
+            if (const auto selected = SelectedRecord()) {
+                const auto &links = records_[*selected].links;
+                AddAvailableLink(L"Smedley log", links.smedley_log);
+                AddAvailableLink(L"Victoria II system log", links.victoria_system_log);
+                AddAvailableLink(L"Victoria II user directory", links.victoria_user_dir);
+                AddAvailableLink(L"Economy trace", links.economy_trace);
+                AddAvailableLink(L"Source save", links.source_save);
+            }
+            if (!link_paths_.empty()) SendMessageW(links_, CB_SETCURSEL, 0, 0);
+            EnableWindow(open_link_, !link_paths_.empty());
+        }
+
+        void AddAvailableLink(const wchar_t *name, const std::optional<fs::path> &path)
+        {
+            std::error_code error;
+            const auto destination = path ? fs::absolute(*path, error) : fs::path{};
+            bool is_directory = false;
+            if (!path || error || !IsSafeLinkedTarget(destination, &is_directory)) return;
+            const auto label = std::wstring(name) + L": " + destination.wstring();
+            SendMessageW(links_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            link_paths_.push_back(destination);
+        }
+
+        bool IsSafeLinkedTarget(const fs::path &path, bool *is_directory) const
+        {
+            const DWORD attributes = GetFileAttributesW(path.c_str());
+            if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) return false;
+            *is_directory = (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            if (*is_directory) return true;
+            auto extension = path.extension().wstring();
+            std::transform(extension.begin(), extension.end(), extension.begin(), towlower);
+            return extension != L".lnk" && extension != L".exe" && extension != L".com" && extension != L".bat"
+                && extension != L".cmd" && extension != L".ps1" && extension != L".vbs" && extension != L".js"
+                && extension != L".msi" && extension != L".scr";
+        }
+
+        void OpenWithExplorer(const fs::path &path)
+        {
+            bool is_directory = false;
+            if (!IsSafeLinkedTarget(path, &is_directory)) {
+                MessageBoxW(window_, L"The linked target is missing or is not safe to open.", L"Smedley Launcher", MB_OK | MB_ICONWARNING);
+                return;
+            }
+            const auto argument = is_directory ? launcher::QuoteWindowsArgument(path.wstring())
+                                               : L"/select," + launcher::QuoteWindowsArgument(path.wstring());
+            if (reinterpret_cast<intptr_t>(ShellExecuteW(window_, L"open", L"explorer.exe", argument.c_str(), nullptr, SW_SHOWNORMAL)) <= 32) {
+                MessageBoxW(window_, L"Windows Explorer could not open the selected path.", L"Smedley Launcher", MB_OK | MB_ICONERROR);
+            }
+        }
+
+        void OpenMetadata()
+        {
+            if (const auto selected = SelectedRecord()) {
+                const auto &path = records_[*selected].metadata_path;
+                bool is_directory = false;
+                if (!launcher::IsPathContained(launcher::DefaultRunDirectory(), path) || path.extension() != L".toml"
+                    || !IsSafeLinkedTarget(path, &is_directory) || is_directory) {
+                    MessageBoxW(window_, L"The metadata file is missing or is not safe to open.", L"Smedley Launcher", MB_OK | MB_ICONWARNING);
+                    return;
+                }
+                const auto argument = launcher::QuoteWindowsArgument(path.wstring());
+                if (reinterpret_cast<intptr_t>(ShellExecuteW(window_, L"open", L"notepad.exe", argument.c_str(), nullptr, SW_SHOWNORMAL)) <= 32) {
+                    MessageBoxW(window_, L"Notepad could not open the metadata file.", L"Smedley Launcher", MB_OK | MB_ICONERROR);
+                }
+            }
+        }
+
+        void OpenSelectedLink()
+        {
+            if (const auto link = SelectedLink()) OpenWithExplorer(*link);
+        }
+
+        HWND window_ = nullptr;
+        HWND list_ = nullptr;
+        HWND metadata_ = nullptr;
+        HWND links_ = nullptr;
+        HWND open_link_ = nullptr;
+        HWND status_ = nullptr;
+        int columns_ = 0;
+        std::vector<launcher::RunRecord> records_;
+        std::vector<launcher::Diagnostic> diagnostics_;
+        std::vector<fs::path> link_paths_;
+    };
 
     class LauncherWindow
     {
@@ -293,6 +534,7 @@ namespace
             diagnostics_ = AddControl(WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL | WS_TABSTOP,
                                       L"EDIT", L"", diagnostics_edit);
             status_ = AddControl(SS_LEFT, L"STATIC", L"", status_text);
+            AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"&Recent runs", recent_runs_button);
             launch_ = AddControl(BS_DEFPUSHBUTTON | WS_TABSTOP, L"BUTTON", L"&Launch Victoria II", launch_button);
         }
 
@@ -371,7 +613,8 @@ namespace
             const int diagnostic_height = std::max(Scale(80), height - y - button_height - margin * 2);
             MoveWindow(diagnostics_, margin, y, right - margin, diagnostic_height, TRUE);
             y += diagnostic_height + Scale(5);
-            MoveWindow(status_, margin, y + Scale(5), right - margin - Scale(170), Scale(20), TRUE);
+            MoveWindow(status_, margin, y + Scale(5), right - margin - Scale(270), Scale(20), TRUE);
+            MoveWindow(GetDlgItem(window_, recent_runs_button), right - Scale(260), y, Scale(94), button_height, TRUE);
             MoveWindow(launch_, right - Scale(160), y, Scale(160), button_height, TRUE);
             ListView_SetColumnWidth(plugins_, 0, Scale(230));
             ListView_SetColumnWidth(plugins_, 1, Scale(85));
@@ -396,6 +639,7 @@ namespace
                     RefreshPlan();
                 }
             } else if (id == launch_button && notification == BN_CLICKED) LaunchGame();
+            else if (id == recent_runs_button && notification == BN_CLICKED) RecentRunsWindow::Show(window_);
             else if ((id == safe_mode_check || id == observer_check || id == start_paused_check) && notification == BN_CLICKED) RefreshPlan();
             else if (id == mod_combo && notification == CBN_SELCHANGE) {
                 retained_mods_.clear();

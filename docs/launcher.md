@@ -45,6 +45,7 @@ smedley_cli --profile "C:\Profiles\gfm observer.toml" --dry-run
 smedley_cli --game-dir "C:\Games\Victoria 2" --discover
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin "plugins\campaign runner.toml" --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --observe
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.toml --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --speed 3 --start-paused --detach
+smedley_cli --history
 ```
 
 `--dry-run` prints the resolved command line and structured preflight
@@ -52,6 +53,29 @@ diagnostics without starting a process. `--discover` enumerates valid
 `GAME_DIR/plugins/*.toml` manifests and `GAME_DIR/mod/*.mod` descriptors in a
 stable order. `--no-inject` starts the verified game with ordinary selected mods
 but does not load the kernel or native plugins.
+
+## Run History
+
+Every `Launch()` attempt writes one atomic, human-readable TOML record under
+`%LOCALAPPDATA%\Smedley\runs`. Records use schema version 1 and contain a
+stable run ID, UTC start timestamp, outcome, known PID/exit code, profile and
+launch settings, resolved executable/command line, selected mod descriptors,
+and selected plugin IDs and manifests. They also contain paths to the Smedley
+and Victoria II logs, user directory, `economy_trace.csv`, and source save when
+those paths can be derived. History records only reference game content; they
+never copy saves, logs, mods, plugins, or game files.
+
+`--history` lists the newest 20 records concisely. A normal CLI launch prints
+the record path after it starts. The Win32 launcher's **Recent runs** window
+uses the same records, opens a selected metadata file on double-click, and can
+open linked locations that still exist.
+
+Run metadata is best-effort. A write failure appears as a launcher warning and
+does not convert a successful game launch into a failed one. Detached launches
+are recorded as `started`: the launcher does not own a process watcher after it
+returns. Blocking CLI launches update the same record to `exited` with the exit
+code when Windows provides it. A malformed individual TOML record is reported
+as a history diagnostic without hiding other records.
 
 ## Win32 GUI
 
@@ -73,7 +97,8 @@ code and are not sandboxed. GUI launches are detached and report either the
 new process ID or the launch diagnostics. Profile save/load uses the same TOML
 schema as the CLI. A loaded profile's `kernel` and `detach` values are preserved
 when saving; GUI launches themselves are always detached so the launcher stays
-responsive.
+responsive. **Recent runs** opens the shared local history rather than keeping a
+separate GUI-only list.
 
 The current profile API supports unattended save loading, observer mode, and an
 optional observer view tag. It also supports an initial speed from 1 through 5
@@ -88,3 +113,6 @@ The core resolves exact plugin IDs listed in optional `dependencies` and
 settings, or validate game/mod runtime behavior.
 It only accepts the one verified executable identity and x86 PE kernel/plugin
 DLLs. No-injection and injected launches still require the same verified game.
+Run history records launcher outcomes, not game health: `started` does not
+prove injection, plugin initialization, campaign loading, save integrity, or
+later process exit for detached runs.

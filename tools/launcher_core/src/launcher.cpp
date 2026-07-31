@@ -8,8 +8,10 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdio>
 #include <cwctype>
 #include <fstream>
+#include <limits>
 #include <sstream>
 
 namespace smedley::launcher
@@ -370,9 +372,24 @@ namespace smedley::launcher
         std::string EscapeToml(const std::string &value)
         {
             std::string escaped;
-            for (const char character : value) {
-                if (character == '\\' || character == '"') escaped += '\\';
-                escaped += character;
+            for (const unsigned char character : value) {
+                switch (character) {
+                case '\\': escaped += "\\\\"; break;
+                case '"': escaped += "\\\""; break;
+                case '\b': escaped += "\\b"; break;
+                case '\t': escaped += "\\t"; break;
+                case '\n': escaped += "\\n"; break;
+                case '\f': escaped += "\\f"; break;
+                case '\r': escaped += "\\r"; break;
+                default:
+                    if (character < 0x20 || character == 0x7f) {
+                        char encoded[7];
+                        std::snprintf(encoded, sizeof(encoded), "\\u%04x", character);
+                        escaped += encoded;
+                    } else {
+                        escaped += static_cast<char>(character);
+                    }
+                }
             }
             return escaped;
         }
@@ -389,6 +406,289 @@ namespace smedley::launcher
         {
             output << key << " = \"" << EscapeToml(value.u8string()) << "\"\n";
         }
+
+        std::wstring Utf8ToWide(const std::string &value)
+        {
+            if (value.empty()) return {};
+            const auto length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), nullptr, 0);
+            if (length <= 0) return {};
+            std::wstring result(length, L'\0');
+            MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()), result.data(), length);
+            return result;
+        }
+
+        std::string NewRunId()
+        {
+            GUID guid{};
+            if (CoCreateGuid(&guid) == S_OK) {
+                char value[37];
+                std::snprintf(value, sizeof(value), "%08lx-%04x-%04x-%04x-%012llx",
+                              guid.Data1, guid.Data2, guid.Data3,
+                              (static_cast<unsigned>(guid.Data4[0]) << 8) | guid.Data4[1],
+                              (static_cast<unsigned long long>(guid.Data4[2]) << 40)
+                                  | (static_cast<unsigned long long>(guid.Data4[3]) << 32)
+                                  | (static_cast<unsigned long long>(guid.Data4[4]) << 24)
+                                  | (static_cast<unsigned long long>(guid.Data4[5]) << 16)
+                                  | (static_cast<unsigned long long>(guid.Data4[6]) << 8)
+                                  | guid.Data4[7]);
+                return value;
+            }
+            return std::to_string(GetTickCount64()) + "-" + std::to_string(GetCurrentProcessId());
+        }
+
+        std::string UtcNow()
+        {
+            SYSTEMTIME time{};
+            GetSystemTime(&time);
+            char value[32];
+            std::snprintf(value, sizeof(value), "%04u-%02u-%02uT%02u:%02u:%02u.%03uZ",
+                          time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond, time.wMilliseconds);
+            return value;
+        }
+
+        std::optional<fs::path> VictoriaBaseUserDirectory()
+        {
+            PWSTR documents = nullptr;
+            if (SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &documents) != S_OK) return std::nullopt;
+            const fs::path result = fs::path(documents) / L"Paradox Interactive" / L"Victoria II";
+            CoTaskMemFree(documents);
+            return result;
+        }
+
+        bool IsSafeRunId(const std::string &run_id)
+        {
+            return !run_id.empty() && std::all_of(run_id.begin(), run_id.end(), [](unsigned char character) {
+                return std::isalnum(character) || character == '-';
+            });
+        }
+
+        bool IsUtcTimestamp(const std::string &timestamp)
+        {
+            if (timestamp.size() != 24 || timestamp[4] != '-' || timestamp[7] != '-' || timestamp[10] != 'T'
+                || timestamp[13] != ':' || timestamp[16] != ':' || timestamp[19] != '.' || timestamp[23] != 'Z') return false;
+            const bool digits = std::all_of(timestamp.begin(), timestamp.end(), [index = size_t{0}](unsigned char character) mutable {
+                const bool separator = index == 4 || index == 7 || index == 10 || index == 13 || index == 16 || index == 19 || index == 23;
+                ++index;
+                return separator || std::isdigit(character);
+            });
+            if (!digits) return false;
+            const auto number = [&](size_t offset, size_t length) { return std::stoi(timestamp.substr(offset, length)); };
+            const int year = number(0, 4);
+            const int month = number(5, 2);
+            const int day = number(8, 2);
+            const int hour = number(11, 2);
+            const int minute = number(14, 2);
+            const int second = number(17, 2);
+            const bool leap_year = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+            const std::array<int, 12> days_in_month = {31, leap_year ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+            return year >= 1 && month >= 1 && month <= 12 && day >= 1 && day <= days_in_month[month - 1]
+                && hour <= 23 && minute <= 59 && second <= 59;
+        }
+
+        bool IsSafeModUserDirectory(const std::string &value)
+        {
+            const auto path = fs::u8path(value);
+            return !value.empty() && !path.is_absolute() && !path.has_root_name()
+                && !path.has_root_directory() && !ContainsParentTraversal(path);
+        }
+
+        bool IsKnownRunStatus(RunStatus status)
+        {
+            return status == RunStatus::PreflightFailed || status == RunStatus::CreateFailed
+                || status == RunStatus::InjectionFailed || status == RunStatus::Started
+                || status == RunStatus::Exited;
+        }
+
+        RunRecord BuildRunRecord(const LaunchPlan &plan)
+        {
+            RunRecord record;
+            record.run_id = NewRunId();
+            record.started_at_utc = UtcNow();
+            record.profile_name = plan.profile.name;
+            record.injected = plan.profile.inject;
+            record.safe_mode = !plan.profile.inject;
+            record.executable = plan.game_executable;
+            record.command_line = plan.command_line;
+            record.save = plan.profile.save;
+            record.observer = plan.profile.observer;
+            record.speed = plan.profile.speed;
+            record.start_paused = plan.profile.start_paused;
+            for (const auto &mod : plan.mods) record.mod_descriptors.push_back(mod.descriptor_path);
+            for (const auto &plugin : plan.plugins) record.plugins.push_back({plugin.id, plugin.manifest_path});
+            if (const auto base_user_dir = VictoriaBaseUserDirectory()) {
+                record.links.smedley_log = *base_user_dir / L"logs" / L"smedley.log";
+                std::vector<fs::path> selected_user_dirs;
+                bool invalid_user_dir = false;
+                for (const auto &mod : plan.mods) {
+                    if (mod.user_dir.empty()) continue;
+                    if (!IsSafeModUserDirectory(mod.user_dir)) {
+                        invalid_user_dir = true;
+                        break;
+                    }
+                    const auto user_dir = (*base_user_dir / fs::u8path(mod.user_dir)).lexically_normal();
+                    if (std::find(selected_user_dirs.begin(), selected_user_dirs.end(), user_dir) == selected_user_dirs.end()) {
+                        selected_user_dirs.push_back(user_dir);
+                    }
+                }
+                if (!invalid_user_dir && selected_user_dirs.size() == 1) {
+                    const auto &user_dir = selected_user_dirs.front();
+                    record.links.victoria_user_dir = user_dir;
+                    record.links.victoria_system_log = user_dir / L"logs" / L"system.log";
+                } else if (!invalid_user_dir && selected_user_dirs.empty()) {
+                    record.links.victoria_user_dir = *base_user_dir;
+                    record.links.victoria_system_log = *base_user_dir / L"logs" / L"system.log";
+                }
+            }
+            if (std::any_of(plan.plugins.begin(), plan.plugins.end(), [](const PluginManifest &plugin) { return plugin.id == "economy_trace"; })) {
+                record.links.economy_trace = plan.profile.game_dir / L"economy_trace.csv";
+            }
+            record.links.source_save = plan.profile.save;
+            return record;
+        }
+
+        void WriteRunPathArray(std::ofstream &output, const char *key, const std::vector<fs::path> &paths)
+        {
+            output << key << " = [";
+            for (size_t index = 0; index < paths.size(); ++index) {
+                if (index != 0) output << ", ";
+                output << "\"" << EscapeToml(paths[index].u8string()) << "\"";
+            }
+            output << "]\n";
+        }
+
+        void WriteOptionalRunPath(std::ofstream &output, const char *key, const std::optional<fs::path> &path)
+        {
+            if (path) WriteTomlString(output, key, *path);
+        }
+
+        const char *SeverityName(Severity severity)
+        {
+            switch (severity) {
+            case Severity::Info: return "info";
+            case Severity::Warning: return "warning";
+            case Severity::Error: return "error";
+            }
+            return "error";
+        }
+
+        std::optional<Severity> ParseSeverity(const std::string &value)
+        {
+            if (value == "info") return Severity::Info;
+            if (value == "warning") return Severity::Warning;
+            if (value == "error") return Severity::Error;
+            return std::nullopt;
+        }
+
+        bool ReadRunRecord(const fs::path &path, RunRecord *record, std::vector<Diagnostic> *diagnostics)
+        {
+            try {
+                const auto table = toml::parse_file(path.wstring());
+                const auto schema_version = table["schema_version"].value<int>();
+                const auto run_id = table["run_id"].value<std::string>();
+                const auto started_at_utc = table["started_at_utc"].value<std::string>();
+                const auto status = table["status"].value<std::string>();
+                const auto profile_name = table["profile_name"].value<std::string>();
+                const auto injected = table["injected"].value<bool>();
+                const auto safe_mode = table["safe_mode"].value<bool>();
+                const auto executable = table["executable"].value<std::string>();
+                const auto command_line = table["command_line"].value<std::string>();
+                const auto observer = table["observer"].value<bool>();
+                const auto speed = table["speed"].value<int>();
+                const auto start_paused = table["start_paused"].value<bool>();
+                if (!schema_version || *schema_version != 1 || !run_id || !IsSafeRunId(*run_id) || !started_at_utc || !IsUtcTimestamp(*started_at_utc) || !status
+                    || !profile_name || !injected || !safe_mode || !executable || !command_line || !observer || !speed || *speed < 1 || *speed > 5 || !start_paused
+                    || path.stem().u8string() != *run_id) {
+                    AddDiagnostic(diagnostics, "run.schema", "run record has missing or invalid required fields", path);
+                    return false;
+                }
+                RunRecord loaded;
+                loaded.schema_version = *schema_version;
+                loaded.run_id = *run_id;
+                loaded.started_at_utc = *started_at_utc;
+                if (*status == "preflight_failed") loaded.status = RunStatus::PreflightFailed;
+                else if (*status == "create_failed") loaded.status = RunStatus::CreateFailed;
+                else if (*status == "injection_failed") loaded.status = RunStatus::InjectionFailed;
+                else if (*status == "started") loaded.status = RunStatus::Started;
+                else if (*status == "exited") loaded.status = RunStatus::Exited;
+                else {
+                    AddDiagnostic(diagnostics, "run.schema", "run record has an unknown status", path);
+                    return false;
+                }
+                loaded.profile_name = *profile_name;
+                loaded.injected = *injected;
+                loaded.safe_mode = *safe_mode;
+                loaded.executable = fs::u8path(*executable);
+                loaded.command_line = Utf8ToWide(*command_line);
+                if (!command_line->empty() && loaded.command_line.empty()) {
+                    AddDiagnostic(diagnostics, "run.schema", "run record command_line is not valid UTF-8", path);
+                    return false;
+                }
+                loaded.observer = *observer;
+                loaded.speed = *speed;
+                loaded.start_paused = *start_paused;
+                auto read_u32 = [&](const char *key, std::optional<std::uint32_t> *destination) {
+                    if (!table.contains(key)) return;
+                    const auto value = table[key].value<std::int64_t>();
+                    if (!value || *value < 0 || static_cast<std::uint64_t>(*value) > (std::numeric_limits<std::uint32_t>::max)()) {
+                        throw std::runtime_error(std::string(key) + " must be a 32-bit unsigned integer");
+                    }
+                    *destination = static_cast<std::uint32_t>(*value);
+                };
+                read_u32("process_id", &loaded.process_id);
+                read_u32("exit_code", &loaded.exit_code);
+                if (const auto value = table["save"].value<std::string>()) loaded.save = fs::u8path(*value);
+                if (const auto mods = table["mod_descriptors"].as_array()) {
+                    for (const auto &node : *mods) {
+                        const auto value = node.value<std::string>();
+                        if (!value) throw std::runtime_error("mod_descriptors must contain strings");
+                        loaded.mod_descriptors.push_back(fs::u8path(*value));
+                    }
+                }
+                if (const auto plugins = table["plugins"].as_array()) {
+                    for (const auto &node : *plugins) {
+                        const auto *plugin = node.as_table();
+                        if (!plugin) throw std::runtime_error("plugins must contain tables");
+                        const auto id = (*plugin)["id"].value<std::string>();
+                        const auto manifest_path = (*plugin)["manifest_path"].value<std::string>();
+                        if (!id || !manifest_path) throw std::runtime_error("plugins require id and manifest_path");
+                        loaded.plugins.push_back({*id, fs::u8path(*manifest_path)});
+                    }
+                }
+                if (const auto *links = table["links"].as_table()) {
+                    auto read_link = [&](const char *key, std::optional<fs::path> *destination) {
+                        if (const auto value = (*links)[key].value<std::string>()) *destination = fs::u8path(*value);
+                    };
+                    read_link("smedley_log", &loaded.links.smedley_log);
+                    read_link("victoria_system_log", &loaded.links.victoria_system_log);
+                    read_link("victoria_user_dir", &loaded.links.victoria_user_dir);
+                    read_link("economy_trace", &loaded.links.economy_trace);
+                    read_link("source_save", &loaded.links.source_save);
+                }
+                if (const auto diagnostic_nodes = table["diagnostics"].as_array()) {
+                    for (const auto &node : *diagnostic_nodes) {
+                        const auto *diagnostic = node.as_table();
+                        if (!diagnostic) throw std::runtime_error("diagnostics must contain tables");
+                        const auto severity = (*diagnostic)["severity"].value<std::string>();
+                        const auto code = (*diagnostic)["code"].value<std::string>();
+                        const auto message = (*diagnostic)["message"].value<std::string>();
+                        if (!severity || !code || !message) throw std::runtime_error("diagnostics require severity, code, and message");
+                        const auto parsed_severity = ParseSeverity(*severity);
+                        if (!parsed_severity) throw std::runtime_error("diagnostics contain an unknown severity");
+                        Diagnostic parsed{*parsed_severity, *code, *message, {}};
+                        if (const auto diagnostic_path = (*diagnostic)["path"].value<std::string>()) parsed.path = fs::u8path(*diagnostic_path);
+                        loaded.diagnostics.push_back(std::move(parsed));
+                    }
+                }
+                std::error_code absolute_error;
+                loaded.metadata_path = fs::absolute(path, absolute_error);
+                if (absolute_error) loaded.metadata_path = path;
+                *record = std::move(loaded);
+                return true;
+            } catch (const std::exception &error) {
+                AddDiagnostic(diagnostics, "run.parse", error.what(), path);
+                return false;
+            }
+        }
     }
 
     bool HasErrors(const std::vector<Diagnostic> &diagnostics)
@@ -396,6 +696,156 @@ namespace smedley::launcher
         return std::any_of(diagnostics.begin(), diagnostics.end(), [](const Diagnostic &diagnostic) {
             return diagnostic.severity == Severity::Error;
         });
+    }
+
+    const char *RunStatusName(RunStatus status)
+    {
+        switch (status) {
+        case RunStatus::PreflightFailed: return "preflight_failed";
+        case RunStatus::CreateFailed: return "create_failed";
+        case RunStatus::InjectionFailed: return "injection_failed";
+        case RunStatus::Started: return "started";
+        case RunStatus::Exited: return "exited";
+        }
+        return "unknown";
+    }
+
+    fs::path DefaultRunDirectory()
+    {
+        PWSTR local_app_data = nullptr;
+        if (SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local_app_data) != S_OK) return {};
+        const fs::path result = fs::path(local_app_data) / L"Smedley" / L"runs";
+        CoTaskMemFree(local_app_data);
+        return result;
+    }
+
+    RunRecord CreateRunRecord(const LaunchPlan &plan)
+    {
+        return BuildRunRecord(plan);
+    }
+
+    bool SaveRunRecord(const fs::path &run_directory, const RunRecord &record, std::vector<Diagnostic> *diagnostics)
+    {
+        if (run_directory.empty() || !IsSafeRunId(record.run_id) || record.schema_version != 1
+            || !IsKnownRunStatus(record.status)
+            || !IsUtcTimestamp(record.started_at_utc) || record.speed < 1 || record.speed > 5) {
+            AddDiagnostic(diagnostics, "run.write", "run directory or record fields are invalid", run_directory);
+            return false;
+        }
+        std::error_code error;
+        fs::create_directories(run_directory, error);
+        if (error) {
+            AddDiagnostic(diagnostics, "run.write", error.message(), run_directory);
+            return false;
+        }
+        const auto destination = run_directory / fs::u8path(record.run_id + ".toml");
+        const auto temporary = run_directory / fs::u8path(record.run_id + "." + std::to_string(GetCurrentProcessId())
+                                                           + "." + std::to_string(GetTickCount64()) + ".tmp");
+        {
+            std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+            if (!output) {
+                AddDiagnostic(diagnostics, "run.write", "could not create temporary run record", temporary);
+                return false;
+            }
+            output << "# Smedley launcher run schema v1\n";
+            output << "schema_version = " << record.schema_version << "\n";
+            output << "run_id = \"" << EscapeToml(record.run_id) << "\"\n";
+            output << "started_at_utc = \"" << EscapeToml(record.started_at_utc) << "\"\n";
+            output << "status = \"" << RunStatusName(record.status) << "\"\n";
+            if (record.process_id) output << "process_id = " << *record.process_id << "\n";
+            if (record.exit_code) output << "exit_code = " << *record.exit_code << "\n";
+            output << "profile_name = \"" << EscapeToml(record.profile_name) << "\"\n";
+            output << "injected = " << (record.injected ? "true" : "false") << "\n";
+            output << "safe_mode = " << (record.safe_mode ? "true" : "false") << "\n";
+            WriteTomlString(output, "executable", record.executable);
+            output << "command_line = \"" << EscapeToml(WideToUtf8(record.command_line)) << "\"\n";
+            WriteRunPathArray(output, "mod_descriptors", record.mod_descriptors);
+            if (record.save) WriteTomlString(output, "save", *record.save);
+            output << "observer = " << (record.observer ? "true" : "false") << "\n";
+            output << "speed = " << record.speed << "\n";
+            output << "start_paused = " << (record.start_paused ? "true" : "false") << "\n\n";
+            for (const auto &plugin : record.plugins) {
+                output << "[[plugins]]\n";
+                output << "id = \"" << EscapeToml(plugin.id) << "\"\n";
+                WriteTomlString(output, "manifest_path", plugin.manifest_path);
+                output << "\n";
+            }
+            for (const auto &diagnostic : record.diagnostics) {
+                output << "[[diagnostics]]\n";
+                output << "severity = \"" << SeverityName(diagnostic.severity) << "\"\n";
+                output << "code = \"" << EscapeToml(diagnostic.code) << "\"\n";
+                output << "message = \"" << EscapeToml(diagnostic.message) << "\"\n";
+                if (!diagnostic.path.empty()) WriteTomlString(output, "path", diagnostic.path);
+                output << "\n";
+            }
+            output << "[links]\n";
+            WriteOptionalRunPath(output, "smedley_log", record.links.smedley_log);
+            WriteOptionalRunPath(output, "victoria_system_log", record.links.victoria_system_log);
+            WriteOptionalRunPath(output, "victoria_user_dir", record.links.victoria_user_dir);
+            WriteOptionalRunPath(output, "economy_trace", record.links.economy_trace);
+            WriteOptionalRunPath(output, "source_save", record.links.source_save);
+            output.flush();
+            if (!output) {
+                output.close();
+                fs::remove(temporary, error);
+                AddDiagnostic(diagnostics, "run.write", "could not write temporary run record", temporary);
+                return false;
+            }
+        }
+        if (!MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            const auto message = WindowsError("MoveFileExW");
+            fs::remove(temporary, error);
+            AddDiagnostic(diagnostics, "run.write", message, destination);
+            return false;
+        }
+        return true;
+    }
+
+    std::vector<RunRecord> LoadRunHistory(const fs::path &run_directory, size_t limit, std::vector<Diagnostic> *diagnostics)
+    {
+        std::vector<RunRecord> records;
+        std::error_code error;
+        const bool exists = fs::exists(run_directory, error);
+        if (error) {
+            AddDiagnostic(diagnostics, "run.directory", error.message(), run_directory);
+            return records;
+        }
+        if (!exists) {
+            return records;
+        }
+        fs::directory_iterator iterator(run_directory, fs::directory_options::skip_permission_denied, error);
+        if (error) {
+            AddDiagnostic(diagnostics, "run.directory", error.message(), run_directory);
+            return records;
+        }
+        const fs::directory_iterator end;
+        while (iterator != end) {
+            const auto entry = *iterator;
+            iterator.increment(error);
+            if (error) {
+                AddDiagnostic(diagnostics, "run.directory", error.message(), run_directory);
+                break;
+            }
+            std::error_code entry_error;
+            if (!entry.is_regular_file(entry_error)) {
+                if (entry_error) AddDiagnostic(diagnostics, "run.entry", entry_error.message(), entry.path());
+                continue;
+            }
+            if (entry.path().extension() != L".toml") continue;
+            RunRecord record;
+            if (ReadRunRecord(entry.path(), &record, diagnostics)) records.push_back(std::move(record));
+        }
+        std::sort(records.begin(), records.end(), [](const RunRecord &left, const RunRecord &right) {
+            if (left.started_at_utc != right.started_at_utc) return left.started_at_utc > right.started_at_utc;
+            return left.run_id > right.run_id;
+        });
+        if (records.size() > limit) records.resize(limit);
+        return records;
+    }
+
+    std::vector<RunRecord> LoadRunHistory(size_t limit, std::vector<Diagnostic> *diagnostics)
+    {
+        return LoadRunHistory(DefaultRunDirectory(), limit, diagnostics);
     }
 
     bool IsPathContained(const fs::path &root, const fs::path &path)
@@ -541,7 +991,7 @@ namespace smedley::launcher
         write_paths("plugins", profile.plugins);
         if (profile.save) WriteTomlString(output, "save", *profile.save);
         output << "observer = " << (profile.observer ? "true" : "false") << "\n";
-        if (profile.view_tag) output << "view_tag = \"" << WideToUtf8(*profile.view_tag) << "\"\n";
+        if (profile.view_tag) output << "view_tag = \"" << EscapeToml(WideToUtf8(*profile.view_tag)) << "\"\n";
         output << "speed = " << profile.speed << "\n";
         output << "start_paused = " << (profile.start_paused ? "true" : "false") << "\n";
         output << "detach = " << (profile.detach ? "true" : "false") << "\n";
@@ -768,7 +1218,24 @@ namespace smedley::launcher
     {
         LaunchResult result;
         result.diagnostics = plan.diagnostics;
-        if (HasErrors(result.diagnostics)) return result;
+        auto record = CreateRunRecord(plan);
+        result.run_id = record.run_id;
+        const auto run_directory = DefaultRunDirectory();
+        result.metadata_path = run_directory / fs::u8path(record.run_id + ".toml");
+        bool persistence_warning_added = false;
+        auto persist = [&] {
+            record.diagnostics = result.diagnostics;
+            std::vector<Diagnostic> persistence_diagnostics;
+            if (!SaveRunRecord(run_directory, record, &persistence_diagnostics) && !persistence_warning_added) {
+                AddWarning(&result.diagnostics, "run.persistence", "could not persist run metadata; the launch result is unchanged", result.metadata_path);
+                persistence_warning_added = true;
+            }
+        };
+        if (HasErrors(result.diagnostics)) {
+            record.status = RunStatus::PreflightFailed;
+            persist();
+            return result;
+        }
 
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
@@ -779,9 +1246,12 @@ namespace smedley::launcher
         if (!CreateProcessW(plan.game_executable.c_str(), command.data(), nullptr, nullptr, FALSE, flags,
                             nullptr, plan.profile.game_dir.c_str(), &startup, &process)) {
             AddDiagnostic(&result.diagnostics, "launch.create_process", WindowsError("CreateProcessW"), plan.game_executable);
+            record.status = RunStatus::CreateFailed;
+            persist();
             return result;
         }
         result.process_id = process.dwProcessId;
+        record.process_id = result.process_id;
         bool suspended = plan.profile.inject;
         if (suspended) {
             const auto remote_kernel = InjectLibrary(process.hProcess, plan.kernel, &result.diagnostics);
@@ -807,14 +1277,32 @@ namespace smedley::launcher
         }
         CloseHandle(process.hThread);
         if (HasErrors(result.diagnostics)) {
+            record.status = RunStatus::InjectionFailed;
+            persist();
             CloseHandle(process.hProcess);
             return result;
         }
         result.started = true;
+        record.status = RunStatus::Started;
+        persist();
         if (!plan.profile.detach) {
-            WaitForSingleObject(process.hProcess, INFINITE);
+            const auto wait_result = WaitForSingleObject(process.hProcess, INFINITE);
+            if (wait_result != WAIT_OBJECT_0) {
+                const auto message = wait_result == WAIT_FAILED ? WindowsError("WaitForSingleObject")
+                                                               : "unexpected WaitForSingleObject result";
+                AddDiagnostic(&result.diagnostics, "launch.process_wait", message, plan.game_executable);
+            }
             DWORD exit_code = 1;
-            if (GetExitCodeProcess(process.hProcess, &exit_code)) result.exit_code = exit_code;
+            if (wait_result == WAIT_OBJECT_0 && !GetExitCodeProcess(process.hProcess, &exit_code)) {
+                AddDiagnostic(&result.diagnostics, "launch.exit_code", WindowsError("GetExitCodeProcess"), plan.game_executable);
+            } else if (wait_result == WAIT_OBJECT_0 && exit_code == STILL_ACTIVE) {
+                AddDiagnostic(&result.diagnostics, "launch.exit_code", "process remained active after it was signaled", plan.game_executable);
+            } else if (wait_result == WAIT_OBJECT_0) {
+                result.exit_code = exit_code;
+                record.status = RunStatus::Exited;
+                record.exit_code = result.exit_code;
+            }
+            persist();
         }
         CloseHandle(process.hProcess);
         return result;

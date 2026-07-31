@@ -47,6 +47,15 @@ smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.to
 Paths may contain spaces and Unicode characters. `--dry-run` performs the same
 shared preflight as a real launch without creating a process.
 
+## Recent Runs
+
+Each real launcher attempt writes a small TOML metadata record in
+`%LOCALAPPDATA%\Smedley\runs`; no game content is copied. The CLI command
+`smedley_cli --history` lists recent records, and the GUI's **Recent runs**
+button opens them and any linked logs, user directory, economy trace, or source
+save that still exists. Detached GUI and CLI launches are recorded as started,
+not exited, because the launcher does not watch them after it returns.
+
 ## Built-In Tools
 
 `campaign_runner` loads a selected save through Victoria II's native frontend

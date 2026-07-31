@@ -86,11 +86,61 @@ namespace smedley::launcher
         std::vector<Diagnostic> diagnostics;
     };
 
+    enum class RunStatus
+    {
+        PreflightFailed,
+        CreateFailed,
+        InjectionFailed,
+        Started,
+        Exited,
+    };
+
+    struct RunPlugin
+    {
+        std::string id;
+        fs::path manifest_path;
+    };
+
+    struct RunLinks
+    {
+        std::optional<fs::path> smedley_log;
+        std::optional<fs::path> victoria_system_log;
+        std::optional<fs::path> victoria_user_dir;
+        std::optional<fs::path> economy_trace;
+        std::optional<fs::path> source_save;
+    };
+
+    struct RunRecord
+    {
+        int schema_version = 1;
+        std::string run_id;
+        std::string started_at_utc;
+        RunStatus status = RunStatus::PreflightFailed;
+        std::optional<std::uint32_t> process_id;
+        std::optional<std::uint32_t> exit_code;
+        std::string profile_name;
+        bool injected = false;
+        bool safe_mode = true;
+        fs::path executable;
+        std::wstring command_line;
+        std::vector<fs::path> mod_descriptors;
+        std::vector<RunPlugin> plugins;
+        std::optional<fs::path> save;
+        bool observer = false;
+        int speed = 5;
+        bool start_paused = false;
+        RunLinks links;
+        std::vector<Diagnostic> diagnostics;
+        fs::path metadata_path;
+    };
+
     struct LaunchResult
     {
         bool started = false;
         std::uint32_t process_id = 0;
         std::uint32_t exit_code = 0;
+        std::string run_id;
+        fs::path metadata_path;
         std::vector<Diagnostic> diagnostics;
     };
 
@@ -99,7 +149,14 @@ namespace smedley::launcher
     bool LoadProfile(const fs::path &path, Profile *profile, std::vector<Diagnostic> *diagnostics);
     bool SaveProfile(const fs::path &path, const Profile &profile, std::vector<Diagnostic> *diagnostics);
     LaunchPlan BuildLaunchPlan(Profile profile);
+    RunRecord CreateRunRecord(const LaunchPlan &plan);
     LaunchResult Launch(const LaunchPlan &plan);
+
+    const char *RunStatusName(RunStatus status);
+    fs::path DefaultRunDirectory();
+    bool SaveRunRecord(const fs::path &run_directory, const RunRecord &record, std::vector<Diagnostic> *diagnostics);
+    std::vector<RunRecord> LoadRunHistory(const fs::path &run_directory, size_t limit, std::vector<Diagnostic> *diagnostics);
+    std::vector<RunRecord> LoadRunHistory(size_t limit, std::vector<Diagnostic> *diagnostics);
 
     bool HasErrors(const std::vector<Diagnostic> &diagnostics);
     bool IsPathContained(const fs::path &root, const fs::path &path);

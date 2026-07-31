@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
 #include <fstream>
 
 namespace launcher = smedley::launcher;
@@ -295,4 +296,226 @@ TEST_F(LauncherCoreTest, OrdersPluginDependenciesAndRejectsCycles)
     EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
         return diagnostic.code == "plugin.dependency_cycle";
     }));
+}
+
+TEST_F(LauncherCoreTest, SavesAndLoadsCompleteRunRecordInConfiguredDirectory)
+{
+    launcher::RunRecord original;
+    original.run_id = "a1b2c3d4-e5f6-7890-abcd-ef0123456789";
+    original.started_at_utc = "2026-07-31T12:34:56.789Z";
+    original.status = launcher::RunStatus::Exited;
+    original.process_id = 42;
+    original.exit_code = 7;
+    original.profile_name = u8"Observer \"\u03a9\"\nprofile";
+    original.injected = true;
+    original.safe_mode = false;
+    original.executable = root / L"Victoria \u03a9" / L"v2game.exe";
+    original.command_line = L"\"C:\\Victoria \u03a9\\v2game.exe\" \"-mod=quoted \\\"mod\\\"\"";
+    original.mod_descriptors = {root / L"mod" / L"\u03a9.mod"};
+    original.plugins = {{"economy_trace", root / L"plugins" / L"economy_trace.toml"}};
+    original.save = root / L"save games" / L"source \u03a9.v2";
+    original.observer = true;
+    original.speed = 4;
+    original.start_paused = true;
+    original.links.smedley_log = root / L"logs" / L"smedley.log";
+    original.links.source_save = original.save;
+    original.diagnostics = {
+        {launcher::Severity::Warning, "mod.descriptor_missing", "selected descriptor was rejected", root / L"mod" / L"missing.mod"},
+        {launcher::Severity::Error, "launch.create_process", "CreateProcessW failed", {}},
+    };
+    std::vector<launcher::Diagnostic> diagnostics;
+    const auto run_directory = root / L"configured runs";
+
+    ASSERT_TRUE(launcher::SaveRunRecord(run_directory, original, &diagnostics));
+    const auto records = launcher::LoadRunHistory(run_directory, 10, &diagnostics);
+
+    ASSERT_TRUE(diagnostics.empty());
+    ASSERT_EQ(records.size(), 1u);
+    const auto &loaded = records.front();
+    EXPECT_EQ(loaded.run_id, original.run_id);
+    EXPECT_EQ(loaded.status, launcher::RunStatus::Exited);
+    EXPECT_EQ(loaded.process_id, original.process_id);
+    EXPECT_EQ(loaded.exit_code, original.exit_code);
+    EXPECT_EQ(loaded.profile_name, original.profile_name);
+    EXPECT_EQ(loaded.executable, original.executable);
+    EXPECT_EQ(loaded.command_line, original.command_line);
+    EXPECT_EQ(loaded.mod_descriptors, original.mod_descriptors);
+    ASSERT_EQ(loaded.plugins.size(), 1u);
+    EXPECT_EQ(loaded.plugins[0].id, "economy_trace");
+    EXPECT_EQ(loaded.plugins[0].manifest_path, original.plugins[0].manifest_path);
+    EXPECT_EQ(loaded.links.source_save, original.links.source_save);
+    EXPECT_EQ(loaded.metadata_path, run_directory / fs::u8path(original.run_id + ".toml"));
+    ASSERT_EQ(loaded.diagnostics.size(), original.diagnostics.size());
+    EXPECT_EQ(loaded.diagnostics[0].severity, launcher::Severity::Warning);
+    EXPECT_EQ(loaded.diagnostics[0].code, "mod.descriptor_missing");
+    EXPECT_EQ(loaded.diagnostics[0].message, "selected descriptor was rejected");
+    EXPECT_EQ(loaded.diagnostics[0].path, original.diagnostics[0].path);
+}
+
+TEST_F(LauncherCoreTest, RunHistorySkipsMalformedRecordAndSortsNewestFirst)
+{
+    const auto run_directory = root / L"runs";
+    launcher::RunRecord older;
+    older.run_id = "11111111-1111-1111-1111-111111111111";
+    older.started_at_utc = "2026-07-30T00:00:00.000Z";
+    older.status = launcher::RunStatus::Started;
+    older.profile_name = "Older";
+    older.executable = root / L"v2game.exe";
+    launcher::RunRecord newer = older;
+    newer.run_id = "22222222-2222-2222-2222-222222222222";
+    newer.started_at_utc = "2026-07-31T00:00:00.000Z";
+    newer.status = launcher::RunStatus::CreateFailed;
+    std::vector<launcher::Diagnostic> diagnostics;
+    ASSERT_TRUE(launcher::SaveRunRecord(run_directory, older, &diagnostics));
+    ASSERT_TRUE(launcher::SaveRunRecord(run_directory, newer, &diagnostics));
+    Write(run_directory / L"broken.toml", "schema_version = 1\nrun_id = \"broken\"\n");
+
+    const auto records = launcher::LoadRunHistory(run_directory, 10, &diagnostics);
+
+    ASSERT_EQ(records.size(), 2u);
+    EXPECT_EQ(records[0].run_id, newer.run_id);
+    EXPECT_EQ(records[1].run_id, older.run_id);
+    EXPECT_TRUE(std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "run.schema" || diagnostic.code == "run.parse";
+    }));
+}
+
+TEST(LauncherRunRecordTest, SerializesEveryLaunchStatusWithoutStartingGame)
+{
+    const auto root = fs::temp_directory_path() / (L"smedley run status " + std::to_wstring(GetTickCount64()));
+    const auto run_directory = root / L"runs";
+    std::vector<launcher::Diagnostic> diagnostics;
+    const std::array<launcher::RunStatus, 5> statuses = {
+        launcher::RunStatus::PreflightFailed, launcher::RunStatus::CreateFailed, launcher::RunStatus::InjectionFailed,
+        launcher::RunStatus::Started, launcher::RunStatus::Exited};
+    for (size_t index = 0; index < statuses.size(); ++index) {
+        launcher::RunRecord record;
+        record.run_id = "status-" + std::to_string(index);
+        record.started_at_utc = "2026-07-31T00:00:0" + std::to_string(index) + ".000Z";
+        record.status = statuses[index];
+        record.executable = L"C:\\Victoria 2\\v2game.exe";
+        ASSERT_TRUE(launcher::SaveRunRecord(run_directory, record, &diagnostics));
+    }
+
+    const auto records = launcher::LoadRunHistory(run_directory, 10, &diagnostics);
+
+    ASSERT_TRUE(diagnostics.empty());
+    ASSERT_EQ(records.size(), statuses.size());
+    for (const auto status : statuses) {
+        EXPECT_TRUE(std::any_of(records.begin(), records.end(), [status](const auto &record) { return record.status == status; }));
+    }
+    std::error_code error;
+    fs::remove_all(root, error);
+}
+
+TEST_F(LauncherCoreTest, EscapesDelInProfileViewTag)
+{
+    launcher::Profile original;
+    original.name = "DEL";
+    original.game_dir = root;
+    original.view_tag = std::wstring{L'E', static_cast<wchar_t>(0x7f), L'G'};
+    std::vector<launcher::Diagnostic> diagnostics;
+    const auto profile_path = root / L"del-profile.toml";
+
+    ASSERT_TRUE(launcher::SaveProfile(profile_path, original, &diagnostics));
+    launcher::Profile loaded;
+    ASSERT_TRUE(launcher::LoadProfile(profile_path, &loaded, &diagnostics));
+
+    EXPECT_TRUE(diagnostics.empty());
+    EXPECT_EQ(loaded.view_tag, original.view_tag);
+    std::ifstream input(profile_path, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(input)), {});
+    EXPECT_NE(contents.find("\\u007f"), std::string::npos);
+}
+
+TEST_F(LauncherCoreTest, RejectsHostileNumericAndMismatchedRunRecords)
+{
+    const auto run_directory = root / L"runs";
+    launcher::RunRecord valid;
+    valid.run_id = "valid-record";
+    valid.started_at_utc = "2026-07-31T12:34:56.000Z";
+    valid.status = launcher::RunStatus::Started;
+    valid.executable = root / L"v2game.exe";
+    std::vector<launcher::Diagnostic> diagnostics;
+    ASSERT_TRUE(launcher::SaveRunRecord(run_directory, valid, &diagnostics));
+    fs::copy_file(run_directory / L"valid-record.toml", run_directory / L"wrong-name.toml");
+    Write(run_directory / L"hostile.toml", "schema_version = 1\nrun_id = \"../hostile\"\n");
+    Write(run_directory / L"numeric.toml",
+          "schema_version = 1\nrun_id = \"numeric\"\nstarted_at_utc = \"2026-02-28T12:00:00.000Z\"\n"
+          "status = \"started\"\nprofile_name = \"x\"\ninjected = false\nsafe_mode = true\n"
+          "executable = \"C:/v2game.exe\"\ncommand_line = \"x\"\nobserver = false\nspeed = 5\nstart_paused = false\n"
+          "process_id = 4294967296\n");
+
+    const auto records = launcher::LoadRunHistory(run_directory, 10, &diagnostics);
+
+    ASSERT_EQ(records.size(), 1u);
+    EXPECT_EQ(records[0].run_id, valid.run_id);
+    EXPECT_TRUE(std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "run.schema" || diagnostic.code == "run.parse";
+    }));
+}
+
+TEST_F(LauncherCoreTest, RejectsSemanticallyInvalidTimestampAndNonDirectoryHistoryPath)
+{
+    const auto run_directory = root / L"runs";
+    launcher::RunRecord record;
+    record.run_id = "invalid-time";
+    record.started_at_utc = "2026-02-30T12:00:00.000Z";
+    record.executable = root / L"v2game.exe";
+    std::vector<launcher::Diagnostic> diagnostics;
+
+    EXPECT_FALSE(launcher::SaveRunRecord(run_directory, record, &diagnostics));
+    Write(root / L"not-a-directory.toml", "not history");
+    const auto records = launcher::LoadRunHistory(root / L"not-a-directory.toml", 10, &diagnostics);
+
+    EXPECT_TRUE(records.empty());
+    EXPECT_TRUE(std::any_of(diagnostics.begin(), diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "run.write" || diagnostic.code == "run.directory";
+    }));
+}
+
+TEST_F(LauncherCoreTest, DerivesModUserDirectoryAndEconomyTraceOnlyWhenUnambiguous)
+{
+    launcher::LaunchPlan plan;
+    plan.profile.game_dir = root;
+    auto record = launcher::CreateRunRecord(plan);
+    ASSERT_TRUE(record.links.victoria_user_dir.has_value());
+    ASSERT_TRUE(record.links.victoria_system_log.has_value());
+
+    plan.mods = {{"Example", "mod/Example", "Example User", {}, root / L"mod" / L"Example.mod", root / L"mod" / L"Example Content"}};
+
+    record = launcher::CreateRunRecord(plan);
+
+    ASSERT_TRUE(record.links.smedley_log.has_value());
+    ASSERT_TRUE(record.links.victoria_user_dir.has_value());
+    ASSERT_TRUE(record.links.victoria_system_log.has_value());
+    EXPECT_FALSE(record.links.economy_trace.has_value());
+
+    plan.mods.push_back({"Other", "mod/Other", "Other User", {}, root / L"mod" / L"Other.mod", root / L"mod" / L"Other Content"});
+    plan.plugins.push_back({"economy_trace", "Economy", "economy_trace.dll", "1", {}, {}, root / L"plugins" / L"economy_trace.toml", root / L"plugins" / L"economy_trace.dll"});
+    record = launcher::CreateRunRecord(plan);
+
+    EXPECT_TRUE(record.links.smedley_log.has_value());
+    EXPECT_FALSE(record.links.victoria_user_dir.has_value());
+    EXPECT_FALSE(record.links.victoria_system_log.has_value());
+    EXPECT_EQ(record.links.economy_trace, root / L"economy_trace.csv");
+
+    plan.mods = {{"Unsafe", "mod/Unsafe", "\\Windows", {}, root / L"mod" / L"Unsafe.mod", root / L"mod" / L"Unsafe"}};
+    record = launcher::CreateRunRecord(plan);
+    EXPECT_FALSE(record.links.victoria_user_dir.has_value());
+    EXPECT_FALSE(record.links.victoria_system_log.has_value());
+}
+
+TEST_F(LauncherCoreTest, RejectsUnknownRunStatus)
+{
+    launcher::RunRecord record;
+    record.run_id = "unknown-status";
+    record.started_at_utc = "2026-07-31T12:34:56.000Z";
+    record.status = static_cast<launcher::RunStatus>(999);
+    record.executable = root / L"v2game.exe";
+    std::vector<launcher::Diagnostic> diagnostics;
+
+    EXPECT_FALSE(launcher::SaveRunRecord(root / L"runs", record, &diagnostics));
+    ASSERT_FALSE(diagnostics.empty());
+    EXPECT_EQ(diagnostics.back().code, "run.write");
 }
