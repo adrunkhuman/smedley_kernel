@@ -8,9 +8,10 @@
 - Current country, province, and game-state layouts plus removed historical
   POP, bank, and GUI evidence are recorded without presenting hypotheses as
   verified facts.
-- `economy_trace` provides a CSV output path once a campaign is running.
-- `--save` enters Single Player, selects the save through the normal handler,
-  and enters campaign mode without mouse or keyboard input.
+- `campaign_runner` uses `--save` to enter Single Player, select the save through
+  the normal handler, and enter campaign mode without mouse or keyboard input.
+- The independent `economy_trace` plugin provides a CSV output path once a
+  campaign is running.
 
 ## Immediate blocker
 

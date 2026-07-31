@@ -1,0 +1,4 @@
+id = "campaign_runner"
+name = "Campaign runner"
+version = "0.1"
+module = "campaign_runner.dll"

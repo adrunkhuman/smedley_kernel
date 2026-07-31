@@ -7,7 +7,7 @@ handlers run; the harness dispatches native GUI signals rather than coordinates.
 ## Sequence
 
 1. The launcher starts Victoria 2 suspended, injects Smedley and
-   `economy_trace`, then resumes the game.
+   `campaign_runner`, then resumes the game.
 2. Constructor hooks capture the main-menu controller (RVA `0x354a00`) and
    Single Player controller (RVA `0x36a2f0`).
 3. Ten seconds after the Single Player controller appears, the plugin resolves
@@ -29,7 +29,7 @@ handlers run; the harness dispatches native GUI signals rather than coordinates.
 
 ```powershell
 smedley_cli --game-dir "C:\path\to\Victoria 2" `
-  --plugin plugins/economy_trace.toml `
+  --plugin plugins/campaign_runner.toml `
   --save "C:\Users\name\Documents\Paradox Interactive\Victoria II\save games\autosave.v2" `
   --detach
 ```
@@ -39,7 +39,8 @@ uses the file name to select a row already known to the game.
 
 ## Current boundary
 
-Campaign entry is verified. The campaign starts paused, so date progression and
-daily economy output do not begin until `CInGameIdler::TogglePause` is invoked.
-Do not call pause or speed functions based on a non-null pointer alone; verify
-the idler phase first.
+Campaign entry is verified. The campaign starts paused, so date progression does
+not begin until `CInGameIdler::TogglePause` is invoked. `economy_trace` is a
+separate observer and can be loaded alongside `campaign_runner` when CSV output
+is needed. Do not call pause or speed functions based on a non-null pointer
+alone; verify the idler phase first.

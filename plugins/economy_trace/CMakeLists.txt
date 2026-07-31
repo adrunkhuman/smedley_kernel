@@ -1,5 +1,5 @@
 add_library(economy_trace MODULE plugin.cpp)
-target_link_libraries(economy_trace smedley_kernel shell32)
+target_link_libraries(economy_trace smedley_kernel)
 target_include_directories(economy_trace PRIVATE "../../smedley_kernel/include")
 
 if(EXISTS ${PLUGINS_DIR})

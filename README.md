@@ -22,22 +22,24 @@ then resumes the game without using the graphical bootstrapper.
 ```powershell
 smedley_cli --game-dir "C:\path\to\Victoria 2" --detach
 smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/v2up.toml --detach
-smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/economy_trace.toml --save "C:\path\to\autosave.v2" --detach
+smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/campaign_runner.toml --save "C:\path\to\autosave.v2" --detach
+smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/campaign_runner.toml --plugin plugins/economy_trace.toml --save "C:\path\to\autosave.v2" --detach
 ```
 
 Use `--dry-run` to validate paths without starting the game. Plugin definition
 paths currently cannot contain spaces because the kernel's command-line parser
 does not support quoted plugin arguments.
 
-The `economy_trace` plugin writes `economy_trace.csv` in the game directory.
-Each daily country update records the raw game date, country tag, treasury, and
-an adjacent treasury snapshot whose exact purpose is not yet known. Treasury
-uses 48.15 fixed point and is divided by 32768 for the displayed value.
-
-With `--save`, `economy_trace` uses native GUI dispatch on Victoria 2's
+With `--save`, `campaign_runner` uses native GUI dispatch on Victoria 2's
 frontend thread to enter Single Player, select the named save through the
 normal loader, and enter campaign mode. No mouse or keyboard input is
 synthesized. Campaigns start paused.
+
+The independent `economy_trace` plugin writes `economy_trace.csv` in the game
+directory. Each daily country update records the raw game date, country tag,
+treasury, and an adjacent treasury snapshot whose exact purpose is not yet
+known. Treasury uses 48.15 fixed point and is divided by 32768 for the displayed
+value. Load both plugins when campaign automation and economy output are needed.
 
 See [`mappings/CAMPAIGN_AUTOMATION.md`](mappings/CAMPAIGN_AUTOMATION.md) for
 the verified native frontend sequence and its runtime mappings.
