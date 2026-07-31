@@ -321,3 +321,49 @@ TEST(InterestProbeTest, PairQueueRejectsOnlyCompletePairsAtCapacity)
     interest_probe::SamplePair empty{};
     EXPECT_FALSE(queue.TryPop(&empty));
 }
+
+TEST(InterestProbeTest, ComputesExactPerDestinationTransfers)
+{
+    interest_probe::Sample before{};
+    before.creditor_destinations = 2;
+    before.destination_bank_interest_raw = 400;
+    before.destination_ordinals[0] = 7;
+    before.destination_ordinals[1] = 9;
+    before.destination_bank_interests_raw[0] = 100;
+    before.destination_bank_interests_raw[1] = 300;
+
+    interest_probe::Sample after = before;
+    after.destination_bank_interest_raw = 475;
+    after.destination_bank_interests_raw[0] = 125;
+    after.destination_bank_interests_raw[1] = 350;
+
+    EXPECT_TRUE(interest_probe::ComputeDestinationTransfers(before, &after));
+    EXPECT_EQ(after.destination_transfer_count, 2u);
+    EXPECT_EQ(after.destination_transfer_raw, 75);
+    EXPECT_EQ(after.destination_transfers_raw[0], 25);
+    EXPECT_EQ(after.destination_transfers_raw[1], 50);
+    EXPECT_EQ(after.flags, 0u);
+}
+
+TEST(InterestProbeTest, RejectsChangedDestinationOrder)
+{
+    interest_probe::Sample before{};
+    before.creditor_destinations = 1;
+    before.destination_ordinals[0] = 7;
+
+    interest_probe::Sample after = before;
+    after.destination_ordinals[0] = 8;
+
+    EXPECT_FALSE(interest_probe::ComputeDestinationTransfers(before, &after));
+    EXPECT_NE(after.flags & interest_probe::SAMPLE_DESTINATION_TRANSFER_INVALID, 0u);
+}
+
+TEST(InterestProbeTest, RejectsFlaggedBeforeSample)
+{
+    interest_probe::Sample before{};
+    before.flags = interest_probe::SAMPLE_BANK_UNREADABLE;
+    interest_probe::Sample after{};
+
+    EXPECT_FALSE(interest_probe::ComputeDestinationTransfers(before, &after));
+    EXPECT_NE(after.flags & interest_probe::SAMPLE_DESTINATION_TRANSFER_INVALID, 0u);
+}

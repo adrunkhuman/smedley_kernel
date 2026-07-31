@@ -40,6 +40,7 @@ namespace interest_probe
                        "destination_pops,destination_pop_attempts,treasury_raw,"
                        "state_savings_candidate_raw,state_interest_candidate_raw,bank_interest_raw,"
                        "creditor_interest_candidate_raw,creditor_debt_candidate_raw,destination_bank_interest_raw,"
+                       "destination_transfer_count,destination_transfer_raw,"
                        "destination_state_savings_candidate_raw,destination_state_interest_candidate_raw,"
                        "destination_pop_savings_candidate_raw,destination_pop_savings_state_scale_candidate_raw,"
                        "daily_start_bank_interest_raw,daily_start_state_interest_candidate_raw,daily_start_available,"
@@ -47,6 +48,11 @@ namespace interest_probe
                        "flags,collection_us,dropped_pairs\n";
             output_.flush();
             if (!output_) throw std::runtime_error("cannot initialize interest_probe.csv in the game directory");
+            transfer_output_.open("interest_probe_transfers.csv", std::ios::trunc);
+            if (!transfer_output_) throw std::runtime_error("cannot open interest_probe_transfers.csv in the game directory");
+            transfer_output_ << "date_raw,country,destination_ordinal,transfer_raw\n";
+            transfer_output_.flush();
+            if (!transfer_output_) throw std::runtime_error("cannot initialize interest_probe_transfers.csv in the game directory");
             QueryPerformanceFrequency(&performance_frequency_);
             worker_ = std::thread([this] { WriteSamples(); });
             bool daily_registered = false;
@@ -74,6 +80,8 @@ namespace interest_probe
             if (worker_.joinable()) worker_.join();
             output_.flush();
             if (!output_) ReportWriteFailure("interest probe final output flush failed");
+            transfer_output_.flush();
+            if (!transfer_output_) ReportWriteFailure("interest probe final transfer output flush failed");
         }
 
     private:
@@ -148,6 +156,7 @@ namespace interest_probe
                 sample.global_snapshot_available = CollectGlobalSnapshot(game_state,
                     &sample.global_bank_interest_raw, &sample.global_state_interest_raw);
             }
+            ComputeDestinationTransfers(pending_before_, &sample);
             FinishCollectionTiming(started, &sample);
             TryPush({pending_before_, sample});
             has_pending_before_ = false;
@@ -180,7 +189,8 @@ namespace interest_probe
                 while (queue_.TryPop(&pair)) {
                     WriteSample(pair.before, "before");
                     WriteSample(pair.after, "after");
-                    if (!output_) {
+                    WriteTransfers(pair.after);
+                    if (!output_ || !transfer_output_) {
                         ReportWriteFailure("interest probe output failed; subsequent samples are being dropped");
                         break;
                     }
@@ -188,7 +198,8 @@ namespace interest_probe
                 }
                 if (wrote && !write_failed_.load(std::memory_order_acquire)) {
                     output_.flush();
-                    if (!output_) {
+                    transfer_output_.flush();
+                    if (!output_ || !transfer_output_) {
                         ReportWriteFailure("interest probe output flush failed; subsequent samples are being dropped");
                     }
                 }
@@ -209,6 +220,7 @@ namespace interest_probe
                     << sample.state_savings_raw << ','
                     << sample.state_interest_raw << ',' << sample.bank_interest_raw << ',' << sample.creditor_interest_raw << ','
                     << sample.creditor_debt_raw << ',' << sample.destination_bank_interest_raw << ','
+                    << sample.destination_transfer_count << ',' << sample.destination_transfer_raw << ','
                     << sample.destination_state_savings_raw << ',' << sample.destination_state_interest_raw << ','
                     << sample.destination_pop_savings_raw << ',' << sample.destination_pop_savings_state_scale_raw << ','
                     << sample.daily_start_bank_interest_raw << ',' << sample.daily_start_state_interest_raw << ','
@@ -217,6 +229,17 @@ namespace interest_probe
                     << static_cast<uint32_t>(sample.global_snapshot_available) << ",0x"
                     << std::hex << sample.flags << std::dec << ',' << sample.collection_us << ','
                     << dropped_.load(std::memory_order_relaxed) << '\n';
+        }
+
+        void WriteTransfers(const Sample &sample)
+        {
+            if (sample.flags != 0) return;
+            for (uint32_t index = 0; index < sample.creditor_destinations; ++index) {
+                const int64_t transfer = sample.destination_transfers_raw[index];
+                if (transfer == 0) continue;
+                transfer_output_ << sample.date_raw << ',' << sample.country_tag << ','
+                                 << sample.destination_ordinals[index] << ',' << transfer << '\n';
+            }
         }
 
         static const void *ResolveCountry(const void *context, int32_t ordinal)
@@ -284,6 +307,7 @@ namespace interest_probe
         }
 
         std::ofstream output_;
+        std::ofstream transfer_output_;
         PairQueue<queue_capacity> queue_{};
         Sample pending_daily_start_{};
         Sample pending_before_{};

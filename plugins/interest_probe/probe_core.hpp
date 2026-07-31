@@ -1,9 +1,12 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 namespace interest_probe
 {
+    constexpr uint32_t max_sample_creditor_destinations = 64;
+
     enum SampleFlag : uint32_t
     {
         SAMPLE_COUNTRY_UNREADABLE = 1u << 0,
@@ -30,6 +33,7 @@ namespace interest_probe
         SAMPLE_DUPLICATE_PROVINCE = 1u << 21,
         SAMPLE_DUPLICATE_POP = 1u << 22,
         SAMPLE_DAILY_START_UNAVAILABLE = 1u << 23,
+        SAMPLE_DESTINATION_TRANSFER_INVALID = 1u << 24,
     };
 
     struct Sample
@@ -61,6 +65,11 @@ namespace interest_probe
         int64_t destination_state_interest_raw = 0;
         int64_t destination_pop_savings_raw = 0;
         int64_t destination_pop_savings_state_scale_raw = 0;
+        std::array<int32_t, max_sample_creditor_destinations> destination_ordinals{};
+        std::array<int64_t, max_sample_creditor_destinations> destination_bank_interests_raw{};
+        std::array<int64_t, max_sample_creditor_destinations> destination_transfers_raw{};
+        uint32_t destination_transfer_count = 0;
+        int64_t destination_transfer_raw = 0;
         int64_t daily_start_bank_interest_raw = 0;
         int64_t daily_start_state_interest_raw = 0;
         uint8_t daily_start_available = 0;
@@ -85,5 +94,6 @@ namespace interest_probe
     Sample CollectSample(const void *country, int32_t date_raw,
                          CountryResolver country_resolver = nullptr, ProvinceResolver province_resolver = nullptr,
                          const void *resolver_context = nullptr, const void **immediate_pop = nullptr);
+    bool ComputeDestinationTransfers(const Sample &before, Sample *after);
     bool ReadPopMoneySnapshot(const void *pop, PopMoneySnapshot *snapshot);
 }

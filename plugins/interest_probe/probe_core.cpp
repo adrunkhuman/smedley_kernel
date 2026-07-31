@@ -36,7 +36,7 @@ namespace interest_probe
         constexpr uint32_t max_states = 512;
         constexpr uint32_t max_provinces_per_state = 1024;
         constexpr uint32_t max_creditors = 4096;
-        constexpr uint32_t max_creditor_destinations = 64;
+        constexpr uint32_t max_creditor_destinations = max_sample_creditor_destinations;
         constexpr uint32_t max_destination_provinces = 4096;
         constexpr uint32_t max_pop_lists_per_province = 128;
         constexpr uint32_t max_pops = 100000;
@@ -351,7 +351,6 @@ namespace interest_probe
         if (country_resolver == nullptr || sample.creditor_count == 0) return sample;
         if (sample.creditor_count > max_creditor_destinations) sample.flags |= SAMPLE_CREDITOR_DESTINATION_LIMIT;
 
-        std::array<int32_t, max_creditor_destinations> destination_ordinals{};
         const uint32_t creditor_limit = (std::min)(sample.creditor_count, max_creditor_destinations);
         for (uint32_t index = 0; index < creditor_limit; ++index) {
             const void *creditor = nullptr;
@@ -382,7 +381,7 @@ namespace interest_probe
 
             bool duplicate = false;
             for (uint32_t prior = 0; prior < sample.creditor_destinations; ++prior) {
-                if (destination_ordinals[prior] == ordinal) {
+                if (sample.destination_ordinals[prior] == ordinal) {
                     duplicate = true;
                     break;
                 }
@@ -410,7 +409,9 @@ namespace interest_probe
                 if ((destination_sample.flags & SAMPLE_POP_LIMIT) != 0) break;
                 continue;
             }
-            destination_ordinals[sample.creditor_destinations++] = ordinal;
+            sample.destination_ordinals[sample.creditor_destinations] = ordinal;
+            sample.destination_bank_interests_raw[sample.creditor_destinations] = destination_sample.bank_interest_raw;
+            ++sample.creditor_destinations;
             AddChecked(destination_sample.bank_interest_raw, &sample.destination_bank_interest_raw, &sample.flags);
             AddChecked(destination_sample.state_savings_raw, &sample.destination_state_savings_raw, &sample.flags);
             AddChecked(destination_sample.state_interest_raw, &sample.destination_state_interest_raw, &sample.flags);
@@ -450,6 +451,47 @@ namespace interest_probe
             }
         }
         return sample;
+    }
+
+    bool ComputeDestinationTransfers(const Sample &before, Sample *after)
+    {
+        if (after == nullptr || before.flags != 0 || after->flags != 0
+            || before.creditor_destinations != after->creditor_destinations
+            || before.creditor_destinations > max_sample_creditor_destinations) {
+            if (after != nullptr) after->flags |= SAMPLE_DESTINATION_TRANSFER_INVALID;
+            return false;
+        }
+        after->destination_transfers_raw.fill(0);
+        after->destination_transfer_count = 0;
+        after->destination_transfer_raw = 0;
+        for (uint32_t index = 0; index < before.creditor_destinations; ++index) {
+            if (before.destination_ordinals[index] != after->destination_ordinals[index]) {
+                after->flags |= SAMPLE_DESTINATION_TRANSFER_INVALID;
+                return false;
+            }
+            const int64_t before_value = before.destination_bank_interests_raw[index];
+            const int64_t after_value = after->destination_bank_interests_raw[index];
+            if (before_value < 0 || after_value < before_value) {
+                after->flags |= SAMPLE_DESTINATION_TRANSFER_INVALID;
+                return false;
+            }
+            const int64_t transfer = after_value - before_value;
+            after->destination_transfers_raw[index] = transfer;
+            if (transfer == 0) continue;
+            AddChecked(transfer, &after->destination_transfer_raw, &after->flags);
+            ++after->destination_transfer_count;
+        }
+        if (before.destination_bank_interest_raw < 0
+            || after->destination_bank_interest_raw < before.destination_bank_interest_raw) {
+            after->flags |= SAMPLE_DESTINATION_TRANSFER_INVALID;
+            return false;
+        }
+        const int64_t aggregate_delta = after->destination_bank_interest_raw - before.destination_bank_interest_raw;
+        if ((after->flags & SAMPLE_SUM_OVERFLOW) != 0 || aggregate_delta != after->destination_transfer_raw) {
+            after->flags |= SAMPLE_DESTINATION_TRANSFER_INVALID;
+            return false;
+        }
+        return true;
     }
 
     bool ReadPopMoneySnapshot(const void *pop, PopMoneySnapshot *snapshot)

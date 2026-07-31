@@ -44,7 +44,7 @@ All addresses below are RVAs in the cataloged Victoria II 3.04 executable.
 | `CCountry::PayDailyInterest` `0x00123c30` | `verified-runtime` | The paired boundary run observed current-country treasury reductions on all 12 calls with creditor entries. Its sole direct caller and `ret 4` cleanup are statically established. |
 | Creditor destination bank path | `verified-runtime` | `PayDailyInterest` reads the current country creditor vector at `+0xe8c`, resolves a destination country from each creditor tag/ordinal at `+0x8`, and credits destination bank `+0x20`. All 12 creditor-bearing fixture calls resolved every entry and conserved the exact debtor treasury loss in the summed destination-bank gain. |
 | Creditor `+0x8/+0x10/+0x18/+0x20` | `verified-runtime` | Static code reads the tag/ordinal at `+0x8`, multiplies the 64-bit `+0x18` value by the 64-bit `+0x10` value in its payment calculation, and updates the byte at `+0x20` on payment. The destination run validated every tag/ordinal and observed `+0x20 == 1` for every paid entry; the economic names on the two 64-bit fields remain candidates. |
-| Destination bank `+0x20` | `verified-runtime` | The static add target and all 12 exact before/after pairs agree. Cumulative raw gain was `+87,242`, exactly negating debtor treasury delta `-87,242`. Other historical `CBank` fields remain unverified. |
+| Destination bank `+0x20` | `verified-runtime` | The static add target and repeated exact before/after runs agree. The individual-destination run observed 40 positive transfers across 12 calls; every child sum exactly matched its aggregate bank delta and negated the corresponding debtor treasury loss. Other historical `CBank` fields remain unverified. |
 | `PayDailyInterest` boundary `0x00108d3e` | `verified-runtime` | The kernel replaces the sole direct call with a register/flags-preserving trampoline, emits `before`, invokes the original callee, emits `after`, and resumes at `0x00108d43`. Both subscribed and unsubscribed runtime fixtures reached exact targets. |
 | Country state list `+0xe44` | `verified-current` | Current country update code walks node data at `+0`, next at `+8`, and terminates at null. State-creation callers maintain head `+0xe44`, tail `+0xe48`, and count `+0xe4c`; the seven-day runtime probe walked every reported state without a mismatch. |
 | State constructor `0x000cdc60` | `verified-static-callsites` | Three callers allocate `0x290` bytes. The constructor initializes 64-bit slots `+0x258` and `+0x260` to zero. |
@@ -90,6 +90,8 @@ the state candidate without introducing another hook. It additionally records
 all-country bank/state totals, capped at 512 country slots, after the final
 country's interest boundary and at the first country entry on each date,
 bracketing the global post-country phase without retaining game pointers.
+The worker also writes `interest_probe_transfers.csv`, one row per positive
+individual destination-bank delta; game-thread callbacks perform no file I/O.
 
 `flags=0x0` means the structural checks passed. Any nonzero flag makes the row
 unsuitable for semantic promotion. The two state columns deliberately include
@@ -303,10 +305,34 @@ unchanged source-save hash. The first and final global scans now appeared in
 `collection_us` at 3,376 and 3,370 microseconds respectively instead of being
 excluded from the reported callback cost.
 
+## Individual destination run
+
+Run `c8519eb7-8a9d-4826-ae40-9d11e5313232` recorded each destination bank
+balance in the bounded before/after samples and emitted each positive delta from
+the worker thread. The main CSV had SHA-256
+`2fe7355f2f05b9a070dd1fe30c06a271b48b3e9018ab839a31fe9ae1247b152a`;
+the child transfer CSV had SHA-256
+`1cec436c646ffbc3fde5c2dff82c881f2a789a0385564afc176e01d3ebc24b1c`.
+
+The run produced all 1,897 expected country/date pairs, no flags or drops, 12
+creditor-bearing calls, and 40 positive individual destination transfers. Each
+transfer was between 145 and 3,268 raw fixed-point units. Every call satisfied
+both exact equalities:
+
+```text
+sum(individual destination bank deltas) = aggregate destination bank delta
+debtor treasury delta + sum(individual destination bank deltas) = 0
+```
+
+The cumulative individual transfer was `+87,301`; cumulative debtor treasury
+delta was `-87,301`. Destination ordinals 2, 3, 4, and 5 received 12, 11, 12,
+and 5 transfers respectively. The campaign reached the exact target, remained
+paused and responsive, and preserved the source-save hash. This verifies the
+exact per-creditor amount that a fix may distribute without reimplementing the
+loan formula or depending on state `+0x260`.
+
 ## Required evidence before mutation
 
-1. Record and validate each individual destination-bank delta rather than only
-   its already-conserved aggregate.
-2. Define integer allocation, rounding, remainder ownership, conservation, and
+1. Define integer allocation, rounding, remainder ownership, conservation, and
    zero/negative-value behavior before implementing an independently selectable
    fix.
