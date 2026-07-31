@@ -13,9 +13,9 @@ prefers the `SmedleyPluginGetApiV1` export. Existing bundled plugins continue to
 work through the legacy `CreatePlugin` C++ interface.
 
 ABI v1 deliberately exposes lifecycle only. It does not expose Victoria II
-objects, event hooks, logging, telemetry, or mutation operations. Those require
-separate versioned C interfaces with verified ownership and thread contracts;
-do not cast host pointers or copy the legacy C++ classes into an ABI-v1 plugin.
+objects, logging, or mutation operations. Separate versioned C interfaces expose
+bounded capabilities with their own ownership and thread contracts; do not cast
+host pointers or copy the legacy C++ classes into an ABI-v1 plugin.
 
 The host and plugin follow this sequence:
 
@@ -122,15 +122,79 @@ The launcher accepts a module exporting either the v1 symbol or legacy
 `CreatePlugin`, verifies that it is an x86 PE image, and applies the ordinary
 manifest dependency and conflict checks before injection.
 
+## Daily event capability v1
+
+[`include/smedley/event_api.h`](../include/smedley/event_api.h) exposes the first
+kernel capability table. Resolve `SmedleyGetEventApiV1` dynamically from
+`smedley_kernel.dll`; do not link against the kernel C++ import library. The
+table registers copied daily country snapshots and returns opaque 64-bit
+registration handles.
+
+```c
+HMODULE kernel = GetModuleHandleW(L"smedley_kernel.dll");
+SmedleyGetEventApiV1Fn get_api = (SmedleyGetEventApiV1Fn)GetProcAddress(
+    kernel, SMEDLEY_EVENT_GET_API_V1_SYMBOL);
+SmedleyEventApiV1 events = {0};
+events.struct_size = sizeof(events);
+events.version = SMEDLEY_EVENT_API_VERSION_V1;
+if (get_api == 0 || get_api(&events) != SMEDLEY_EVENT_SUCCESS) {
+    return SMEDLEY_PLUGIN_FAILURE;
+}
+```
+
+`register_daily` accepts a C callback and caller-owned context pointer. It
+returns a nonzero handle that must be passed to `unregister` before that context
+is destroyed. Registration is capped at 64 callbacks and performs no game
+mutation. A successful `unregister` prevents later calls and waits for a call
+already in flight; calling it from the same callback returns
+`SMEDLEY_EVENT_BUSY` instead of deadlocking. Returning
+`SMEDLEY_EVENT_CALLBACK_DISABLE`, returning an unknown value, or throwing an
+accidental C++ exception disables later calls until the owner unregisters.
+
+Callbacks execute synchronously on Victoria II's country-update thread. They
+must remain bounded and nonblocking: copy required values into a preallocated
+queue and return. Do not allocate, log, access files or the network, wait on a
+lock, call `unregister`, retain the event pointer, or throw. The kernel's hook
+path uses fixed-capacity storage and lock-free atomics and performs no allocation
+or I/O.
+
+`SmedleyDailyEventV1` is a 56-byte copied record. All values are observational:
+
+| Field | Evidence | Meaning |
+| --- | --- | --- |
+| `game_date_raw` | `provisional` | Current raw Clausewitz date value; runtime progression is correlated |
+| `country_tag` | `provisional` | Three-byte country tag plus trailing NUL |
+| `treasury_raw` | `provisional` | Current country treasury signed 48.15 fixed-point raw value |
+| `has_owned_province` | `provisional` | `1` when the mapped owned-province vector is nonempty; not a complete lifecycle state |
+| `country_slot_count` | `provisional` | Country database slots, not necessarily living countries |
+| `ai_scheduler_entry_count` | `provisional` | Country AI scheduler entries, not AI decisions |
+| `human_control_present` | `verified-runtime` | `1` when any player-control entry exists |
+
+The pointer and record are valid only during the callback. Except for the
+human-control invariant, these fields retain the provisional evidence levels
+documented in [`mappings/SCRIPTING.md`](../mappings/SCRIPTING.md). A tag is an
+identifier copied from the current event, not a durable object handle or proof
+that the country will exist later. ABI v1 exposes no mutation and no way to
+dereference a tag outside the event.
+
 ## Validation
 
-The x86 Release tests compile the public header as C, dynamically discover and
-run an independent C fixture DLL, exercise lifecycle failures and rollback, and
-verify launcher preflight for a v1-only export. `dumpbin /exports` confirms that
-the fixture exposes only undecorated `SmedleyPluginGetApiV1`.
+The x86 Release tests compile both public headers as C, dynamically discover and
+run an independent C fixture DLL that resolves the event table, exercise
+lifecycle failures, event registration, bounded capacity, self-unregister,
+callback disablement, exception containment, rollback, and v1-only launcher
+preflight. `dumpbin /exports` confirms that the fixture exposes only undecorated
+`SmedleyPluginGetApiV1`.
 
 Supplied-game run `a0af29ca-1b35-42f4-abf0-1a29701e3288` loaded that fixture
 through the installed launcher, injector, and kernel and reached a responsive
 main window. Run `5fca45a1-a770-41e4-8eab-ed472c0ddfc9` loaded the same v1
 fixture followed by legacy `campaign_runner` in one responsive process. These
 runs verify startup selection and compatibility, not normal-exit callbacks.
+
+Run `479a31ac-6fd4-4ae2-b170-865c63b70d66` used the event-capable C fixture,
+legacy `campaign_runner`, the exact supported executable, and unmodified
+`benchmark.v2`. The campaign advanced through the active cross-DLL daily
+callback from raw date `59883384` to the exact one-day target `59883408`, paused,
+and remained responsive. The source save retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.

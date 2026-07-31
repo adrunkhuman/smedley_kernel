@@ -1,4 +1,5 @@
 #include "plugin_abi_runtime.hpp"
+#include "event_abi_runtime.hpp"
 
 #include <gtest/gtest.h>
 
@@ -196,7 +197,13 @@ TEST(PluginAbiV1Test, DiscoversAndRunsTheIndependentCDll)
         std::string error;
         smedley::PluginAbiV1Instance instance(api);
         ASSERT_TRUE(instance.Start(&error)) << error;
-        instance.Stop();
+        SmedleyDailyEventV1 event{};
+        event.struct_size = sizeof(event);
+        event.version = SMEDLEY_DAILY_EVENT_VERSION_V1;
+        smedley::DispatchDailyEventApi(event);
+        std::vector<std::string> errors;
+        instance.Stop(&errors);
+        EXPECT_TRUE(errors.empty());
     }
     EXPECT_TRUE(FreeLibrary(module));
 }

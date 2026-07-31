@@ -11,7 +11,7 @@ include_directories("include/smedley")
 
 # add sources
 add_library (smedley_kernel SHARED ${kernel_sources})
-target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL LUA_BUILD_AS_DLL LUA_LIB)
+target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL SMEDLEY_EVENT_BUILD LUA_BUILD_AS_DLL LUA_LIB)
 target_link_libraries(smedley_kernel PRIVATE shell32)
 target_include_directories(smedley_kernel PUBLIC "${PROJECT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
@@ -21,6 +21,9 @@ target_link_libraries(smedley_run_tests GTest::gtest_main smedley_kernel)
 
 add_library(smedley_plugin_abi_header_c OBJECT tests/plugin_abi_header_c_test.c)
 target_include_directories(smedley_plugin_abi_header_c PRIVATE "${CMAKE_SOURCE_DIR}/include")
+
+add_library(smedley_event_api_header_c OBJECT tests/event_api_header_c_test.c)
+target_include_directories(smedley_event_api_header_c PRIVATE "${CMAKE_SOURCE_DIR}/include")
 
 add_library(smedley_plugin_abi_fixture MODULE test_plugins/plugin_abi_fixture.c)
 set_target_properties(smedley_plugin_abi_fixture PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)

@@ -34,6 +34,13 @@
   `CreatePlugin` modules remain compatible. Supplied-game run
   `5fca45a1-a770-41e4-8eab-ed472c0ddfc9` loaded one of each in a responsive
   process; normal-exit callbacks remain blocked on a verified shutdown path.
+- Native C plugins can dynamically register for the runtime-exercised daily
+  country hook through a fixed-width event table. The hook copies provisional
+  mapped date, tag, treasury, owned-province presence, and country/AI counts plus
+  verified-runtime human-control presence without exposing a game pointer;
+  registration is bounded and the callback path is allocation-free. Run
+  `479a31ac-6fd4-4ae2-b170-865c63b70d66` exercised the cross-DLL callback while
+  advancing an exact one-day campaign target in a responsive process.
 
 ## Immediate blocker
 

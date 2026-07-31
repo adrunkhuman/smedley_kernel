@@ -1,4 +1,5 @@
 #include "eventregistry.hpp"
+#include "event_abi_runtime.hpp"
 #include "memory.hpp"
 #include "events/dailyupdate.hpp"
 
@@ -10,6 +11,7 @@ using namespace smedley;
 
 void DailyUpdateEventHook(v2::CCountry* country)
 {
+    smedley::NotifyDailyEventApi(country);
     smedley::EventRegistry<events::DailyUpdateEvent>::Notify(events::DailyUpdateEvent(country));
 }
 

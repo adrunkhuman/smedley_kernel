@@ -9,8 +9,9 @@ C++ is only needed to build Smedley or write native plugins.
 
 New native plugins can use the narrow versioned C lifecycle ABI documented in
 [`docs/native-plugins.md`](docs/native-plugins.md); existing plugins retain a
-legacy compatibility path. Native plugins may submit bounded typed records
-through the separate C extension API in
+legacy compatibility path. A separate C capability table provides copied daily
+country events without exposing game pointers. Native plugins may submit bounded
+typed records through the telemetry C extension API in
 [`include/smedley/telemetry.h`](include/smedley/telemetry.h). They resolve
 telemetry dynamically and never require it as a dependency.
 
