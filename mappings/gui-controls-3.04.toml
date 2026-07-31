@@ -2,6 +2,34 @@
 # objects, but their C++ handlers and runtime object addresses are not mapped.
 
 [[controls]]
+name = "single_player_button"
+type = "guiButtonType"
+file = "interface/temp_frontend.gui"
+line = 338
+status = "definition-verified"
+
+[[controls]]
+name = "save_games_list"
+type = "listboxType"
+file = "interface/lobby.gui"
+line = 579
+status = "definition-verified"
+
+[[controls]]
+name = "save_game"
+type = "checkboxType"
+file = "interface/temp_frontend.gui"
+line = 2112
+status = "definition-verified"
+
+[[controls]]
+name = "play_button"
+type = "guiButtonType"
+file = "interface/lobby.gui"
+line = 708
+status = "definition-verified"
+
+[[controls]]
 name = "button_speedup"
 type = "guiButtonType"
 file = "interface/topbar.gui"

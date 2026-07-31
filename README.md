@@ -34,7 +34,10 @@ Each daily country update records the raw game date, country tag, treasury, and
 an adjacent treasury snapshot whose exact purpose is not yet known. Treasury
 uses 48.15 fixed point and is divided by 32768 for the displayed value.
 
-With `--save`, `economy_trace` waits for a responsive main menu and schedules
-the native save loader through a temporary window hook, keeping the call on
-Victoria 2's UI thread. This loads the save data but does not yet perform the later
-frontend Play transition into campaign mode.
+With `--save`, `economy_trace` uses native GUI dispatch on Victoria 2's
+frontend thread to enter Single Player, select the named save through the
+normal loader, and enter campaign mode. No mouse or keyboard input is
+synthesized. Campaigns start paused.
+
+See [`mappings/CAMPAIGN_AUTOMATION.md`](mappings/CAMPAIGN_AUTOMATION.md) for
+the verified native frontend sequence and its runtime mappings.

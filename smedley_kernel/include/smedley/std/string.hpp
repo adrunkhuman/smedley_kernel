@@ -40,7 +40,6 @@ namespace smedley::sstd
         {
             size_type n = Traits::length(str);
             if (n > default_capacity) {
-                DWORD old_protect;
                 _impl.ptr = reinterpret_cast<T *>(HeapAlloc(memory::Map::game_heap, 0, (n * sizeof(T)) + 1));
                 std::memcpy(_impl.ptr, str, n * sizeof(T));
                 _capacity = n;

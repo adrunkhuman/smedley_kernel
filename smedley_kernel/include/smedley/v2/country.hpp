@@ -312,6 +312,10 @@ namespace smedley::v2
         int64_t treasury_raw() const { return _treasury.raw_value(); }
         int64_t treasury_shadow_raw() const { return _treasury_delta.raw_value(); }
 
+        // Legacy generated wrappers preserve reverse-engineered x86 call layouts;
+        // C4409 is emitted while parsing byte and aggregate push operands.
+#pragma warning(push)
+#pragma warning(disable : 4409)
         /*[[[cog
         from codegen import print_class_model_fns
         print_class_model_fns('./models/v2/classes/CCountry.toml', access='public') 
@@ -597,6 +601,7 @@ namespace smedley::v2
         return ret_val;
         }
         //[[[end]]]
+#pragma warning(pop)
 
         inline bool exists() const { return _owned_provinces.size() > 0; }
         bool Civilized() const { return _is_civilized; }

@@ -128,6 +128,46 @@ signature = "55 8b ec 6a ff 68 13 8a bb 00"
 source = "string xref to 'Failed to load save game '; callers at RVAs 0x36f8b3, 0x36fdcf, 0x37bb81"
 
 [[symbols]]
+name = "Single-player frontend controller constructor"
+rva = 0x0036a2f0
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 6a ff"
+source = "constructor hook captured the same object later held in EDI at LoadSave call RVA 0x36f8b3"
+
+[[symbols]]
+name = "Main-menu controller constructor"
+rva = 0x00354a00
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 6a ff"
+source = "constructor hook captures object whose +0x704 GUI registry resolves mainmenu_panel/single_player_button"
+
+[[symbols]]
+name = "Single-player Play listener"
+rva = 0x00372300
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 83 e4 f8"
+source = "bound to play_button by frontend constructor; manual Play reached it through signal dispatcher RVA 0x5ee510"
+
+[[symbols]]
+name = "GUI press signal dispatcher"
+rva = 0x005ee510
+kind = "function"
+status = "verified-runtime"
+signature = "56 8b 70 04 85 f6 74 10"
+source = "used at runtime to dispatch Single Player and Play press callbacks"
+
+[[symbols]]
+name = "GUI release signal dispatcher"
+rva = 0x005ee550
+kind = "function"
+status = "verified-runtime"
+signature = "56 8b 70 04 85 f6 74 10"
+source = "used at runtime after press dispatch for Single Player and Play controls"
+
+[[symbols]]
 name = "Pause/unpause controller candidate"
 rva = 0x0026a2c0
 kind = "function"
@@ -144,8 +184,20 @@ fields = [
   { name = "provinces", offset = 0x0acc },
   { name = "countries", offset = 0x0adc },
   { name = "current_date", offset = 0x0b0c },
+  { name = "idler", offset = 0x0b24 },
   { name = "player_tag", offset = 0x0b5c },
   { name = "world_market", offset = 0x0bcc },
+]
+
+[[layouts]]
+name = "SinglePlayerFrontendController"
+status = "verified-runtime"
+source = "constructor, manual save selection, and unattended autosave entry traces"
+fields = [
+  { name = "gui_registry", offset = 0x0278 },
+  { name = "selected_save", offset = 0x0590 },
+  { name = "selection_pending", offset = 0x05bc },
+  { name = "save_loaded", offset = 0x05bd },
 ]
 
 [[layouts]]

@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <bcrypt.h>
+#include <shlobj.h>
 #include <toml.hpp>
 
 #include <array>
@@ -102,6 +103,24 @@ void RequireFile(const fs::path &path, const std::string &description)
 {
     if (!fs::is_regular_file(path)) {
         throw std::runtime_error(description + " not found: " + path.string());
+    }
+}
+
+void RequireSaveInGameDirectory(const fs::path &save)
+{
+    PWSTR documents = nullptr;
+    if (SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &documents) != S_OK) {
+        throw std::runtime_error("cannot locate the Documents directory");
+    }
+    const fs::path save_root = fs::path(documents)
+        / L"Paradox Interactive" / L"Victoria II" / L"save games";
+    CoTaskMemFree(documents);
+
+    const auto canonical_root = fs::weakly_canonical(save_root);
+    const auto canonical_save = fs::weakly_canonical(save);
+    const auto relative = canonical_save.lexically_relative(canonical_root);
+    if (relative.empty() || relative.is_absolute() || *relative.begin() == L"..") {
+        throw std::runtime_error("save file must be inside the Victoria II save games directory");
     }
 }
 
@@ -278,6 +297,7 @@ int wmain(int argc, wchar_t **argv)
         RequireFile(options.kernel, "Smedley kernel");
         if (!options.save.empty()) {
             RequireFile(options.save, "save file");
+            RequireSaveInGameDirectory(options.save);
         }
         const auto plugin_modules = ResolvePlugins(options);
 

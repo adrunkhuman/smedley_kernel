@@ -4,32 +4,29 @@
 
 - The CLI can start the exact cataloged `v2game.exe`, inject the kernel and a
   plugin, initialize both, and reach a responsive main window.
-- The executable identity and fifteen code signatures are machine-checked.
+- The executable identity and twenty code signatures are machine-checked.
 - Current country, province, and game-state layouts plus removed historical
   POP, bank, and GUI evidence are recorded without presenting hypotheses as
   verified facts.
 - `economy_trace` provides a CSV output path once a campaign is running.
+- `--save` enters Single Player, selects the save through the normal handler,
+  and enters campaign mode without mouse or keyboard input.
 
 ## Immediate blocker
 
-Save data can be loaded unattended, but this does not perform the frontend
-Play transition into campaign mode. Until that transition is mapped, the
-in-game idler is not initialized and simulation cannot tick safely.
+Campaign entry works, but the resulting game remains paused. Automation must
+verify RTTI `CInGameIdler` before invoking pause or speed controls.
 
 ## Next mapping sequence
 
-1. Load this exact executable into Ghidra and preserve its SHA-256 in the
-   project metadata.
-2. Trace the Play action after a save is selected and map the transition into
-   campaign mode. `LoadSave` at RVA `0x27f1d0` is already runtime-verified.
-3. Find `CGuiTypes::LookupString` by following references to known names such
+1. Add a verified campaign-phase check and invoke `CInGameIdler::TogglePause`.
+2. Find `CGuiTypes::LookupString` by following references to known names such
    as `button_speedup`, `tax_0_slider`, and `take_loan`.
-4. Dynamically verify historical POP constructor candidates at `0x554a40`,
+3. Dynamically verify historical POP constructor candidates at `0x554a40`,
    `0x554f40`, and `0x555450` before restoring `CPop` fields.
-5. Validate `CPop::GiveMoney` at `0x55a5f0`, then restore read-only POP money
+4. Validate `CPop::GiveMoney` at `0x55a5f0`, then restore read-only POP money
    and savings instrumentation before restoring the interest fix.
-6. Use the verified `CInGameIdler` pause toggle after campaign transition, map
-   speed control, then investigate frame pacing for faster simulation.
+5. Map speed control, then investigate frame pacing for faster simulation.
 
 ## Runtime acceptance tests
 

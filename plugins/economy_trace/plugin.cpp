@@ -5,33 +5,36 @@
 #include <smedley/v2/gamestate.hpp>
 
 #include <shellapi.h>
-#include <shlobj.h>
 #include <windows.h>
 
-#include <chrono>
 #include <atomic>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <new>
 #include <sstream>
 #include <string>
-#include <thread>
 
 namespace economy_trace
 {
     namespace fs = std::filesystem;
-    constexpr UINT load_save_message = WM_APP + 0x534d;
     class Plugin;
     Plugin *plugin_instance = nullptr;
     uintptr_t load_save_return_address = 0;
     uintptr_t pause_candidate_return_address = 0;
+    uintptr_t frontend_constructor_return_address = 0;
+    std::atomic<void *> frontend_controller = nullptr;
+    uintptr_t main_menu_return_address = 0;
+    std::atomic<void *> main_menu_controller = nullptr;
 
     void __stdcall TraceLoadSave(
         const smedley::sstd::string *filename,
         uintptr_t return_address,
         void *caller_object);
     void __stdcall TracePauseCandidate(void *controller);
+    void __stdcall CaptureFrontendController(void *controller);
+    void __stdcall CaptureMainMenuController(void *controller);
 
     __declspec(naked) void LoadSaveTrampoline()
     {
@@ -73,13 +76,52 @@ namespace economy_trace
         }
     }
 
+    __declspec(naked) void FrontendConstructorTrampoline()
+    {
+        __asm {
+            pushfd
+            pushad
+            mov eax, dword ptr [esp + 0x28]
+            push eax
+            call CaptureFrontendController
+            popad
+            popfd
+
+            push ebp
+            mov ebp, esp
+            push 0xffffffff
+            jmp frontend_constructor_return_address
+        }
+    }
+
+    __declspec(naked) void MainMenuTrampoline()
+    {
+        __asm {
+            pushfd
+            pushad
+            mov eax, dword ptr [esp + 0x28]
+            push eax
+            call CaptureMainMenuController
+            popad
+            popfd
+
+            push ebp
+            mov ebp, esp
+            push 0xffffffff
+            jmp main_menu_return_address
+        }
+    }
+
     class Plugin final : public smedley::Plugin
     {
         std::ofstream output;
         int last_date = (std::numeric_limits<int>::min)();
         std::wstring save_path;
-        HWND game_window = nullptr;
-        std::atomic<HHOOK> window_hook = nullptr;
+        UINT_PTR save_timer = 0;
+        int save_attempts = 0;
+        bool lobby_requested = false;
+        bool save_selection_requested = false;
+        bool frontend_trace_supported = false;
 
     public:
         void OnLoad() override
@@ -98,18 +140,24 @@ namespace economy_trace
             plugin_instance = this;
             const bool load_save_supported = InstallLoadSaveTrace();
             InstallPauseCandidateTrace();
+            const bool automation_supported = CheckAutomationSignatures();
 
             save_path = ReadSaveArgument();
-            if (!save_path.empty() && load_save_supported) {
-                std::thread([this] { ScheduleSaveLoad(); }).detach();
+            if (!save_path.empty() && load_save_supported && automation_supported) {
+                frontend_trace_supported = InstallFrontendTrace();
+                if (frontend_trace_supported) {
+                    logger().Info("waiting for the frontend before unattended save loading");
+                }
+            } else if (save_path.empty()) {
+                logger().Warn("no unattended save argument found");
             }
         }
 
         void OnUnload() override
         {
-            const auto hook = window_hook.exchange(nullptr);
-            if (hook != nullptr) {
-                UnhookWindowsHookEx(hook);
+            if (save_timer != 0) {
+                KillTimer(nullptr, save_timer);
+                save_timer = 0;
             }
             output.flush();
         }
@@ -154,6 +202,24 @@ namespace economy_trace
             logger().Info(message.str());
         }
 
+        void LogFrontendController(void *controller)
+        {
+            std::ostringstream message;
+            message << "captured frontend controller=" << controller;
+            logger().Info(message.str());
+            if (!save_path.empty()
+                && frontend_trace_supported
+                && save_timer == 0
+                && save_attempts == 0) {
+                save_timer = SetTimer(nullptr, 0, 10'000, SaveTimerCallback);
+                if (save_timer == 0) {
+                    logger().Failure("failed to schedule save loading on the frontend thread");
+                } else {
+                    logger().Info("scheduled save loading on the frontend thread");
+                }
+            }
+        }
+
     private:
         static bool InstallLoadSaveTrace()
         {
@@ -188,6 +254,61 @@ namespace economy_trace
                 nullptr);
         }
 
+        static bool InstallFrontendTrace()
+        {
+            const auto constructor = smedley::memory::Map::base_addr + 0x36a2f0;
+            constexpr unsigned char constructor_expected[] = {0x55, 0x8b, 0xec, 0x6a, 0xff};
+            const auto main_menu = smedley::memory::Map::base_addr + 0x354a00;
+            constexpr unsigned char main_menu_expected[] = {0x55, 0x8b, 0xec, 0x6a, 0xff};
+            if (std::memcmp(
+                    reinterpret_cast<const void *>(constructor),
+                    constructor_expected,
+                    sizeof(constructor_expected)) != 0
+                || std::memcmp(
+                    reinterpret_cast<const void *>(main_menu),
+                    main_menu_expected,
+                    sizeof(main_menu_expected)) != 0) {
+                plugin_instance->logger().Failure("frontend constructor signature mismatch; save loading disabled");
+                return false;
+            }
+            frontend_constructor_return_address = constructor + sizeof(constructor_expected);
+            main_menu_return_address = main_menu + sizeof(main_menu_expected);
+            smedley::memory::Hook(
+                constructor,
+                reinterpret_cast<void *>(&FrontendConstructorTrampoline),
+                sizeof(constructor_expected),
+                nullptr);
+            smedley::memory::Hook(
+                main_menu,
+                reinterpret_cast<void *>(&MainMenuTrampoline),
+                sizeof(main_menu_expected),
+                nullptr);
+            return true;
+        }
+
+        static bool CheckAutomationSignatures()
+        {
+            const auto press_dispatch = smedley::memory::Map::base_addr + 0x5ee510;
+            constexpr unsigned char press_expected[] = {
+                0x56, 0x8b, 0x70, 0x04, 0x85, 0xf6, 0x74, 0x10, 0x8b, 0x0e};
+            const auto release_dispatch = smedley::memory::Map::base_addr + 0x5ee550;
+            constexpr unsigned char release_expected[] = {
+                0x56, 0x8b, 0x70, 0x04, 0x85, 0xf6, 0x74, 0x10, 0x8b, 0x0e};
+            if (std::memcmp(
+                    reinterpret_cast<const void *>(press_dispatch),
+                    press_expected,
+                    sizeof(press_expected)) != 0
+                || std::memcmp(
+                    reinterpret_cast<const void *>(release_dispatch),
+                    release_expected,
+                    sizeof(release_expected)) != 0) {
+                plugin_instance->logger().Failure(
+                    "GUI dispatch signature mismatch; save automation disabled");
+                return false;
+            }
+            return true;
+        }
+
         static std::wstring ReadSaveArgument()
         {
             int argc = 0;
@@ -208,115 +329,133 @@ namespace economy_trace
             return result;
         }
 
-        static std::string NativeSavePath(const std::wstring &save_path)
+        static void CALLBACK SaveTimerCallback(HWND, UINT, UINT_PTR timer, DWORD)
         {
-            PWSTR documents = nullptr;
-            if (SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &documents) != S_OK) {
-                return {};
+            if (plugin_instance == nullptr || timer != plugin_instance->save_timer) {
+                return;
             }
-            const fs::path save_root = fs::path(documents)
-                / L"Paradox Interactive" / L"Victoria II" / L"save games";
-            CoTaskMemFree(documents);
-
-            std::error_code error;
-            const auto canonical_root = fs::weakly_canonical(save_root, error);
-            if (error) {
-                return {};
+            KillTimer(nullptr, timer);
+            plugin_instance->save_timer = 0;
+            auto *controller = frontend_controller.load(std::memory_order_acquire);
+            if (controller == nullptr) {
+                plugin_instance->logger().Failure("frontend controller is unavailable for save selection");
+                return;
             }
-            const auto canonical_save = fs::weakly_canonical(fs::path(save_path), error);
-            if (error) {
-                return {};
-            }
-
-            auto root = canonical_root.native();
-            root.push_back(L'\\');
-            const auto save = canonical_save.native();
-            if (save.size() <= root.size() || _wcsnicmp(save.c_str(), root.c_str(), root.size()) != 0) {
-                return {};
-            }
-            return (fs::path(L"save games") / save.substr(root.size())).generic_string();
-        }
-
-        static BOOL CALLBACK FindGameWindow(HWND window, LPARAM parameter)
-        {
-            DWORD process_id = 0;
-            GetWindowThreadProcessId(window, &process_id);
-            if (process_id != GetCurrentProcessId() || !IsWindowVisible(window)) {
-                return TRUE;
-            }
-            *reinterpret_cast<HWND *>(parameter) = window;
-            return FALSE;
-        }
-
-        void ScheduleSaveLoad()
-        {
-            using namespace std::chrono_literals;
-            // The loading screen briefly pumps messages before frontend state exists.
-            std::this_thread::sleep_for(20s);
-            int responsive_seconds = 0;
-            for (int elapsed = 0; elapsed < 180; ++elapsed) {
-                game_window = nullptr;
-                EnumWindows(FindGameWindow, reinterpret_cast<LPARAM>(&game_window));
-                DWORD_PTR ignored = 0;
-                const bool responsive = game_window != nullptr
-                    && SendMessageTimeoutW(game_window, WM_NULL, 0, 0, SMTO_ABORTIFHUNG, 500, &ignored) != 0;
-                responsive_seconds = responsive ? responsive_seconds + 1 : 0;
-                if (responsive_seconds >= 5) {
-                    break;
+            if (!plugin_instance->lobby_requested) {
+                if (main_menu_controller.load(std::memory_order_acquire) == nullptr) {
+                    plugin_instance->save_timer = SetTimer(nullptr, 0, 1'000, SaveTimerCallback);
+                    return;
                 }
-                std::this_thread::sleep_for(1s);
-            }
-            if (responsive_seconds < 5) {
-                logger().Failure("main menu did not become responsive; save was not loaded");
-                return;
-            }
-
-            const auto window_thread = GetWindowThreadProcessId(game_window, nullptr);
-            const auto hook = SetWindowsHookExW(WH_CALLWNDPROC, WindowMessageHook, nullptr, window_thread);
-            if (hook == nullptr) {
-                logger().Failure("failed to schedule save loading on the game UI thread");
-                return;
-            }
-            window_hook.store(hook, std::memory_order_release);
-            if (!PostMessageW(game_window, load_save_message, 0, 0)) {
-                window_hook.store(nullptr, std::memory_order_release);
-                UnhookWindowsHookEx(hook);
-                logger().Failure("failed to post save loading to the game UI thread");
-            }
-        }
-
-        static LRESULT CALLBACK WindowMessageHook(int code, WPARAM wparam, LPARAM lparam)
-        {
-            if (code >= 0 && plugin_instance != nullptr) {
-                const auto *message = reinterpret_cast<const CWPSTRUCT *>(lparam);
-                if (message->hwnd == plugin_instance->game_window
-                    && message->message == load_save_message) {
-                    const auto hook = plugin_instance->window_hook.exchange(nullptr);
-                    if (hook != nullptr) {
-                        UnhookWindowsHookEx(hook);
-                    }
-                    plugin_instance->LoadSaveOnUiThread();
+                if (!plugin_instance->DispatchMainMenuSinglePlayer()) {
+                    return;
                 }
-            }
-            return CallNextHookEx(nullptr, code, wparam, lparam);
-        }
-
-        void LoadSaveOnUiThread()
-        {
-            const std::string native_path = NativeSavePath(save_path);
-            if (native_path.empty()) {
-                logger().Failure("save path is not inside the Victoria II save games directory");
+                plugin_instance->lobby_requested = true;
+                plugin_instance->save_timer = SetTimer(nullptr, 0, 3'000, SaveTimerCallback);
+                if (plugin_instance->save_timer == 0) {
+                    plugin_instance->logger().Failure("failed to schedule lobby save selection");
+                }
                 return;
             }
-            const smedley::sstd::string game_path(native_path.c_str());
-            auto *game_state = smedley::v2::CCurrentGameState::instance();
-            const bool loaded = game_state != nullptr && game_state->LoadSave(game_path);
-            if (loaded) {
-                logger().Info("loaded save: " + native_path);
-                logger().Info("frontend transition is still required before simulation can run");
+            if (!plugin_instance->save_selection_requested) {
+                plugin_instance->save_selection_requested = true;
+                auto *selected_save = reinterpret_cast<smedley::sstd::string *>(
+                    reinterpret_cast<unsigned char *>(controller) + 0x590);
+                if (selected_save->size() == 0) {
+                    const auto filename = fs::path(plugin_instance->save_path).filename().string();
+                    new (selected_save) smedley::sstd::string(filename.c_str());
+                }
+                *(reinterpret_cast<unsigned char *>(controller) + 0x5bc) = 1;
+                *(reinterpret_cast<unsigned char *>(controller) + 0x5bd) = 0;
+                plugin_instance->save_timer = SetTimer(nullptr, 0, 5'000, SaveTimerCallback);
+                return;
+            }
+            if (*(reinterpret_cast<unsigned char *>(controller) + 0x5bd) != 0) {
+                plugin_instance->DispatchControlSignal("play_button");
+                return;
+            }
+            ++plugin_instance->save_attempts;
+            if (plugin_instance->save_attempts < 24) {
+                plugin_instance->save_timer = SetTimer(nullptr, 0, 5'000, SaveTimerCallback);
             } else {
-                logger().Failure("failed to load save: " + native_path);
+                plugin_instance->logger().Failure("save selection did not finish within 120 seconds");
             }
+        }
+
+        bool DispatchMainMenuSinglePlayer()
+        {
+            auto *controller = main_menu_controller.load(std::memory_order_acquire);
+            auto *gui = controller == nullptr
+                ? nullptr
+                : *reinterpret_cast<void **>(reinterpret_cast<unsigned char *>(controller) + 0x704);
+            if (gui == nullptr) {
+                logger().Failure("main-menu GUI registry is unavailable");
+                return false;
+            }
+            const smedley::sstd::string panel_name("mainmenu_panel");
+            const smedley::sstd::string button_name("single_player_button");
+            using FindControl = void *(__thiscall *)(void *, const smedley::sstd::string *);
+            const auto gui_vtable = *reinterpret_cast<uintptr_t **>(gui);
+            auto *panel = reinterpret_cast<FindControl>(gui_vtable[0x6c / sizeof(uintptr_t)])(
+                gui,
+                &panel_name);
+            if (panel == nullptr) {
+                logger().Failure("mainmenu_panel is unavailable for native dispatch");
+                return false;
+            }
+            const auto panel_vtable = *reinterpret_cast<uintptr_t **>(panel);
+            auto *button = reinterpret_cast<FindControl>(panel_vtable[0x34 / sizeof(uintptr_t)])(
+                panel,
+                &button_name);
+            if (button == nullptr) {
+                logger().Failure("single_player_button is unavailable for native dispatch");
+                return false;
+            }
+            auto *signal = reinterpret_cast<unsigned char *>(button) + 0x54;
+            const auto press = smedley::memory::Map::base_addr + 0x5ee510;
+            const auto release = smedley::memory::Map::base_addr + 0x5ee550;
+            __asm mov eax, signal
+            __asm call press
+            __asm mov eax, signal
+            __asm call release
+            logger().Info("dispatched native main-menu Single Player signal");
+            return true;
+        }
+
+        bool DispatchControlSignal(const char *name)
+        {
+            auto *controller = frontend_controller.load(std::memory_order_acquire);
+            auto *gui = controller == nullptr
+                ? nullptr
+                : *reinterpret_cast<void **>(reinterpret_cast<unsigned char *>(controller) + 0x278);
+            if (gui == nullptr) {
+                logger().Failure("frontend GUI registry is unavailable for control dispatch");
+                return false;
+            }
+            const smedley::sstd::string control_name(name);
+            const auto vtable = *reinterpret_cast<uintptr_t **>(gui);
+            using FindControl = void *(__thiscall *)(void *, const smedley::sstd::string *);
+            auto *control = reinterpret_cast<FindControl>(vtable[0x34 / sizeof(uintptr_t)])(
+                gui,
+                &control_name);
+            if (control == nullptr) {
+                logger().Failure(std::string(name) + " is unavailable for native dispatch");
+                return false;
+            }
+            auto *signal = reinterpret_cast<unsigned char *>(control) + 0x54;
+            std::ostringstream message;
+            message << "dispatching native control signal: " << name
+                    << " control=" << control
+                    << " vtable=" << *reinterpret_cast<void **>(control)
+                    << " signal=" << static_cast<void *>(signal);
+            logger().Info(message.str());
+            const auto press = smedley::memory::Map::base_addr + 0x5ee510;
+            const auto release = smedley::memory::Map::base_addr + 0x5ee550;
+            __asm mov eax, signal
+            __asm call press
+            __asm mov eax, signal
+            __asm call release
+            logger().Info(std::string("dispatched native control signal: ") + name);
+            return true;
         }
     };
 
@@ -339,6 +478,30 @@ namespace economy_trace
         const auto flag = *(reinterpret_cast<const unsigned char *>(controller) + 0x1538);
         plugin_instance->LogPauseCandidate(controller, flag);
     }
+
+    void __stdcall CaptureFrontendController(void *controller)
+    {
+        if (plugin_instance != nullptr && controller != nullptr) {
+            const auto previous = frontend_controller.exchange(controller, std::memory_order_acq_rel);
+            if (previous == controller) {
+                return;
+            }
+            plugin_instance->LogFrontendController(controller);
+        }
+    }
+
+    void __stdcall CaptureMainMenuController(void *controller)
+    {
+        if (controller != nullptr) {
+            void *expected = nullptr;
+            main_menu_controller.compare_exchange_strong(
+                expected,
+                controller,
+                std::memory_order_release,
+                std::memory_order_relaxed);
+        }
+    }
+
 }
 
 PLUGIN_API smedley::Plugin *CreatePlugin()
