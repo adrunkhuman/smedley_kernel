@@ -33,6 +33,7 @@ namespace smedley::memory
      * @param n the number of bytes to be written
      */
     void Patch(uintptr_t addr, uint8_t *instr, int n);
+    void InstallHeapHook();
 
     /**
      * Hooks a function by patching a jump at the instructions at addr.

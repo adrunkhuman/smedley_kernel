@@ -15,6 +15,12 @@ PLUGIN_API void LoadPlugins()
     smedley::PluginLoader::instance()->LoadPlugins();
 }
 
+PLUGIN_API DWORD WINAPI LoadPluginsThread(LPVOID)
+{
+    LoadPlugins();
+    return 0;
+}
+
 
 namespace smedley
 {

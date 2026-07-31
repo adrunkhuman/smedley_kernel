@@ -308,6 +308,10 @@ namespace smedley::v2
         //[[[end]]]
 
     public:
+        const CCountryTag &tag() const { return _tag; }
+        int64_t treasury_raw() const { return _treasury.raw_value(); }
+        int64_t treasury_shadow_raw() const { return _treasury_delta.raw_value(); }
+
         /*[[[cog
         from codegen import print_class_model_fns
         print_class_model_fns('./models/v2/classes/CCountry.toml', access='public') 

@@ -9,6 +9,7 @@ namespace smedley::v2 {
 
 using namespace smedley;
 
+uintptr_t WESTERNIZE_FLAG_ADDR = 0;
 
 void WesternizeEventHook(v2::CCountry* country)
 {
@@ -36,7 +37,10 @@ namespace smedley::events
             pop eax
 
             // patched instructions
-            cmp DWORD PTR ds : 0x125eadc, 0x0
+            push eax
+            mov eax, WESTERNIZE_FLAG_ADDR
+            cmp DWORD PTR[eax], 0x0
+            pop eax
 
             jmp hook_ret_addr
         }
@@ -51,7 +55,8 @@ namespace smedley::events
     }
     void WesternizeEvent::InstallHook()
     {
-        hook_ret_addr = memory::Map::base_addr + hook_addr + 5;
+        WESTERNIZE_FLAG_ADDR = memory::Map::base_addr + 0xe5eadc;
+        hook_ret_addr = memory::Map::base_addr + hook_addr + 7;
         memory::Hook(memory::Map::base_addr + hook_addr, HookTrampoline, 7, nullptr);
     }
 

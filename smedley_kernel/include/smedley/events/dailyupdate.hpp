@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include "../event.hpp"
 
 namespace smedley::v2 {
@@ -15,7 +16,7 @@ namespace smedley::events
     {
         v2::CCountry* _country;
         static constexpr uintptr_t hook_addr = 0x001085ae;
-        inline static uintptr_t hook_ret_addr = NULL;
+        inline static uintptr_t hook_ret_addr = 0;
         static void HookTrampoline();
         
     public:

@@ -132,6 +132,7 @@ namespace smedley::v2
     public:
         inline const sstd::vector<CCountry *> countries() const { return _countries; }
         inline sstd::vector<CCountry *> countries() { return _countries; }
+        int current_date_raw() const { return _current_date.raw_value(); }
 
         /*[[[cog
         from codegen import print_class_model_fns
@@ -143,6 +144,14 @@ namespace smedley::v2
         return *(reinterpret_cast<CCurrentGameState **>(_addr));
         }
         // [[[end]]]
+
+        /** Must be called from the game UI thread, matching the native callers. */
+        bool LoadSave(const sstd::string &filename)
+        {
+            using LoadSaveFn = bool (__stdcall *)(CCurrentGameState *, const sstd::string *);
+            const auto fn = reinterpret_cast<LoadSaveFn>(memory::Map::base_addr + 0x27f1d0);
+            return fn(this, &filename);
+        }
     };
 
 }

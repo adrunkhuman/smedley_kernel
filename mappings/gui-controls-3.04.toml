@@ -1,0 +1,188 @@
+# These names come from Victoria 2's interface definitions. They identify GUI
+# objects, but their C++ handlers and runtime object addresses are not mapped.
+
+[[controls]]
+name = "button_speedup"
+type = "guiButtonType"
+file = "interface/topbar.gui"
+line = 1102
+status = "definition-verified"
+
+[[controls]]
+name = "button_speeddown"
+type = "guiButtonType"
+file = "interface/topbar.gui"
+line = 1111
+status = "definition-verified"
+
+[[controls]]
+name = "pause_bg"
+type = "guiButtonType"
+file = "interface/topbar.gui"
+line = 1120
+status = "definition-verified"
+
+[[controls]]
+name = "speed_indicator"
+type = "guiButtonType"
+file = "interface/topbar.gui"
+line = 1127
+status = "definition-verified"
+
+[[controls]]
+name = "tax_0_slider"
+type = "scrollbarType"
+file = "interface/country_budget.gui"
+line = 631
+status = "definition-verified"
+minimum = 0
+maximum = 100
+step = 1
+binding = "candidate: CCountry::_tax_settings[0]"
+
+[[controls]]
+name = "tax_1_slider"
+type = "scrollbarType"
+file = "interface/country_budget.gui"
+line = 684
+status = "definition-verified"
+minimum = 0
+maximum = 100
+step = 1
+binding = "candidate: CCountry::_tax_settings[1]"
+
+[[controls]]
+name = "tax_2_slider"
+type = "scrollbarType"
+file = "interface/country_budget.gui"
+line = 737
+status = "definition-verified"
+minimum = 0
+maximum = 100
+step = 1
+binding = "candidate: CCountry::_tax_settings[2]"
+
+[[controls]]
+name = "land_stockpile_slider"
+type = "scrollbarType"
+file = "interface/country_budget.gui"
+line = 790
+status = "definition-verified"
+
+[[controls]]
+name = "naval_stockpile_slider"
+type = "scrollbarType"
+file = "interface/country_budget.gui"
+line = 842
+status = "definition-verified"
+
+[[controls]]
+name = "projects_stockpile_slider"
+type = "scrollbarType"
+file = "interface/country_budget.gui"
+line = 894
+status = "definition-verified"
+
+[[controls]]
+name = "exp_0_slider"
+type = "scrollbarType"
+file = "interface/country_budget.gui"
+line = 946
+status = "definition-verified"
+
+[[controls]]
+name = "exp_1_slider"
+type = "scrollbarType"
+file = "interface/country_budget.gui"
+line = 983
+status = "definition-verified"
+
+[[controls]]
+name = "exp_2_slider"
+type = "scrollbarType"
+file = "interface/country_budget.gui"
+line = 1020
+status = "definition-verified"
+
+[[controls]]
+name = "exp_3_slider"
+type = "scrollbarType"
+file = "interface/country_budget.gui"
+line = 1073
+status = "definition-verified"
+
+[[controls]]
+name = "tariff_slider"
+type = "scrollbarType"
+file = "interface/country_budget.gui"
+line = 1125
+status = "definition-verified"
+binding = "candidate: CCountry::_tariffs"
+
+[[controls]]
+name = "take_loan"
+type = "guiButtonType"
+file = "interface/country_budget.gui"
+line = 1197
+status = "definition-verified"
+binding = "candidate: CCountry::TakeLoan"
+
+[[controls]]
+name = "repay_loan"
+type = "guiButtonType"
+file = "interface/country_budget.gui"
+line = 1206
+status = "definition-verified"
+binding = "candidate: CCountry::PayBackLoan"
+
+[[controls]]
+name = "repay_loan_window/money_slider"
+type = "scrollbarType"
+file = "interface/country_budget.gui"
+line = 1585
+status = "definition-verified"
+minimum = 0
+maximum = 100
+step = 1
+
+[[controls]]
+name = "take_loan_window/money_slider"
+type = "scrollbarType"
+file = "interface/country_budget.gui"
+line = 1701
+status = "definition-verified"
+minimum = 0
+maximum = 100
+step = 1
+
+[notes]
+runtime = "Next step: locate CGuiTypes::LookupString and correlate these names with runtime objects and handler vtables."
+automation = "Coordinates are intentionally omitted; they depend on parent placement and resolution and are not a stable automation interface."
+
+[[engine_candidates]]
+name = "Budget window input handler"
+rva = 0x00206780
+status = "verified-static-xref"
+signature = "55 8b ec 6a ff 68 c5 d8 b8 00"
+evidence = "Compares event control names including take_loan and conditionally opens or updates loan UI."
+
+[[engine_candidates]]
+name = "Topbar tooltip handler candidate"
+rva = 0x00309910
+status = "verified-static-xref"
+signature = "55 8b ec 6a ff 68 56 d0 b7 00"
+evidence = "Compares button_speedup, button_speeddown, and adjacent names while constructing localized tooltip output."
+
+[[engine_candidates]]
+name = "Topbar control binding candidate"
+rva = 0x003129a0
+status = "verified-static-xref"
+signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
+evidence = "References button_speedup while resolving named GUI objects into fields on an owning object."
+
+[[engine_candidates]]
+name = "Topbar tooltip/text handler candidate"
+rva = 0x00313a90
+status = "verified-static-xref"
+signature = "55 8b ec 6a ff 68 33 1a bb 00"
+evidence = "Compares supplied GUI names including button_speedup and constructs localized output."

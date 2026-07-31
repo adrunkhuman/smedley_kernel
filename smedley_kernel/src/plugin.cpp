@@ -35,8 +35,7 @@ namespace smedley
         std::optional<std::string> module_name = tbl["module"].value<std::string>();
 
         if (!id.has_value() || !name.has_value()  || !module_name.has_value()) {
-            // TODO: custom exception
-            std::runtime_error("plugin definition missing requirement!");
+            throw std::runtime_error("plugin definition missing required id, name, or module");
         }
 
         def.id = *id;

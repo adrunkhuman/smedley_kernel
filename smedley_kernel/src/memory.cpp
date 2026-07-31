@@ -16,7 +16,10 @@ namespace smedley::memory
     void Map::Init()
     {
         Map::base_addr = reinterpret_cast<uintptr_t>(GetModuleHandle(NULL));
+    }
 
+    void InstallHeapHook()
+    {
         constexpr uint8_t trampoline_template[] = {
             0x50, // push eax
             0x50, // push eax

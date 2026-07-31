@@ -58,7 +58,7 @@ namespace smedley::events
 
     void DailyUpdateEvent::InstallHook()
     {
-        hook_ret_addr = memory::Map::base_addr + hook_addr + 5; 
+        hook_ret_addr = memory::Map::base_addr + hook_addr + 10;
         memory::Hook(memory::Map::base_addr + hook_addr, HookTrampoline, 10, nullptr);
     }
 

@@ -15,6 +15,8 @@ namespace smedley::clausewitz
     {
     public:
         int _val;
+
+        int raw_value() const { return _val; }
     };
 
     static_assert(sizeof(CFixedPoint) == 0x4);
@@ -33,6 +35,8 @@ namespace smedley::clausewitz
     {
     protected:
         T _val;
+    public:
+        T raw_value() const { return _val; }
     };
 
     static_assert(sizeof(fixed_point<int64_t,48,15>) == 0x8);
@@ -46,6 +50,7 @@ namespace smedley::clausewitz
         int _timestamp;
     public:
         CDate(int timestamp) : _timestamp(timestamp) {}
+        int raw_value() const { return _timestamp; }
     };
 
     class CGregorianDate : public CDate

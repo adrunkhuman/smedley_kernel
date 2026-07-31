@@ -10,6 +10,7 @@ namespace smedley::v2 {
 
 using namespace smedley;
 
+uintptr_t ADD_TO_SPHERE_COUNTRY_DB_ADDR = 0;
 
 void AddToSphereEventHook(v2::CCountry* source, v2::CCountryTag* target)
 {
@@ -36,7 +37,8 @@ namespace smedley::events
 
             // patched instructions
             mov eax, DWORD PTR[esi]
-            mov ecx, DWORD PTR ds : 0x1e587e4
+            mov ecx, ADD_TO_SPHERE_COUNTRY_DB_ADDR
+            mov ecx, DWORD PTR[ecx]
 
             jmp hook_ret_addr
         }
@@ -55,7 +57,8 @@ namespace smedley::events
     }
     void AddToSphereEvent::InstallHook()
     {
-        hook_ret_addr = memory::Map::base_addr + hook_addr + 5;
+        ADD_TO_SPHERE_COUNTRY_DB_ADDR = memory::Map::base_addr + 0xe587e4;
+        hook_ret_addr = memory::Map::base_addr + hook_addr + 8;
         memory::Hook(memory::Map::base_addr + hook_addr, HookTrampoline, 8, nullptr);
     }
 

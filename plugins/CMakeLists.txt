@@ -6,3 +6,4 @@ endif()
 
 add_subdirectory("v2up")
 add_subdirectory("dailyupdate_example")
+add_subdirectory("economy_trace")

@@ -41,3 +41,4 @@ include_directories("include/lua" "include/toml")
 # Include sub-projects.
 add_subdirectory ("smedley_kernel")
 add_subdirectory ("plugins")
+add_subdirectory ("tools/smedley_cli")
