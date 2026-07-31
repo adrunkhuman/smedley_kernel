@@ -62,6 +62,7 @@ namespace campaign_runner
 
     SmedleyTelemetryEmitV1Fn CampaignTelemetry::Resolve()
     {
+        if (reliable_emit_ != nullptr) return reliable_emit_;
         if (emit_ != nullptr) return emit_;
         if (resolution_attempted_) return nullptr;
         resolution_attempted_ = true;
@@ -83,7 +84,9 @@ namespace campaign_runner
             if (!ModulePath(module, &candidate_path)
                 || !IsSiblingTelemetryPath(runner_path.native(), candidate_path.native())) continue;
             emit_ = reinterpret_cast<SmedleyTelemetryEmitV1Fn>(GetProcAddress(module, SMEDLEY_TELEMETRY_EMIT_V1_SYMBOL));
-            return emit_;
+            reliable_emit_ = reinterpret_cast<SmedleyTelemetryEmitV1Fn>(
+                GetProcAddress(module, SMEDLEY_TELEMETRY_EMIT_RELIABLE_V1_SYMBOL));
+            return reliable_emit_ != nullptr ? reliable_emit_ : emit_;
         }
         return emit_;
     }

@@ -14,7 +14,9 @@ namespace campaign_runner
     {
     public:
         CampaignTelemetry() = default;
-        explicit CampaignTelemetry(SmedleyTelemetryEmitV1Fn emit) : emit_(emit) {}
+        explicit CampaignTelemetry(SmedleyTelemetryEmitV1Fn emit) : emit_(emit), reliable_emit_(emit) {}
+        CampaignTelemetry(SmedleyTelemetryEmitV1Fn emit, SmedleyTelemetryEmitV1Fn reliable_emit)
+            : emit_(emit), reliable_emit_(reliable_emit) {}
 
         SmedleyTelemetryResult SaveSelectionRequested();
         SmedleyTelemetryResult SaveLoadCompleted();
@@ -42,6 +44,7 @@ namespace campaign_runner
         SmedleyTelemetryEmitV1Fn Resolve();
 
         SmedleyTelemetryEmitV1Fn emit_ = nullptr;
+        SmedleyTelemetryEmitV1Fn reliable_emit_ = nullptr;
         bool resolution_attempted_ = false;
         bool save_selection_emitted_ = false;
         bool save_load_emitted_ = false;

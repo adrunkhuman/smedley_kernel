@@ -31,8 +31,11 @@ scheduler entries, and `human_control_present=false`, matching the independently
 logged observer transition from 271 to 272 scheduler entries. The 40-record
 trace had zero gaps, drops, or write failures and completed at the exact target.
 
-A complementary non-observer probe observed 272 slots, 271 scheduler entries,
-and `human_control_present=true`, but its trace dropped unrelated back-to-back
-lifecycle records and lacked a terminal record. It corroborates the container
-transition but is not acceptance evidence; reliable low-frequency lifecycle
-ingress remains separate work.
+An initial complementary non-observer probe observed 272 slots, 271 scheduler
+entries, and `human_control_present=true`, but its trace dropped back-to-back
+lifecycle records and lacked a terminal record. This isolated lock contention
+in the nonblocking ABI ingress. After adding the separate reliable lifecycle
+symbol, run `154d1e12-79bf-494c-bb32-0332bbdf0f25` repeated the exact one-day
+case with the same world values and all 12 expected records. It completed at the
+exact target with zero gaps, drops, or write failures; the source save retained
+SHA-256 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.

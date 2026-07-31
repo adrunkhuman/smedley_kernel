@@ -24,6 +24,7 @@ namespace
     std::vector<CapturedField> payload;
     std::deque<SmedleyTelemetryResult> results;
     int calls = 0;
+    int fallback_calls = 0;
 
     CapturedField CopyField(const SmedleyTelemetryFieldV1 &field)
     {
@@ -51,6 +52,12 @@ namespace
         return result;
     }
 
+    SmedleyTelemetryResult SMEDLEY_TELEMETRY_CALL CaptureFallback(const SmedleyTelemetryRecordV1 *)
+    {
+        ++fallback_calls;
+        return SMEDLEY_TELEMETRY_DROPPED;
+    }
+
     class CampaignTelemetryTest : public testing::Test
     {
     protected:
@@ -61,6 +68,7 @@ namespace
             payload.clear();
             results.clear();
             calls = 0;
+            fallback_calls = 0;
         }
     };
 }
@@ -147,6 +155,18 @@ TEST_F(CampaignTelemetryTest, ChoosesOnlyTheExactSiblingTelemetryPath)
     const std::wstring runner = L"C:\\Game\\plugins\\campaign_runner.dll";
     EXPECT_FALSE(campaign_runner::IsSiblingTelemetryPath(runner, L"C:\\Elsewhere\\telemetry.dll"));
     EXPECT_TRUE(campaign_runner::IsSiblingTelemetryPath(runner, L"c:\\game\\plugins\\TELEMETRY.dll"));
+}
+
+TEST_F(CampaignTelemetryTest, PrefersReliableEmitterAndRetainsFallbackCompatibility)
+{
+    campaign_runner::CampaignTelemetry telemetry(&CaptureFallback, &Capture);
+    EXPECT_EQ(telemetry.SaveSelectionRequested(), SMEDLEY_TELEMETRY_ACCEPTED);
+    EXPECT_EQ(calls, 1);
+    EXPECT_EQ(fallback_calls, 0);
+
+    campaign_runner::CampaignTelemetry fallback(&CaptureFallback, nullptr);
+    EXPECT_EQ(fallback.SaveSelectionRequested(), SMEDLEY_TELEMETRY_DROPPED);
+    EXPECT_EQ(fallback_calls, 1);
 }
 
 TEST(BenchmarkControllerTest, CompletesOnlyAtTheExactTargetOnce)

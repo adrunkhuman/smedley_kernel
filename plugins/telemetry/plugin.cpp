@@ -13,11 +13,12 @@
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 
 namespace telemetry_plugin
 {
     class Plugin;
-    std::mutex active_sink_mutex;
+    std::shared_mutex active_sink_mutex;
     Plugin *active_sink = nullptr;
 
     namespace
@@ -100,7 +101,7 @@ namespace telemetry_plugin
                 handler_registered = true;
                 AddEventHandler<smedley::events::DailyUpdateEvent>(
                     "telemetry.daily", [this](smedley::events::DailyUpdateEvent &event) { OnDailyUpdate(event); });
-                std::lock_guard<std::mutex> lock(active_sink_mutex);
+                std::unique_lock<std::shared_mutex> lock(active_sink_mutex);
                 active_sink = this;
             } catch (...) {
                 if (handler_registered) RemoveEventHandler<smedley::events::DailyUpdateEvent>("telemetry.daily");
@@ -113,7 +114,7 @@ namespace telemetry_plugin
         void OnUnload() override
         {
             {
-                std::lock_guard<std::mutex> lock(active_sink_mutex);
+                std::unique_lock<std::shared_mutex> lock(active_sink_mutex);
                 if (active_sink == this) active_sink = nullptr;
             }
             RemoveEventHandler<smedley::events::DailyUpdateEvent>("telemetry.daily");
@@ -125,13 +126,13 @@ namespace telemetry_plugin
             writer_.reset();
         }
 
-        SmedleyTelemetryResult EmitExternal(const SmedleyTelemetryRecordV1 *record)
+        SmedleyTelemetryResult EmitExternal(const SmedleyTelemetryRecordV1 *record, bool reliable)
         {
-            return EmitRecord(record, false);
+            return EmitRecord(record, false, reliable);
         }
 
     private:
-        SmedleyTelemetryResult EmitRecord(const SmedleyTelemetryRecordV1 *record, bool initial)
+        SmedleyTelemetryResult EmitRecord(const SmedleyTelemetryRecordV1 *record, bool initial, bool reliable = false)
         {
             if (!writer_) return SMEDLEY_TELEMETRY_UNAVAILABLE;
             std::string error;
@@ -145,8 +146,11 @@ namespace telemetry_plugin
                 return SMEDLEY_TELEMETRY_INVALID;
             }
             return smedley::telemetry::PublishPreparedRecord(
-                prepared, &sequence_, &emission_mutex_, initial,
-                [this, initial](std::string_view line) { return initial ? writer_->WriteInitial(line) : writer_->TryWrite(line); },
+                prepared, &sequence_, &emission_mutex_, initial || reliable,
+                [this, initial, reliable](std::string_view line) {
+                    return initial ? writer_->WriteInitial(line)
+                        : reliable ? writer_->WriteReliable(line) : writer_->TryWrite(line);
+                },
                 [this] { writer_->MarkDropped(); });
         }
 
@@ -281,8 +285,22 @@ extern "C" SMEDLEY_TELEMETRY_EXPORT SmedleyTelemetryResult SMEDLEY_TELEMETRY_CAL
 SmedleyTelemetryEmitV1(const SmedleyTelemetryRecordV1 *record)
 {
     try {
-        std::lock_guard<std::mutex> lock(telemetry_plugin::active_sink_mutex);
-        return telemetry_plugin::active_sink == nullptr ? SMEDLEY_TELEMETRY_UNAVAILABLE : telemetry_plugin::active_sink->EmitExternal(record);
+        std::shared_lock<std::shared_mutex> lock(telemetry_plugin::active_sink_mutex, std::try_to_lock);
+        if (!lock.owns_lock()) return SMEDLEY_TELEMETRY_DROPPED;
+        return telemetry_plugin::active_sink == nullptr ? SMEDLEY_TELEMETRY_UNAVAILABLE
+            : telemetry_plugin::active_sink->EmitExternal(record, false);
+    } catch (...) {
+        return SMEDLEY_TELEMETRY_DROPPED;
+    }
+}
+
+extern "C" SMEDLEY_TELEMETRY_EXPORT SmedleyTelemetryResult SMEDLEY_TELEMETRY_CALL
+SmedleyTelemetryEmitReliableV1(const SmedleyTelemetryRecordV1 *record)
+{
+    try {
+        std::shared_lock<std::shared_mutex> lock(telemetry_plugin::active_sink_mutex);
+        return telemetry_plugin::active_sink == nullptr ? SMEDLEY_TELEMETRY_UNAVAILABLE
+            : telemetry_plugin::active_sink->EmitExternal(record, true);
     } catch (...) {
         return SMEDLEY_TELEMETRY_DROPPED;
     }

@@ -27,6 +27,7 @@ extern "C" {
 #define SMEDLEY_TELEMETRY_MAX_FIELDS UINT32_C(8)
 #define SMEDLEY_TELEMETRY_RECORD_HAS_GAME_DATE UINT32_C(1)
 #define SMEDLEY_TELEMETRY_EMIT_V1_SYMBOL "SmedleyTelemetryEmitV1"
+#define SMEDLEY_TELEMETRY_EMIT_RELIABLE_V1_SYMBOL "SmedleyTelemetryEmitReliableV1"
 
 typedef uint32_t SmedleyTelemetryResult;
 enum {
@@ -98,6 +99,12 @@ typedef SmedleyTelemetryResult (SMEDLEY_TELEMETRY_CALL *SmedleyTelemetryEmitV1Fn
 
 SMEDLEY_TELEMETRY_EXPORT SmedleyTelemetryResult SMEDLEY_TELEMETRY_CALL
 SmedleyTelemetryEmitV1(const SmedleyTelemetryRecordV1 *record);
+
+/* Low-frequency lifecycle producers may use this symbol to wait for bounded
+ * in-memory sink-lifetime, serialization, and queue locks. It may still report
+ * dropped when the queue is full or stopped. Do not use it from hot hooks. */
+SMEDLEY_TELEMETRY_EXPORT SmedleyTelemetryResult SMEDLEY_TELEMETRY_CALL
+SmedleyTelemetryEmitReliableV1(const SmedleyTelemetryRecordV1 *record);
 
 #ifdef __cplusplus
 }

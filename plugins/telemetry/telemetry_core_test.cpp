@@ -220,6 +220,11 @@ TEST(TelemetryQueueTest, IsBoundedAndAccountsForDrops)
     EXPECT_EQ(stats.accepted, 2u);
     EXPECT_EQ(stats.dropped, 1u);
     EXPECT_EQ(stats.high_water, 2u);
+
+    telemetry::BoundedQueue reliable_queue(1);
+    EXPECT_TRUE(reliable_queue.Push("one"));
+    EXPECT_FALSE(reliable_queue.Push("two"));
+    EXPECT_EQ(reliable_queue.stats().dropped, 1u);
 }
 
 TEST(TelemetryWriterTest, WritesCompleteNewlineDelimitedRecords)
@@ -230,7 +235,7 @@ TEST(TelemetryWriterTest, WritesCompleteNewlineDelimitedRecords)
     std::string error;
     ASSERT_TRUE(writer.Start(&error)) << error;
     ASSERT_TRUE(writer.TryWrite("{\"line\":1}"));
-    ASSERT_TRUE(writer.TryWrite("{\"line\":2}"));
+    ASSERT_TRUE(writer.WriteReliable("{\"line\":2}"));
     telemetry::QueueStats final_stats;
     writer.Stop([&](const telemetry::QueueStats &stats) {
         final_stats = stats;

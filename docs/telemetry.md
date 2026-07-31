@@ -182,6 +182,17 @@ installation and must not use `LoadLibrary` or derive a DLL path from run
 metadata. Results are `unavailable`, `filtered`, `accepted`, `dropped`, and
 `invalid`.
 
+`SmedleyTelemetryEmitV1` is nonblocking and may report `dropped` on lock
+contention, making it suitable for hot observational hooks. Low-frequency
+lifecycle producers may optionally resolve `SmedleyTelemetryEmitReliableV1`.
+That entry waits only for bounded in-memory sink-lifetime, serialization, and
+queue locks; it still reports `dropped` when the queue is full or stopped and
+must not be used from hot hooks. The nonblocking entry uses a non-waiting shared
+lifetime guard and can coexist with reliable calls; unload takes exclusive
+ownership only after in-flight calls finish. `campaign_runner` prefers the
+reliable symbol and falls back to the original symbol when paired with an older
+telemetry plugin.
+
 The ABI contains only fixed-width C values and bounded UTF-8 pointer/length
 pairs. Records and fields include `struct_size`, `version`, and zero reserved
 fields. Input is consumed synchronously and copied before return. The sink is

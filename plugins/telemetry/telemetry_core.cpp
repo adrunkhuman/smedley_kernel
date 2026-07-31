@@ -802,6 +802,13 @@ namespace smedley::telemetry
         return true;
     }
 
+    bool Writer::WriteReliable(std::string_view line)
+    {
+        if (!started_ || !queue_.Push(line)) return false;
+        wake_.notify_one();
+        return true;
+    }
+
     void Writer::MarkDropped()
     {
         queue_.dropped_.fetch_add(1, std::memory_order_relaxed);
