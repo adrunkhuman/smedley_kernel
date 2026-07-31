@@ -3,6 +3,8 @@
 #include <smedley/log.hpp>
 #include <smedley/memory.hpp>
 #include <smedley/std/string.hpp>
+#include <smedley/std/vector.hpp>
+#include <smedley/v2/console.hpp>
 #include <smedley/v2/gamestate.hpp>
 
 #include <cstring>
@@ -20,6 +22,35 @@ namespace campaign_runner
         CampaignLauncher *launcher_instance = nullptr;
         uintptr_t frontend_constructor_return_address = 0;
         uintptr_t main_menu_return_address = 0;
+        uintptr_t message_dispatch_return_address = 0;
+        uintptr_t message_dispatch_popup_address = 0;
+        uintptr_t message_dispatch_suppressed_address = 0;
+        uintptr_t message_dispatch_2_return_address = 0;
+        uintptr_t message_dispatch_2_popup_address = 0;
+        uintptr_t message_dispatch_2_suppressed_address = 0;
+        uintptr_t message_dispatch_3_return_address = 0;
+        uintptr_t message_dispatch_3_popup_address = 0;
+        uintptr_t message_dispatch_3_suppressed_address = 0;
+        uintptr_t message_dispatch_4_return_address = 0;
+        uintptr_t message_dispatch_4_popup_address = 0;
+        uintptr_t message_dispatch_4_suppressed_address = 0;
+        uintptr_t message_dispatch_5_return_address = 0;
+        uintptr_t message_dispatch_5_popup_address = 0;
+        uintptr_t message_dispatch_5_suppressed_address = 0;
+        uintptr_t message_dispatch_6_return_address = 0;
+        uintptr_t message_dispatch_6_popup_address = 0;
+        uintptr_t message_dispatch_6_suppressed_address = 0;
+        uintptr_t message_dispatch_7_return_address = 0;
+        uintptr_t message_dispatch_7_popup_address = 0;
+        uintptr_t message_dispatch_7_suppressed_address = 0;
+        uintptr_t message_dispatch_8_return_address = 0;
+        uintptr_t message_dispatch_8_popup_address = 0;
+        uintptr_t message_dispatch_8_suppressed_address = 0;
+        uintptr_t message_dispatch_9_return_address = 0;
+        uintptr_t message_dispatch_9_popup_address = 0;
+        uintptr_t message_dispatch_9_suppressed_address = 0;
+        volatile bool suppress_message_popups = false;
+        volatile long suppressed_message_count = 0;
 
         bool IsInGameIdler(const void *object)
         {
@@ -82,6 +113,204 @@ namespace campaign_runner
                 jmp main_menu_return_address
             }
         }
+
+        __declspec(naked) void MessageDispatchTrampoline()
+        {
+            __asm {
+                cmp byte ptr [suppress_message_popups], 0
+                jne suppressed
+                cmp byte ptr [edi + 0x0e], 0
+                jne popup
+                jmp message_dispatch_return_address
+            suppressed:
+                cmp byte ptr [edi + 0x0e], 0
+                jne count_suppressed
+                cmp byte ptr [edi + 0x10], 0
+                je bypass_popup
+            count_suppressed:
+                lock inc dword ptr [suppressed_message_count]
+            bypass_popup:
+                jmp message_dispatch_suppressed_address
+            popup:
+                jmp message_dispatch_popup_address
+            }
+        }
+
+        __declspec(naked) void MessageDispatch2Trampoline()
+        {
+            __asm {
+                cmp byte ptr [suppress_message_popups], 0
+                jne dispatch2_suppressed
+                cmp byte ptr [ebx + 0x0e], 0
+                jne dispatch2_popup
+                jmp message_dispatch_2_return_address
+            dispatch2_suppressed:
+                cmp byte ptr [ebx + 0x0e], 0
+                jne dispatch2_count
+                cmp byte ptr [ebx + 0x10], 0
+                je dispatch2_bypass
+            dispatch2_count:
+                lock inc dword ptr [suppressed_message_count]
+            dispatch2_bypass:
+                jmp message_dispatch_2_suppressed_address
+            dispatch2_popup:
+                jmp message_dispatch_2_popup_address
+            }
+        }
+
+        __declspec(naked) void MessageDispatch3Trampoline()
+        {
+            __asm {
+                cmp byte ptr [suppress_message_popups], 0
+                jne dispatch3_suppressed
+                cmp byte ptr [edi + 0x0e], 0
+                jne dispatch3_popup
+                jmp message_dispatch_3_return_address
+            dispatch3_suppressed:
+                cmp byte ptr [edi + 0x0e], 0
+                jne dispatch3_count
+                cmp byte ptr [edi + 0x10], 0
+                je dispatch3_bypass
+            dispatch3_count:
+                lock inc dword ptr [suppressed_message_count]
+            dispatch3_bypass:
+                jmp message_dispatch_3_suppressed_address
+            dispatch3_popup:
+                jmp message_dispatch_3_popup_address
+            }
+        }
+
+        __declspec(naked) void MessageDispatch4Trampoline()
+        {
+            __asm {
+                cmp byte ptr [suppress_message_popups], 0
+                jne dispatch4_suppressed
+                cmp byte ptr [edi + 0x0e], 0
+                jne dispatch4_popup
+                jmp message_dispatch_4_return_address
+            dispatch4_suppressed:
+                cmp byte ptr [edi + 0x0e], 0
+                jne dispatch4_count
+                cmp byte ptr [edi + 0x10], 0
+                je dispatch4_bypass
+            dispatch4_count:
+                lock inc dword ptr [suppressed_message_count]
+            dispatch4_bypass:
+                jmp message_dispatch_4_suppressed_address
+            dispatch4_popup:
+                jmp message_dispatch_4_popup_address
+            }
+        }
+
+        __declspec(naked) void MessageDispatch5Trampoline()
+        {
+            __asm {
+                cmp byte ptr [suppress_message_popups], 0
+                jne dispatch5_suppressed
+                cmp byte ptr [ebx + 0x0e], 0
+                jne dispatch5_popup
+                jmp message_dispatch_5_return_address
+            dispatch5_suppressed:
+                cmp byte ptr [ebx + 0x0e], 0
+                jne dispatch5_count
+                cmp byte ptr [ebx + 0x10], 0
+                je dispatch5_bypass
+            dispatch5_count:
+                lock inc dword ptr [suppressed_message_count]
+            dispatch5_bypass:
+                jmp message_dispatch_5_suppressed_address
+            dispatch5_popup:
+                jmp message_dispatch_5_popup_address
+            }
+        }
+
+        __declspec(naked) void MessageDispatch6Trampoline()
+        {
+            __asm {
+                cmp byte ptr [suppress_message_popups], 0
+                jne dispatch6_suppressed
+                cmp byte ptr [edi + 0x0e], 0
+                jne dispatch6_popup
+                jmp message_dispatch_6_return_address
+            dispatch6_suppressed:
+                cmp byte ptr [edi + 0x0e], 0
+                jne dispatch6_count
+                cmp byte ptr [edi + 0x10], 0
+                je dispatch6_bypass
+            dispatch6_count:
+                lock inc dword ptr [suppressed_message_count]
+            dispatch6_bypass:
+                jmp message_dispatch_6_suppressed_address
+            dispatch6_popup:
+                jmp message_dispatch_6_popup_address
+            }
+        }
+
+        __declspec(naked) void MessageDispatch7Trampoline()
+        {
+            __asm {
+                cmp byte ptr [suppress_message_popups], 0
+                jne dispatch7_suppressed
+                cmp byte ptr [edi + 0x0e], 0
+                jne dispatch7_popup
+                jmp message_dispatch_7_return_address
+            dispatch7_suppressed:
+                cmp byte ptr [edi + 0x0e], 0
+                jne dispatch7_count
+                cmp byte ptr [edi + 0x10], 0
+                je dispatch7_bypass
+            dispatch7_count:
+                lock inc dword ptr [suppressed_message_count]
+            dispatch7_bypass:
+                jmp message_dispatch_7_suppressed_address
+            dispatch7_popup:
+                jmp message_dispatch_7_popup_address
+            }
+        }
+
+        __declspec(naked) void MessageDispatch8Trampoline()
+        {
+            __asm {
+                cmp byte ptr [suppress_message_popups], 0
+                jne dispatch8_suppressed
+                cmp byte ptr [edi + 0x0e], 0
+                jne dispatch8_popup
+                jmp message_dispatch_8_return_address
+            dispatch8_suppressed:
+                cmp byte ptr [edi + 0x0e], 0
+                jne dispatch8_count
+                cmp byte ptr [edi + 0x10], 0
+                je dispatch8_bypass
+            dispatch8_count:
+                lock inc dword ptr [suppressed_message_count]
+            dispatch8_bypass:
+                jmp message_dispatch_8_suppressed_address
+            dispatch8_popup:
+                jmp message_dispatch_8_popup_address
+            }
+        }
+
+        __declspec(naked) void MessageDispatch9Trampoline()
+        {
+            __asm {
+                cmp byte ptr [suppress_message_popups], 0
+                jne dispatch9_suppressed
+                cmp byte ptr [edi + 0x0e], 0
+                jne dispatch9_popup
+                jmp message_dispatch_9_return_address
+            dispatch9_suppressed:
+                cmp byte ptr [edi + 0x0e], 0
+                jne dispatch9_count
+                cmp byte ptr [edi + 0x10], 0
+                je dispatch9_bypass
+            dispatch9_count:
+                lock inc dword ptr [suppressed_message_count]
+            dispatch9_bypass:
+                jmp message_dispatch_9_suppressed_address
+            dispatch9_popup:
+                jmp message_dispatch_9_popup_address
+            }
+        }
     }
 
     CampaignLauncher::CampaignLauncher(smedley::Logger &logger) noexcept
@@ -89,9 +318,12 @@ namespace campaign_runner
     {
     }
 
-    bool CampaignLauncher::Start(std::wstring save_path)
+    bool CampaignLauncher::Start(std::wstring save_path, bool observe)
     {
         save_path_ = std::move(save_path);
+        observe_ = observe;
+        suppress_message_popups = false;
+        suppressed_message_count = 0;
         launcher_instance = this;
         if (save_path_.empty()) {
             logger_.Warn("no unattended save argument found");
@@ -110,7 +342,26 @@ namespace campaign_runner
             KillTimer(nullptr, save_timer_);
             save_timer_ = 0;
         }
+        suppress_message_popups = false;
         launcher_instance = nullptr;
+    }
+
+    void CampaignLauncher::CaptureConsoleCommandManager(smedley::v2::CConsoleCmdManager *manager)
+    {
+        console_manager_.store(manager, std::memory_order_release);
+        if (manager != nullptr) {
+            logger_.Info("captured native console command manager");
+        }
+    }
+
+    bool CampaignLauncher::ScheduleTimer(UINT delay, const char *failure_message)
+    {
+        save_timer_ = SetTimer(nullptr, 0, delay, SaveTimerCallback);
+        if (save_timer_ != 0) {
+            return true;
+        }
+        logger_.Failure(failure_message);
+        return false;
     }
 
     void CampaignLauncher::CaptureFrontendController(void *controller)
@@ -128,10 +379,7 @@ namespace campaign_runner
         if (save_timer_ != 0 || save_attempts_ != 0) {
             return;
         }
-        save_timer_ = SetTimer(nullptr, 0, 10'000, SaveTimerCallback);
-        if (save_timer_ == 0) {
-            logger_.Failure("failed to schedule save loading on the frontend thread");
-        } else {
+        if (ScheduleTimer(10'000, "failed to schedule save loading on the frontend thread")) {
             logger_.Info("scheduled save loading on the frontend thread");
         }
     }
@@ -162,10 +410,37 @@ namespace campaign_runner
         const auto toggle_pause = smedley::memory::Map::base_addr + 0x26a2c0;
         constexpr unsigned char toggle_pause_expected[] = {
             0x55, 0x8b, 0xec, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00};
+        const auto return_country_to_ai = smedley::memory::Map::base_addr + 0x287a70;
+        constexpr unsigned char return_country_to_ai_expected[] = {
+            0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00};
+        const auto console_command_handler = smedley::memory::Map::base_addr + 0x20eb0;
+        constexpr unsigned char console_command_handler_expected[] = {
+            0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8, 0x6a, 0xff};
+        const auto speed_up_handler_body = smedley::memory::Map::base_addr + 0x32ee96;
+        constexpr unsigned char speed_up_handler_body_expected[] = {
+            0x8b, 0x81, 0x28, 0x0b, 0x00, 0x00, 0x40, 0x83, 0xf8, 0x04};
+        const auto tag_handler = smedley::memory::Map::base_addr + 0x1f720;
+        constexpr unsigned char tag_handler_expected[] = {0x55, 0x8b, 0xec, 0x6a, 0xff};
         if (std::memcmp(reinterpret_cast<const void *>(load_save), load_save_expected, sizeof(load_save_expected)) != 0
             || std::memcmp(reinterpret_cast<const void *>(press_dispatch), press_expected, sizeof(press_expected)) != 0
             || std::memcmp(reinterpret_cast<const void *>(release_dispatch), release_expected, sizeof(release_expected)) != 0
-            || std::memcmp(reinterpret_cast<const void *>(toggle_pause), toggle_pause_expected, sizeof(toggle_pause_expected)) != 0) {
+            || std::memcmp(reinterpret_cast<const void *>(toggle_pause), toggle_pause_expected, sizeof(toggle_pause_expected)) != 0
+            || std::memcmp(
+                reinterpret_cast<const void *>(return_country_to_ai),
+                return_country_to_ai_expected,
+                sizeof(return_country_to_ai_expected)) != 0
+            || std::memcmp(
+                reinterpret_cast<const void *>(console_command_handler),
+                console_command_handler_expected,
+                sizeof(console_command_handler_expected)) != 0
+            || std::memcmp(
+                reinterpret_cast<const void *>(speed_up_handler_body),
+                speed_up_handler_body_expected,
+                sizeof(speed_up_handler_body_expected)) != 0
+            || std::memcmp(
+                reinterpret_cast<const void *>(tag_handler),
+                tag_handler_expected,
+                sizeof(tag_handler_expected)) != 0) {
             logger_.Failure("campaign automation signature mismatch; save loading disabled");
             return false;
         }
@@ -178,6 +453,101 @@ namespace campaign_runner
         constexpr unsigned char frontend_expected[] = {0x55, 0x8b, 0xec, 0x6a, 0xff};
         const auto main_menu_constructor = smedley::memory::Map::base_addr + 0x354a00;
         constexpr unsigned char main_menu_expected[] = {0x55, 0x8b, 0xec, 0x6a, 0xff};
+        const auto message_dispatch = smedley::memory::Map::base_addr + 0x2bc68;
+        constexpr unsigned char message_dispatch_expected[] = {0x80, 0x7f, 0x0e, 0x00, 0x75, 0x23};
+        constexpr unsigned char message_dispatch_ebx_expected[] = {0x80, 0x7b, 0x0e, 0x00, 0x75, 0x23};
+        const auto message_dispatch_2 = smedley::memory::Map::base_addr + 0x934f8;
+        const auto message_dispatch_3 = smedley::memory::Map::base_addr + 0xe9678;
+        const auto message_dispatch_4 = smedley::memory::Map::base_addr + 0x149c68;
+        const auto message_dispatch_5 = smedley::memory::Map::base_addr + 0x1abaa8;
+        const auto message_dispatch_6 = smedley::memory::Map::base_addr + 0x32dfb8;
+        const auto message_dispatch_7 = smedley::memory::Map::base_addr + 0x507038;
+        const auto message_dispatch_8 = smedley::memory::Map::base_addr + 0x509168;
+        const auto message_dispatch_9 = smedley::memory::Map::base_addr + 0x53d818;
+        constexpr unsigned char message_suppressed_expected[] = {0x8b, 0x5d, 0x10, 0xeb, 0x89};
+        constexpr unsigned char message_suppressed_ebx_expected[] = {0x80, 0x7b, 0x11, 0x00, 0x0f, 0x84};
+        const auto message_suppressed_1 = smedley::memory::Map::base_addr + 0x2be42;
+        const auto message_suppressed_2 = smedley::memory::Map::base_addr + 0x93663;
+        const auto message_suppressed_3 = smedley::memory::Map::base_addr + 0xe9852;
+        const auto message_suppressed_4 = smedley::memory::Map::base_addr + 0x149e42;
+        const auto message_suppressed_5 = smedley::memory::Map::base_addr + 0x1abc13;
+        const auto message_suppressed_6 = smedley::memory::Map::base_addr + 0x32e192;
+        const auto message_suppressed_7 = smedley::memory::Map::base_addr + 0x507212;
+        const auto message_suppressed_8 = smedley::memory::Map::base_addr + 0x509342;
+        const auto message_suppressed_9 = smedley::memory::Map::base_addr + 0x53d9f2;
+        const bool message_dispatches_match =
+            std::memcmp(
+                reinterpret_cast<const void *>(message_dispatch),
+                message_dispatch_expected,
+                sizeof(message_dispatch_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_dispatch_2),
+                message_dispatch_ebx_expected,
+                sizeof(message_dispatch_ebx_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_dispatch_3),
+                message_dispatch_expected,
+                sizeof(message_dispatch_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_dispatch_4),
+                message_dispatch_expected,
+                sizeof(message_dispatch_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_dispatch_5),
+                message_dispatch_ebx_expected,
+                sizeof(message_dispatch_ebx_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_dispatch_6),
+                message_dispatch_expected,
+                sizeof(message_dispatch_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_dispatch_7),
+                message_dispatch_expected,
+                sizeof(message_dispatch_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_dispatch_8),
+                message_dispatch_expected,
+                sizeof(message_dispatch_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_dispatch_9),
+                message_dispatch_expected,
+                sizeof(message_dispatch_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_suppressed_1),
+                message_suppressed_expected,
+                sizeof(message_suppressed_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_suppressed_2),
+                message_suppressed_ebx_expected,
+                sizeof(message_suppressed_ebx_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_suppressed_3),
+                message_suppressed_expected,
+                sizeof(message_suppressed_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_suppressed_4),
+                message_suppressed_expected,
+                sizeof(message_suppressed_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_suppressed_5),
+                message_suppressed_ebx_expected,
+                sizeof(message_suppressed_ebx_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_suppressed_6),
+                message_suppressed_expected,
+                sizeof(message_suppressed_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_suppressed_7),
+                message_suppressed_expected,
+                sizeof(message_suppressed_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_suppressed_8),
+                message_suppressed_expected,
+                sizeof(message_suppressed_expected)) == 0
+            && std::memcmp(
+                reinterpret_cast<const void *>(message_suppressed_9),
+                message_suppressed_expected,
+                sizeof(message_suppressed_expected)) == 0;
         if (std::memcmp(
                 reinterpret_cast<const void *>(frontend_constructor),
                 frontend_expected,
@@ -185,12 +555,40 @@ namespace campaign_runner
             || std::memcmp(
                 reinterpret_cast<const void *>(main_menu_constructor),
                 main_menu_expected,
-                sizeof(main_menu_expected)) != 0) {
+                sizeof(main_menu_expected)) != 0
+            || !message_dispatches_match) {
             logger_.Failure("frontend constructor signature mismatch; save loading disabled");
             return false;
         }
         frontend_constructor_return_address = frontend_constructor + sizeof(frontend_expected);
         main_menu_return_address = main_menu_constructor + sizeof(main_menu_expected);
+        message_dispatch_return_address = message_dispatch + sizeof(message_dispatch_expected);
+        message_dispatch_popup_address = smedley::memory::Map::base_addr + 0x2bc91;
+        message_dispatch_suppressed_address = message_suppressed_1;
+        message_dispatch_2_return_address = message_dispatch_2 + sizeof(message_dispatch_ebx_expected);
+        message_dispatch_2_popup_address = smedley::memory::Map::base_addr + 0x93521;
+        message_dispatch_2_suppressed_address = message_suppressed_2;
+        message_dispatch_3_return_address = message_dispatch_3 + sizeof(message_dispatch_expected);
+        message_dispatch_3_popup_address = smedley::memory::Map::base_addr + 0xe96a1;
+        message_dispatch_3_suppressed_address = message_suppressed_3;
+        message_dispatch_4_return_address = message_dispatch_4 + sizeof(message_dispatch_expected);
+        message_dispatch_4_popup_address = smedley::memory::Map::base_addr + 0x149c91;
+        message_dispatch_4_suppressed_address = message_suppressed_4;
+        message_dispatch_5_return_address = message_dispatch_5 + sizeof(message_dispatch_ebx_expected);
+        message_dispatch_5_popup_address = smedley::memory::Map::base_addr + 0x1abad1;
+        message_dispatch_5_suppressed_address = message_suppressed_5;
+        message_dispatch_6_return_address = message_dispatch_6 + sizeof(message_dispatch_expected);
+        message_dispatch_6_popup_address = smedley::memory::Map::base_addr + 0x32dfe1;
+        message_dispatch_6_suppressed_address = message_suppressed_6;
+        message_dispatch_7_return_address = message_dispatch_7 + sizeof(message_dispatch_expected);
+        message_dispatch_7_popup_address = smedley::memory::Map::base_addr + 0x507061;
+        message_dispatch_7_suppressed_address = message_suppressed_7;
+        message_dispatch_8_return_address = message_dispatch_8 + sizeof(message_dispatch_expected);
+        message_dispatch_8_popup_address = smedley::memory::Map::base_addr + 0x509191;
+        message_dispatch_8_suppressed_address = message_suppressed_8;
+        message_dispatch_9_return_address = message_dispatch_9 + sizeof(message_dispatch_expected);
+        message_dispatch_9_popup_address = smedley::memory::Map::base_addr + 0x53d841;
+        message_dispatch_9_suppressed_address = message_suppressed_9;
         smedley::memory::Hook(
             frontend_constructor,
             reinterpret_cast<void *>(&FrontendConstructorTrampoline),
@@ -201,6 +599,51 @@ namespace campaign_runner
             reinterpret_cast<void *>(&MainMenuTrampoline),
             sizeof(main_menu_expected),
             nullptr);
+        smedley::memory::Hook(
+            message_dispatch,
+            reinterpret_cast<void *>(&MessageDispatchTrampoline),
+            sizeof(message_dispatch_expected),
+            nullptr);
+        smedley::memory::Hook(
+            message_dispatch_2,
+            reinterpret_cast<void *>(&MessageDispatch2Trampoline),
+            sizeof(message_dispatch_ebx_expected),
+            nullptr);
+        smedley::memory::Hook(
+            message_dispatch_3,
+            reinterpret_cast<void *>(&MessageDispatch3Trampoline),
+            sizeof(message_dispatch_expected),
+            nullptr);
+        smedley::memory::Hook(
+            message_dispatch_4,
+            reinterpret_cast<void *>(&MessageDispatch4Trampoline),
+            sizeof(message_dispatch_expected),
+            nullptr);
+        smedley::memory::Hook(
+            message_dispatch_5,
+            reinterpret_cast<void *>(&MessageDispatch5Trampoline),
+            sizeof(message_dispatch_ebx_expected),
+            nullptr);
+        smedley::memory::Hook(
+            message_dispatch_6,
+            reinterpret_cast<void *>(&MessageDispatch6Trampoline),
+            sizeof(message_dispatch_expected),
+            nullptr);
+        smedley::memory::Hook(
+            message_dispatch_7,
+            reinterpret_cast<void *>(&MessageDispatch7Trampoline),
+            sizeof(message_dispatch_expected),
+            nullptr);
+        smedley::memory::Hook(
+            message_dispatch_8,
+            reinterpret_cast<void *>(&MessageDispatch8Trampoline),
+            sizeof(message_dispatch_expected),
+            nullptr);
+        smedley::memory::Hook(
+            message_dispatch_9,
+            reinterpret_cast<void *>(&MessageDispatch9Trampoline),
+            sizeof(message_dispatch_expected),
+            nullptr);
         return true;
     }
 
@@ -210,33 +653,301 @@ namespace campaign_runner
         if (launcher == nullptr || timer != launcher->save_timer_) {
             return;
         }
-        KillTimer(nullptr, timer);
-        launcher->save_timer_ = 0;
+        if (!launcher->observer_monitoring_) {
+            KillTimer(nullptr, timer);
+            launcher->save_timer_ = 0;
+        }
         if (launcher->play_requested_) {
             auto *game_state = smedley::v2::CCurrentGameState::instance();
             auto *idler = game_state == nullptr ? nullptr : game_state->idler();
             if (!IsInGameIdler(idler)) {
+                if (launcher->observer_monitoring_) {
+                    KillTimer(nullptr, timer);
+                    launcher->save_timer_ = 0;
+                    suppress_message_popups = false;
+                    launcher->observer_monitoring_ = false;
+                    launcher->logger_.Failure("observer campaign left CInGameIdler");
+                    return;
+                }
                 ++launcher->campaign_attempts_;
                 if (launcher->campaign_attempts_ < 30) {
-                    launcher->save_timer_ = SetTimer(nullptr, 0, 1'000, SaveTimerCallback);
+                    launcher->ScheduleTimer(1'000, "failed to schedule campaign-entry check");
                 } else {
                     launcher->logger_.Failure("campaign did not enter CInGameIdler within 30 seconds");
                 }
                 return;
             }
-            const auto pause_state = idler->pause_state();
+            auto pause_state = idler->pause_state();
+            if (launcher->observer_monitoring_) {
+                const auto suppressed = suppressed_message_count;
+                if (suppressed != launcher->observed_suppressed_messages_) {
+                    std::ostringstream message;
+                    message << "observer mode suppressed "
+                            << suppressed - launcher->observed_suppressed_messages_
+                            << " generic message popup(s), total=" << suppressed;
+                    launcher->logger_.Info(message.str());
+                    launcher->observed_suppressed_messages_ = suppressed;
+                }
+                const auto stop_monitoring = [&](const char *reason, bool restore_target) {
+                    auto *target = game_state->country(launcher->observer_target_ordinal_);
+                    if (restore_target
+                        && target != nullptr
+                        && target->exists()
+                        && game_state->player_control_state(launcher->observer_target_ordinal_) > 0
+                        && target->ai() == nullptr) {
+                        game_state->ReturnCountryToAI(target->tag());
+                    }
+                    const bool ownership_clean = !game_state->has_human_controlled_country()
+                        && (!restore_target
+                            || target == nullptr
+                            || (game_state->player_control_state(launcher->observer_target_ordinal_) == 0
+                                && target->ai() != nullptr
+                                && game_state->is_scheduled_ai(target->ai())));
+                    KillTimer(nullptr, timer);
+                    launcher->save_timer_ = 0;
+                    suppress_message_popups = false;
+                    launcher->observer_monitoring_ = false;
+                    launcher->observer_view_switch_pending_ = false;
+                    launcher->observer_target_ordinal_ = 0;
+                    launcher->observer_target_tag_.clear();
+                    launcher->logger_.Failure(
+                        std::string(reason)
+                        + (ownership_clean ? "" : "; observer ownership cleanup failed"));
+                };
+                const auto view_ordinal = game_state->player_tag().ordinal();
+                auto *view_country = game_state->country(view_ordinal);
+                if (launcher->observer_view_switch_pending_
+                    || view_country == nullptr
+                    || !view_country->exists()) {
+                    if (pause_state == 0) {
+                        idler->TogglePause();
+                        pause_state = idler->pause_state();
+                    }
+                    if (pause_state != 1) {
+                        stop_monitoring("failed to pause for observer view failover", false);
+                        return;
+                    }
+
+                    auto *command_manager = launcher->console_manager_.load(std::memory_order_acquire);
+                    if (command_manager == nullptr) {
+                        stop_monitoring("native console command manager is unavailable", false);
+                        return;
+                    }
+                    if (!launcher->observer_view_switch_pending_) {
+                        smedley::v2::CCountry *target = nullptr;
+                        for (size_t ordinal = 1; ordinal < game_state->country_count(); ++ordinal) {
+                            auto *candidate = game_state->country(static_cast<int>(ordinal));
+                            if (candidate != nullptr
+                                && candidate->exists()
+                                && game_state->player_control_state(static_cast<int>(ordinal)) == 0
+                                && candidate->ai() != nullptr
+                                && game_state->is_scheduled_ai(candidate->ai())) {
+                                target = candidate;
+                                break;
+                            }
+                        }
+                        if (target == nullptr) {
+                            stop_monitoring("no living AI country is available for observer view failover", false);
+                            return;
+                        }
+                        auto *tag_command = command_manager->FindCommand("tag");
+                        const auto expected_handler = smedley::memory::Map::base_addr + 0x1f720;
+                        if (tag_command == nullptr
+                            || reinterpret_cast<uintptr_t>(tag_command->handler) != expected_handler) {
+                            stop_monitoring(
+                                "native tag command handler does not match the supported executable",
+                                false);
+                            return;
+                        }
+                        launcher->observer_target_ordinal_ = target->tag().ordinal();
+                        launcher->observer_target_tag_ = target->tag().str();
+                        launcher->observer_ai_count_before_switch_ = game_state->country_ai_count();
+                        smedley::sstd::vector<smedley::sstd::string> arguments;
+                        arguments.push_back(smedley::sstd::string(launcher->observer_target_tag_.c_str()));
+                        const auto result = command_manager->ExecuteCommand("tag", arguments);
+                        if (!result.success) {
+                            stop_monitoring("native observer view failover command failed", false);
+                            return;
+                        }
+                        launcher->observer_view_switch_pending_ = true;
+                        launcher->observer_attempts_ = 0;
+                        launcher->logger_.Info(
+                            std::string("requested observer view failover to ")
+                            + launcher->observer_target_tag_);
+                        return;
+                    }
+
+                    ++launcher->observer_attempts_;
+                    auto *target = game_state->country(launcher->observer_target_ordinal_);
+                    if (game_state->player_tag().ordinal() != launcher->observer_target_ordinal_) {
+                        if (launcher->observer_attempts_ == 30) {
+                            launcher->logger_.Warn(
+                                "observer view failover is still pending; simulation remains paused");
+                        }
+                        return;
+                    }
+                    if (target == nullptr
+                        || !target->exists()
+                        || game_state->player_control_state(launcher->observer_target_ordinal_) != 1
+                        || target->ai() != nullptr
+                        || game_state->country_ai_count() + 1 != launcher->observer_ai_count_before_switch_) {
+                        stop_monitoring("native tag switch left unexpected observer ownership state", true);
+                        return;
+                    }
+                    game_state->ReturnCountryToAI(target->tag());
+                    if (game_state->has_human_controlled_country()
+                        || target->ai() == nullptr
+                        || !game_state->is_scheduled_ai(target->ai())
+                        || game_state->country_ai_count() != launcher->observer_ai_count_before_switch_) {
+                        stop_monitoring("observer view failover did not restore target AI", true);
+                        return;
+                    }
+                    launcher->logger_.Info(
+                        std::string("observer view failed over to ")
+                        + launcher->observer_target_tag_ + " and restored its AI");
+                    launcher->observer_view_switch_pending_ = false;
+                    launcher->observer_target_ordinal_ = 0;
+                    launcher->observer_target_tag_.clear();
+                    launcher->observer_attempts_ = 0;
+                    idler->TogglePause();
+                    if (idler->pause_state() != 0) {
+                        stop_monitoring("observer view failover could not resume simulation", false);
+                        return;
+                    }
+                    return;
+                }
+                if (pause_state != 0) {
+                    stop_monitoring("observer simulation paused outside generic message dispatch", false);
+                    return;
+                }
+                return;
+            }
+            if (launcher->observe_) {
+                if (pause_state == 0) {
+                    idler->TogglePause();
+                    pause_state = idler->pause_state();
+                    if (pause_state != 1) {
+                        launcher->logger_.Failure("failed to pause campaign before observer switch");
+                        return;
+                    }
+                    launcher->logger_.Info("paused campaign before observer switch");
+                } else if (pause_state != 1) {
+                    launcher->logger_.Failure("CInGameIdler pause state is neither paused nor unpaused");
+                    return;
+                }
+                if (!launcher->observer_ai_ready_) {
+                    const auto player_tag = game_state->player_tag();
+                    const auto player_ordinal = player_tag.ordinal();
+                    auto *player_country = game_state->country(player_ordinal);
+                    if (player_ordinal <= 0 || player_country == nullptr) {
+                        launcher->logger_.Failure("current player country is invalid for observer mode");
+                        return;
+                    }
+                    const auto player_control_before = game_state->player_control_state(player_ordinal);
+                    const auto ai_count_before = game_state->country_ai_count();
+                    if (player_control_before <= 0 || player_country->ai() != nullptr) {
+                        launcher->logger_.Failure("player country was not in the expected human-controlled state");
+                        return;
+                    }
+                    game_state->ReturnCountryToAI(player_tag);
+                    if (game_state->has_human_controlled_country()
+                        || game_state->player_control_state(player_ordinal) != 0
+                        || player_country->ai() == nullptr
+                        || !game_state->is_scheduled_ai(player_country->ai())
+                        || game_state->country_ai_count() != ai_count_before + 1) {
+                        launcher->logger_.Failure("native observer transition did not restore full AI control");
+                        return;
+                    }
+                    std::ostringstream message;
+                    message << "observer mode restored AI control for " << player_tag.str()
+                            << " ai=" << player_country->ai()
+                            << " scheduler_count=" << ai_count_before
+                            << "->" << game_state->country_ai_count();
+                    launcher->logger_.Info(message.str());
+                    launcher->observer_ai_ready_ = true;
+                }
+
+                auto *fog_enabled = reinterpret_cast<unsigned char *>(
+                    smedley::memory::Map::base_addr + 0xb092fb);
+                if (*fog_enabled != 0) {
+                    auto *command_manager = launcher->console_manager_.load(std::memory_order_acquire);
+                    if (command_manager == nullptr) {
+                        ++launcher->observer_attempts_;
+                        if (launcher->observer_attempts_ >= 30) {
+                            launcher->logger_.Failure("native console command manager is unavailable");
+                            return;
+                        }
+                        launcher->ScheduleTimer(1'000, "failed to schedule observer FOW setup");
+                        return;
+                    }
+                    auto *debug_command = command_manager->FindCommand("debug");
+                    const auto expected_handler = smedley::memory::Map::base_addr + 0x20eb0;
+                    if (debug_command == nullptr
+                        || reinterpret_cast<uintptr_t>(debug_command->handler) != expected_handler) {
+                        launcher->logger_.Failure("native FOW command handler does not match the supported executable");
+                        return;
+                    }
+                    smedley::sstd::vector<smedley::sstd::string> arguments;
+                    arguments.push_back(smedley::sstd::string("fow"));
+                    const auto result = command_manager->ExecuteCommand("debug", arguments);
+                    if (!result.success || *fog_enabled != 0) {
+                        launcher->logger_.Failure("native FOW command did not enable full map visibility");
+                        return;
+                    }
+                }
+                launcher->logger_.Info("observer mode enabled full map visibility");
+                suppress_message_popups = true;
+                launcher->observe_ = false;
+            }
+            if (!launcher->speed_ready_) {
+                const auto speed_before = game_state->speed_index();
+                if (speed_before < 0 || speed_before > 4) {
+                    suppress_message_popups = false;
+                    launcher->logger_.Failure("native speed index is outside the supported range");
+                    return;
+                }
+                using SpeedUpFn = void (__cdecl *)();
+                const auto speed_up = reinterpret_cast<SpeedUpFn>(
+                    smedley::memory::Map::base_addr + 0x32ee90);
+                while (game_state->speed_index() < 4) {
+                    speed_up();
+                }
+                if (game_state->speed_index() != 4) {
+                    suppress_message_popups = false;
+                    launcher->logger_.Failure("failed to select native speed 5");
+                    return;
+                }
+                launcher->speed_ready_ = true;
+                launcher->logger_.Info("selected native speed 5");
+            }
             if (pause_state == 0) {
                 launcher->logger_.Info("campaign is already unpaused");
+                if (launcher->observer_ai_ready_) {
+                    launcher->observer_monitoring_ = true;
+                    if (!launcher->ScheduleTimer(1'000, "failed to schedule observer pause watchdog")) {
+                        suppress_message_popups = false;
+                        launcher->observer_monitoring_ = false;
+                    }
+                }
                 return;
             }
             if (pause_state != 1) {
+                suppress_message_popups = false;
                 launcher->logger_.Failure("CInGameIdler pause state is neither paused nor unpaused");
                 return;
             }
             idler->TogglePause();
             if (idler->pause_state() == 0) {
                 launcher->logger_.Info("unpaused campaign through CInGameIdler");
+                if (launcher->observer_ai_ready_) {
+                    launcher->observer_monitoring_ = true;
+                    if (!launcher->ScheduleTimer(1'000, "failed to schedule observer pause watchdog")) {
+                        suppress_message_popups = false;
+                        launcher->observer_monitoring_ = false;
+                    }
+                }
             } else {
+                suppress_message_popups = false;
                 launcher->logger_.Failure("CInGameIdler remained paused after toggle");
             }
             return;
@@ -248,17 +959,14 @@ namespace campaign_runner
         }
         if (!launcher->lobby_requested_) {
             if (launcher->main_menu_controller_.load(std::memory_order_acquire) == nullptr) {
-                launcher->save_timer_ = SetTimer(nullptr, 0, 1'000, SaveTimerCallback);
+                launcher->ScheduleTimer(1'000, "failed to schedule main-menu controller check");
                 return;
             }
             if (!launcher->DispatchMainMenuSinglePlayer()) {
                 return;
             }
             launcher->lobby_requested_ = true;
-            launcher->save_timer_ = SetTimer(nullptr, 0, 3'000, SaveTimerCallback);
-            if (launcher->save_timer_ == 0) {
-                launcher->logger_.Failure("failed to schedule lobby save selection");
-            }
+            launcher->ScheduleTimer(3'000, "failed to schedule lobby save selection");
             return;
         }
         if (!launcher->save_selection_requested_) {
@@ -271,7 +979,7 @@ namespace campaign_runner
             }
             *(reinterpret_cast<unsigned char *>(controller) + 0x5bc) = 1;
             *(reinterpret_cast<unsigned char *>(controller) + 0x5bd) = 0;
-            launcher->save_timer_ = SetTimer(nullptr, 0, 5'000, SaveTimerCallback);
+            launcher->ScheduleTimer(5'000, "failed to schedule save-selection check");
             return;
         }
         if (*(reinterpret_cast<unsigned char *>(controller) + 0x5bd) != 0) {
@@ -279,15 +987,12 @@ namespace campaign_runner
                 return;
             }
             launcher->play_requested_ = true;
-            launcher->save_timer_ = SetTimer(nullptr, 0, 1'000, SaveTimerCallback);
-            if (launcher->save_timer_ == 0) {
-                launcher->logger_.Failure("failed to schedule campaign unpause");
-            }
+            launcher->ScheduleTimer(1'000, "failed to schedule campaign unpause");
             return;
         }
         ++launcher->save_attempts_;
         if (launcher->save_attempts_ < 24) {
-            launcher->save_timer_ = SetTimer(nullptr, 0, 5'000, SaveTimerCallback);
+            launcher->ScheduleTimer(5'000, "failed to schedule save-selection check");
         } else {
             launcher->logger_.Failure("save selection did not finish within 120 seconds");
         }

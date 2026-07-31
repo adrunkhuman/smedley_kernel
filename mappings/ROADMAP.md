@@ -15,6 +15,11 @@
 - `campaign_runner` verifies RTTI `CInGameIdler`, invokes the native pause
   toggle, and verifies the resulting pause byte. Date progression was observed
   in runtime testing but is not yet enforced by the runner.
+- Optional full-AI observer mode uses the native return-to-AI transition and
+  verifies that no player-control entry remains before unpausing; runtime
+  acceptance passed with `benchmark.v2` and `JAN`.
+- Observer view failover after annexation is implemented with native `tag`
+  followed by return-to-AI restoration; runtime annexation acceptance is pending.
 
 ## Immediate blocker
 

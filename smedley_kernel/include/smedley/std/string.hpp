@@ -40,11 +40,14 @@ namespace smedley::sstd
         {
             size_type n = Traits::length(str);
             if (n > default_capacity) {
-                _impl.ptr = reinterpret_cast<T *>(HeapAlloc(memory::Map::game_heap, 0, (n * sizeof(T)) + 1));
+                _impl.ptr = reinterpret_cast<T *>(
+                    HeapAlloc(memory::Map::game_heap, 0, (n + 1) * sizeof(T)));
                 std::memcpy(_impl.ptr, str, n * sizeof(T));
+                _impl.ptr[n] = static_cast<T>(0);
                 _capacity = n;
             } else {
-                std::memcpy(_impl.buf, str, sizeof(_impl.buf));
+                std::fill(std::begin(_impl.buf), std::end(_impl.buf), static_cast<T>(0));
+                std::memcpy(_impl.buf, str, n * sizeof(T));
                 _capacity = default_capacity;
             }
 

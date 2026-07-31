@@ -1,35 +1,55 @@
 #include "campaign_launcher.hpp"
 
+#include <smedley/events/console.hpp>
 #include <smedley/plugin.hpp>
 
 #include <shellapi.h>
 #include <windows.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace campaign_runner
 {
     namespace
     {
-        std::wstring ReadSaveArgument()
+        std::optional<std::wstring> ReadArgument(const wchar_t *prefix)
         {
             int argc = 0;
             wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
             if (argv == nullptr) {
-                return {};
+                return std::nullopt;
             }
-            constexpr wchar_t prefix[] = L"-smedley-save=";
-            std::wstring result;
+            std::optional<std::wstring> result;
+            const std::wstring prefix_value(prefix);
             for (int index = 1; index < argc; ++index) {
                 const std::wstring argument = argv[index];
-                if (argument.rfind(prefix, 0) == 0) {
-                    result = argument.substr(std::size(prefix) - 1);
+                if (argument.rfind(prefix_value, 0) == 0) {
+                    result = argument.substr(prefix_value.size());
                     break;
                 }
             }
             LocalFree(argv);
             return result;
+        }
+
+        bool HasArgument(const wchar_t *expected)
+        {
+            int argc = 0;
+            wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+            if (argv == nullptr) {
+                return false;
+            }
+            bool found = false;
+            for (int index = 1; index < argc; ++index) {
+                if (std::wstring(argv[index]) == expected) {
+                    found = true;
+                    break;
+                }
+            }
+            LocalFree(argv);
+            return found;
         }
     }
 
@@ -39,11 +59,20 @@ namespace campaign_runner
         void OnLoad() override
         {
             launcher_ = std::make_unique<CampaignLauncher>(logger());
-            launcher_->Start(ReadSaveArgument());
+            AddEventHandler<smedley::events::ConsoleCmdManagerInitEvent>(
+                "campaign_runner_console",
+                [this](smedley::events::ConsoleCmdManagerInitEvent &event) {
+                    launcher_->CaptureConsoleCommandManager(event.cmd_mgr());
+                });
+            const auto save = ReadArgument(L"-smedley-save=");
+            launcher_->Start(
+                save.has_value() ? *save : std::wstring{},
+                HasArgument(L"-smedley-observe"));
         }
 
         void OnUnload() override
         {
+            RemoveEventHandler<smedley::events::ConsoleCmdManagerInitEvent>("campaign_runner_console");
             if (launcher_ != nullptr) {
                 launcher_->Stop();
             }

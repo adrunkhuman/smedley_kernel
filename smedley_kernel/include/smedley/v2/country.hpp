@@ -308,6 +308,7 @@ namespace smedley::v2
         //[[[end]]]
 
     public:
+        CCountryAI *ai() const { return _ai; }
         const CCountryTag &tag() const { return _tag; }
         bool HasCountryFlag(const char *key) { return _flags.Has(key); }
         int64_t treasury_raw() const { return _treasury.raw_value(); }

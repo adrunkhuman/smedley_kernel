@@ -65,7 +65,7 @@ namespace smedley::v2
         uint32_t _uk_0xb1c;
         uint32_t _uk_0xb20;
         CInGameIdler *_idler; // b24
-        uint32_t _uk_0xb28;
+        uint32_t _speed_index; // b28
         uint32_t _uk_0xb2c;
         uint32_t _uk_0xb30;
         uint32_t _uk_0xb34;
@@ -134,6 +134,47 @@ namespace smedley::v2
         inline sstd::vector<CCountry *> countries() { return _countries; }
         int current_date_raw() const { return _current_date.raw_value(); }
         CInGameIdler *idler() const { return _idler; }
+        int speed_index() const { return _speed_index; }
+        const CCountryTag &player_tag() const { return _player_tag; }
+        CCountry *country(int ordinal) const
+        {
+            return ordinal >= 0 && static_cast<size_t>(ordinal) < _countries.size()
+                ? _countries[ordinal]
+                : nullptr;
+        }
+        int player_control_state(int ordinal) const
+        {
+            return ordinal >= 0 && static_cast<size_t>(ordinal) < _player_nations.size()
+                ? _player_nations[ordinal]
+                : -1;
+        }
+        bool has_human_controlled_country() const
+        {
+            for (size_t ordinal = 0; ordinal < _player_nations.size(); ++ordinal) {
+                if (_player_nations[ordinal] != 0) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        size_t country_ai_count() const { return _country_ais.size(); }
+        size_t country_count() const { return _countries.size(); }
+        bool is_scheduled_ai(const CCountryAI *ai) const
+        {
+            for (size_t index = 0; index < _country_ais.size(); ++index) {
+                if (_country_ais[index] == ai) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        void ReturnCountryToAI(const CCountryTag &tag)
+        {
+            using ReturnCountryToAIFn = void (__thiscall *)(CCurrentGameState *, uint32_t, int);
+            const auto fn = reinterpret_cast<ReturnCountryToAIFn>(memory::Map::base_addr + 0x287a70);
+            fn(this, tag.key(), tag.ordinal());
+        }
 
         /*[[[cog
         from codegen import print_class_model_fns

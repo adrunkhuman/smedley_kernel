@@ -49,6 +49,182 @@ signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
 source = "models/v2/classes/CCountry.toml"
 
 [[symbols]]
+name = "Native tag console-command handler"
+rva = 0x0001f720
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 6a ff"
+source = "runtime command-bridge test invoked this registered handler with ENG and observed CGameState+0xb5c change; static disassembly establishes the SResult/vector ABI"
+
+[[symbols]]
+name = "Generic message popup-policy branch"
+rva = 0x0002bc68
+kind = "hook"
+status = "verified-runtime"
+signature = "80 7f 0e 00 75 23"
+source = "runtime --observe test bypassed six generic dispatches while advancing about 3,085 days without pausing; static dispatch checks popup +0x0e and pausepopup +0x10"
+
+[[symbols]]
+name = "Generic message popup-policy branch 2"
+rva = 0x000934f8
+kind = "hook"
+status = "verified-static-callsites"
+signature = "80 7b 0e 00 75 23"
+source = "one of nine duplicated configurable message dispatchers; policy pointer is EBX"
+
+[[symbols]]
+name = "Generic message popup-policy branch 3"
+rva = 0x000e9678
+kind = "hook"
+status = "verified-static-callsites"
+signature = "80 7f 0e 00 75 23"
+source = "dispatches Great War discovery/status messages and other configurable notifications"
+
+[[symbols]]
+name = "Generic message popup-policy branch 4"
+rva = 0x00149c68
+kind = "hook"
+status = "verified-static-callsites"
+signature = "80 7f 0e 00 75 23"
+source = "one of nine duplicated configurable message dispatchers"
+
+[[symbols]]
+name = "Generic message popup-policy branch 5"
+rva = 0x001abaa8
+kind = "hook"
+status = "verified-static-callsites"
+signature = "80 7b 0e 00 75 23"
+source = "one of nine duplicated configurable message dispatchers; policy pointer is EBX"
+
+[[symbols]]
+name = "Generic message popup-policy branch 6"
+rva = 0x0032dfb8
+kind = "hook"
+status = "verified-static-callsites"
+signature = "80 7f 0e 00 75 23"
+source = "one of nine duplicated configurable message dispatchers"
+
+[[symbols]]
+name = "Generic message popup-policy branch 7"
+rva = 0x00507038
+kind = "hook"
+status = "verified-static-callsites"
+signature = "80 7f 0e 00 75 23"
+source = "one of nine duplicated configurable message dispatchers"
+
+[[symbols]]
+name = "Generic message popup-policy branch 8"
+rva = 0x00509168
+kind = "hook"
+status = "verified-static-callsites"
+signature = "80 7f 0e 00 75 23"
+source = "one of nine duplicated configurable message dispatchers"
+
+[[symbols]]
+name = "Generic message popup-policy branch 9"
+rva = 0x0053d818
+kind = "hook"
+status = "verified-static-callsites"
+signature = "80 7f 0e 00 75 23"
+source = "one of nine duplicated configurable message dispatchers"
+
+[[symbols]]
+name = "Generic message no-popup continuation 1"
+rva = 0x0002be42
+kind = "label"
+status = "verified-static-callsites"
+signature = "8b 5d 10 eb 89"
+source = "bypasses popup/pause construction and resumes later notification handling"
+
+[[symbols]]
+name = "Generic message no-popup continuation 2"
+rva = 0x00093663
+kind = "label"
+status = "verified-static-callsites"
+signature = "80 7b 11 00 0f 84"
+source = "bypasses popup/pause construction and resumes icon handling"
+
+[[symbols]]
+name = "Generic message no-popup continuation 3"
+rva = 0x000e9852
+kind = "label"
+status = "verified-static-callsites"
+signature = "8b 5d 10 eb 89"
+source = "bypasses popup/pause construction and resumes later notification handling"
+
+[[symbols]]
+name = "Generic message no-popup continuation 4"
+rva = 0x00149e42
+kind = "label"
+status = "verified-static-callsites"
+signature = "8b 5d 10 eb 89"
+source = "bypasses popup/pause construction and resumes later notification handling"
+
+[[symbols]]
+name = "Generic message no-popup continuation 5"
+rva = 0x001abc13
+kind = "label"
+status = "verified-static-callsites"
+signature = "80 7b 11 00 0f 84"
+source = "bypasses popup/pause construction and resumes icon handling"
+
+[[symbols]]
+name = "Generic message no-popup continuation 6"
+rva = 0x0032e192
+kind = "label"
+status = "verified-static-callsites"
+signature = "8b 5d 10 eb 89"
+source = "bypasses popup/pause construction and resumes later notification handling"
+
+[[symbols]]
+name = "Generic message no-popup continuation 7"
+rva = 0x00507212
+kind = "label"
+status = "verified-static-callsites"
+signature = "8b 5d 10 eb 89"
+source = "bypasses popup/pause construction and resumes later notification handling"
+
+[[symbols]]
+name = "Generic message no-popup continuation 8"
+rva = 0x00509342
+kind = "label"
+status = "verified-static-callsites"
+signature = "8b 5d 10 eb 89"
+source = "bypasses popup/pause construction and resumes later notification handling"
+
+[[symbols]]
+name = "Generic message no-popup continuation 9"
+rva = 0x0053d9f2
+kind = "label"
+status = "verified-static-callsites"
+signature = "8b 5d 10 eb 89"
+source = "bypasses popup/pause construction and resumes later notification handling"
+
+[[symbols]]
+name = "Native debug console-command dispatcher"
+rva = 0x00020eb0
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 83 e4 f8 6a ff"
+source = "runtime --observe invoked registered debug command with argv[0] fow, read back zero visibility flag, and continued simulation"
+
+[[symbols]]
+name = "Fog-of-war enabled flag"
+rva = 0x00b092fb
+kind = "global"
+status = "verified-runtime"
+signature = "01"
+source = "1 enables normal fog; runtime --observe used debug fow to toggle this to 0 and trigger native idler map invalidation"
+
+[[symbols]]
+name = "Return player country to native AI control"
+rva = 0x00287a70
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
+source = "runtime --observe test cleared JAN human control, attached AI 0x7133c528, and grew scheduler count 271->272; static caller is queued transition handler RVA 0x32c220"
+
+[[symbols]]
 name = "AddToSphereEvent hook"
 rva = 0x00133e59
 kind = "hook"
@@ -211,9 +387,9 @@ source = "called repeatedly inside the daily simulation routine; speed-5 interva
 name = "Speed-up message handler"
 rva = 0x0032ee90
 kind = "function"
-status = "verified-static-callsites"
+status = "verified-runtime"
 signature = "8b 0d e8 88 25 01 8b 81 28 0b 00 00 40 83 f8 04"
-source = "increments CCurrentGameState+0xb28 and clamps the result to 4"
+source = "campaign_runner invoked this until runtime readback CCurrentGameState+0xb28 reached 4; handler increments and clamps to 4"
 
 [[symbols]]
 name = "Speed-down message handler"
@@ -330,8 +506,10 @@ status = "current-unverified"
 size = 0x0d08
 source = "smedley_kernel/include/smedley/v2/gamestate.hpp"
 fields = [
+  { name = "country_ais", offset = 0x00a4 },
   { name = "provinces", offset = 0x0acc },
   { name = "countries", offset = 0x0adc },
+  { name = "player_nations", offset = 0x0aec },
   { name = "current_date", offset = 0x0b0c },
   { name = "idler", offset = 0x0b24 },
   { name = "speed_index", offset = 0x0b28 },
@@ -359,6 +537,7 @@ fields = [
   { name = "expenses", offset = 0x00b0 },
   { name = "incomes", offset = 0x00d0 },
   { name = "flags", offset = 0x01b0 },
+  { name = "ai", offset = 0x0208 },
   { name = "treasury", offset = 0x0e78 },
   { name = "treasury_shadow", offset = 0x0e80 },
   { name = "bank", offset = 0x0e88 },

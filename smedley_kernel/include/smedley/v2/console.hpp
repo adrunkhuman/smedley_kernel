@@ -2,6 +2,8 @@
 
 #include "../std/string.hpp"
 #include "../std/vector.hpp"
+#include <algorithm>
+#include <cstring>
 
 namespace smedley::v2
 {
@@ -52,6 +54,44 @@ namespace smedley::v2
     public:
         sstd::vector<CConsoleCmd::SCommandData *> &commands() { return _commands; }
         const sstd::vector<CConsoleCmd::SCommandData *> &commands() const { return _commands; }
+
+        CConsoleCmd::SCommandData *FindCommand(const char *name)
+        {
+            if (name == nullptr) {
+                return nullptr;
+            }
+            for (size_t index = 0; index < _commands.size(); ++index) {
+                auto *command = _commands[index];
+                if (command == nullptr) {
+                    continue;
+                }
+                if (command->name != nullptr && std::strcmp(command->name, name) == 0) {
+                    return command;
+                }
+                const auto alias_count = (std::min)(command->num_aliases, 3);
+                for (int alias = 0; alias < alias_count; ++alias) {
+                    if (command->aliases[alias] != nullptr
+                        && std::strcmp(command->aliases[alias], name) == 0) {
+                        return command;
+                    }
+                }
+            }
+            return nullptr;
+        }
+
+        CConsoleCmd::SResult ExecuteCommand(
+            const char *name,
+            const sstd::vector<sstd::string> &arguments)
+        {
+            auto *command = FindCommand(name);
+            if (command == nullptr) {
+                return CConsoleCmd::SResult("not found", false);
+            }
+            if (command->handler == nullptr) {
+                return CConsoleCmd::SResult("null handler", false);
+            }
+            return command->handler(arguments);
+        }
     };
 
     static_assert(sizeof(CConsoleCmdManager) == 0x10);

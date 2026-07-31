@@ -23,6 +23,7 @@ then resumes the game without using the graphical bootstrapper.
 smedley_cli --game-dir "C:\path\to\Victoria 2" --detach
 smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/v2up.toml --detach
 smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/campaign_runner.toml --save "C:\path\to\autosave.v2" --detach
+smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/campaign_runner.toml --save "C:\path\to\autosave.v2" --observe --detach
 smedley_cli --game-dir "C:\path\to\Victoria 2" --plugin plugins/campaign_runner.toml --plugin plugins/economy_trace.toml --save "C:\path\to\autosave.v2" --detach
 ```
 
@@ -35,6 +36,18 @@ frontend thread to enter Single Player, select the named save through the
 normal loader, and enter campaign mode. No mouse or keyboard input is
 synthesized. After verifying the in-game idler through RTTI, the runner unpauses
 the campaign through Victoria 2's native pause controller.
+An optional `--observe` returns the loaded save's player country to native AI
+control before unpausing. The current tag remains as a safe UI viewing
+perspective, but the runner verifies that no country remains marked as human
+controlled and that the former player country has rejoined the AI scheduler.
+It then invokes the native `fow` command and verifies full-map visibility before
+selecting native speed 5 and unpausing. All nine configurable message popup
+dispatchers and their attached pause actions are bypassed only while observer
+mode is active; message effects, logs, map notices, and AI processing remain
+intact.
+If the UI viewing country is annexed, the watchdog pauses, switches the view to
+a living AI country through native `tag`, returns that country to AI, verifies
+the scheduler, and resumes.
 
 The independent `economy_trace` plugin writes `economy_trace.csv` in the game
 directory. Each daily country update records the raw game date, country tag,

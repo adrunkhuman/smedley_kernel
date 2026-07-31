@@ -21,6 +21,7 @@ struct Options
     std::vector<fs::path> plugins;
     bool detach = false;
     bool dry_run = false;
+    bool observe = false;
 };
 
 std::string WindowsError(const std::string &operation)
@@ -35,6 +36,7 @@ void PrintUsage()
         << "  --kernel PATH  Kernel DLL (default: GAME_DIR/smedley_kernel.dll)\n"
         << "  --plugin PATH  Plugin TOML file; may be repeated\n"
         << "  --save PATH    Save file for an automation plugin to load\n"
+        << "  --observe      Return the player country to AI control before unpausing\n"
         << "  --detach       Return after Victoria 2 starts\n"
         << "  --dry-run      Check paths without starting Victoria 2\n"
         << "  --help         Show this help\n";
@@ -57,7 +59,12 @@ Options ParseArguments(int argc, wchar_t **argv)
             options.dry_run = true;
             continue;
         }
-        if (arg != L"--game-dir" && arg != L"--kernel" && arg != L"--plugin" && arg != L"--save") {
+        if (arg == L"--observe") {
+            options.observe = true;
+            continue;
+        }
+        if (arg != L"--game-dir" && arg != L"--kernel" && arg != L"--plugin"
+            && arg != L"--save") {
             throw std::runtime_error("unknown argument");
         }
         if (++i == argc) {
@@ -83,6 +90,11 @@ Options ParseArguments(int argc, wchar_t **argv)
         : fs::absolute(options.kernel).lexically_normal();
     if (!options.save.empty()) {
         options.save = fs::absolute(options.save).lexically_normal();
+    }
+    if (options.observe) {
+        if (options.save.empty()) {
+            throw std::runtime_error("--observe requires --save");
+        }
     }
     return options;
 }
@@ -206,6 +218,19 @@ std::vector<fs::path> ResolvePlugins(const Options &options)
     return modules;
 }
 
+bool HasPlugin(const Options &options, const std::string &expected_id)
+{
+    for (const auto &argument : options.plugins) {
+        const auto definition = argument.is_absolute() ? argument : options.game_dir / argument;
+        const auto table = toml::parse_file(definition.string());
+        const auto id = table["id"].value<std::string>();
+        if (id.has_value() && *id == expected_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void WaitForRemoteThread(HANDLE thread, const std::string &operation)
 {
     constexpr DWORD injection_timeout_ms = 30000;
@@ -300,6 +325,9 @@ int wmain(int argc, wchar_t **argv)
             RequireSaveInGameDirectory(options.save);
         }
         const auto plugin_modules = ResolvePlugins(options);
+        if (options.observe && !HasPlugin(options, "campaign_runner")) {
+            throw std::runtime_error("--observe requires the campaign_runner plugin");
+        }
 
         std::wstring command_line = L"\"" + game.wstring() + L"\"";
         for (const auto &plugin : options.plugins) {
@@ -307,6 +335,9 @@ int wmain(int argc, wchar_t **argv)
         }
         if (!options.save.empty()) {
             command_line += L" -smedley-save=\"" + options.save.wstring() + L"\"";
+        }
+        if (options.observe) {
+            command_line += L" -smedley-observe";
         }
 
         std::wcout << L"game:   " << game << L"\n"
@@ -316,6 +347,9 @@ int wmain(int argc, wchar_t **argv)
         }
         if (!options.save.empty()) {
             std::wcout << L"save:   " << options.save << L"\n";
+        }
+        if (options.observe) {
+            std::wcout << L"observe: enabled\n";
         }
         if (options.dry_run) {
             return 0;
