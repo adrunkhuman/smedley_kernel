@@ -203,6 +203,7 @@ best effort if telemetry becomes active only after the action.
 | `pause.configured` | previous/current/requested pause | `verified-runtime`, once after final readback; observer setup pauses are not final. |
 | `date.regressed` | previous/current/delta raw date | `provisional`, lower date observed by the daily callback; not proof of reload. |
 | `benchmark.started` | start/target raw date, requested days, timeout seconds | `provisional`; emitted when the fully configured benchmark interval begins. The record date is the start raw date. |
+| `benchmark.resources` | process CPU microseconds; available start/end working set and private committed bytes; process-lifetime peak working set | `verified-current`; one optional record immediately before a started benchmark's terminal record, derived from Windows process samples at benchmark start and terminal. CPU is the user-plus-kernel delta for the benchmark interval. |
 | `benchmark.completed` | start/target/actual raw date, game days, elapsed microseconds, zero overshoot, paused | `provisional`; exact-target pause readback only. |
 | `benchmark.failed` | start/target raw date, elapsed microseconds, stable reason; actual date and paused state when readable | `provisional`; reason is `timeout`, `date_overshoot`, `idler_unavailable`, `invalid_pause_state`, `pause_failed`, `observer_invariant_failed`, `date_regressed`, `unexpected_pause`, `timer_unavailable`, or standalone `invalid_target`. |
 
@@ -215,7 +216,11 @@ are intentionally quiet.
 Benchmark records have no effect on campaign outcome when telemetry is absent,
 filtered, dropped, or invalid. `smedley_trace summary` reports the single
 benchmark start and terminal state; `compare` uses completed benchmark
-game days and elapsed time separately from observed trace-date metrics.
+game days, elapsed time, process CPU, and terminal memory separately from
+observed trace-date metrics. Memory is sampled rather than a benchmark-interval
+maximum; `process_peak_working_set_bytes` is the process-lifetime peak reported
+by Windows. Older traces without a resource record remain valid and report
+these fields as unavailable.
 `export-trace` rejects an event filter that would separate a benchmark start
 from its terminal record; use `inspect --event` to view one event type.
 

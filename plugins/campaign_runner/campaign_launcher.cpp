@@ -8,6 +8,8 @@
 #include <smedley/v2/console.hpp>
 #include <smedley/v2/gamestate.hpp>
 
+#include <psapi.h>
+
 #include <cstring>
 #include <cctype>
 #include <cstdint>
@@ -62,6 +64,42 @@ namespace campaign_runner
             const uint64_t ticks = static_cast<uint64_t>(counter.QuadPart);
             const uint64_t rate = static_cast<uint64_t>(frequency.QuadPart);
             return ticks / rate * 1000000ull + ticks % rate * 1000000ull / rate;
+        }
+
+        struct ProcessMetricsSnapshot
+        {
+            std::optional<int64_t> process_cpu_us;
+            std::optional<int64_t> working_set_bytes;
+            std::optional<int64_t> private_bytes;
+            std::optional<int64_t> process_peak_working_set_bytes;
+        };
+
+        ProcessMetricsSnapshot SampleProcessMetrics()
+        {
+            ProcessMetricsSnapshot snapshot;
+            FILETIME created{}, exited{}, kernel{}, user{};
+            if (GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user)) {
+                ULARGE_INTEGER kernel_ticks{}, user_ticks{};
+                kernel_ticks.LowPart = kernel.dwLowDateTime;
+                kernel_ticks.HighPart = kernel.dwHighDateTime;
+                user_ticks.LowPart = user.dwLowDateTime;
+                user_ticks.HighPart = user.dwHighDateTime;
+                if (user_ticks.QuadPart <= (std::numeric_limits<uint64_t>::max)() - kernel_ticks.QuadPart) {
+                    const uint64_t total_us = (kernel_ticks.QuadPart + user_ticks.QuadPart) / 10;
+                    if (total_us <= static_cast<uint64_t>((std::numeric_limits<int64_t>::max)())) {
+                        snapshot.process_cpu_us = static_cast<int64_t>(total_us);
+                    }
+                }
+            }
+            PROCESS_MEMORY_COUNTERS_EX counters{};
+            counters.cb = sizeof(counters);
+            if (GetProcessMemoryInfo(GetCurrentProcess(), reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(&counters),
+                                     sizeof(counters))) {
+                snapshot.working_set_bytes = static_cast<int64_t>(counters.WorkingSetSize);
+                snapshot.private_bytes = static_cast<int64_t>(counters.PrivateUsage);
+                snapshot.process_peak_working_set_bytes = static_cast<int64_t>(counters.PeakWorkingSetSize);
+            }
+            return snapshot;
         }
 
         bool IsInGameIdler(const void *object)
@@ -950,6 +988,7 @@ namespace campaign_runner
         if (!run_condition_.requested() || benchmark_started_ || game_state == nullptr || idler == nullptr) return;
         if (observer_enabled_ && !EmitObserverConfiguredIfReady(game_state)) return;
         const char *error = nullptr;
+        const auto process_metrics = SampleProcessMetrics();
         if (!benchmark_.Begin(game_state->current_date_raw(), run_condition_.days, run_condition_.target_date_raw,
                               run_condition_.timeout_seconds, MonotonicMicroseconds(), &error)) {
             logger_.Failure(std::string("benchmark did not start: ") + (error == nullptr ? "invalid target" : error));
@@ -957,6 +996,9 @@ namespace campaign_runner
             return;
         }
         benchmark_started_ = true;
+        benchmark_process_cpu_start_us_ = process_metrics.process_cpu_us;
+        benchmark_working_set_start_bytes_ = process_metrics.working_set_bytes;
+        benchmark_private_bytes_start_ = process_metrics.private_bytes;
         ReportTelemetryResult(telemetry_.BenchmarkStarted(benchmark_.start_date_raw(), benchmark_.target_date_raw(),
                                                           benchmark_.requested_days(), run_condition_.timeout_seconds));
         logger_.Info("benchmark started at raw date " + std::to_string(benchmark_.start_date_raw())
@@ -1005,9 +1047,19 @@ namespace campaign_runner
         }
         observer_monitoring_ = false;
         suppress_message_popups = false;
+        const auto process_metrics = SampleProcessMetrics();
         const uint64_t now = MonotonicMicroseconds();
         const int64_t elapsed = (std::max)(int64_t{1}, now >= benchmark_.start_monotonic_us()
             ? static_cast<int64_t>(now - benchmark_.start_monotonic_us()) : int64_t{0});
+        std::optional<int64_t> process_cpu_us;
+        if (benchmark_process_cpu_start_us_ && process_metrics.process_cpu_us
+            && *process_metrics.process_cpu_us >= *benchmark_process_cpu_start_us_) {
+            process_cpu_us = *process_metrics.process_cpu_us - *benchmark_process_cpu_start_us_;
+        }
+        ReportTelemetryResult(telemetry_.BenchmarkResources(actual_date_raw, process_cpu_us,
+            benchmark_working_set_start_bytes_, process_metrics.working_set_bytes,
+            benchmark_private_bytes_start_, process_metrics.private_bytes,
+            process_metrics.process_peak_working_set_bytes));
         if (reason == nullptr) {
             ReportTelemetryResult(telemetry_.BenchmarkCompleted(benchmark_.start_date_raw(), benchmark_.target_date_raw(),
                 actual_date_raw.value_or(benchmark_.target_date_raw()), benchmark_.requested_days(), elapsed));

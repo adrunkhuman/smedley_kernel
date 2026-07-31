@@ -25,6 +25,8 @@ namespace smedley::trace
         std::string status = "unavailable";
         std::optional<int> start_date_raw, target_date_raw, actual_date_raw, game_days;
         std::optional<uint64_t> elapsed_us;
+        std::optional<uint64_t> process_cpu_us, working_set_start_bytes, working_set_end_bytes;
+        std::optional<uint64_t> private_bytes_start, private_bytes_end, process_peak_working_set_bytes;
         std::string reason;
         std::optional<bool> paused;
     };

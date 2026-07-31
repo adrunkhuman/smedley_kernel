@@ -163,6 +163,30 @@ namespace campaign_runner
         return Emit("benchmark.started", nullptr, 0, payload, 4, &benchmark_started_emitted_, "provisional", start_date_raw);
     }
 
+    SmedleyTelemetryResult CampaignTelemetry::BenchmarkResources(std::optional<int> game_date_raw,
+                                                                   std::optional<int64_t> process_cpu_us,
+                                                                   std::optional<int64_t> working_set_start_bytes,
+                                                                   std::optional<int64_t> working_set_end_bytes,
+                                                                   std::optional<int64_t> private_bytes_start,
+                                                                   std::optional<int64_t> private_bytes_end,
+                                                                   std::optional<int64_t> process_peak_working_set_bytes)
+    {
+        SmedleyTelemetryFieldV1 payload[6]{};
+        uint32_t count = 0;
+        const auto append = [&](const char *key, std::optional<int64_t> value) {
+            if (value) payload[count++] = IntField(key, *value);
+        };
+        append("process_cpu_us", process_cpu_us);
+        append("working_set_start_bytes", working_set_start_bytes);
+        append("working_set_end_bytes", working_set_end_bytes);
+        append("private_bytes_start", private_bytes_start);
+        append("private_bytes_end", private_bytes_end);
+        append("process_peak_working_set_bytes", process_peak_working_set_bytes);
+        if (count == 0) return SMEDLEY_TELEMETRY_UNAVAILABLE;
+        return Emit("benchmark.resources", nullptr, 0, payload, count, &benchmark_resources_emitted_,
+                    "verified-current", game_date_raw);
+    }
+
     SmedleyTelemetryResult CampaignTelemetry::BenchmarkCompleted(int start_date_raw, int target_date_raw, int actual_date_raw,
                                                                    int game_days, int64_t elapsed_us)
     {

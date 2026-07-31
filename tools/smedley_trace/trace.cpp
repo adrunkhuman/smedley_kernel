@@ -366,8 +366,38 @@ namespace smedley::trace
 
         bool BenchmarkSchema(const Record &record, std::string *error)
         {
-            if (record.event != "benchmark.started" && record.event != "benchmark.completed" && record.event != "benchmark.failed") return true;
-            if (record.category != "lifecycle" || record.quality != "provisional") { *error = "benchmark record has an unsupported envelope"; return false; }
+            const bool resources = record.event == "benchmark.resources";
+            if (record.event != "benchmark.started" && record.event != "benchmark.completed"
+                && record.event != "benchmark.failed" && !resources) return true;
+            if (record.category != "lifecycle" || record.quality != (resources ? "verified-current" : "provisional")) {
+                *error = "benchmark record has an unsupported envelope";
+                return false;
+            }
+            if (resources) {
+                if (!record.entities.empty() || record.payload.empty() || record.payload.size() > 6
+                    || !HasOnlyFields(record, {"process_cpu_us", "working_set_start_bytes", "working_set_end_bytes",
+                                              "private_bytes_start", "private_bytes_end", "process_peak_working_set_bytes"})) {
+                    *error = "benchmark.resources has an unsupported schema";
+                    return false;
+                }
+                for (const auto &[key, field] : record.payload) {
+                    int64_t value = 0;
+                    if (field.kind != JsonKind::Number || !ParseIntegerText(field.text, &value)
+                        || value < 0) {
+                        *error = "benchmark.resources contains an invalid metric";
+                        return false;
+                    }
+                }
+                int64_t start = 0, end = 0, peak = 0;
+                const bool has_start = IntegerField(record, "working_set_start_bytes", &start);
+                const bool has_end = IntegerField(record, "working_set_end_bytes", &end);
+                const bool has_peak = IntegerField(record, "process_peak_working_set_bytes", &peak);
+                if (has_peak && ((has_start && peak < start) || (has_end && peak < end))) {
+                    *error = "benchmark.resources peak working set is inconsistent";
+                    return false;
+                }
+                return true;
+            }
             int64_t start = 0, target = 0, elapsed = 0;
             if (!IntegerField(record, "start_date_raw", &start) || !IntegerField(record, "target_date_raw", &target)
                 || start < (std::numeric_limits<int>::min)() || start > (std::numeric_limits<int>::max)()
@@ -426,15 +456,27 @@ namespace smedley::trace
         struct BenchmarkTraceState
         {
             bool started = false;
+            bool resources = false;
             bool terminal = false;
             int start_date_raw = 0;
             int target_date_raw = 0;
             int timeout_seconds = 0;
+            std::optional<int> resources_date_raw;
         };
 
         bool BenchmarkTransition(const Record &record, BenchmarkTraceState *state, std::string *error)
         {
-            if (record.event != "benchmark.started" && record.event != "benchmark.completed" && record.event != "benchmark.failed") return true;
+            if (record.event != "benchmark.started" && record.event != "benchmark.completed"
+                && record.event != "benchmark.failed" && record.event != "benchmark.resources") return true;
+            if (record.event == "benchmark.resources") {
+                if (!state->started || state->resources || state->terminal) {
+                    *error = "benchmark.resources has no active benchmark or is duplicated";
+                    return false;
+                }
+                state->resources = true;
+                state->resources_date_raw = record.game_date_raw;
+                return true;
+            }
             int64_t start = 0, target = 0;
             IntegerField(record, "start_date_raw", &start);
             IntegerField(record, "target_date_raw", &target);
@@ -455,6 +497,10 @@ namespace smedley::trace
                 *error = "benchmark terminal has no matching start or is duplicated";
                 return false;
             }
+            if (state->resources && state->resources_date_raw != record.game_date_raw) {
+                *error = "benchmark.resources game date does not match its terminal record";
+                return false;
+            }
             int64_t elapsed = 0;
             if (reason != nullptr && reason->text == "timeout"
                 && (!IntegerField(record, "elapsed_us", &elapsed)
@@ -468,8 +514,20 @@ namespace smedley::trace
 
         void CaptureBenchmark(const Record &record, BenchmarkSummary *benchmark)
         {
-            if (record.event != "benchmark.started" && record.event != "benchmark.completed" && record.event != "benchmark.failed") return;
             auto integer = [&](const char *key) -> std::optional<int64_t> { int64_t value = 0; return IntegerField(record, key, &value) ? std::optional<int64_t>(value) : std::nullopt; };
+            if (record.event == "benchmark.resources") {
+                const auto capture = [&](const char *key, std::optional<uint64_t> *destination) {
+                    if (const auto value = integer(key)) *destination = static_cast<uint64_t>(*value);
+                };
+                capture("process_cpu_us", &benchmark->process_cpu_us);
+                capture("working_set_start_bytes", &benchmark->working_set_start_bytes);
+                capture("working_set_end_bytes", &benchmark->working_set_end_bytes);
+                capture("private_bytes_start", &benchmark->private_bytes_start);
+                capture("private_bytes_end", &benchmark->private_bytes_end);
+                capture("process_peak_working_set_bytes", &benchmark->process_peak_working_set_bytes);
+                return;
+            }
+            if (record.event != "benchmark.started" && record.event != "benchmark.completed" && record.event != "benchmark.failed") return;
             benchmark->start_date_raw = static_cast<int>(*integer("start_date_raw"));
             benchmark->target_date_raw = static_cast<int>(*integer("target_date_raw"));
             if (record.event == "benchmark.started") { benchmark->status = "started"; return; }
@@ -722,7 +780,8 @@ namespace smedley::trace
     {
         fs::path input_path, output_path;
         if (!AbsolutePath(input, &input_path, error) || !AbsolutePath(output, &output_path, error)) return false;
-        if (filter.event == "benchmark.started" || filter.event == "benchmark.completed" || filter.event == "benchmark.failed") {
+        if (filter.event == "benchmark.started" || filter.event == "benchmark.resources"
+            || filter.event == "benchmark.completed" || filter.event == "benchmark.failed") {
             *error = "benchmark lifecycle events cannot be split by a trace export filter";
             return false;
         }
@@ -828,6 +887,10 @@ namespace smedley::trace
                << " actual=" << value(benchmark.actual_date_raw)
                << " game_days=" << value(benchmark.game_days)
                << " elapsed_us=" << value(benchmark.elapsed_us)
+               << " process_cpu_us=" << value(benchmark.process_cpu_us)
+               << " working_set_end_bytes=" << value(benchmark.working_set_end_bytes)
+               << " private_bytes_end=" << value(benchmark.private_bytes_end)
+               << " process_peak_working_set_bytes=" << value(benchmark.process_peak_working_set_bytes)
                << " reason=" << (benchmark.reason.empty() ? "unavailable" : benchmark.reason)
                << " paused=" << (benchmark.paused ? (*benchmark.paused ? "true" : "false") : "unavailable")
                << " gaps=" << summary.gaps
@@ -858,6 +921,10 @@ namespace smedley::trace
                 * 1000000.0 / (*summary.last_date_monotonic_us - *summary.first_date_monotonic_us);
         } else output << "unavailable";
         const auto benchmark_value = [](const auto &value) { return value ? std::to_string(*value) : "unavailable"; };
+        const auto benchmark_delta = [](const std::optional<uint64_t> &start, const std::optional<uint64_t> &end) {
+            if (!start || !end) return std::string("unavailable");
+            return *end >= *start ? std::to_string(*end - *start) : "-" + std::to_string(*start - *end);
+        };
         output << " benchmark_status=" << summary.benchmark.status
                << " benchmark_start=" << benchmark_value(summary.benchmark.start_date_raw)
                << " benchmark_target=" << benchmark_value(summary.benchmark.target_date_raw)
@@ -866,7 +933,17 @@ namespace smedley::trace
                << " benchmark_elapsed_us=" << benchmark_value(summary.benchmark.elapsed_us)
                << " benchmark_game_days_per_sec=";
         if (summary.benchmark.status == "completed" && summary.benchmark.game_days && summary.benchmark.elapsed_us && *summary.benchmark.elapsed_us > 0) output << *summary.benchmark.game_days * 1000000.0 / *summary.benchmark.elapsed_us; else output << "unavailable";
-        output << " benchmark_reason=" << (summary.benchmark.reason.empty() ? "unavailable" : summary.benchmark.reason)
+        output << " benchmark_process_cpu_us=" << benchmark_value(summary.benchmark.process_cpu_us)
+               << " benchmark_process_cpu_percent=";
+        if (summary.benchmark.process_cpu_us && summary.benchmark.elapsed_us && *summary.benchmark.elapsed_us > 0) output << *summary.benchmark.process_cpu_us * 100.0 / *summary.benchmark.elapsed_us; else output << "unavailable";
+        output << " benchmark_working_set_start_bytes=" << benchmark_value(summary.benchmark.working_set_start_bytes)
+               << " benchmark_working_set_end_bytes=" << benchmark_value(summary.benchmark.working_set_end_bytes)
+               << " benchmark_working_set_delta_bytes=" << benchmark_delta(summary.benchmark.working_set_start_bytes, summary.benchmark.working_set_end_bytes)
+               << " benchmark_private_start_bytes=" << benchmark_value(summary.benchmark.private_bytes_start)
+               << " benchmark_private_end_bytes=" << benchmark_value(summary.benchmark.private_bytes_end)
+               << " benchmark_private_delta_bytes=" << benchmark_delta(summary.benchmark.private_bytes_start, summary.benchmark.private_bytes_end)
+               << " benchmark_process_peak_working_set_bytes=" << benchmark_value(summary.benchmark.process_peak_working_set_bytes)
+               << " benchmark_reason=" << (summary.benchmark.reason.empty() ? "unavailable" : summary.benchmark.reason)
                << " benchmark_paused=" << (summary.benchmark.paused ? (*summary.benchmark.paused ? "true" : "false") : "unavailable");
         for (const char *key : {"accepted", "written", "dropped", "high_water", "write_failed", "callback_enqueue_format_us_total", "callback_enqueue_format_us_mean", "callback_count"}) output << ' ' << key << '=' << metric(key);
         for (const auto &[key, value] : summary.events) output << " event." << key << '=' << value;
@@ -896,14 +973,27 @@ namespace smedley::trace
         auto metric = [&](const Summary &summary, const char *key) { const auto found = summary.progress.find(key); return found == summary.progress.end() ? std::string("unavailable") : found->second.text; };
         auto benchmark_metric = [](const Summary &summary, const char *key) {
             if (summary.benchmark.status != "completed") return std::string("unavailable");
-            if (std::string(key) == "benchmark_game_days") return summary.benchmark.game_days ? std::to_string(*summary.benchmark.game_days) : "unavailable";
-            if (std::string(key) == "benchmark_elapsed_us") return summary.benchmark.elapsed_us ? std::to_string(*summary.benchmark.elapsed_us) : "unavailable";
+            const std::string name(key);
+            if (name == "benchmark_game_days") return summary.benchmark.game_days ? std::to_string(*summary.benchmark.game_days) : "unavailable";
+            if (name == "benchmark_elapsed_us") return summary.benchmark.elapsed_us ? std::to_string(*summary.benchmark.elapsed_us) : "unavailable";
+            if (name == "benchmark_process_cpu_us") return summary.benchmark.process_cpu_us ? std::to_string(*summary.benchmark.process_cpu_us) : "unavailable";
+            if (name == "benchmark_working_set_end_bytes") return summary.benchmark.working_set_end_bytes ? std::to_string(*summary.benchmark.working_set_end_bytes) : "unavailable";
+            if (name == "benchmark_private_end_bytes") return summary.benchmark.private_bytes_end ? std::to_string(*summary.benchmark.private_bytes_end) : "unavailable";
+            if (name == "benchmark_process_peak_working_set_bytes") return summary.benchmark.process_peak_working_set_bytes ? std::to_string(*summary.benchmark.process_peak_working_set_bytes) : "unavailable";
+            if (name == "benchmark_process_cpu_percent") {
+                if (!summary.benchmark.process_cpu_us || !summary.benchmark.elapsed_us || *summary.benchmark.elapsed_us == 0) return std::string("unavailable");
+                return std::to_string(*summary.benchmark.process_cpu_us * 100.0 / *summary.benchmark.elapsed_us);
+            }
             if (!summary.benchmark.game_days || !summary.benchmark.elapsed_us || *summary.benchmark.elapsed_us == 0) return std::string("unavailable");
             return std::to_string(*summary.benchmark.game_days * 1000000.0 / *summary.benchmark.elapsed_us);
         };
         std::ostringstream output;
         output << "left_run_id=" << left.run_id << " right_run_id=" << right.run_id << '\n';
-        for (const char *key : {"records", "gaps", "game_date_span_days", "elapsed_us", "game_days_per_sec", "benchmark_game_days", "benchmark_elapsed_us", "benchmark_game_days_per_sec", "accepted", "written", "dropped", "high_water", "write_failed", "callback_enqueue_format_us_total", "callback_enqueue_format_us_mean", "callback_count"}) {
+        for (const char *key : {"records", "gaps", "game_date_span_days", "elapsed_us", "game_days_per_sec",
+             "benchmark_game_days", "benchmark_elapsed_us", "benchmark_game_days_per_sec", "benchmark_process_cpu_us",
+             "benchmark_process_cpu_percent", "benchmark_working_set_end_bytes", "benchmark_private_end_bytes",
+             "benchmark_process_peak_working_set_bytes", "accepted", "written", "dropped", "high_water", "write_failed",
+             "callback_enqueue_format_us_total", "callback_enqueue_format_us_mean", "callback_count"}) {
             const std::string left_value = std::string(key).rfind("benchmark_", 0) == 0 ? benchmark_metric(left, key) : std::string(key) == "records" ? std::to_string(left.records) : std::string(key) == "gaps" ? std::to_string(left.gaps) : std::string(key) == "game_date_span_days" ? date_span(left) : std::string(key) == "elapsed_us" ? elapsed(left) : std::string(key) == "game_days_per_sec" ? rate(left) : metric(left, key);
             const std::string right_value = std::string(key).rfind("benchmark_", 0) == 0 ? benchmark_metric(right, key) : std::string(key) == "records" ? std::to_string(right.records) : std::string(key) == "gaps" ? std::to_string(right.gaps) : std::string(key) == "game_date_span_days" ? date_span(right) : std::string(key) == "elapsed_us" ? elapsed(right) : std::string(key) == "game_days_per_sec" ? rate(right) : metric(right, key);
             double a = 0, b = 0;

@@ -219,22 +219,72 @@ TEST_F(TraceTest, ConvertsRawDateUnitsToGameDays)
 TEST_F(TraceTest, SummarizesAndComparesCompletedBenchmarks)
 {
     const auto benchmark = [](uint64_t sequence, uint64_t monotonic, int date, const char *event, const char *payload, const char *run) {
+        const char *quality = std::string_view(event) == "benchmark.resources" ? "verified-current" : "provisional";
         return std::string("{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"") + run
             + "\",\"sequence\":" + std::to_string(sequence) + ",\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":" + std::to_string(monotonic)
-            + ",\"game_date_raw\":" + std::to_string(date) + ",\"event_type\":\"" + event + "\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"provisional\",\"entities\":{},\"payload\":" + payload + "}";
+            + ",\"game_date_raw\":" + std::to_string(date) + ",\"event_type\":\"" + event + "\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"" + quality + "\",\"entities\":{},\"payload\":" + payload + "}";
     };
     const auto left = Path(L"benchmark left");
     const auto right = Path(L"benchmark right");
     Write(left, benchmark(1, 10, 100, "benchmark.started", "{\"start_date_raw\":100,\"target_date_raw\":124,\"requested_days\":1,\"timeout_seconds\":600}", "left")
-        + "\n" + benchmark(2, 110, 124, "benchmark.completed", "{\"start_date_raw\":100,\"target_date_raw\":124,\"actual_date_raw\":124,\"game_days\":1,\"elapsed_us\":100,\"overshoot_raw\":0,\"paused\":true}", "left"));
+        + "\n" + benchmark(2, 109, 124, "benchmark.resources", "{\"process_cpu_us\":90,\"working_set_start_bytes\":1000,\"working_set_end_bytes\":1200,\"private_bytes_start\":2000,\"private_bytes_end\":2200,\"process_peak_working_set_bytes\":1300}", "left")
+        + "\n" + benchmark(3, 110, 124, "benchmark.completed", "{\"start_date_raw\":100,\"target_date_raw\":124,\"actual_date_raw\":124,\"game_days\":1,\"elapsed_us\":100,\"overshoot_raw\":0,\"paused\":true}", "left"));
     Write(right, benchmark(1, 10, 100, "benchmark.started", "{\"start_date_raw\":100,\"target_date_raw\":124,\"requested_days\":1,\"timeout_seconds\":600}", "right")
-        + "\n" + benchmark(2, 210, 124, "benchmark.completed", "{\"start_date_raw\":100,\"target_date_raw\":124,\"actual_date_raw\":124,\"game_days\":1,\"elapsed_us\":200,\"overshoot_raw\":0,\"paused\":true}", "right"));
+        + "\n" + benchmark(2, 209, 124, "benchmark.resources", "{\"process_cpu_us\":180,\"working_set_start_bytes\":1000,\"working_set_end_bytes\":1400,\"private_bytes_start\":2000,\"private_bytes_end\":2400,\"process_peak_working_set_bytes\":1500}", "right")
+        + "\n" + benchmark(3, 210, 124, "benchmark.completed", "{\"start_date_raw\":100,\"target_date_raw\":124,\"actual_date_raw\":124,\"game_days\":1,\"elapsed_us\":200,\"overshoot_raw\":0,\"paused\":true}", "right"));
     trace::Summary left_summary, right_summary;
     std::string error;
     ASSERT_TRUE(trace::Read(left, {}, &left_summary, nullptr, 0, &error)) << error;
     ASSERT_TRUE(trace::Read(right, {}, &right_summary, nullptr, 0, &error)) << error;
     EXPECT_NE(trace::FormatSummary(left_summary).find("benchmark_status=completed"), std::string::npos);
+    EXPECT_NE(trace::FormatSummary(left_summary).find("benchmark_process_cpu_us=90"), std::string::npos);
+    EXPECT_NE(trace::FormatSummary(left_summary).find("benchmark_working_set_delta_bytes=200"), std::string::npos);
     EXPECT_NE(trace::FormatCompare(left_summary, right_summary).find("benchmark_elapsed_us 100 | 200 | 100"), std::string::npos);
+    EXPECT_NE(trace::FormatCompare(left_summary, right_summary).find("benchmark_process_cpu_us 90 | 180 | 90"), std::string::npos);
+}
+
+TEST_F(TraceTest, ValidatesBenchmarkResourceSchemaAndOrder)
+{
+    const auto record = [](uint64_t sequence, const char *date, const char *event, const char *payload, const char *quality) {
+        return std::string("{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"run-1\",\"sequence\":")
+            + std::to_string(sequence) + ",\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":"
+            + std::to_string(sequence) + ",\"game_date_raw\":" + date + ",\"event_type\":\"" + event
+            + "\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"" + quality
+            + "\",\"entities\":{},\"payload\":" + payload + "}";
+    };
+    const auto started = record(1, "100", "benchmark.started",
+        "{\"start_date_raw\":100,\"target_date_raw\":124,\"requested_days\":1,\"timeout_seconds\":600}", "provisional");
+    const auto resources = record(2, "124", "benchmark.resources",
+        "{\"process_cpu_us\":10,\"working_set_start_bytes\":100,\"working_set_end_bytes\":120,\"process_peak_working_set_bytes\":130}", "verified-current");
+    const auto completed = record(3, "124", "benchmark.completed",
+        "{\"start_date_raw\":100,\"target_date_raw\":124,\"actual_date_raw\":124,\"game_days\":1,\"elapsed_us\":10,\"overshoot_raw\":0,\"paused\":true}", "provisional");
+    const auto path = Path(L"benchmark resources");
+    trace::Summary summary;
+    std::string error;
+
+    Write(path, started + "\n" + resources + "\n" + completed);
+    ASSERT_TRUE(trace::Read(path, {}, &summary, nullptr, 0, &error)) << error;
+    EXPECT_EQ(summary.benchmark.process_cpu_us, 10u);
+    EXPECT_EQ(summary.benchmark.working_set_end_bytes, 120u);
+
+    Write(path, resources);
+    EXPECT_FALSE(trace::Read(path, {}, &summary, nullptr, 0, &error));
+    Write(path, started + "\n" + resources + "\n" + record(3, "124", "benchmark.resources", "{\"process_cpu_us\":11}", "verified-current"));
+    EXPECT_FALSE(trace::Read(path, {}, &summary, nullptr, 0, &error));
+    Write(path, started + "\n" + completed + "\n" + record(4, "124", "benchmark.resources", "{\"process_cpu_us\":11}", "verified-current"));
+    EXPECT_FALSE(trace::Read(path, {}, &summary, nullptr, 0, &error));
+    Write(path, started + "\n" + record(2, "124", "benchmark.resources", "{\"process_cpu_us\":-1}", "verified-current"));
+    EXPECT_FALSE(trace::Read(path, {}, &summary, nullptr, 0, &error));
+    Write(path, started + "\n" + record(2, "124", "benchmark.resources", "{\"unknown\":1}", "verified-current"));
+    EXPECT_FALSE(trace::Read(path, {}, &summary, nullptr, 0, &error));
+    Write(path, started + "\n" + record(2, "123", "benchmark.resources", "{\"process_cpu_us\":1}", "verified-current") + "\n" + completed);
+    EXPECT_FALSE(trace::Read(path, {}, &summary, nullptr, 0, &error));
+    Write(path, started + "\n" + record(2, "null", "benchmark.resources", "{\"process_cpu_us\":1}", "verified-current") + "\n"
+        + record(3, "100", "benchmark.failed", "{\"start_date_raw\":100,\"target_date_raw\":124,\"actual_date_raw\":100,\"elapsed_us\":600000000,\"reason\":\"timeout\",\"paused\":true}", "provisional"));
+    EXPECT_FALSE(trace::Read(path, {}, &summary, nullptr, 0, &error));
+    Write(path, started + "\n" + record(2, "100", "benchmark.resources", "{\"process_cpu_us\":1}", "verified-current") + "\n"
+        + record(3, "null", "benchmark.failed", "{\"start_date_raw\":100,\"target_date_raw\":124,\"elapsed_us\":1,\"reason\":\"idler_unavailable\"}", "provisional"));
+    EXPECT_FALSE(trace::Read(path, {}, &summary, nullptr, 0, &error));
 }
 
 TEST_F(TraceTest, VerifiesExpectedBenchmarkOutcomeAndTelemetryHealth)
@@ -411,5 +461,6 @@ TEST_F(TraceTest, RejectsExportsThatSplitBenchmarkLifecycle)
     std::string error;
     EXPECT_FALSE(trace::ExportTrace(input, output, {"benchmark.completed", {}, {}}, false, &error));
     EXPECT_EQ(error, "benchmark lifecycle events cannot be split by a trace export filter");
+    EXPECT_FALSE(trace::ExportTrace(input, output, {"benchmark.resources", {}, {}}, false, &error));
     EXPECT_FALSE(fs::exists(output));
 }

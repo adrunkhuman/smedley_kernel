@@ -23,6 +23,13 @@ namespace campaign_runner
         SmedleyTelemetryResult SpeedConfigured(int previous_speed, int current_speed, int requested_speed);
         SmedleyTelemetryResult PauseConfigured(bool previous_paused, bool current_paused, bool requested_paused);
         SmedleyTelemetryResult BenchmarkStarted(int start_date_raw, int target_date_raw, int requested_days, int timeout_seconds);
+        SmedleyTelemetryResult BenchmarkResources(std::optional<int> game_date_raw,
+                                                   std::optional<int64_t> process_cpu_us,
+                                                   std::optional<int64_t> working_set_start_bytes,
+                                                   std::optional<int64_t> working_set_end_bytes,
+                                                   std::optional<int64_t> private_bytes_start,
+                                                   std::optional<int64_t> private_bytes_end,
+                                                   std::optional<int64_t> process_peak_working_set_bytes);
         SmedleyTelemetryResult BenchmarkCompleted(int start_date_raw, int target_date_raw, int actual_date_raw,
                                                   int game_days, int64_t elapsed_us);
         SmedleyTelemetryResult BenchmarkFailed(int start_date_raw, int target_date_raw, std::optional<int> actual_date_raw,
@@ -43,6 +50,7 @@ namespace campaign_runner
         bool speed_emitted_ = false;
         bool pause_emitted_ = false;
         bool benchmark_started_emitted_ = false;
+        bool benchmark_resources_emitted_ = false;
         bool benchmark_terminal_emitted_ = false;
     };
 }

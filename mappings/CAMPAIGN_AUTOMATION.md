@@ -126,6 +126,23 @@ paused without inventing unavailable progress counters. All three traces had
 zero sequence gaps; available counters reported zero drops and no write
 failure. The source save hash remained unchanged.
 
+The resource-profiling build repeated the same unmodified vanilla observer
+benchmark with one Windows process snapshot immediately before each terminal
+record. Both traces contained 375 ordered records, including exactly one
+`benchmark.resources`, with zero gaps, drops, or write failures:
+
+| Run | Wall us | Process CPU us | CPU / wall | Working set start -> end | Private bytes start -> end | Process peak working set |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `c835ced2-9140-4acb-a656-648795a77de3` | 20,874,288 | 27,500,000 | 131.741% | 1,338,437,632 -> 1,360,338,944 | 1,540,493,312 -> 1,564,241,920 | 1,372,725,248 |
+| `8b259c50-5cf7-476a-a634-95b87b152c9a` | 21,133,183 | 31,734,375 | 150.164% | 1,362,038,784 -> 1,361,985,536 | 1,565,822,976 -> 1,568,247,808 | 1,373,532,160 |
+
+Wall throughput was 17.49 and 17.27 game days per second, a 1.23 percent
+repeat difference, while process CPU differed by 14.30 percent. Two runs do not
+bound CPU-time variance sufficiently for an optimization claim. CPU / wall can
+exceed 100 percent because Windows sums process CPU time across threads. The
+source save again retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
 GFM preflight resolves the installed descriptor's `user_dir = "GFM"` and accepts
 a save beneath that mod-specific `save games` directory. Runtime compatibility
 is not yet established: the only available candidate was a copied vanilla save,

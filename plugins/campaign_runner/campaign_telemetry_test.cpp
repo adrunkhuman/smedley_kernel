@@ -205,10 +205,24 @@ TEST_F(CampaignTelemetryTest, EmitsTypedBenchmarkRecords)
     EXPECT_EQ(telemetry.BenchmarkStarted(100, 124, 1, 600), SMEDLEY_TELEMETRY_ACCEPTED);
     EXPECT_EQ(event_type, "benchmark.started");
     EXPECT_EQ(payload.size(), 4u);
+    EXPECT_EQ(telemetry.BenchmarkResources(124, 40, 100, 120, 200, 230, 150), SMEDLEY_TELEMETRY_ACCEPTED);
+    EXPECT_EQ(event_type, "benchmark.resources");
+    ASSERT_EQ(payload.size(), 6u);
+    EXPECT_EQ(payload[0].key, "process_cpu_us");
+    EXPECT_EQ(payload[0].int_value, 40);
+    EXPECT_EQ(payload[5].key, "process_peak_working_set_bytes");
+    EXPECT_EQ(payload[5].int_value, 150);
     EXPECT_EQ(telemetry.BenchmarkCompleted(100, 124, 124, 1, 50), SMEDLEY_TELEMETRY_ACCEPTED);
     EXPECT_EQ(event_type, "benchmark.completed");
     EXPECT_EQ(payload.size(), 7u);
     EXPECT_EQ(telemetry.BenchmarkFailed(100, 124, 125, 50, "date_overshoot", true), SMEDLEY_TELEMETRY_FILTERED);
+
+    campaign_runner::CampaignTelemetry partial(&Capture);
+    EXPECT_EQ(partial.BenchmarkResources(std::nullopt, 0, std::nullopt, std::nullopt,
+                                         std::nullopt, std::nullopt, std::nullopt),
+              SMEDLEY_TELEMETRY_ACCEPTED);
+    ASSERT_EQ(payload.size(), 1u);
+    EXPECT_EQ(payload[0].key, "process_cpu_us");
 }
 
 TEST_F(CampaignTelemetryTest, SelectsOnlyAnEmptyOrMatchingSaveBasename)

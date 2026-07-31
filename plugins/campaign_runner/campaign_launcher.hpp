@@ -84,6 +84,9 @@ namespace campaign_runner
         BenchmarkController benchmark_;
         bool benchmark_started_ = false;
         bool benchmark_terminal_ = false;
+        std::optional<int64_t> benchmark_process_cpu_start_us_;
+        std::optional<int64_t> benchmark_working_set_start_bytes_;
+        std::optional<int64_t> benchmark_private_bytes_start_;
         bool final_pause_recorded_ = false;
         std::optional<bool> pause_before_configuration_;
         size_t observer_ai_count_before_switch_ = 0;
