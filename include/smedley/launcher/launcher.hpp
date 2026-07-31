@@ -61,6 +61,10 @@ namespace smedley::launcher
         int speed = 5;
         bool start_paused = false;
         bool detach = false;
+        std::optional<int> run_days;
+        std::optional<int> run_until_date_raw;
+        int run_timeout_seconds = 600;
+        std::optional<std::string> run_parse_error;
         bool telemetry_enabled = false;
         std::optional<fs::path> telemetry_output;
         std::vector<std::string> telemetry_categories = {"lifecycle", "state"};

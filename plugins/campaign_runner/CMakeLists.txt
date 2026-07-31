@@ -1,9 +1,9 @@
-add_library(campaign_runner MODULE plugin.cpp campaign_launcher.cpp campaign_telemetry.cpp campaign_save_selection.cpp)
+add_library(campaign_runner MODULE plugin.cpp campaign_launch_arguments.cpp campaign_launcher.cpp benchmark_controller.cpp campaign_telemetry.cpp campaign_save_selection.cpp)
 target_link_libraries(campaign_runner smedley_kernel shell32 psapi)
 target_include_directories(campaign_runner PRIVATE "../../smedley_kernel/include" "${CMAKE_SOURCE_DIR}/include")
 
 if(BUILD_TESTING)
-  add_executable(smedley_campaign_telemetry_tests campaign_telemetry.cpp campaign_save_selection.cpp campaign_telemetry_test.cpp)
+  add_executable(smedley_campaign_telemetry_tests campaign_launch_arguments.cpp benchmark_controller.cpp campaign_telemetry.cpp campaign_save_selection.cpp campaign_telemetry_test.cpp)
   target_include_directories(smedley_campaign_telemetry_tests PRIVATE "${CMAKE_SOURCE_DIR}/include")
   target_link_libraries(smedley_campaign_telemetry_tests PRIVATE GTest::gtest_main psapi)
   include(GoogleTest)

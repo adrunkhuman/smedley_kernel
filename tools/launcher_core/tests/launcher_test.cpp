@@ -110,6 +110,8 @@ TEST_F(LauncherCoreTest, SavesAndLoadsProfileWithSpaces)
     original.speed = 3;
     original.start_paused = true;
     original.detach = true;
+    original.run_days = 365;
+    original.run_timeout_seconds = 900;
     std::vector<launcher::Diagnostic> diagnostics;
 
     ASSERT_TRUE(launcher::SaveProfile(root / L"profile.toml", original, &diagnostics));
@@ -127,6 +129,8 @@ TEST_F(LauncherCoreTest, SavesAndLoadsProfileWithSpaces)
     EXPECT_EQ(loaded.speed, original.speed);
     EXPECT_TRUE(loaded.start_paused);
     EXPECT_TRUE(loaded.detach);
+    EXPECT_EQ(loaded.run_days, original.run_days);
+    EXPECT_EQ(loaded.run_timeout_seconds, 900);
     EXPECT_FALSE(loaded.inject);
     EXPECT_FALSE(loaded.telemetry_enabled);
     EXPECT_EQ(loaded.telemetry_categories, (std::vector<std::string>{"lifecycle", "state"}));
@@ -165,6 +169,15 @@ TEST_F(LauncherCoreTest, RejectsMalformedCampaignRunControlTypes)
     EXPECT_FALSE(launcher::LoadProfile(root / L"bad-pause.toml", &profile, &diagnostics));
     ASSERT_FALSE(diagnostics.empty());
     EXPECT_EQ(diagnostics.back().code, "profile.schema");
+
+    diagnostics.clear();
+    Write(root / L"bad-run.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\nrun_days = \"365\"\n");
+    EXPECT_FALSE(launcher::LoadProfile(root / L"bad-run.toml", &profile, &diagnostics));
+    EXPECT_EQ(diagnostics.back().code, "profile.schema");
+    diagnostics.clear();
+    Write(root / L"bad-timeout.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\nrun_timeout_seconds = 0\n");
+    EXPECT_FALSE(launcher::LoadProfile(root / L"bad-timeout.toml", &profile, &diagnostics));
+    EXPECT_EQ(diagnostics.back().code, "campaign.run_timeout");
 }
 
 TEST_F(LauncherCoreTest, SavesLoadsAndRejectsMalformedTelemetryProfileFields)
@@ -346,6 +359,42 @@ TEST_F(LauncherCoreTest, AddsCampaignRunControlArgumentsAndRejectsPausedObserver
     }));
 }
 
+TEST_F(LauncherCoreTest, WiresBenchmarkTargetsAndRejectsUnsafeCombinations)
+{
+    const auto plugin_binary = BuiltCampaignPlugin();
+    ASSERT_TRUE(fs::is_regular_file(plugin_binary));
+    fs::copy_file(plugin_binary, root / L"plugins" / L"campaign_runner.dll");
+    Write(root / L"plugins" / L"campaign_runner.toml",
+          "id = \"campaign_runner\"\nname = \"Campaign Runner\"\nversion = \"1\"\nmodule = \"campaign_runner.dll\"\n");
+    launcher::Profile profile;
+    profile.game_dir = root;
+    profile.plugins = {L"plugins/campaign_runner.toml"};
+    profile.save = root / L"missing.v2";
+    profile.detach = true;
+    profile.run_days = 365;
+    profile.run_timeout_seconds = 900;
+    auto plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_NE(plan.command_line.find(L"-smedley-run-days=365"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-run-timeout-seconds=900"), std::wstring::npos);
+    EXPECT_FALSE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code.rfind("campaign.run", 0) == 0;
+    }));
+
+    profile.detach = false;
+    profile.view_tag = L"ENG";
+    profile.observer = true;
+    profile.run_until_date_raw = 240;
+    plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "campaign.run_target" || diagnostic.code == "campaign.run_detach" || diagnostic.code == "campaign.run_view_tag";
+    }));
+    profile.inject = false;
+    plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "safe_mode.run_target_ignored" && diagnostic.severity == launcher::Severity::Warning;
+    }));
+}
+
 TEST_F(LauncherCoreTest, ValidatesTelemetryPluginAndBuildsPerRunTraceCommand)
 {
     const auto plugin_binary = BuiltTelemetryPlugin();
@@ -424,6 +473,21 @@ TEST_F(LauncherCoreTest, RejectsRunControlsWithoutSaveAndCampaignRunner)
     EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
         return diagnostic.code == "campaign.save";
     }));
+}
+
+TEST_F(LauncherCoreTest, IgnoresCustomBenchmarkTimeoutWithoutTarget)
+{
+    launcher::Profile profile;
+    profile.game_dir = root;
+    profile.run_timeout_seconds = 900;
+    const auto plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "campaign.run_timeout_ignored" && diagnostic.severity == launcher::Severity::Warning;
+    }));
+    EXPECT_FALSE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "campaign.plugin" || diagnostic.code == "campaign.save";
+    }));
+    EXPECT_EQ(plan.command_line.find(L"-smedley-run-timeout-seconds="), std::wstring::npos);
 }
 
 TEST_F(LauncherCoreTest, OrdersPluginDependenciesAndRejectsCycles)

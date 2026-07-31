@@ -19,7 +19,7 @@ namespace campaign_runner
             return field;
         }
 
-        SmedleyTelemetryFieldV1 IntField(const char *key, int value)
+        SmedleyTelemetryFieldV1 IntField(const char *key, int64_t value)
         {
             SmedleyTelemetryFieldV1 field{sizeof(field), SMEDLEY_TELEMETRY_ABI_VERSION_V1, key,
                 static_cast<uint32_t>(std::strlen(key)), SMEDLEY_TELEMETRY_INT64, 0, {}};
@@ -89,8 +89,9 @@ namespace campaign_runner
     }
 
     SmedleyTelemetryResult CampaignTelemetry::Emit(const char *event_type, const SmedleyTelemetryFieldV1 *entities,
-                                                    uint32_t entity_count, const SmedleyTelemetryFieldV1 *payload,
-                                                    uint32_t payload_count, bool *emitted)
+                                                     uint32_t entity_count, const SmedleyTelemetryFieldV1 *payload,
+                                                     uint32_t payload_count, bool *emitted, const char *quality,
+                                                     std::optional<int> game_date_raw)
     {
         if (*emitted) return SMEDLEY_TELEMETRY_FILTERED;
         SmedleyTelemetryEmitV1Fn emit = nullptr;
@@ -100,9 +101,10 @@ namespace campaign_runner
             return SMEDLEY_TELEMETRY_UNAVAILABLE;
         }
         if (emit == nullptr) return SMEDLEY_TELEMETRY_UNAVAILABLE;
-        SmedleyTelemetryRecordV1 record{sizeof(record), SMEDLEY_TELEMETRY_ABI_VERSION_V1, 0, 0,
+        SmedleyTelemetryRecordV1 record{sizeof(record), SMEDLEY_TELEMETRY_ABI_VERSION_V1,
+            game_date_raw ? SMEDLEY_TELEMETRY_RECORD_HAS_GAME_DATE : 0, 0,
             event_type, static_cast<uint32_t>(std::strlen(event_type)), "lifecycle", 9,
-            "v2game-3.04", 11, "verified-runtime", 16, 0, 0,
+            "v2game-3.04", 11, quality, static_cast<uint32_t>(std::strlen(quality)), game_date_raw.value_or(0), 0,
             entities, entity_count, payload, payload_count, {0, 0, 0, 0}};
         SmedleyTelemetryResult result = SMEDLEY_TELEMETRY_UNAVAILABLE;
         try {
@@ -151,5 +153,34 @@ namespace campaign_runner
         const SmedleyTelemetryFieldV1 payload[] = {BoolField("previous_paused", previous_paused),
             BoolField("current_paused", current_paused), BoolField("requested_paused", requested_paused)};
         return Emit("pause.configured", nullptr, 0, payload, 3, &pause_emitted_);
+    }
+
+    SmedleyTelemetryResult CampaignTelemetry::BenchmarkStarted(int start_date_raw, int target_date_raw, int requested_days,
+                                                                 int timeout_seconds)
+    {
+        const SmedleyTelemetryFieldV1 payload[] = {IntField("start_date_raw", start_date_raw), IntField("target_date_raw", target_date_raw),
+            IntField("requested_days", requested_days), IntField("timeout_seconds", timeout_seconds)};
+        return Emit("benchmark.started", nullptr, 0, payload, 4, &benchmark_started_emitted_, "provisional", start_date_raw);
+    }
+
+    SmedleyTelemetryResult CampaignTelemetry::BenchmarkCompleted(int start_date_raw, int target_date_raw, int actual_date_raw,
+                                                                   int game_days, int64_t elapsed_us)
+    {
+        const SmedleyTelemetryFieldV1 payload[] = {IntField("start_date_raw", start_date_raw), IntField("target_date_raw", target_date_raw),
+            IntField("actual_date_raw", actual_date_raw), IntField("game_days", game_days), IntField("elapsed_us", elapsed_us),
+            IntField("overshoot_raw", 0), BoolField("paused", true)};
+        return Emit("benchmark.completed", nullptr, 0, payload, 7, &benchmark_terminal_emitted_, "provisional", actual_date_raw);
+    }
+
+    SmedleyTelemetryResult CampaignTelemetry::BenchmarkFailed(int start_date_raw, int target_date_raw,
+                                                                std::optional<int> actual_date_raw, int64_t elapsed_us,
+                                                                std::string_view reason, std::optional<bool> paused)
+    {
+        SmedleyTelemetryFieldV1 payload[6] = {IntField("start_date_raw", start_date_raw), IntField("target_date_raw", target_date_raw),
+            IntField("elapsed_us", elapsed_us), StringField("reason", reason)};
+        uint32_t count = 4;
+        if (actual_date_raw) payload[count++] = IntField("actual_date_raw", *actual_date_raw);
+        if (paused) payload[count++] = BoolField("paused", *paused);
+        return Emit("benchmark.failed", nullptr, 0, payload, count, &benchmark_terminal_emitted_, "provisional", actual_date_raw);
     }
 }

@@ -1,9 +1,12 @@
 #include "campaign_telemetry.hpp"
 #include "campaign_save_selection.hpp"
+#include "benchmark_controller.hpp"
+#include "campaign_launch_arguments.hpp"
 
 #include <gtest/gtest.h>
 
 #include <deque>
+#include <limits>
 
 namespace
 {
@@ -144,6 +147,68 @@ TEST_F(CampaignTelemetryTest, ChoosesOnlyTheExactSiblingTelemetryPath)
     const std::wstring runner = L"C:\\Game\\plugins\\campaign_runner.dll";
     EXPECT_FALSE(campaign_runner::IsSiblingTelemetryPath(runner, L"C:\\Elsewhere\\telemetry.dll"));
     EXPECT_TRUE(campaign_runner::IsSiblingTelemetryPath(runner, L"c:\\game\\plugins\\TELEMETRY.dll"));
+}
+
+TEST(BenchmarkControllerTest, CompletesOnlyAtTheExactTargetOnce)
+{
+    campaign_runner::BenchmarkController controller;
+    const char *error = nullptr;
+    ASSERT_TRUE(controller.Begin(100, 2, std::nullopt, 600, 10, &error)) << error;
+    EXPECT_EQ(controller.target_date_raw(), 148);
+    EXPECT_EQ(controller.Observe({true, 124, 0, true, 11}).action, campaign_runner::BenchmarkAction::Continue);
+    EXPECT_EQ(controller.Observe({true, 148, 0, true, 12}).action, campaign_runner::BenchmarkAction::Complete);
+    EXPECT_EQ(controller.Observe({true, 148, 0, true, 13}).action, campaign_runner::BenchmarkAction::Continue);
+}
+
+TEST(CampaignLaunchArgumentsTest, IgnoresOtherSmedleyArgumentsAndRejectsBenchmarkDuplicates)
+{
+    campaign_runner::CampaignLaunchArguments arguments;
+    std::string error;
+    ASSERT_TRUE(campaign_runner::ParseCampaignLaunchArguments({L"v2game.exe", L"-smedley-save=C:\\save.v2",
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl", L"-smedley-telemetry-categories=lifecycle",
+        L"-smedley-run-days=365", L"-smedley-run-timeout-seconds=600"}, &arguments, &error)) << error;
+    EXPECT_EQ(arguments.run_condition.days, 365);
+    EXPECT_EQ(arguments.run_condition.timeout_seconds, 600);
+    EXPECT_FALSE(campaign_runner::ParseCampaignLaunchArguments({L"v2game.exe", L"-smedley-save=C:\\save.v2", L"-smedley-run-days=1", L"-smedley-run-days=2"}, &arguments, &error));
+    EXPECT_FALSE(campaign_runner::ParseCampaignLaunchArguments({L"v2game.exe", L"-smedley-save=C:\\save.v2", L"-smedley-run-until-date-raw"}, &arguments, &error));
+}
+
+TEST(BenchmarkControllerTest, RejectsInvalidTargetMathAndDetectsFailures)
+{
+    campaign_runner::BenchmarkController controller;
+    const char *error = nullptr;
+    EXPECT_FALSE(controller.Begin((std::numeric_limits<int>::max)(), 1, std::nullopt, 600, 0, &error));
+    EXPECT_FALSE(controller.active());
+    EXPECT_FALSE(controller.Begin(100, std::nullopt, 101, 600, 0, nullptr));
+    EXPECT_FALSE(controller.active());
+    EXPECT_FALSE(controller.Begin(100, std::nullopt, 101, 600, 0, &error));
+    ASSERT_TRUE(controller.Begin(100, std::nullopt, 124, 1, 10, &error));
+    EXPECT_STREQ(controller.Observe({true, 125, 0, true, 11}).reason, "date_overshoot");
+
+    ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 1, 10, &error));
+    EXPECT_STREQ(controller.Observe({true, 100, 0, true, 1000010}).reason, "timeout");
+    ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 600, 10, &error));
+    EXPECT_STREQ(controller.Observe({true, 99, 0, true, 11}).reason, "date_regressed");
+    ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 600, 10, &error));
+    EXPECT_STREQ(controller.Observe({true, 100, 1, true, 11}).reason, "unexpected_pause");
+    ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 600, 10, &error));
+    EXPECT_STREQ(controller.Observe({true, 100, 0, false, 11}).reason, "observer_invariant_failed");
+    ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 600, 10, &error));
+    EXPECT_STREQ(controller.Observe({false, std::nullopt, -1, true, 11}).reason, "idler_unavailable");
+    ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 600, 10, &error));
+    EXPECT_STREQ(controller.Observe({true, 100, 2, true, 11}).reason, "invalid_pause_state");
+}
+
+TEST_F(CampaignTelemetryTest, EmitsTypedBenchmarkRecords)
+{
+    campaign_runner::CampaignTelemetry telemetry(&Capture);
+    EXPECT_EQ(telemetry.BenchmarkStarted(100, 124, 1, 600), SMEDLEY_TELEMETRY_ACCEPTED);
+    EXPECT_EQ(event_type, "benchmark.started");
+    EXPECT_EQ(payload.size(), 4u);
+    EXPECT_EQ(telemetry.BenchmarkCompleted(100, 124, 124, 1, 50), SMEDLEY_TELEMETRY_ACCEPTED);
+    EXPECT_EQ(event_type, "benchmark.completed");
+    EXPECT_EQ(payload.size(), 7u);
+    EXPECT_EQ(telemetry.BenchmarkFailed(100, 124, 125, 50, "date_overshoot", true), SMEDLEY_TELEMETRY_FILTERED);
 }
 
 TEST_F(CampaignTelemetryTest, SelectsOnlyAnEmptyOrMatchingSaveBasename)

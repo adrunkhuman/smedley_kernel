@@ -53,6 +53,9 @@ namespace
         telemetry_country_tags_edit,
         telemetry_start_date_edit,
         telemetry_end_date_edit,
+        run_days_edit,
+        run_until_date_edit,
+        run_timeout_edit,
     };
 
     std::wstring Utf8ToWide(const std::string &value)
@@ -483,7 +486,7 @@ namespace
             case WM_GETMINMAXINFO: {
                 auto *info = reinterpret_cast<MINMAXINFO *>(lparam);
                 info->ptMinTrackSize.x = Scale(690);
-                info->ptMinTrackSize.y = Scale(540);
+                info->ptMinTrackSize.y = Scale(690);
                 return 0;
             }
             case WM_SIZE:
@@ -600,6 +603,12 @@ namespace
             }
             SendMessageW(speed_, CB_SETCURSEL, 4, 0);
             start_paused_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"Start &paused", start_paused_check);
+            run_days_label_ = AddLabel(L"Run days:");
+            run_days_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", run_days_edit);
+            run_until_date_label_ = AddLabel(L"Run target raw:");
+            run_until_date_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", run_until_date_edit);
+            run_timeout_label_ = AddLabel(L"Timeout s:");
+            run_timeout_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"600", run_timeout_edit);
 
             diagnostics_label_ = AddLabel(L"&Diagnostics:");
             diagnostics_ = AddControl(WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL | WS_TABSTOP,
@@ -663,7 +672,7 @@ namespace
 
             PlaceLabel(plugin_label_, y, label_width, row, margin);
             y += row;
-            const int bottom_fixed = Scale(26 * 10 + 30 + 130 + 44);
+            const int bottom_fixed = Scale(26 * 11 + 30 + 130 + 44);
             const int plugin_height = std::max(Scale(100), height - y - bottom_fixed);
             MoveWindow(plugins_, margin, y, right - margin, plugin_height, TRUE);
             y += plugin_height + Scale(4);
@@ -699,6 +708,13 @@ namespace
             PlaceLabel(speed_label_, y, Scale(60), row, margin);
             MoveWindow(speed_, margin + Scale(62), y, Scale(70), Scale(300), TRUE);
             MoveWindow(start_paused_, margin + Scale(145), y, Scale(150), Scale(22), TRUE);
+            y += row;
+            PlaceLabel(run_days_label_, y, Scale(60), row, margin);
+            MoveWindow(run_days_, margin + Scale(62), y, Scale(70), Scale(22), TRUE);
+            PlaceLabel(run_until_date_label_, y, Scale(92), row, margin + Scale(145));
+            MoveWindow(run_until_date_, margin + Scale(240), y, Scale(90), Scale(22), TRUE);
+            PlaceLabel(run_timeout_label_, y, Scale(62), row, margin + Scale(345));
+            MoveWindow(run_timeout_, margin + Scale(407), y, Scale(75), Scale(22), TRUE);
             y += row;
 
             PlaceLabel(diagnostics_label_, y, label_width, row, margin);
@@ -747,8 +763,9 @@ namespace
                 RefreshPlan();
             } else if ((id == speed_combo || id == telemetry_categories_combo) && notification == CBN_SELCHANGE) RefreshPlan();
             else if ((id == game_dir_edit || id == save_path_edit || id == view_tag_edit || id == profile_name_edit || id == telemetry_output_edit
-                      || id == telemetry_sample_days_edit || id == telemetry_queue_capacity_edit || id == telemetry_country_tags_edit
-                      || id == telemetry_start_date_edit || id == telemetry_end_date_edit) && notification == EN_KILLFOCUS) {
+                       || id == telemetry_sample_days_edit || id == telemetry_queue_capacity_edit || id == telemetry_country_tags_edit
+                       || id == telemetry_start_date_edit || id == telemetry_end_date_edit || id == run_days_edit
+                       || id == run_until_date_edit || id == run_timeout_edit) && notification == EN_KILLFOCUS) {
                 if (id == game_dir_edit) RefreshDiscovery();
                 else RefreshPlan();
             }
@@ -784,6 +801,23 @@ namespace
             if (!view_tag.empty()) profile.view_tag = view_tag;
             profile.speed = static_cast<int>(SendMessageW(speed_, CB_GETCURSEL, 0, 0)) + 1;
             profile.start_paused = SendMessageW(start_paused_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            auto parse_run = [&](HWND control, std::optional<int> *destination, const char *name, bool required) {
+                const auto value = GetText(control);
+                if (value.empty() && !required) return;
+                try {
+                    size_t used = 0;
+                    const int parsed = std::stoi(value, &used);
+                    if (used != value.size()) throw std::invalid_argument("trailing characters");
+                    *destination = parsed;
+                } catch (const std::exception &) {
+                    profile.run_parse_error = std::string(name) + " must be an integer";
+                }
+            };
+            parse_run(run_days_, &profile.run_days, "run_days", false);
+            parse_run(run_until_date_, &profile.run_until_date_raw, "run_until_date_raw", false);
+            std::optional<int> timeout;
+            parse_run(run_timeout_, &timeout, "run_timeout_seconds", true);
+            if (timeout) profile.run_timeout_seconds = *timeout;
             profile.telemetry_enabled = SendMessageW(telemetry_enabled_, BM_GETCHECK, 0, 0) == BST_CHECKED;
             profile.telemetry_overwrite = SendMessageW(telemetry_overwrite_, BM_GETCHECK, 0, 0) == BST_CHECKED;
             const auto telemetry_output = GetText(telemetry_output_);
@@ -928,7 +962,10 @@ namespace
         void RefreshPlan()
         {
             operation_diagnostics_.clear();
-            plan_ = launcher::BuildLaunchPlan(BuildProfile());
+            auto profile = BuildProfile();
+            // The GUI always detaches; retain the loaded value only when saving the profile again.
+            profile.detach = true;
+            plan_ = launcher::BuildLaunchPlan(profile);
             DisplayDiagnostics(plan_.diagnostics);
             const bool has_errors = unsupported_multi_mod_ || launcher::HasErrors(plan_.diagnostics);
             EnableWindow(launch_, !has_errors);
@@ -988,6 +1025,9 @@ namespace
             SetText(telemetry_country_tags_, tags);
             SetText(telemetry_start_date_, profile.telemetry_start_date_raw ? std::to_wstring(*profile.telemetry_start_date_raw) : L"");
             SetText(telemetry_end_date_, profile.telemetry_end_date_raw ? std::to_wstring(*profile.telemetry_end_date_raw) : L"");
+            SetText(run_days_, profile.run_days ? std::to_wstring(*profile.run_days) : L"");
+            SetText(run_until_date_, profile.run_until_date_raw ? std::to_wstring(*profile.run_until_date_raw) : L"");
+            SetText(run_timeout_, std::to_wstring(profile.run_timeout_seconds));
             retained_detach_ = profile.detach;
             // A loaded profile intentionally replaces, rather than merges with, old selections.
             discovered_mods_.clear();
@@ -1064,6 +1104,12 @@ namespace
         HWND speed_label_ = nullptr;
         HWND speed_ = nullptr;
         HWND start_paused_ = nullptr;
+        HWND run_days_label_ = nullptr;
+        HWND run_days_ = nullptr;
+        HWND run_until_date_label_ = nullptr;
+        HWND run_until_date_ = nullptr;
+        HWND run_timeout_label_ = nullptr;
+        HWND run_timeout_ = nullptr;
         HWND diagnostics_label_ = nullptr;
         HWND diagnostics_ = nullptr;
         HWND status_ = nullptr;

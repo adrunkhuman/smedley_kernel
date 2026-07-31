@@ -13,25 +13,32 @@
 - The independent `economy_trace` plugin provides a CSV output path once a
   campaign is running.
 - `campaign_runner` verifies RTTI `CInGameIdler`, invokes the native pause
-  toggle, and verifies the resulting pause byte. Date progression was observed
-  in runtime testing but is not yet enforced by the runner.
+  toggle, and verifies the resulting pause byte. Bounded benchmark runs now
+  enforce an exact target date or emit a typed terminal failure.
 - Optional full-AI observer mode uses the native return-to-AI transition and
   verifies that no player-control entry remains before unpausing; runtime
   acceptance passed with `benchmark.v2` and `JAN`.
 - Observer view failover after annexation is implemented with native `tag`
   followed by return-to-AI restoration; runtime annexation acceptance is pending.
+- Native speed selection, generic message-popup suppression, and bounded
+  run-for-days targets are implemented. Two identical 365-day observer runs
+  paused at the exact target with a 0.50 percent throughput difference and no
+  telemetry gaps, drops, or source-save mutation.
 
 ## Immediate blocker
 
-Campaign entry and unpause work. Speed 5 is already effectively unpaced. The
-next blockers are selecting native speed 5 before unpause and handling modal
-events that stop unattended date progression.
+Campaign entry, observer setup, native speed 5, generic message-popup
+suppression, and exact-date pause work. The immediate automation blocker is a
+verified save/checkpoint and clean native exit boundary; until then benchmark
+runs deliberately remain paused and open. Non-generic modal interruptions also
+need an explicit policy and reproducible runtime fixture.
 
 ## Next mapping sequence
 
-1. Select native speed index `4` before unpausing, then add run-until-date and
-   clean exit.
-2. Detect modal event interruptions and define an explicit benchmark policy.
+1. Find a verified save/checkpoint and clean exit boundary, including final
+   telemetry drain semantics.
+2. Reproduce non-generic modal event interruptions and define an explicit
+   benchmark policy.
 3. Find `CGuiTypes::LookupString` by following references to known names such
    as `tax_0_slider` and `take_loan`.
 4. Dynamically verify historical POP constructor candidates at `0x554a40`,

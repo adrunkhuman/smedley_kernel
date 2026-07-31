@@ -21,6 +21,13 @@ namespace smedley::trace
         std::optional<int> game_date_raw;
         std::map<std::string, Scalar> entities, payload;
     };
+    struct BenchmarkSummary {
+        std::string status = "unavailable";
+        std::optional<int> start_date_raw, target_date_raw, actual_date_raw, game_days;
+        std::optional<uint64_t> elapsed_us;
+        std::string reason;
+        std::optional<bool> paused;
+    };
     struct Summary {
         uint64_t records = 0, gaps = 0;
         bool date_regressed = false;
@@ -29,6 +36,7 @@ namespace smedley::trace
         std::optional<uint64_t> first_date_monotonic_us, last_date_monotonic_us;
         std::optional<int> first_date, last_date;
         std::map<std::string, Scalar> progress;
+        BenchmarkSummary benchmark;
         std::string run_id, warning;
     };
 

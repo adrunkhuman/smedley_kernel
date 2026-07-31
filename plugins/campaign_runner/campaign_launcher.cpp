@@ -10,6 +10,7 @@
 
 #include <cstring>
 #include <cctype>
+#include <cstdint>
 #include <filesystem>
 #include <new>
 #include <sstream>
@@ -53,6 +54,15 @@ namespace campaign_runner
         uintptr_t message_dispatch_9_suppressed_address = 0;
         volatile bool suppress_message_popups = false;
         volatile long suppressed_message_count = 0;
+
+        uint64_t MonotonicMicroseconds()
+        {
+            LARGE_INTEGER frequency{}, counter{};
+            if (!QueryPerformanceFrequency(&frequency) || !QueryPerformanceCounter(&counter) || frequency.QuadPart <= 0) return 0;
+            const uint64_t ticks = static_cast<uint64_t>(counter.QuadPart);
+            const uint64_t rate = static_cast<uint64_t>(frequency.QuadPart);
+            return ticks / rate * 1000000ull + ticks % rate * 1000000ull / rate;
+        }
 
         bool IsInGameIdler(const void *object)
         {
@@ -325,12 +335,14 @@ namespace campaign_runner
         bool observe,
         std::wstring observer_view_tag,
         int speed,
-        bool start_paused)
+        bool start_paused,
+        CampaignRunCondition condition)
     {
         save_path_ = std::move(save_path);
         observe_ = observe;
         target_speed_ = speed;
         start_paused_ = start_paused;
+        run_condition_ = condition;
         observer_enabled_ = false;
         speed_ready_ = false;
         suppress_message_popups = false;
@@ -343,6 +355,11 @@ namespace campaign_runner
         }
         if (observe_ && start_paused_) {
             logger_.Failure("observer mode cannot start paused because its watchdog requires advancement");
+            launcher_instance = nullptr;
+            return false;
+        }
+        if (run_condition_.requested() && (start_paused_ || !observer_view_tag.empty())) {
+            logger_.Failure("benchmark target runs require unpaused start and do not support an initial view switch");
             launcher_instance = nullptr;
             return false;
         }
@@ -562,6 +579,10 @@ namespace campaign_runner
 
     bool CampaignLauncher::ScheduleTimer(UINT delay, const char *failure_message)
     {
+        if (save_timer_ != 0) {
+            KillTimer(nullptr, save_timer_);
+            save_timer_ = 0;
+        }
         save_timer_ = SetTimer(nullptr, 0, delay, SaveTimerCallback);
         if (save_timer_ != 0) {
             return true;
@@ -699,19 +720,29 @@ namespace campaign_runner
         }
     }
 
-    void CampaignLauncher::EmitObserverConfiguredIfReady(smedley::v2::CCurrentGameState *game_state)
+    bool CampaignLauncher::ObserverInvariantsValid(smedley::v2::CCurrentGameState *game_state) const
     {
-        if (!observer_ai_ready_ || observer_view_switch_pending_ || game_state->has_human_controlled_country()
-            || *reinterpret_cast<unsigned char *>(smedley::memory::Map::base_addr + 0xb092fb) != 0) return;
+        if (!observer_ai_ready_ || observer_view_switch_pending_ || game_state == nullptr || game_state->has_human_controlled_country()
+            || *reinterpret_cast<unsigned char *>(smedley::memory::Map::base_addr + 0xb092fb) != 0) return false;
         const auto ordinal = game_state->player_tag().ordinal();
         const auto *country = ordinal <= 0 ? nullptr : game_state->country(ordinal);
         if (country == nullptr || !country->exists() || game_state->player_control_state(ordinal) != 0
-            || country->ai() == nullptr || !game_state->is_scheduled_ai(country->ai())) return;
+            || country->ai() == nullptr || !game_state->is_scheduled_ai(country->ai())) return false;
         const char *tag = country->tag().str();
         if (tag == nullptr || std::strlen(tag) != 3 || !std::all_of(tag, tag + 3, [](unsigned char character) {
             return (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9');
-        })) return;
+        })) return false;
+        return true;
+    }
+
+    bool CampaignLauncher::EmitObserverConfiguredIfReady(smedley::v2::CCurrentGameState *game_state)
+    {
+        if (!ObserverInvariantsValid(game_state)) return false;
+        const auto ordinal = game_state->player_tag().ordinal();
+        const auto *country = game_state->country(ordinal);
+        const char *tag = country->tag().str();
         ReportTelemetryResult(telemetry_.ObserverConfigured(tag));
+        return true;
     }
 
     bool CampaignLauncher::InstallControllerHooks()
@@ -914,13 +945,111 @@ namespace campaign_runner
         return true;
     }
 
+    void CampaignLauncher::StartBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler)
+    {
+        if (!run_condition_.requested() || benchmark_started_ || game_state == nullptr || idler == nullptr) return;
+        if (observer_enabled_ && !EmitObserverConfiguredIfReady(game_state)) return;
+        const char *error = nullptr;
+        if (!benchmark_.Begin(game_state->current_date_raw(), run_condition_.days, run_condition_.target_date_raw,
+                              run_condition_.timeout_seconds, MonotonicMicroseconds(), &error)) {
+            logger_.Failure(std::string("benchmark did not start: ") + (error == nullptr ? "invalid target" : error));
+            FinishInvalidBenchmark(game_state, idler);
+            return;
+        }
+        benchmark_started_ = true;
+        ReportTelemetryResult(telemetry_.BenchmarkStarted(benchmark_.start_date_raw(), benchmark_.target_date_raw(),
+                                                          benchmark_.requested_days(), run_condition_.timeout_seconds));
+        logger_.Info("benchmark started at raw date " + std::to_string(benchmark_.start_date_raw())
+                     + " target=" + std::to_string(benchmark_.target_date_raw()));
+        if (save_timer_ != 0) {
+            KillTimer(nullptr, save_timer_);
+            save_timer_ = 0;
+        }
+        if (!ScheduleTimer(USER_TIMER_MINIMUM, "failed to schedule benchmark timer")) {
+            const int actual = game_state->current_date_raw();
+            if (idler->pause_state() == 0) idler->TogglePause();
+            const int pause_state = idler->pause_state();
+            FinishBenchmark("timer_unavailable", actual, pause_state == 0 || pause_state == 1
+                ? std::optional<bool>(pause_state == 1) : std::nullopt);
+        }
+    }
+
+    void CampaignLauncher::FinishInvalidBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler)
+    {
+        if (benchmark_terminal_) return;
+        benchmark_terminal_ = true;
+        if (save_timer_ != 0) {
+            KillTimer(nullptr, save_timer_);
+            save_timer_ = 0;
+        }
+        observer_monitoring_ = false;
+        suppress_message_popups = false;
+        const int actual = game_state->current_date_raw();
+        if (idler->pause_state() == 0) idler->TogglePause();
+        const int pause_state = idler->pause_state();
+        const std::optional<bool> paused = pause_state == 0 || pause_state == 1
+            ? std::optional<bool>(pause_state == 1) : std::nullopt;
+        const int target = run_condition_.target_date_raw.value_or(actual);
+        ReportTelemetryResult(telemetry_.BenchmarkFailed(actual, target, actual, 1, "invalid_target", paused));
+        logger_.Failure(std::string("benchmark failed: invalid_target; campaign remains ")
+            + (paused && *paused ? "paused and open" : "open; pause state is unverified"));
+    }
+
+    void CampaignLauncher::FinishBenchmark(const char *reason, std::optional<int> actual_date_raw, std::optional<bool> paused)
+    {
+        if (benchmark_terminal_) return;
+        benchmark_terminal_ = true;
+        if (save_timer_ != 0) {
+            KillTimer(nullptr, save_timer_);
+            save_timer_ = 0;
+        }
+        observer_monitoring_ = false;
+        suppress_message_popups = false;
+        const uint64_t now = MonotonicMicroseconds();
+        const int64_t elapsed = (std::max)(int64_t{1}, now >= benchmark_.start_monotonic_us()
+            ? static_cast<int64_t>(now - benchmark_.start_monotonic_us()) : int64_t{0});
+        if (reason == nullptr) {
+            ReportTelemetryResult(telemetry_.BenchmarkCompleted(benchmark_.start_date_raw(), benchmark_.target_date_raw(),
+                actual_date_raw.value_or(benchmark_.target_date_raw()), benchmark_.requested_days(), elapsed));
+            logger_.Info("benchmark completed; campaign remains paused and open");
+        } else {
+            ReportTelemetryResult(telemetry_.BenchmarkFailed(benchmark_.start_date_raw(), benchmark_.target_date_raw(),
+                actual_date_raw, elapsed, reason, paused));
+            logger_.Failure(std::string("benchmark failed: ") + reason + "; campaign remains open");
+        }
+    }
+
+    bool CampaignLauncher::TickBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler)
+    {
+        if (!benchmark_started_ || benchmark_terminal_) return benchmark_terminal_;
+        const bool observer_valid = !observer_enabled_ || ObserverInvariantsValid(game_state);
+        const BenchmarkDecision decision = benchmark_.Observe({true, game_state->current_date_raw(), idler->pause_state(),
+                                                                observer_valid, MonotonicMicroseconds()});
+        if (decision.action == BenchmarkAction::Continue) return false;
+        if (idler->pause_state() == 0) idler->TogglePause();
+        const int pause_state = idler->pause_state();
+        const int actual = game_state->current_date_raw();
+        const std::optional<bool> paused = pause_state == 0 || pause_state == 1
+            ? std::optional<bool>(pause_state == 1) : std::nullopt;
+        if (!paused || !*paused) {
+            FinishBenchmark("pause_failed", actual, paused);
+        } else if (decision.action == BenchmarkAction::Complete && actual == benchmark_.target_date_raw()) {
+            FinishBenchmark(nullptr, actual, true);
+        } else if (decision.action == BenchmarkAction::Complete) {
+            FinishBenchmark(actual < benchmark_.target_date_raw() ? "date_regressed" : "date_overshoot", actual, true);
+        } else {
+            FinishBenchmark(decision.reason, actual, true);
+        }
+        return true;
+    }
+
     void CALLBACK CampaignLauncher::SaveTimerCallback(HWND, UINT, UINT_PTR timer, DWORD)
     {
         auto *launcher = launcher_instance;
         if (launcher == nullptr || timer != launcher->save_timer_) {
             return;
         }
-        if (!launcher->observer_monitoring_) {
+        if (!launcher->observer_monitoring_ && !launcher->benchmark_.active()) {
             KillTimer(nullptr, timer);
             launcher->save_timer_ = 0;
         }
@@ -928,6 +1057,11 @@ namespace campaign_runner
             auto *game_state = smedley::v2::CCurrentGameState::instance();
             auto *idler = game_state == nullptr ? nullptr : game_state->idler();
             if (!IsInGameIdler(idler)) {
+                if (launcher->benchmark_.active()) {
+                    launcher->benchmark_.Observe({false, std::nullopt, -1, false, MonotonicMicroseconds()});
+                    launcher->FinishBenchmark("idler_unavailable", std::nullopt, std::nullopt);
+                    return;
+                }
                 if (launcher->observer_monitoring_) {
                     KillTimer(nullptr, timer);
                     launcher->save_timer_ = 0;
@@ -948,7 +1082,13 @@ namespace campaign_runner
             if (!launcher->pause_before_configuration_) launcher->pause_before_configuration_ = pause_state == 1;
             launcher->ReportTelemetryResult(launcher->telemetry_.Entered(
                 launcher->observer_enabled_, launcher->target_speed_, launcher->start_paused_));
+            if (launcher->benchmark_.active() && launcher->TickBenchmark(game_state, idler)) return;
             if (launcher->observer_monitoring_) {
+                if (launcher->benchmark_.active()) {
+                    const uint64_t now = MonotonicMicroseconds();
+                    if (now < launcher->next_observer_watchdog_us_) return;
+                    launcher->next_observer_watchdog_us_ = now + 1000000ull;
+                }
                 const auto suppressed = suppressed_message_count;
                 if (suppressed != launcher->observed_suppressed_messages_) {
                     std::ostringstream message;
@@ -1105,7 +1245,9 @@ namespace campaign_runner
                     stop_monitoring("observer simulation paused outside generic message dispatch", false);
                     return;
                 }
-                launcher->EmitObserverConfiguredIfReady(game_state);
+                if (launcher->EmitObserverConfiguredIfReady(game_state) && !launcher->benchmark_started_) {
+                    launcher->StartBenchmark(game_state, idler);
+                }
                 return;
             }
             if (launcher->observe_) {
@@ -1235,6 +1377,8 @@ namespace campaign_runner
                         launcher->observer_monitoring_ = false;
                     }
                 }
+                launcher->EmitObserverConfiguredIfReady(game_state);
+                launcher->StartBenchmark(game_state, idler);
                 return;
             }
             if (pause_state != 1) {
@@ -1257,6 +1401,8 @@ namespace campaign_runner
                         launcher->observer_monitoring_ = false;
                     }
                 }
+                launcher->EmitObserverConfiguredIfReady(game_state);
+                launcher->StartBenchmark(game_state, idler);
             } else {
                 suppress_message_popups = false;
                 launcher->logger_.Failure("CInGameIdler remained paused after toggle");

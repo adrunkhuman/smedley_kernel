@@ -26,6 +26,9 @@ view_tag = "ENG" # optional; three uppercase ASCII alphanumeric characters (for 
 speed = 5 # optional; 1 through 5, applied after unattended save loading
 start_paused = false # optional; requires a save and campaign_runner; incompatible with observer
 detach = false
+run_days = 365 # optional; 1 through 1000000, mutually exclusive with run_until_date_raw
+run_until_date_raw = 123456 # optional signed int raw-date target
+run_timeout_seconds = 600 # persisted default; used only when a run target exists, 1 through 86400
 telemetry_enabled = false
 telemetry_output = "C:\\traces\\gfm.jsonl" # optional; default is per-run under %LOCALAPPDATA%
 telemetry_categories = ["lifecycle", "state"] # lifecycle, state, or both
@@ -51,6 +54,7 @@ smedley_cli --profile "C:\Profiles\gfm observer.toml" --dry-run
 smedley_cli --game-dir "C:\Games\Victoria 2" --discover
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin "plugins\campaign runner.toml" --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --observe
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.toml --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --speed 3 --start-paused --detach
+smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.toml --plugin plugins\telemetry.toml --telemetry --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --speed 5 --run-days 365 --run-timeout-seconds 600 --detach
 smedley_cli --history
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\telemetry.toml --telemetry --telemetry-category lifecycle --telemetry-category state --telemetry-sample-days 7 --telemetry-queue-capacity 512 --detach
 ```
@@ -125,6 +129,19 @@ optional observer view tag. It also supports an initial speed from 1 through 5
 and a start-paused checkbox. Non-default run controls require both a save and
 the `campaign_runner` plugin. Observer mode cannot start paused because its
 watchdog must observe simulation advancement.
+
+`run_days` and `run_until_date_raw` request a bounded benchmark interval. They
+require injection, a selected save, `campaign_runner`, `start_paused = false`,
+and `detach = true`; safe mode warns that stale targets are ignored. `view_tag`
+is rejected with a target because its switch is asynchronous after simulation
+resumes. Observer itself remains optional. The GUI exposes compact Run days,
+Run target raw, and Timeout seconds fields through this same preflight.
+An otherwise custom timeout without a target is inert and produces a preflight
+warning; it neither requires campaign automation nor reaches the plugin.
+
+The process is intentionally left paused and open on completion or a safe
+failure. No clean exit, checkpoint save, benchmark save, or final game-state
+assertion is implemented or claimed.
 
 ## Current limits
 

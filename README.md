@@ -68,6 +68,11 @@ observer mode. Observer mode returns every country to AI control, enables full
 map visibility, suppresses modal message pauses, safely changes the viewing
 country, and verifies each transition against live game state.
 
+It also has bounded fixed-date benchmark runs: `--run-days 365 --detach` resumes
+a configured campaign, pauses it at the exact target date, and reports typed
+telemetry when available. It deliberately leaves the game open and paused; this
+is not a verified clean exit, save, or state-assertion workflow.
+
 `economy_trace` records daily country treasury snapshots to CSV. It is an early
 instrumentation plugin, not yet the versioned JSON Lines telemetry system
 planned for broader tracing.

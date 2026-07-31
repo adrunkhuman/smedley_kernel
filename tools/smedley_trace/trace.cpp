@@ -345,6 +345,119 @@ namespace smedley::trace
             return true;
         }
 
+        const Scalar *Field(const Record &record, const char *key)
+        {
+            const auto found = record.payload.find(key);
+            return found == record.payload.end() ? nullptr : &found->second;
+        }
+
+        bool IntegerField(const Record &record, const char *key, int64_t *value)
+        {
+            const auto *field = Field(record, key);
+            return field && field->kind == JsonKind::Number && ParseIntegerText(field->text, value);
+        }
+
+        bool HasOnlyFields(const Record &record, std::initializer_list<const char *> allowed)
+        {
+            return std::all_of(record.payload.begin(), record.payload.end(), [&](const auto &entry) {
+                return std::find(allowed.begin(), allowed.end(), entry.first) != allowed.end();
+            });
+        }
+
+        bool BenchmarkSchema(const Record &record, std::string *error)
+        {
+            if (record.event != "benchmark.started" && record.event != "benchmark.completed" && record.event != "benchmark.failed") return true;
+            if (record.category != "lifecycle" || record.quality != "provisional") { *error = "benchmark record has an unsupported envelope"; return false; }
+            int64_t start = 0, target = 0, elapsed = 0;
+            if (!IntegerField(record, "start_date_raw", &start) || !IntegerField(record, "target_date_raw", &target)
+                || start < (std::numeric_limits<int>::min)() || start > (std::numeric_limits<int>::max)()
+                || target < (std::numeric_limits<int>::min)() || target > (std::numeric_limits<int>::max)()) { *error = "benchmark record has invalid date fields"; return false; }
+            if (record.event == "benchmark.started") {
+                int64_t days = 0, timeout = 0;
+                if (record.payload.size() != 4 || !record.game_date_raw || *record.game_date_raw != start
+                    || !IntegerField(record, "requested_days", &days) || !IntegerField(record, "timeout_seconds", &timeout)
+                    || target <= start || (target - start) % 24 != 0 || days != (target - start) / 24
+                    || days < 1 || timeout < 1 || timeout > 86400) { *error = "benchmark.started has an unsupported schema"; return false; }
+                return true;
+            }
+            const auto *reason = Field(record, "reason");
+            const bool invalid_target = record.event == "benchmark.failed" && reason != nullptr
+                && reason->kind == JsonKind::String && reason->text == "invalid_target";
+            if (!invalid_target && (target <= start || (target - start) % 24 != 0)) { *error = "benchmark record has invalid date fields"; return false; }
+            if (!IntegerField(record, "elapsed_us", &elapsed) || elapsed <= 0) { *error = "benchmark terminal elapsed_us is invalid"; return false; }
+            if (record.event == "benchmark.completed") {
+                int64_t actual = 0, days = 0, overshoot = 0;
+                const auto *paused = Field(record, "paused");
+                if (record.payload.size() != 7 || !record.game_date_raw || !IntegerField(record, "actual_date_raw", &actual)
+                    || !IntegerField(record, "game_days", &days) || !IntegerField(record, "overshoot_raw", &overshoot)
+                    || !paused || paused->kind != JsonKind::Boolean || paused->text != "true" || actual != target
+                    || *record.game_date_raw != actual || days != (target - start) / 24 || overshoot != 0) { *error = "benchmark.completed has an unsupported schema"; return false; }
+                return true;
+            }
+            if (record.payload.size() < 4 || record.payload.size() > 6 || !reason || reason->kind != JsonKind::String
+                || (reason->text != "timeout" && reason->text != "date_overshoot" && reason->text != "idler_unavailable"
+                    && reason->text != "invalid_pause_state" && reason->text != "pause_failed" && reason->text != "observer_invariant_failed"
+                    && reason->text != "date_regressed" && reason->text != "unexpected_pause" && reason->text != "invalid_target"
+                    && reason->text != "timer_unavailable")
+                || !HasOnlyFields(record, {"start_date_raw", "target_date_raw", "actual_date_raw", "elapsed_us", "reason", "paused"})) { *error = "benchmark.failed has an unsupported schema"; return false; }
+            const auto *actual = Field(record, "actual_date_raw");
+            const auto *paused = Field(record, "paused");
+            int64_t ignored = 0;
+            if ((actual != nullptr) != record.game_date_raw.has_value()
+                || (actual && (actual->kind != JsonKind::Number || !ParseIntegerText(actual->text, &ignored)
+                            || ignored < (std::numeric_limits<int>::min)() || ignored > (std::numeric_limits<int>::max)()
+                            || !record.game_date_raw || *record.game_date_raw != ignored))
+                || (paused && paused->kind != JsonKind::Boolean)) { *error = "benchmark.failed fields are inconsistent"; return false; }
+            return true;
+        }
+
+        struct BenchmarkTraceState
+        {
+            bool started = false;
+            bool terminal = false;
+            int start_date_raw = 0;
+            int target_date_raw = 0;
+        };
+
+        bool BenchmarkTransition(const Record &record, BenchmarkTraceState *state, std::string *error)
+        {
+            if (record.event != "benchmark.started" && record.event != "benchmark.completed" && record.event != "benchmark.failed") return true;
+            int64_t start = 0, target = 0;
+            IntegerField(record, "start_date_raw", &start);
+            IntegerField(record, "target_date_raw", &target);
+            if (record.event == "benchmark.started") {
+                if (state->started || state->terminal) { *error = "benchmark.started is duplicated or follows a terminal record"; return false; }
+                state->started = true;
+                state->start_date_raw = static_cast<int>(start);
+                state->target_date_raw = static_cast<int>(target);
+                return true;
+            }
+            const auto *reason = Field(record, "reason");
+            const bool invalid_target = reason != nullptr && reason->kind == JsonKind::String && reason->text == "invalid_target";
+            if (state->terminal || (invalid_target ? state->started : !state->started)
+                || (!invalid_target && (state->start_date_raw != start || state->target_date_raw != target))) {
+                *error = "benchmark terminal has no matching start or is duplicated";
+                return false;
+            }
+            state->terminal = true;
+            return true;
+        }
+
+        void CaptureBenchmark(const Record &record, BenchmarkSummary *benchmark)
+        {
+            if (record.event != "benchmark.started" && record.event != "benchmark.completed" && record.event != "benchmark.failed") return;
+            auto integer = [&](const char *key) -> std::optional<int64_t> { int64_t value = 0; return IntegerField(record, key, &value) ? std::optional<int64_t>(value) : std::nullopt; };
+            benchmark->start_date_raw = static_cast<int>(*integer("start_date_raw"));
+            benchmark->target_date_raw = static_cast<int>(*integer("target_date_raw"));
+            if (record.event == "benchmark.started") { benchmark->status = "started"; return; }
+            benchmark->status = record.event == "benchmark.completed" ? "completed" : "failed";
+            if (const auto value = integer("actual_date_raw")) benchmark->actual_date_raw = static_cast<int>(*value);
+            if (const auto value = integer("game_days")) benchmark->game_days = static_cast<int>(*value);
+            if (const auto value = integer("elapsed_us")) benchmark->elapsed_us = static_cast<uint64_t>(*value);
+            if (const auto *reason = Field(record, "reason")) benchmark->reason = reason->text;
+            if (const auto *paused = Field(record, "paused")) benchmark->paused = paused->text == "true";
+        }
+
         bool Match(const Record &record, const Filter &filter)
         {
             const auto country = record.entities.find("country_tag");
@@ -488,6 +601,7 @@ namespace smedley::trace
         std::string line;
         uint64_t consumed = 0, previous_sequence = 0, previous_monotonic_us = 0;
         std::optional<int> previous_date;
+        BenchmarkTraceState benchmark_state;
         bool have_sequence = false;
         const uint64_t snapshot_bytes = static_cast<uint64_t>(snapshot.QuadPart);
         auto process = [&](bool complete_line) {
@@ -501,6 +615,8 @@ namespace smedley::trace
                 *error = "line " + std::to_string(summary->records + 1) + ": " + detail;
                 return false;
             }
+            if (!BenchmarkSchema(record, &detail)) { *error = "line " + std::to_string(summary->records + 1) + ": " + detail; return false; }
+            if (!BenchmarkTransition(record, &benchmark_state, &detail)) { *error = "line " + std::to_string(summary->records + 1) + ": " + detail; return false; }
             if (!summary->run_id.empty() && summary->run_id != record.run_id) { *error = "inconsistent run_id"; return false; }
             summary->run_id = record.run_id;
             if (have_sequence && record.sequence <= previous_sequence) { *error = "sequence is not strictly increasing"; return false; }
@@ -528,6 +644,7 @@ namespace smedley::trace
                 previous_date = record.game_date_raw;
             }
             if (record.event == "telemetry.progress" || record.event == "telemetry.summary") summary->progress = record.payload;
+            CaptureBenchmark(record, &summary->benchmark);
             if (visitor && !visitor(record, error)) return false;
             return true;
         };
@@ -579,6 +696,10 @@ namespace smedley::trace
     {
         fs::path input_path, output_path;
         if (!AbsolutePath(input, &input_path, error) || !AbsolutePath(output, &output_path, error)) return false;
+        if (filter.event == "benchmark.started" || filter.event == "benchmark.completed" || filter.event == "benchmark.failed") {
+            *error = "benchmark lifecycle events cannot be split by a trace export filter";
+            return false;
+        }
         Output destination;
         if (!StartOutput(input_path, output_path, L".jsonl", overwrite, &destination, error)) return false;
         Summary summary;
@@ -632,6 +753,17 @@ namespace smedley::trace
             output << (static_cast<int64_t>(*summary.last_date) - *summary.first_date) / raw_date_units_per_day
                 * 1000000.0 / (*summary.last_date_monotonic_us - *summary.first_date_monotonic_us);
         } else output << "unavailable";
+        const auto benchmark_value = [](const auto &value) { return value ? std::to_string(*value) : "unavailable"; };
+        output << " benchmark_status=" << summary.benchmark.status
+               << " benchmark_start=" << benchmark_value(summary.benchmark.start_date_raw)
+               << " benchmark_target=" << benchmark_value(summary.benchmark.target_date_raw)
+               << " benchmark_actual=" << benchmark_value(summary.benchmark.actual_date_raw)
+               << " benchmark_game_days=" << benchmark_value(summary.benchmark.game_days)
+               << " benchmark_elapsed_us=" << benchmark_value(summary.benchmark.elapsed_us)
+               << " benchmark_game_days_per_sec=";
+        if (summary.benchmark.status == "completed" && summary.benchmark.game_days && summary.benchmark.elapsed_us && *summary.benchmark.elapsed_us > 0) output << *summary.benchmark.game_days * 1000000.0 / *summary.benchmark.elapsed_us; else output << "unavailable";
+        output << " benchmark_reason=" << (summary.benchmark.reason.empty() ? "unavailable" : summary.benchmark.reason)
+               << " benchmark_paused=" << (summary.benchmark.paused ? (*summary.benchmark.paused ? "true" : "false") : "unavailable");
         for (const char *key : {"accepted", "written", "dropped", "high_water", "write_failed", "callback_enqueue_format_us_total", "callback_enqueue_format_us_mean", "callback_count"}) output << ' ' << key << '=' << metric(key);
         for (const auto &[key, value] : summary.events) output << " event." << key << '=' << value;
         for (const auto &[key, value] : summary.categories) output << " category." << key << '=' << value;
@@ -658,11 +790,18 @@ namespace smedley::trace
         };
         auto number = [](const std::string &value, double *result) { char *end = nullptr; *result = std::strtod(value.c_str(), &end); return end && !*end && std::isfinite(*result); };
         auto metric = [&](const Summary &summary, const char *key) { const auto found = summary.progress.find(key); return found == summary.progress.end() ? std::string("unavailable") : found->second.text; };
+        auto benchmark_metric = [](const Summary &summary, const char *key) {
+            if (summary.benchmark.status != "completed") return std::string("unavailable");
+            if (std::string(key) == "benchmark_game_days") return summary.benchmark.game_days ? std::to_string(*summary.benchmark.game_days) : "unavailable";
+            if (std::string(key) == "benchmark_elapsed_us") return summary.benchmark.elapsed_us ? std::to_string(*summary.benchmark.elapsed_us) : "unavailable";
+            if (!summary.benchmark.game_days || !summary.benchmark.elapsed_us || *summary.benchmark.elapsed_us == 0) return std::string("unavailable");
+            return std::to_string(*summary.benchmark.game_days * 1000000.0 / *summary.benchmark.elapsed_us);
+        };
         std::ostringstream output;
         output << "left_run_id=" << left.run_id << " right_run_id=" << right.run_id << '\n';
-        for (const char *key : {"records", "gaps", "game_date_span_days", "elapsed_us", "game_days_per_sec", "accepted", "written", "dropped", "high_water", "write_failed", "callback_enqueue_format_us_total", "callback_enqueue_format_us_mean", "callback_count"}) {
-            const std::string left_value = std::string(key) == "records" ? std::to_string(left.records) : std::string(key) == "gaps" ? std::to_string(left.gaps) : std::string(key) == "game_date_span_days" ? date_span(left) : std::string(key) == "elapsed_us" ? elapsed(left) : std::string(key) == "game_days_per_sec" ? rate(left) : metric(left, key);
-            const std::string right_value = std::string(key) == "records" ? std::to_string(right.records) : std::string(key) == "gaps" ? std::to_string(right.gaps) : std::string(key) == "game_date_span_days" ? date_span(right) : std::string(key) == "elapsed_us" ? elapsed(right) : std::string(key) == "game_days_per_sec" ? rate(right) : metric(right, key);
+        for (const char *key : {"records", "gaps", "game_date_span_days", "elapsed_us", "game_days_per_sec", "benchmark_game_days", "benchmark_elapsed_us", "benchmark_game_days_per_sec", "accepted", "written", "dropped", "high_water", "write_failed", "callback_enqueue_format_us_total", "callback_enqueue_format_us_mean", "callback_count"}) {
+            const std::string left_value = std::string(key).rfind("benchmark_", 0) == 0 ? benchmark_metric(left, key) : std::string(key) == "records" ? std::to_string(left.records) : std::string(key) == "gaps" ? std::to_string(left.gaps) : std::string(key) == "game_date_span_days" ? date_span(left) : std::string(key) == "elapsed_us" ? elapsed(left) : std::string(key) == "game_days_per_sec" ? rate(left) : metric(left, key);
+            const std::string right_value = std::string(key).rfind("benchmark_", 0) == 0 ? benchmark_metric(right, key) : std::string(key) == "records" ? std::to_string(right.records) : std::string(key) == "gaps" ? std::to_string(right.gaps) : std::string(key) == "game_date_span_days" ? date_span(right) : std::string(key) == "elapsed_us" ? elapsed(right) : std::string(key) == "game_days_per_sec" ? rate(right) : metric(right, key);
             double a = 0, b = 0;
             const bool boolean = std::string(key) == "write_failed";
             output << key << " " << left_value << " | " << right_value << " | " << (!boolean && number(left_value, &a) && number(right_value, &b) ? std::to_string(b - a) : "unavailable") << '\n';

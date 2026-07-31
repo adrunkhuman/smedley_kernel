@@ -23,6 +23,10 @@ namespace smedley::launcher
         constexpr int telemetry_max_sample_days = 365;
         constexpr int telemetry_min_queue_capacity = 64;
         constexpr int telemetry_max_queue_capacity = 8192;
+        constexpr int run_min_days = 1;
+        constexpr int run_max_days = 1000000;
+        constexpr int run_min_timeout_seconds = 1;
+        constexpr int run_max_timeout_seconds = 86400;
         constexpr std::array<unsigned char, 32> supported_executable_hash = {
             0x62, 0xd4, 0x8c, 0x20, 0x43, 0x64, 0xdd, 0x70,
             0x65, 0x84, 0x77, 0x7c, 0x2e, 0x2b, 0x3c, 0x7a,
@@ -40,6 +44,27 @@ namespace smedley::launcher
                         const std::string &message, const fs::path &path = {})
         {
             diagnostics->push_back({Severity::Warning, code, message, path});
+        }
+
+        bool ValidateRunProfile(const Profile &profile, std::vector<Diagnostic> *diagnostics, const fs::path &path)
+        {
+            if (profile.run_parse_error) {
+                AddDiagnostic(diagnostics, "campaign.run_parse", *profile.run_parse_error, path);
+                return false;
+            }
+            if (profile.run_days && (*profile.run_days < run_min_days || *profile.run_days > run_max_days)) {
+                AddDiagnostic(diagnostics, "campaign.run_days", "run_days must be from 1 through 1000000", path);
+                return false;
+            }
+            if (profile.run_days && profile.run_until_date_raw) {
+                AddDiagnostic(diagnostics, "campaign.run_target", "run_days and run_until_date_raw are mutually exclusive", path);
+                return false;
+            }
+            if (profile.run_timeout_seconds < run_min_timeout_seconds || profile.run_timeout_seconds > run_max_timeout_seconds) {
+                AddDiagnostic(diagnostics, "campaign.run_timeout", "run_timeout_seconds must be from 1 through 86400", path);
+                return false;
+            }
+            return true;
         }
 
         std::string WindowsError(const char *operation)
@@ -1109,6 +1134,26 @@ namespace smedley::launcher
                 }
                 loaded.start_paused = *value;
             }
+            auto read_optional_run_integer = [&](const char *key, std::optional<int> *destination) {
+                if (!table.contains(key)) return true;
+                const auto value = table[key].value<int>();
+                if (!value) {
+                    AddDiagnostic(diagnostics, "profile.schema", std::string(key) + " must be an integer", path);
+                    return false;
+                }
+                *destination = *value;
+                return true;
+            };
+            if (!read_optional_run_integer("run_days", &loaded.run_days)
+                || !read_optional_run_integer("run_until_date_raw", &loaded.run_until_date_raw)) return false;
+            if (table.contains("run_timeout_seconds")) {
+                const auto value = table["run_timeout_seconds"].value<int>();
+                if (!value) {
+                    AddDiagnostic(diagnostics, "profile.schema", "run_timeout_seconds must be an integer", path);
+                    return false;
+                }
+                loaded.run_timeout_seconds = *value;
+            }
             if (const auto value = table["detach"].value<bool>()) loaded.detach = *value;
             if (table.contains("telemetry_enabled")) {
                 const auto value = table["telemetry_enabled"].value<bool>();
@@ -1208,6 +1253,7 @@ namespace smedley::launcher
             };
             if (!read_paths("mods", &loaded.mods) || !read_paths("plugins", &loaded.plugins)) return false;
             if (!ValidateTelemetryProfile(loaded, diagnostics, path)) return false;
+            if (!ValidateRunProfile(loaded, diagnostics, path)) return false;
             *profile = std::move(loaded);
             return true;
         } catch (const std::exception &error) {
@@ -1218,7 +1264,7 @@ namespace smedley::launcher
 
     bool SaveProfile(const fs::path &path, const Profile &profile, std::vector<Diagnostic> *diagnostics)
     {
-        if (!ValidateTelemetryProfile(profile, diagnostics, path)) return false;
+        if (!ValidateTelemetryProfile(profile, diagnostics, path) || !ValidateRunProfile(profile, diagnostics, path)) return false;
         std::ofstream output(path, std::ios::trunc);
         if (!output) {
             AddDiagnostic(diagnostics, "profile.write", "could not write profile", path);
@@ -1245,6 +1291,9 @@ namespace smedley::launcher
         output << "speed = " << profile.speed << "\n";
         output << "start_paused = " << (profile.start_paused ? "true" : "false") << "\n";
         output << "detach = " << (profile.detach ? "true" : "false") << "\n";
+        if (profile.run_days) output << "run_days = " << *profile.run_days << "\n";
+        if (profile.run_until_date_raw) output << "run_until_date_raw = " << *profile.run_until_date_raw << "\n";
+        output << "run_timeout_seconds = " << profile.run_timeout_seconds << "\n";
         output << "telemetry_enabled = " << (profile.telemetry_enabled ? "true" : "false") << "\n";
         if (profile.telemetry_output) WriteTomlString(output, "telemetry_output", *profile.telemetry_output);
         output << "telemetry_categories = [";
@@ -1324,7 +1373,8 @@ namespace smedley::launcher
             ValidateSupportedExecutable(plan.game_executable, &plan.diagnostics);
             plan.kernel = plan.profile.kernel ? Absolute(*plan.profile.kernel) : plan.profile.game_dir / L"smedley_kernel.dll";
             if (plan.profile.inject && plan.profile.save) plan.profile.save = Absolute(*plan.profile.save);
-            const bool run_controls_requested = plan.profile.speed != 5 || plan.profile.start_paused;
+            const bool target_run_requested = plan.profile.run_days.has_value() || plan.profile.run_until_date_raw.has_value();
+            const bool run_controls_requested = plan.profile.speed != 5 || plan.profile.start_paused || target_run_requested;
             bool campaign_runner_selected = false;
             bool telemetry_selected = false;
 
@@ -1354,6 +1404,7 @@ namespace smedley::launcher
 
             if (plan.profile.inject) {
                 ValidateTelemetryProfile(plan.profile, &plan.diagnostics);
+                ValidateRunProfile(plan.profile, &plan.diagnostics, {});
                 if (plan.profile.telemetry_output) {
                     plan.profile.telemetry_output = Absolute(plan.profile.telemetry_output->is_absolute()
                         ? *plan.profile.telemetry_output
@@ -1400,13 +1451,21 @@ namespace smedley::launcher
                     ValidateTelemetryOutput(plan.profile, *plan.profile.telemetry_output, plan, &plan.diagnostics);
                 }
                 if (run_controls_requested && !plan.profile.save) {
-                    AddDiagnostic(&plan.diagnostics, "campaign.save", "speed and start_paused controls require a save");
+                    AddDiagnostic(&plan.diagnostics, "campaign.save", "campaign run controls require a save");
                 }
                 if (plan.profile.speed < 1 || plan.profile.speed > 5) {
                     AddDiagnostic(&plan.diagnostics, "campaign.speed", "speed must be from 1 through 5");
                 }
                 if (plan.profile.observer && plan.profile.start_paused) {
                     AddDiagnostic(&plan.diagnostics, "observer.start_paused", "observer mode cannot start paused because its watchdog requires advancement");
+                }
+                if (target_run_requested) {
+                    if (plan.profile.start_paused) AddDiagnostic(&plan.diagnostics, "campaign.run_start_paused", "target runs require start_paused=false");
+                    if (!plan.profile.detach) AddDiagnostic(&plan.diagnostics, "campaign.run_detach", "target runs require detach=true until a verified clean exit exists");
+                    if (plan.profile.view_tag) AddDiagnostic(&plan.diagnostics, "campaign.run_view_tag", "target runs reject view_tag because observer switching is asynchronous after simulation resumes");
+                }
+                if (!target_run_requested && plan.profile.run_timeout_seconds != 600) {
+                    AddWarning(&plan.diagnostics, "campaign.run_timeout_ignored", "benchmark timeout is ignored without a benchmark target");
                 }
                 for (const auto &manifest : plan.plugins) {
                     for (const auto &dependency : manifest.dependencies) {
@@ -1485,6 +1544,8 @@ namespace smedley::launcher
                 if (plan.profile.view_tag) AddWarning(&plan.diagnostics, "safe_mode.view_tag_ignored", "observer view tag is ignored when injection is disabled");
                 if (plan.profile.speed != 5) AddWarning(&plan.diagnostics, "safe_mode.speed_ignored", "speed control is ignored when injection is disabled");
                 if (plan.profile.start_paused) AddWarning(&plan.diagnostics, "safe_mode.start_paused_ignored", "start_paused is ignored when injection is disabled");
+                if (target_run_requested) AddWarning(&plan.diagnostics, "safe_mode.run_target_ignored", "benchmark run target is ignored when injection is disabled");
+                else if (plan.profile.run_timeout_seconds != 600) AddWarning(&plan.diagnostics, "safe_mode.run_timeout_ignored", "benchmark timeout is ignored without a benchmark target");
                 if (plan.profile.telemetry_enabled) AddWarning(&plan.diagnostics, "safe_mode.telemetry_ignored", "telemetry is ignored when injection is disabled");
             }
 
@@ -1500,6 +1561,9 @@ namespace smedley::launcher
                         arguments.push_back(L"-smedley-speed=" + std::to_wstring(plan.profile.speed));
                     }
                     if (plan.profile.start_paused) arguments.push_back(L"-smedley-start-paused");
+                    if (plan.profile.run_days) arguments.push_back(L"-smedley-run-days=" + std::to_wstring(*plan.profile.run_days));
+                    if (plan.profile.run_until_date_raw) arguments.push_back(L"-smedley-run-until-date-raw=" + std::to_wstring(*plan.profile.run_until_date_raw));
+                    if (target_run_requested) arguments.push_back(L"-smedley-run-timeout-seconds=" + std::to_wstring(plan.profile.run_timeout_seconds));
                 }
             }
             if (plan.profile.inject && plan.profile.observer && !plan.profile.save) {

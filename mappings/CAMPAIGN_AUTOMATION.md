@@ -75,12 +75,53 @@ bypassed regardless of the user's `messagetypes.txt` policy. This avoids
 per-message configuration without suppressing the underlying message,
 simulation effect, log entry, map notice, or icon.
 
+## Fixed-date benchmark
+
+`--run-days N` and `--run-until-date-raw N` are mutually exclusive bounded
+campaign targets. After the final requested speed and unpaused-state readback
+(and, for observer mode, full AI/FOW/valid-view postconditions), the runner
+reads `CCurrentGameState::current_date_raw()`. Relative targets add `N * 24`
+in int64; absolute targets must advance and be aligned to the recorded
+verified-runtime 24 raw units per game day.
+
+A recurring Win32 `SetTimer` uses `USER_TIMER_MINIMUM` (effectively 10 ms).
+It does not poll a game hook or mutate from `DailyUpdateEvent`.
+Each tick checks `CInGameIdler`, readable date, pause state, and lightweight
+observer invariants. At the exact target it invokes verified `TogglePause` and
+reads back the paused state. Overshoot, timeout, date regression, invalid
+idler/pause state, or observer invariant failure is a failed benchmark. Both
+terminal paths stop monitoring and popup suppression, cancel the timer, and
+leave the campaign safely paused/open when pause readback succeeds. They never
+attempt an exit or write a save.
+
+An invalid runtime target or unavailable benchmark timer is terminal. The runner
+first attempts and reads back pause; its failure record reports whether that
+readback is known. It never claims the campaign is paused when that readback
+fails.
+
+Runtime acceptance on July 31, 2026 ran the unmodified `benchmark.v2` save
+twice with no mods, observer mode, native speed 5, `--run-days 365`, and only
+the `campaign_runner` and `telemetry` plugins. Runs
+`a53ae91b-5e1b-4a52-9422-c63c65d52643` and
+`5a0134ce-2125-4da6-a59e-9b0dc7e8f551` both started at raw date `59883384`,
+paused at target and actual date `59892144`, emitted one start and one completed
+record, and remained responsive and open. Each trace contained 374 strictly
+ordered records with no gaps, drops, or write failure. Their bounded intervals
+took 21,124,677 and 21,230,817 microseconds (17.28 and 17.19 game days per
+second, a 0.50 percent repeat difference). Both observed 98,644 daily callbacks,
+and the source save retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+This verifies the fixed-date pause harness on the supported executable; it does
+not establish a clean exit, final telemetry flush, saved result, or replay
+equivalence.
+
 ## Current boundary
 
 Campaign entry, full-AI observer mode, and native unpause are verified. A
-runtime `benchmark.v2` test returned `JAN` to AI control, changed the scheduler
-count from 271 to 272, found no remaining nonzero player-control entries, and
-The corrected `debug fow` invocation produced zero-valued visibility readback
+runtime test using the `benchmark.v2` save returned `JAN` to AI control, changed
+the scheduler count from 271 to 272, and found no remaining nonzero
+player-control entries. The corrected `debug fow` invocation produced
+zero-valued visibility readback
 and continued advancing `economy_trace` rows at speed 5.
 
 The observer watchdog detects when the viewing country owns no provinces. It

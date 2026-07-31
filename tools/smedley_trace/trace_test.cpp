@@ -215,3 +215,89 @@ TEST_F(TraceTest, ConvertsRawDateUnitsToGameDays)
     EXPECT_NE(formatted.find("game_date_span_days=1.000000"), std::string::npos);
     EXPECT_NE(formatted.find("game_days_per_sec=100000"), std::string::npos);
 }
+
+TEST_F(TraceTest, SummarizesAndComparesCompletedBenchmarks)
+{
+    const auto benchmark = [](uint64_t sequence, uint64_t monotonic, int date, const char *event, const char *payload, const char *run) {
+        return std::string("{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"") + run
+            + "\",\"sequence\":" + std::to_string(sequence) + ",\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":" + std::to_string(monotonic)
+            + ",\"game_date_raw\":" + std::to_string(date) + ",\"event_type\":\"" + event + "\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"provisional\",\"entities\":{},\"payload\":" + payload + "}";
+    };
+    const auto left = Path(L"benchmark left");
+    const auto right = Path(L"benchmark right");
+    Write(left, benchmark(1, 10, 100, "benchmark.started", "{\"start_date_raw\":100,\"target_date_raw\":124,\"requested_days\":1,\"timeout_seconds\":600}", "left")
+        + "\n" + benchmark(2, 110, 124, "benchmark.completed", "{\"start_date_raw\":100,\"target_date_raw\":124,\"actual_date_raw\":124,\"game_days\":1,\"elapsed_us\":100,\"overshoot_raw\":0,\"paused\":true}", "left"));
+    Write(right, benchmark(1, 10, 100, "benchmark.started", "{\"start_date_raw\":100,\"target_date_raw\":124,\"requested_days\":1,\"timeout_seconds\":600}", "right")
+        + "\n" + benchmark(2, 210, 124, "benchmark.completed", "{\"start_date_raw\":100,\"target_date_raw\":124,\"actual_date_raw\":124,\"game_days\":1,\"elapsed_us\":200,\"overshoot_raw\":0,\"paused\":true}", "right"));
+    trace::Summary left_summary, right_summary;
+    std::string error;
+    ASSERT_TRUE(trace::Read(left, {}, &left_summary, nullptr, 0, &error)) << error;
+    ASSERT_TRUE(trace::Read(right, {}, &right_summary, nullptr, 0, &error)) << error;
+    EXPECT_NE(trace::FormatSummary(left_summary).find("benchmark_status=completed"), std::string::npos);
+    EXPECT_NE(trace::FormatCompare(left_summary, right_summary).find("benchmark_elapsed_us 100 | 200 | 100"), std::string::npos);
+}
+
+TEST_F(TraceTest, RejectsInvalidBenchmarkCompletionAndReportsFailedBenchmark)
+{
+    const auto path = Path(L"benchmark failed");
+    Write(path, "{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"run-1\",\"sequence\":1,\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":1,\"game_date_raw\":100,\"event_type\":\"benchmark.started\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"provisional\",\"entities\":{},\"payload\":{\"start_date_raw\":100,\"target_date_raw\":124,\"requested_days\":1,\"timeout_seconds\":600}}\n{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"run-1\",\"sequence\":2,\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":10,\"game_date_raw\":124,\"event_type\":\"benchmark.failed\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"provisional\",\"entities\":{},\"payload\":{\"start_date_raw\":100,\"target_date_raw\":124,\"actual_date_raw\":124,\"elapsed_us\":10,\"reason\":\"timeout\",\"paused\":true}}");
+    trace::Summary summary;
+    std::string error;
+    ASSERT_TRUE(trace::Read(path, {}, &summary, nullptr, 0, &error)) << error;
+    EXPECT_NE(trace::FormatSummary(summary).find("benchmark_status=failed"), std::string::npos);
+    auto invalid = fs::path(path);
+    Write(invalid, "{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"run-1\",\"sequence\":1,\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":10,\"game_date_raw\":125,\"event_type\":\"benchmark.completed\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"provisional\",\"entities\":{},\"payload\":{\"start_date_raw\":100,\"target_date_raw\":124,\"actual_date_raw\":125,\"game_days\":1,\"elapsed_us\":10,\"overshoot_raw\":0,\"paused\":true}}");
+    EXPECT_FALSE(trace::Read(invalid, {}, &summary, nullptr, 0, &error));
+}
+
+TEST_F(TraceTest, RejectsBenchmarkLifecycleOrderAndAllowsStandaloneInvalidTarget)
+{
+    const auto record = [](uint64_t sequence, const char *event, const char *payload) {
+        return std::string("{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"run-1\",\"sequence\":") + std::to_string(sequence)
+            + ",\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":" + std::to_string(sequence)
+            + ",\"game_date_raw\":100,\"event_type\":\"" + event + "\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"provisional\",\"entities\":{},\"payload\":" + payload + "}";
+    };
+    const auto started = record(1, "benchmark.started", "{\"start_date_raw\":100,\"target_date_raw\":124,\"requested_days\":1,\"timeout_seconds\":600}");
+    const auto completed = record(2, "benchmark.completed", "{\"start_date_raw\":100,\"target_date_raw\":124,\"actual_date_raw\":124,\"game_days\":1,\"elapsed_us\":1,\"overshoot_raw\":0,\"paused\":true}");
+    const auto path = Path(L"benchmark order");
+    trace::Summary summary;
+    std::string error;
+    Write(path, started + "\n" + started);
+    EXPECT_FALSE(trace::Read(path, {}, &summary, nullptr, 0, &error));
+    Write(path, completed);
+    EXPECT_FALSE(trace::Read(path, {}, &summary, nullptr, 0, &error));
+    Write(path, started + "\n" + completed + "\n" + completed);
+    EXPECT_FALSE(trace::Read(path, {}, &summary, nullptr, 0, &error));
+    Write(path, record(1, "benchmark.failed", "{\"start_date_raw\":100,\"target_date_raw\":100,\"actual_date_raw\":100,\"elapsed_us\":1,\"reason\":\"invalid_target\",\"paused\":true}"));
+    ASSERT_TRUE(trace::Read(path, {}, &summary, nullptr, 0, &error)) << error;
+    EXPECT_EQ(summary.benchmark.status, "failed");
+}
+
+TEST_F(TraceTest, RejectsMisalignedBenchmarkStartAndUnpairedFailureDate)
+{
+    const auto record = [](const char *event, int date, const char *payload) {
+        return std::string("{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"run-1\",\"sequence\":1,\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":1,\"game_date_raw\":")
+            + std::to_string(date) + ",\"event_type\":\"" + event
+            + "\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"provisional\",\"entities\":{},\"payload\":" + payload + "}";
+    };
+    const auto path = Path(L"benchmark malformed fields");
+    trace::Summary summary;
+    std::string error;
+    Write(path, record("benchmark.started", 100,
+        "{\"start_date_raw\":100,\"target_date_raw\":125,\"requested_days\":1,\"timeout_seconds\":600}"));
+    EXPECT_FALSE(trace::Read(path, {}, &summary, nullptr, 0, &error));
+    Write(path, record("benchmark.failed", 100,
+        "{\"start_date_raw\":100,\"target_date_raw\":100,\"elapsed_us\":1,\"reason\":\"invalid_target\",\"paused\":true}"));
+    EXPECT_FALSE(trace::Read(path, {}, &summary, nullptr, 0, &error));
+}
+
+TEST_F(TraceTest, RejectsExportsThatSplitBenchmarkLifecycle)
+{
+    const auto input = Path(L"benchmark export input");
+    const auto output = root / L"benchmark export.jsonl";
+    Write(input, "{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"run-1\",\"sequence\":1,\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":1,\"game_date_raw\":100,\"event_type\":\"benchmark.started\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"provisional\",\"entities\":{},\"payload\":{\"start_date_raw\":100,\"target_date_raw\":124,\"requested_days\":1,\"timeout_seconds\":600}}\n{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"run-1\",\"sequence\":2,\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":2,\"game_date_raw\":124,\"event_type\":\"benchmark.completed\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"provisional\",\"entities\":{},\"payload\":{\"start_date_raw\":100,\"target_date_raw\":124,\"actual_date_raw\":124,\"game_days\":1,\"elapsed_us\":1,\"overshoot_raw\":0,\"paused\":true}}");
+    std::string error;
+    EXPECT_FALSE(trace::ExportTrace(input, output, {"benchmark.completed", {}, {}}, false, &error));
+    EXPECT_EQ(error, "benchmark lifecycle events cannot be split by a trace export filter");
+    EXPECT_FALSE(fs::exists(output));
+}

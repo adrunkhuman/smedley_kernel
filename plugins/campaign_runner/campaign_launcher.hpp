@@ -2,6 +2,8 @@
 
 #include <smedley/v2/console.hpp>
 #include "campaign_telemetry.hpp"
+#include "benchmark_controller.hpp"
+#include "campaign_launch_arguments.hpp"
 #include <windows.h>
 
 #include <atomic>
@@ -16,6 +18,7 @@ namespace smedley
 namespace smedley::v2
 {
     class CCurrentGameState;
+    class CInGameIdler;
 }
 
 namespace campaign_runner
@@ -25,7 +28,8 @@ namespace campaign_runner
     public:
         explicit CampaignLauncher(smedley::Logger &logger) noexcept;
 
-        bool Start(std::wstring save_path, bool observe, std::wstring observer_view_tag, int speed, bool start_paused);
+        bool Start(std::wstring save_path, bool observe, std::wstring observer_view_tag, int speed, bool start_paused,
+                    CampaignRunCondition condition);
         void Stop();
         void CaptureConsoleCommandManager(smedley::v2::CConsoleCmdManager *manager);
         void CaptureFrontendController(void *controller);
@@ -42,8 +46,13 @@ namespace campaign_runner
         bool ScheduleTimer(UINT delay, const char *failure_message);
         bool CheckSignatures() const;
         bool SelectSpeed(smedley::v2::CCurrentGameState *game_state);
+        void StartBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler);
+        bool TickBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler);
+        void FinishBenchmark(const char *reason, std::optional<int> actual_date_raw, std::optional<bool> paused);
+        void FinishInvalidBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler);
         void ReportTelemetryResult(SmedleyTelemetryResult result);
-        void EmitObserverConfiguredIfReady(smedley::v2::CCurrentGameState *game_state);
+        bool ObserverInvariantsValid(smedley::v2::CCurrentGameState *game_state) const;
+        bool EmitObserverConfiguredIfReady(smedley::v2::CCurrentGameState *game_state);
         bool InstallControllerHooks();
         bool DispatchMainMenuSinglePlayer();
         bool DispatchControlSignal(const char *name);
@@ -58,6 +67,7 @@ namespace campaign_runner
         int observer_attempts_ = 0;
         int observer_target_ordinal_ = 0;
         long observed_suppressed_messages_ = 0;
+        uint64_t next_observer_watchdog_us_ = 0;
         bool lobby_requested_ = false;
         bool save_selection_requested_ = false;
         bool play_requested_ = false;
@@ -70,6 +80,10 @@ namespace campaign_runner
         bool speed_ready_ = false;
         int target_speed_ = 5;
         bool start_paused_ = false;
+        CampaignRunCondition run_condition_;
+        BenchmarkController benchmark_;
+        bool benchmark_started_ = false;
+        bool benchmark_terminal_ = false;
         bool final_pause_recorded_ = false;
         std::optional<bool> pause_before_configuration_;
         size_t observer_ai_count_before_switch_ = 0;

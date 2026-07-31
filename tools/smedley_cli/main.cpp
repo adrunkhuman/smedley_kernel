@@ -22,6 +22,9 @@ struct Options
     std::optional<bool> observer;
     std::optional<int> speed;
     std::optional<bool> start_paused;
+    std::optional<int> run_days;
+    std::optional<int> run_until_date_raw;
+    std::optional<int> run_timeout_seconds;
     std::optional<bool> telemetry_enabled;
     std::optional<fs::path> telemetry_output;
     std::vector<std::string> telemetry_categories;
@@ -52,6 +55,9 @@ void PrintUsage()
         << "  --view-tag TAG  Select an initial observer view\n"
         << "  --speed N       Set initial campaign speed from 1 through 5 (default: 5)\n"
         << "  --start-paused  Leave a loaded campaign paused; incompatible with --observe\n"
+        << "  --run-days N    Benchmark exactly N game days (1 through 1000000)\n"
+        << "  --run-until-date-raw N  Benchmark to an absolute raw date; incompatible with --run-days\n"
+        << "  --run-timeout-seconds N  Benchmark timeout (1 through 86400; default: 600)\n"
         << "  --telemetry     Enable the built-in structured telemetry plugin\n"
         << "  --telemetry-output PATH  JSON Lines trace path (default: %LOCALAPPDATA%\\Smedley\\traces\\<run-id>.jsonl)\n"
         << "  --telemetry-category NAME  lifecycle or state; may be repeated\n"
@@ -85,7 +91,8 @@ Options ParseArguments(int argc, wchar_t **argv)
         if (argument == L"--no-telemetry") { options.telemetry_enabled = false; continue; }
         if (argument == L"--telemetry-overwrite") { options.telemetry_overwrite = true; continue; }
         if (argument == L"--speed" || argument == L"--telemetry-sample-days" || argument == L"--telemetry-queue-capacity"
-            || argument == L"--telemetry-start-date-raw" || argument == L"--telemetry-end-date-raw") {
+            || argument == L"--telemetry-start-date-raw" || argument == L"--telemetry-end-date-raw"
+            || argument == L"--run-days" || argument == L"--run-until-date-raw" || argument == L"--run-timeout-seconds") {
             if (++i == argc) throw std::runtime_error("missing numeric argument value");
             const std::wstring value = argv[i];
             size_t parsed = 0;
@@ -95,11 +102,14 @@ Options ParseArguments(int argc, wchar_t **argv)
                 else if (argument == L"--telemetry-sample-days") options.telemetry_sample_days = number;
                 else if (argument == L"--telemetry-queue-capacity") options.telemetry_queue_capacity = number;
                 else if (argument == L"--telemetry-start-date-raw") options.telemetry_start_date_raw = number;
-                else options.telemetry_end_date_raw = number;
+                else if (argument == L"--telemetry-end-date-raw") options.telemetry_end_date_raw = number;
+                else if (argument == L"--run-days") options.run_days = number;
+                else if (argument == L"--run-until-date-raw") options.run_until_date_raw = number;
+                else options.run_timeout_seconds = number;
             } catch (const std::exception &) {
-                throw std::runtime_error("numeric telemetry and speed options must be integers");
+                throw std::runtime_error("numeric options must be integers");
             }
-            if (parsed != value.size()) throw std::runtime_error("numeric telemetry and speed options must be integers");
+            if (parsed != value.size()) throw std::runtime_error("numeric options must be integers");
             continue;
         }
         if (argument != L"--profile" && argument != L"--game-dir" && argument != L"--kernel"
@@ -202,6 +212,9 @@ int wmain(int argc, wchar_t **argv)
         if (options.observer) profile.observer = *options.observer;
         if (options.speed) profile.speed = *options.speed;
         if (options.start_paused) profile.start_paused = *options.start_paused;
+        if (options.run_days) profile.run_days = *options.run_days;
+        if (options.run_until_date_raw) profile.run_until_date_raw = *options.run_until_date_raw;
+        if (options.run_timeout_seconds) profile.run_timeout_seconds = *options.run_timeout_seconds;
         if (options.telemetry_enabled) profile.telemetry_enabled = *options.telemetry_enabled;
         if (options.telemetry_output) profile.telemetry_output = *options.telemetry_output;
         if (!options.telemetry_categories.empty()) profile.telemetry_categories = options.telemetry_categories;
