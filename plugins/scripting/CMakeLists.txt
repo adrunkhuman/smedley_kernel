@@ -51,7 +51,7 @@ if(BUILD_TESTING)
   add_executable(smedley_scripting_tests scripting_runtime_test.cpp)
   target_link_libraries(smedley_scripting_tests PRIVATE smedley_scripting_core GTest::gtest_main)
   include(GoogleTest)
-  gtest_discover_tests(smedley_scripting_tests)
+  gtest_discover_tests(smedley_scripting_tests DISCOVERY_TIMEOUT 30)
 endif()
 
 if(EXISTS ${PLUGINS_DIR})

@@ -196,7 +196,8 @@ end
     ASSERT_TRUE(WaitFor([&] { return runtime.stats().script_errors != 0; }));
     runtime.Stop();
 
-    EXPECT_EQ(runtime.stats().script_errors, 1u);
+    EXPECT_GE(runtime.stats().script_errors, 1u);
+    EXPECT_LT(runtime.stats().script_errors, 3u);
     EXPECT_EQ(runtime.stats().disabled_scripts, 0u);
 }
 

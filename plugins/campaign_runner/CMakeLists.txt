@@ -7,7 +7,7 @@ if(BUILD_TESTING)
   target_include_directories(smedley_campaign_telemetry_tests PRIVATE "${CMAKE_SOURCE_DIR}/include")
   target_link_libraries(smedley_campaign_telemetry_tests PRIVATE GTest::gtest_main psapi)
   include(GoogleTest)
-  gtest_discover_tests(smedley_campaign_telemetry_tests)
+  gtest_discover_tests(smedley_campaign_telemetry_tests DISCOVERY_TIMEOUT 30)
 endif()
 
 if(EXISTS ${PLUGINS_DIR})

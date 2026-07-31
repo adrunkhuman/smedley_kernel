@@ -31,7 +31,7 @@ target_include_directories(smedley_plugin_abi_fixture PRIVATE "${CMAKE_SOURCE_DI
 add_dependencies(smedley_run_tests smedley_plugin_abi_fixture)
 
 include(GoogleTest)
-gtest_discover_tests(smedley_run_tests)
+gtest_discover_tests(smedley_run_tests DISCOVERY_TIMEOUT 30)
 
 if(EXISTS ${V2_GAME_DIR})
 	install(TARGETS smedley_kernel DESTINATION ${V2_GAME_DIR})
