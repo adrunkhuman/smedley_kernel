@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    strategy:
+      matrix:
+        configuration: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Win32 build
+        run: cmake -S . -B build -A Win32 -DV2_GAME_DIR="${{ runner.temp }}\missing-victoria-2"
+
+      - name: Build
+        run: cmake --build build --config ${{ matrix.configuration }} --parallel
+
+      - name: Test
+        run: ctest --test-dir build -C ${{ matrix.configuration }} --output-on-failure

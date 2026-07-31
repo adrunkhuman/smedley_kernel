@@ -75,7 +75,7 @@ namespace smedley
          */
         static void Unregister(Plugin *plugin, const std::string &id)
         {
-            auto handler_exists = [&fn](const Handler &h) { return h.key_plugin == plugin && h.key_str == id; };
+            auto handler_exists = [plugin, &id](const Handler &h) { return h.key_plugin == plugin && h.key_str == id; };
             auto iter = std::find_if(_handlers.begin(), _handlers.end(), handler_exists);
             if (iter != _handlers.end()) {
                 _handlers.erase(iter);

@@ -1,7 +1,7 @@
 ﻿# CMakeList.txt : CMake project for smedley_kernel, include source and define
 # project specific logic here.
 #
-cmake_minimum_required (VERSION 3.8)
+cmake_minimum_required(VERSION 3.20)
 
 FILE(GLOB_RECURSE kernel_sources src/*.cpp)
 FILE(GLOB_RECURSE test_sources tests/*.cpp)
@@ -14,7 +14,6 @@ add_library (smedley_kernel SHARED ${kernel_sources})
 target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL LUA_BUILD_AS_DLL LUA_LIB)
 
 # setup testing
-enable_testing()
 add_executable(smedley_run_tests ${test_sources})
 target_link_libraries(smedley_run_tests GTest::gtest_main smedley_kernel)
 
@@ -50,12 +49,15 @@ else (DOXYGEN_FOUND)
   message("Doxygen need to be installed to generate the doxygen documentation")
 endif (DOXYGEN_FOUND)
 
-add_custom_command(
-  OUTPUT codegen
-  COMMAND cog -r -I .\\codegen @generatedfiles.txt
-  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-)
+option(SMEDLEY_REGENERATE_BINDINGS "Regenerate checked-in game bindings during the build" OFF)
 
-add_custom_target(cog_generate ALL DEPENDS codegen)
-
-add_dependencies(smedley_kernel cog_generate)
+if(SMEDLEY_REGENERATE_BINDINGS)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_custom_target(cog_generate
+    COMMAND ${Python3_EXECUTABLE} -m cogapp -r -I codegen @generatedfiles.txt
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+    COMMENT "Regenerating checked-in game bindings"
+    VERBATIM
+  )
+  add_dependencies(smedley_kernel cog_generate)
+endif()
