@@ -42,7 +42,7 @@ TEST(TelemetryQueueTest, IsBoundedAndAccountsForDrops)
 TEST(TelemetryWriterTest, WritesCompleteNewlineDelimitedRecords)
 {
     const fs::path path = fs::temp_directory_path() / (L"smedley telemetry " + std::to_wstring(GetTickCount64()) + L".jsonl");
-    telemetry::Config config{"run-1", path, {"lifecycle"}, 1, 64, false};
+    telemetry::Config config{"run-1", path, {"lifecycle"}, {}, std::nullopt, std::nullopt, 1, 64, false};
     telemetry::Writer writer(config);
     std::string error;
     ASSERT_TRUE(writer.Start(&error)) << error;
@@ -68,15 +68,21 @@ TEST(TelemetryConfigTest, ParsesAndRejectsMalformedLaunchArguments)
     telemetry::Config config;
     std::string error;
     ASSERT_TRUE(telemetry::ParseLaunchArguments({L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
-                                                  L"-smedley-telemetry-categories=lifecycle,state", L"-smedley-telemetry-sample-days=3",
-                                                   L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0"}, &config, &error));
+                                                   L"-smedley-telemetry-categories=lifecycle,state", L"-smedley-telemetry-sample-days=3",
+                                                     L"-smedley-telemetry-country-tags=ENG,D01", L"-smedley-telemetry-start-date-raw=-5",
+                                                    L"-smedley-telemetry-end-date-raw=10", L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0"}, &config, &error));
     EXPECT_EQ(config.categories, (std::vector<std::string>{"lifecycle", "state"}));
     EXPECT_EQ(config.sample_days, 3);
     EXPECT_EQ(config.queue_capacity, 128);
+    EXPECT_EQ(config.country_tags, (std::vector<std::string>{"ENG", "D01"}));
+    EXPECT_TRUE(telemetry::IsDateInRange(config, 0));
+    EXPECT_FALSE(telemetry::IsDateInRange(config, 11));
+    EXPECT_TRUE(telemetry::HasCountryTag(config, "ENG"));
+    EXPECT_FALSE(telemetry::HasCountryTag(config, "USA"));
 
     EXPECT_FALSE(telemetry::ParseLaunchArguments({L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
-                                                   L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=0",
-                                                   L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0"}, &config, &error));
+                                                    L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=0",
+                                                    L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0"}, &config, &error));
 }
 
 TEST(TelemetryTimingTest, ConvertsLongUptimeWithoutMultiplicationOverflow)
@@ -91,6 +97,7 @@ TEST(TelemetrySamplingTest, SkipsUnavailableAndResetsOnDateRegression)
     EXPECT_FALSE(telemetry::ShouldSampleDate(std::nullopt, 7, &last));
     EXPECT_TRUE(telemetry::ShouldSampleDate(100, 7, &last));
     EXPECT_TRUE(telemetry::ShouldSampleDate(100, 7, &last));
-    EXPECT_FALSE(telemetry::ShouldSampleDate(105, 7, &last));
+    EXPECT_FALSE(telemetry::ShouldSampleDate(267, 7, &last));
+    EXPECT_TRUE(telemetry::ShouldSampleDate(268, 7, &last));
     EXPECT_TRUE(telemetry::ShouldSampleDate(90, 7, &last));
 }

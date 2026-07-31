@@ -76,6 +76,10 @@ See [`docs/telemetry.md`](docs/telemetry.md) for the schema, configuration, and
 current evidence limits. Country economy records are state snapshots, not AI
 decision reasoning.
 
+`smedley_trace` validates, summarizes, compares, filters, and exports telemetry
+traces without external dependencies. Run `smedley_trace summary TRACE.jsonl` or
+see [`docs/telemetry.md`](docs/telemetry.md) for all commands.
+
 `v2up` and `dailyupdate_example` are inherited native plugin examples. Gameplay
 changes remain opt-in.
 

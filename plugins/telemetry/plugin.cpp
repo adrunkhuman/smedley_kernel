@@ -98,9 +98,10 @@ namespace telemetry_plugin
             }
             const bool progress = lifecycle_enabled
                 && (!last_progress_date_ || *raw_date != *last_progress_date_);
-            if (state_enabled && smedley::telemetry::ShouldSampleDate(raw_date, config_.sample_days, &sampled_date_)) {
+            if (state_enabled && smedley::telemetry::IsDateInRange(config_, raw_date)
+                && smedley::telemetry::ShouldSampleDate(raw_date, config_.sample_days, &sampled_date_)) {
                 const auto *country = event.GetCountry();
-                if (country != nullptr) {
+                if (country != nullptr && smedley::telemetry::HasCountryTag(config_, country->tag().str())) {
                     const int64_t treasury_raw = country->treasury_raw();
                     const std::string payload = "{\"treasury_raw\":" + std::to_string(treasury_raw)
                         + ",\"treasury\":" + std::to_string(static_cast<double>(treasury_raw) / 32768.0) + "}";

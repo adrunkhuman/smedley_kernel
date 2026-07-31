@@ -515,8 +515,19 @@ namespace smedley::launcher
             return category == "lifecycle" || category == "state";
         }
 
+        bool IsTelemetryCountryTag(const std::string &tag)
+        {
+            return tag.size() == 3 && std::all_of(tag.begin(), tag.end(), [](unsigned char character) {
+                return (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9');
+            });
+        }
+
         bool ValidateTelemetryProfile(const Profile &profile, std::vector<Diagnostic> *diagnostics, const fs::path &path = {})
         {
+            if (profile.telemetry_filter_parse_error) {
+                AddDiagnostic(diagnostics, "telemetry.filter_parse", *profile.telemetry_filter_parse_error, path);
+                return false;
+            }
             if (profile.telemetry_output && profile.telemetry_output->empty()) {
                 AddDiagnostic(diagnostics, "telemetry.output", "telemetry_output must not be empty", path);
                 return false;
@@ -537,6 +548,22 @@ namespace smedley::launcher
                     AddDiagnostic(diagnostics, "telemetry.categories", "telemetry_categories must not contain duplicates", path);
                     return false;
                 }
+            }
+            for (size_t index = 0; index < profile.telemetry_country_tags.size(); ++index) {
+                if (!IsTelemetryCountryTag(profile.telemetry_country_tags[index])) {
+                    AddDiagnostic(diagnostics, "telemetry.country_tags", "telemetry_country_tags must contain normalized three-character ASCII tags", path);
+                    return false;
+                }
+                if (std::find(profile.telemetry_country_tags.begin(), profile.telemetry_country_tags.begin() + index,
+                              profile.telemetry_country_tags[index]) != profile.telemetry_country_tags.begin() + index) {
+                    AddDiagnostic(diagnostics, "telemetry.country_tags", "telemetry_country_tags must not contain duplicates", path);
+                    return false;
+                }
+            }
+            if (profile.telemetry_start_date_raw && profile.telemetry_end_date_raw
+                && *profile.telemetry_start_date_raw > *profile.telemetry_end_date_raw) {
+                AddDiagnostic(diagnostics, "telemetry.date_range", "telemetry_start_date_raw must not exceed telemetry_end_date_raw", path);
+                return false;
             }
             if (profile.telemetry_sample_days < telemetry_min_sample_days || profile.telemetry_sample_days > telemetry_max_sample_days) {
                 AddDiagnostic(diagnostics, "telemetry.sample_days", "telemetry_sample_days must be from 1 through 365", path);
@@ -1123,6 +1150,33 @@ namespace smedley::launcher
                 }
                 loaded.telemetry_sample_days = *value;
             }
+            if (table.contains("telemetry_country_tags")) {
+                const auto *tags = table["telemetry_country_tags"].as_array();
+                if (tags == nullptr) {
+                    AddDiagnostic(diagnostics, "profile.schema", "telemetry_country_tags must be an array of strings", path);
+                    return false;
+                }
+                for (const auto &node : *tags) {
+                    const auto value = node.value<std::string>();
+                    if (!value) {
+                        AddDiagnostic(diagnostics, "profile.schema", "telemetry_country_tags must contain strings", path);
+                        return false;
+                    }
+                    loaded.telemetry_country_tags.push_back(*value);
+                }
+            }
+            auto read_optional_raw_date = [&](const char *key, std::optional<int> *destination) {
+                if (!table.contains(key)) return true;
+                const auto value = table[key].value<int>();
+                if (!value) {
+                    AddDiagnostic(diagnostics, "profile.schema", std::string(key) + " must be an integer", path);
+                    return false;
+                }
+                *destination = *value;
+                return true;
+            };
+            if (!read_optional_raw_date("telemetry_start_date_raw", &loaded.telemetry_start_date_raw)
+                || !read_optional_raw_date("telemetry_end_date_raw", &loaded.telemetry_end_date_raw)) return false;
             if (table.contains("telemetry_queue_capacity")) {
                 const auto value = table["telemetry_queue_capacity"].value<int>();
                 if (!value) {
@@ -1199,6 +1253,14 @@ namespace smedley::launcher
             output << "\"" << EscapeToml(profile.telemetry_categories[i]) << "\"";
         }
         output << "]\n";
+        output << "telemetry_country_tags = [";
+        for (size_t i = 0; i < profile.telemetry_country_tags.size(); ++i) {
+            if (i) output << ", ";
+            output << "\"" << EscapeToml(profile.telemetry_country_tags[i]) << "\"";
+        }
+        output << "]\n";
+        if (profile.telemetry_start_date_raw) output << "telemetry_start_date_raw = " << *profile.telemetry_start_date_raw << "\n";
+        if (profile.telemetry_end_date_raw) output << "telemetry_end_date_raw = " << *profile.telemetry_end_date_raw << "\n";
         output << "telemetry_sample_days = " << profile.telemetry_sample_days << "\n";
         output << "telemetry_queue_capacity = " << profile.telemetry_queue_capacity << "\n";
         output << "telemetry_overwrite = " << (profile.telemetry_overwrite ? "true" : "false") << "\n";
@@ -1403,6 +1465,15 @@ namespace smedley::launcher
                         arguments.push_back(L"-smedley-telemetry-output=" + plan.profile.telemetry_output->wstring());
                     }
                     arguments.push_back(L"-smedley-telemetry-categories=" + TelemetryCategoriesArgument(plan.profile.telemetry_categories));
+                    if (!plan.profile.telemetry_country_tags.empty()) {
+                        arguments.push_back(L"-smedley-telemetry-country-tags=" + TelemetryCategoriesArgument(plan.profile.telemetry_country_tags));
+                    }
+                    if (plan.profile.telemetry_start_date_raw) {
+                        arguments.push_back(L"-smedley-telemetry-start-date-raw=" + std::to_wstring(*plan.profile.telemetry_start_date_raw));
+                    }
+                    if (plan.profile.telemetry_end_date_raw) {
+                        arguments.push_back(L"-smedley-telemetry-end-date-raw=" + std::to_wstring(*plan.profile.telemetry_end_date_raw));
+                    }
                     arguments.push_back(L"-smedley-telemetry-sample-days=" + std::to_wstring(plan.profile.telemetry_sample_days));
                     arguments.push_back(L"-smedley-telemetry-queue-capacity=" + std::to_wstring(plan.profile.telemetry_queue_capacity));
                     arguments.push_back(L"-smedley-telemetry-overwrite=" + std::to_wstring(plan.profile.telemetry_overwrite ? 1 : 0));

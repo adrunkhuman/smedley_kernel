@@ -64,6 +64,10 @@ namespace smedley::launcher
         bool telemetry_enabled = false;
         std::optional<fs::path> telemetry_output;
         std::vector<std::string> telemetry_categories = {"lifecycle", "state"};
+        std::vector<std::string> telemetry_country_tags;
+        std::optional<int> telemetry_start_date_raw;
+        std::optional<int> telemetry_end_date_raw;
+        std::optional<std::string> telemetry_filter_parse_error;
         int telemetry_sample_days = 1;
         int telemetry_queue_capacity = 1024;
         bool telemetry_overwrite = false;

@@ -16,7 +16,10 @@ validation before launch.
 | `telemetry_enabled` | boolean | `false` | Requires selected plugin ID `telemetry` when injecting. |
 | `telemetry_output` | string, optional | per-run path | Must name a non-directory file. |
 | `telemetry_categories` | string array | `"lifecycle", "state"` | Non-empty, unique, values are `lifecycle` and/or `state`. |
-| `telemetry_sample_days` | integer | `1` | 1 through 365. Applies before country extraction and formatting. |
+| `telemetry_country_tags` | string array | empty | Optional unique normalized three-character uppercase ASCII alphanumeric country tags, including dynamic tags such as `D01`. |
+| `telemetry_start_date_raw` | integer, optional | none | Inclusive raw game-date lower bound. |
+| `telemetry_end_date_raw` | integer, optional | none | Inclusive raw game-date upper bound; cannot precede start. |
+| `telemetry_sample_days` | integer | `1` | 1 through 365 game days. Applies before country extraction and formatting. |
 | `telemetry_queue_capacity` | integer | `1024` | 64 through 8192 fixed record slots. |
 | `telemetry_overwrite` | boolean | `false` | Required to replace an existing output. |
 
@@ -32,7 +35,8 @@ link.
 CLI controls are `--telemetry`, `--no-telemetry`, `--telemetry-output PATH`,
 repeatable `--telemetry-category lifecycle|state`,
 `--telemetry-sample-days N`, `--telemetry-queue-capacity N`, and
-`--telemetry-overwrite`.
+`--telemetry-overwrite`, repeatable `--telemetry-country TAG`,
+`--telemetry-start-date-raw N`, and `--telemetry-end-date-raw N`.
 
 Outputs must end in `.jsonl` (case-insensitive). Existing outputs are rejected
 unless overwrite is explicit. Directories, reparse points, and paths colliding
@@ -69,6 +73,11 @@ the event family does not define it. `null` means the field is defined but
 unavailable, for example `game_date_raw` on lifecycle records. Numeric `0` is
 an observed zero. Consumers must preserve all three states.
 
+For the supported executable, `game_date_raw` advances by 24 units per game
+day. Trace summaries divide raw-date deltas by 24 before reporting game-day
+spans or game-days per second. This is a verified runtime property recorded in
+`mappings/TELEMETRY.md`; profile date bounds remain raw values.
+
 Example:
 
 ```json
@@ -103,8 +112,10 @@ from v1 rather than logging pointers or inferred relationships.
 
 ## Bounded Delivery
 
-The selected plugin starts a worker after opening the output. Event callbacks
-first check category and sampling, then perform extraction and JSON formatting;
+The selected plugin starts a worker after opening the output. State callbacks
+first check category, date range, and sampling, then check the country tag before
+treasury extraction and JSON formatting. Lifecycle progress remains useful when
+state records are excluded by date or country filters;
 they never perform file I/O or flush. The queue has fixed-capacity, fixed-size
 record slots. A callback uses a non-waiting queue lock; full, contended, stopped,
 or oversized records are explicitly counted as dropped. The sole worker writes
@@ -117,3 +128,26 @@ join the writer. `telemetry.progress` is emitted at least once per observed game
 date when `lifecycle` is selected. Up to the latest userspace queue and the
 one-second flush interval can be lost at real process exit. Completed prior
 lines remain independently parseable and no callbacks interleave output.
+
+## Trace Tool
+
+`smedley_trace.exe` is installed beside the launcher and CLI. It streams JSONL
+without external dependencies:
+
+```powershell
+smedley_trace validate run.jsonl
+smedley_trace summary run.jsonl
+smedley_trace inspect run.jsonl --event country.daily --country ENG --limit 20
+smedley_trace compare baseline.jsonl changed.jsonl
+smedley_trace export-csv run.jsonl treasury.csv --event country.daily
+smedley_trace export-trace run.jsonl eng.jsonl --country ENG
+```
+
+Malformed complete records, invalid envelopes, mixed run IDs, and non-increasing
+sequences fail validation. An incomplete final line is warned and ignored.
+Exports create a new file by default. Both export commands accept `--overwrite`:
+the tool writes and flushes a sibling temporary file, then atomically replaces
+the destination only after the complete source snapshot validates. It rejects
+reparse paths, hard-linked destinations, and input/output aliases. CSV text
+cells beginning with `=`, `+`, `-`, or `@` receive a leading apostrophe to avoid
+spreadsheet formula interpretation; JSON numeric cells remain numeric.

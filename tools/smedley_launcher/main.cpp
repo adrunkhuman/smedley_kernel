@@ -50,6 +50,9 @@ namespace
         telemetry_sample_days_edit,
         telemetry_queue_capacity_edit,
         telemetry_overwrite_check,
+        telemetry_country_tags_edit,
+        telemetry_start_date_edit,
+        telemetry_end_date_edit,
     };
 
     std::wstring Utf8ToWide(const std::string &value)
@@ -179,7 +182,7 @@ namespace
         }
 
     private:
-        enum : int { run_list = 1, reload_button, metadata_button, link_combo, open_link_button, history_status };
+        enum : int { run_list = 1, reload_button, metadata_button, link_combo, open_link_button, trace_summary_button, history_status };
 
         static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
         {
@@ -212,6 +215,7 @@ namespace
                 if (LOWORD(wparam) == reload_button && HIWORD(wparam) == BN_CLICKED) Reload();
                 else if (LOWORD(wparam) == metadata_button && HIWORD(wparam) == BN_CLICKED) OpenMetadata();
                 else if (LOWORD(wparam) == open_link_button && HIWORD(wparam) == BN_CLICKED) OpenSelectedLink();
+                else if (LOWORD(wparam) == trace_summary_button && HIWORD(wparam) == BN_CLICKED) OpenTraceSummary();
                 else if (LOWORD(wparam) == link_combo && HIWORD(wparam) == CBN_SELCHANGE) EnableWindow(open_link_, SelectedLink().has_value());
                 return 0;
             case WM_NOTIFY: {
@@ -245,6 +249,7 @@ namespace
             metadata_ = AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Open &metadata", metadata_button);
             links_ = AddControl(CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL, L"COMBOBOX", L"", link_combo);
             open_link_ = AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Open &link", open_link_button);
+            trace_summary_ = AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Trace &summary", trace_summary_button);
             status_ = AddControl(SS_LEFT, L"STATIC", L"", history_status);
         }
 
@@ -264,8 +269,9 @@ namespace
             const int y = std::max(150, height - 78);
             MoveWindow(GetDlgItem(window_, reload_button), margin, y, 85, 26, TRUE);
             MoveWindow(metadata_, margin + 92, y, 115, 26, TRUE);
-            MoveWindow(links_, margin + 214, y, std::max(150, width - 390), 220, TRUE);
-            MoveWindow(open_link_, std::max(310, width - 166), y, 100, 26, TRUE);
+            MoveWindow(links_, margin + 214, y, std::max(150, width - 490), 220, TRUE);
+            MoveWindow(open_link_, std::max(310, width - 266), y, 100, 26, TRUE);
+            MoveWindow(trace_summary_, std::max(415, width - 158), y, 145, 26, TRUE);
             MoveWindow(status_, margin, y + 32, std::max(200, width - margin * 2), 24, TRUE);
         }
 
@@ -324,6 +330,9 @@ namespace
             }
             if (!link_paths_.empty()) SendMessageW(links_, CB_SETCURSEL, 0, 0);
             EnableWindow(open_link_, !link_paths_.empty());
+            const auto selected = SelectedRecord();
+            const bool trace = selected && records_[*selected].links.telemetry_trace && IsSafeTrace(*records_[*selected].links.telemetry_trace);
+            EnableWindow(trace_summary_, trace);
         }
 
         void AddAvailableLink(const wchar_t *name, const std::optional<fs::path> &path)
@@ -386,11 +395,42 @@ namespace
             if (const auto link = SelectedLink()) OpenWithExplorer(*link);
         }
 
+        bool IsSafeTrace(const fs::path &path) const
+        {
+            bool directory = false;
+            return IsSafeLinkedTarget(path, &directory) && !directory && _wcsicmp(path.extension().c_str(), L".jsonl") == 0;
+        }
+
+        void OpenTraceSummary()
+        {
+            const auto selected = SelectedRecord();
+            if (!selected || !records_[*selected].links.telemetry_trace || !IsSafeTrace(*records_[*selected].links.telemetry_trace)) return;
+            const auto tool = ExecutableDirectory() / L"smedley_trace.exe";
+            const DWORD attributes = GetFileAttributesW(tool.c_str());
+            if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0) {
+                MessageBoxW(window_, L"smedley_trace.exe is not installed beside the launcher.", L"Smedley Launcher", MB_OK | MB_ICONWARNING);
+                return;
+            }
+            const std::wstring command_line = launcher::BuildWindowsCommandLine({tool.wstring(), L"summary", records_[*selected].links.telemetry_trace->wstring(), L"--wait"});
+            std::vector<wchar_t> command(command_line.begin(), command_line.end());
+            command.push_back(L'\0');
+            STARTUPINFOW startup{};
+            startup.cb = sizeof(startup);
+            PROCESS_INFORMATION process{};
+            if (!CreateProcessW(tool.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NEW_CONSOLE, nullptr, tool.parent_path().c_str(), &startup, &process)) {
+                MessageBoxW(window_, L"Could not start smedley_trace.exe.", L"Smedley Launcher", MB_OK | MB_ICONERROR);
+                return;
+            }
+            CloseHandle(process.hThread);
+            CloseHandle(process.hProcess);
+        }
+
         HWND window_ = nullptr;
         HWND list_ = nullptr;
         HWND metadata_ = nullptr;
         HWND links_ = nullptr;
         HWND open_link_ = nullptr;
+        HWND trace_summary_ = nullptr;
         HWND status_ = nullptr;
         int columns_ = 0;
         std::vector<launcher::RunRecord> records_;
@@ -538,6 +578,12 @@ namespace
             telemetry_sample_days_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"1", telemetry_sample_days_edit);
             telemetry_queue_capacity_label_ = AddLabel(L"&Queue capacity:");
             telemetry_queue_capacity_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"1024", telemetry_queue_capacity_edit);
+            telemetry_country_tags_label_ = AddLabel(L"Country &tags:");
+            telemetry_country_tags_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", telemetry_country_tags_edit);
+            telemetry_start_date_label_ = AddLabel(L"Start raw date:");
+            telemetry_start_date_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", telemetry_start_date_edit);
+            telemetry_end_date_label_ = AddLabel(L"End raw date:");
+            telemetry_end_date_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", telemetry_end_date_edit);
 
             save_label_ = AddLabel(L"Campaign &save:");
             save_path_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", save_path_edit);
@@ -592,6 +638,13 @@ namespace
             MoveWindow(profile_path_, margin + label_width, y, right - margin - label_width - button_width * 2 - Scale(8), Scale(22), TRUE);
             MoveWindow(GetDlgItem(window_, load_profile_button), right - button_width * 2 - Scale(4), y, button_width, Scale(22), TRUE);
             MoveWindow(GetDlgItem(window_, save_profile_button), right - button_width, y, button_width, Scale(22), TRUE);
+            y += row;
+            PlaceLabel(telemetry_country_tags_label_, y, label_width, row, margin);
+            MoveWindow(telemetry_country_tags_, margin + label_width, y, Scale(150), Scale(22), TRUE);
+            PlaceLabel(telemetry_start_date_label_, y, Scale(100), row, margin + label_width + Scale(165));
+            MoveWindow(telemetry_start_date_, margin + label_width + Scale(265), y, Scale(85), Scale(22), TRUE);
+            PlaceLabel(telemetry_end_date_label_, y, Scale(90), row, margin + label_width + Scale(360));
+            MoveWindow(telemetry_end_date_, margin + label_width + Scale(450), y, Scale(85), Scale(22), TRUE);
             y += row;
 
             PlaceLabel(name_label_, y, label_width, row, margin);
@@ -694,8 +747,8 @@ namespace
                 RefreshPlan();
             } else if ((id == speed_combo || id == telemetry_categories_combo) && notification == CBN_SELCHANGE) RefreshPlan();
             else if ((id == game_dir_edit || id == save_path_edit || id == view_tag_edit || id == profile_name_edit || id == telemetry_output_edit
-                      || id == telemetry_sample_days_edit || id == telemetry_queue_capacity_edit)
-                       && notification == EN_KILLFOCUS) {
+                      || id == telemetry_sample_days_edit || id == telemetry_queue_capacity_edit || id == telemetry_country_tags_edit
+                      || id == telemetry_start_date_edit || id == telemetry_end_date_edit) && notification == EN_KILLFOCUS) {
                 if (id == game_dir_edit) RefreshDiscovery();
                 else RefreshPlan();
             }
@@ -746,6 +799,32 @@ namespace
                 profile.telemetry_sample_days = 0;
                 profile.telemetry_queue_capacity = 0;
             }
+            std::wstring tags = GetText(telemetry_country_tags_);
+            size_t begin = 0;
+            while (begin <= tags.size()) {
+                const size_t end = tags.find(L',', begin);
+                std::wstring tag = tags.substr(begin, end == std::wstring::npos ? end : end - begin);
+                const auto first = tag.find_first_not_of(L" \t");
+                tag = first == std::wstring::npos ? L"" : tag.substr(first, tag.find_last_not_of(L" \t") - first + 1);
+                if (!tag.empty()) { std::transform(tag.begin(), tag.end(), tag.begin(), towupper); profile.telemetry_country_tags.push_back(WideToUtf8(tag)); }
+                else if (end != std::wstring::npos) profile.telemetry_country_tags.push_back("");
+                if (end == std::wstring::npos) break;
+                begin = end + 1;
+            }
+            auto parse_date = [&](HWND control, std::optional<int> *destination, const wchar_t *name) {
+                const auto value = GetText(control);
+                if (value.empty()) return;
+                try {
+                    size_t used = 0;
+                    const int parsed = std::stoi(value, &used);
+                    if (used != value.size()) throw std::invalid_argument("trailing characters");
+                    *destination = parsed;
+                } catch (const std::exception &) {
+                    profile.telemetry_filter_parse_error = std::string("telemetry ") + WideToUtf8(name) + " must be an integer";
+                }
+            };
+            parse_date(telemetry_start_date_, &profile.telemetry_start_date_raw, L"start raw date");
+            parse_date(telemetry_end_date_, &profile.telemetry_end_date_raw, L"end raw date");
             return profile;
         }
 
@@ -904,6 +983,11 @@ namespace
             SendMessageW(telemetry_categories_, CB_SETCURSEL, telemetry_categories, 0);
             SetText(telemetry_sample_days_, std::to_wstring(profile.telemetry_sample_days));
             SetText(telemetry_queue_capacity_, std::to_wstring(profile.telemetry_queue_capacity));
+            std::wstring tags;
+            for (const auto &tag : profile.telemetry_country_tags) { if (!tags.empty()) tags += L","; tags.append(tag.begin(), tag.end()); }
+            SetText(telemetry_country_tags_, tags);
+            SetText(telemetry_start_date_, profile.telemetry_start_date_raw ? std::to_wstring(*profile.telemetry_start_date_raw) : L"");
+            SetText(telemetry_end_date_, profile.telemetry_end_date_raw ? std::to_wstring(*profile.telemetry_end_date_raw) : L"");
             retained_detach_ = profile.detach;
             // A loaded profile intentionally replaces, rather than merges with, old selections.
             discovered_mods_.clear();
@@ -966,6 +1050,12 @@ namespace
         HWND telemetry_sample_days_ = nullptr;
         HWND telemetry_queue_capacity_label_ = nullptr;
         HWND telemetry_queue_capacity_ = nullptr;
+        HWND telemetry_country_tags_label_ = nullptr;
+        HWND telemetry_country_tags_ = nullptr;
+        HWND telemetry_start_date_label_ = nullptr;
+        HWND telemetry_start_date_ = nullptr;
+        HWND telemetry_end_date_label_ = nullptr;
+        HWND telemetry_end_date_ = nullptr;
         HWND save_label_ = nullptr;
         HWND save_path_ = nullptr;
         HWND observer_ = nullptr;

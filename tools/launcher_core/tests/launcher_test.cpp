@@ -175,6 +175,9 @@ TEST_F(LauncherCoreTest, SavesLoadsAndRejectsMalformedTelemetryProfileFields)
     original.telemetry_enabled = true;
     original.telemetry_output = root / L"traces" / L"telemetry.jsonl";
     original.telemetry_categories = {"state"};
+    original.telemetry_country_tags = {"ENG", "D01"};
+    original.telemetry_start_date_raw = -7;
+    original.telemetry_end_date_raw = 12;
     original.telemetry_sample_days = 7;
     original.telemetry_queue_capacity = 512;
     original.telemetry_overwrite = true;
@@ -186,6 +189,9 @@ TEST_F(LauncherCoreTest, SavesLoadsAndRejectsMalformedTelemetryProfileFields)
     EXPECT_TRUE(loaded.telemetry_enabled);
     EXPECT_EQ(loaded.telemetry_output, original.telemetry_output);
     EXPECT_EQ(loaded.telemetry_categories, original.telemetry_categories);
+    EXPECT_EQ(loaded.telemetry_country_tags, original.telemetry_country_tags);
+    EXPECT_EQ(loaded.telemetry_start_date_raw, original.telemetry_start_date_raw);
+    EXPECT_EQ(loaded.telemetry_end_date_raw, original.telemetry_end_date_raw);
     EXPECT_EQ(loaded.telemetry_sample_days, 7);
     EXPECT_EQ(loaded.telemetry_queue_capacity, 512);
     EXPECT_TRUE(loaded.telemetry_overwrite);
@@ -195,6 +201,11 @@ TEST_F(LauncherCoreTest, SavesLoadsAndRejectsMalformedTelemetryProfileFields)
     EXPECT_FALSE(launcher::LoadProfile(root / L"bad-telemetry.toml", &loaded, &diagnostics));
     ASSERT_FALSE(diagnostics.empty());
     EXPECT_EQ(diagnostics.back().code, "profile.schema");
+
+    Write(root / L"bad-telemetry-tags.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\ntelemetry_country_tags = [\"eng\", \"ENG\"]\n");
+    diagnostics.clear();
+    EXPECT_FALSE(launcher::LoadProfile(root / L"bad-telemetry-tags.toml", &loaded, &diagnostics));
+    EXPECT_EQ(diagnostics.back().code, "telemetry.country_tags");
 
     Write(root / L"bad-telemetry-overwrite.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\ntelemetry_overwrite = \"true\"\n");
     diagnostics.clear();
@@ -328,6 +339,9 @@ TEST_F(LauncherCoreTest, ValidatesTelemetryPluginAndBuildsPerRunTraceCommand)
     profile.telemetry_categories = {"lifecycle", "state"};
     profile.telemetry_sample_days = 2;
     profile.telemetry_queue_capacity = 256;
+    profile.telemetry_country_tags = {"ENG"};
+    profile.telemetry_start_date_raw = 3;
+    profile.telemetry_end_date_raw = 9;
     const auto plan = launcher::BuildLaunchPlan(profile);
 
     EXPECT_FALSE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
@@ -336,6 +350,8 @@ TEST_F(LauncherCoreTest, ValidatesTelemetryPluginAndBuildsPerRunTraceCommand)
     EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-categories=lifecycle,state"), std::wstring::npos);
     EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-sample-days=2"), std::wstring::npos);
     EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-queue-capacity=256"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-country-tags=ENG"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-start-date-raw=3"), std::wstring::npos);
 
     profile.telemetry_output = root / L"trace.txt";
     const auto bad_extension_plan = launcher::BuildLaunchPlan(profile);

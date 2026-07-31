@@ -23,7 +23,8 @@ Next, build the binaries:
 cmake --build build --config Release
 ```
 
-(Optional) Install Smedley, plugins, and `smedley_launcher.exe` in the game directory
+(Optional) Install Smedley, plugins, `smedley_launcher.exe`, `smedley_cli.exe`,
+and `smedley_trace.exe` in the game directory
 
 ```
 cmake --install build

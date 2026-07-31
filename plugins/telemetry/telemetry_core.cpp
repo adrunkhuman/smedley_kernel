@@ -44,6 +44,13 @@ namespace smedley::telemetry
             return category == "lifecycle" || category == "state";
         }
 
+        bool IsCountryTag(std::string_view tag)
+        {
+            return tag.size() == 3 && std::all_of(tag.begin(), tag.end(), [](unsigned char character) {
+                return (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9');
+            });
+        }
+
         bool IsJsonLinesPath(const std::filesystem::path &path)
         {
             auto extension = path.extension().wstring();
@@ -98,6 +105,27 @@ namespace smedley::telemetry
             }
             if (parsed < minimum) return false;
             *result = static_cast<int>(parsed);
+            return true;
+        }
+
+        bool ParseInteger(const std::wstring &value, int *result)
+        {
+            if (value.empty()) return false;
+            size_t index = 0;
+            bool negative = false;
+            if (value.front() == L'-') {
+                negative = true;
+                index = 1;
+            }
+            if (index == value.size()) return false;
+            int64_t parsed = 0;
+            const int64_t limit = negative ? -(static_cast<int64_t>((std::numeric_limits<int>::min)())) : (std::numeric_limits<int>::max)();
+            for (; index < value.size(); ++index) {
+                if (value[index] < L'0' || value[index] > L'9') return false;
+                parsed = parsed * 10 + (value[index] - L'0');
+                if (parsed > limit) return false;
+            }
+            *result = static_cast<int>(negative ? -parsed : parsed);
             return true;
         }
 
@@ -190,6 +218,21 @@ namespace smedley::telemetry
                 return false;
             }
         }
+        for (size_t index = 0; index < config.country_tags.size(); ++index) {
+            if (!IsCountryTag(config.country_tags[index])) {
+                *error = "-smedley-telemetry-country-tags must contain normalized three-character ASCII tags";
+                return false;
+            }
+            if (std::find(config.country_tags.begin(), config.country_tags.begin() + index, config.country_tags[index])
+                != config.country_tags.begin() + index) {
+                *error = "-smedley-telemetry-country-tags must not contain duplicates";
+                return false;
+            }
+        }
+        if (config.start_date_raw && config.end_date_raw && *config.start_date_raw > *config.end_date_raw) {
+            *error = "-smedley-telemetry-start-date-raw must not exceed -smedley-telemetry-end-date-raw";
+            return false;
+        }
         if (config.sample_days < 1 || config.sample_days > kMaxSampleDays) {
             *error = "-smedley-telemetry-sample-days must be from 1 through 365";
             return false;
@@ -209,6 +252,9 @@ namespace smedley::telemetry
         bool have_sample_days = false;
         bool have_queue_capacity = false;
         bool have_overwrite = false;
+        bool have_country_tags = false;
+        bool have_start_date = false;
+        bool have_end_date = false;
         for (const auto &argument : arguments) {
             const auto parse_value = [&](const wchar_t *prefix, std::wstring *value) {
                 const std::wstring_view view(argument);
@@ -247,6 +293,41 @@ namespace smedley::telemetry
                 have_categories = true;
             } else if (argument.rfind(L"-smedley-telemetry-categories", 0) == 0) {
                 *error = "malformed -smedley-telemetry-categories argument"; return false;
+            } else if (parse_value(L"-smedley-telemetry-country-tags=", &value)) {
+                if (have_country_tags || value.empty()) { *error = "-smedley-telemetry-country-tags must appear once with a value"; return false; }
+                size_t begin = 0;
+                while (begin <= value.size()) {
+                    const size_t end = value.find(L',', begin);
+                    const std::wstring item = value.substr(begin, end == std::wstring::npos ? end : end - begin);
+                    const std::string tag = WideToUtf8(item);
+                    if (!IsCountryTag(tag) || std::find(config->country_tags.begin(), config->country_tags.end(), tag) != config->country_tags.end()) {
+                        *error = "-smedley-telemetry-country-tags must contain unique normalized three-character ASCII tags"; return false;
+                    }
+                    config->country_tags.push_back(tag);
+                    if (end == std::wstring::npos) break;
+                    begin = end + 1;
+                }
+                have_country_tags = true;
+            } else if (argument.rfind(L"-smedley-telemetry-country-tags", 0) == 0) {
+                *error = "malformed -smedley-telemetry-country-tags argument"; return false;
+            } else if (parse_value(L"-smedley-telemetry-start-date-raw=", &value)) {
+                int date = 0;
+                if (have_start_date || !ParseInteger(value, &date)) {
+                    *error = "-smedley-telemetry-start-date-raw must appear once with an integer"; return false;
+                }
+                config->start_date_raw = date;
+                have_start_date = true;
+            } else if (argument.rfind(L"-smedley-telemetry-start-date-raw", 0) == 0) {
+                *error = "malformed -smedley-telemetry-start-date-raw argument"; return false;
+            } else if (parse_value(L"-smedley-telemetry-end-date-raw=", &value)) {
+                int date = 0;
+                if (have_end_date || !ParseInteger(value, &date)) {
+                    *error = "-smedley-telemetry-end-date-raw must appear once with an integer"; return false;
+                }
+                config->end_date_raw = date;
+                have_end_date = true;
+            } else if (argument.rfind(L"-smedley-telemetry-end-date-raw", 0) == 0) {
+                *error = "malformed -smedley-telemetry-end-date-raw argument"; return false;
             } else if (parse_value(L"-smedley-telemetry-sample-days=", &value)) {
                 if (have_sample_days || !ParsePositive(value, 1, kMaxSampleDays, &config->sample_days)) {
                     *error = "-smedley-telemetry-sample-days must appear once with a value from 1 through 365"; return false;
@@ -281,6 +362,18 @@ namespace smedley::telemetry
     bool HasCategory(const Config &config, std::string_view category)
     {
         return std::find(config.categories.begin(), config.categories.end(), category) != config.categories.end();
+    }
+
+    bool HasCountryTag(const Config &config, std::string_view tag)
+    {
+        return config.country_tags.empty()
+            || std::find(config.country_tags.begin(), config.country_tags.end(), tag) != config.country_tags.end();
+    }
+
+    bool IsDateInRange(const Config &config, std::optional<int> date)
+    {
+        return date && (!config.start_date_raw || *date >= *config.start_date_raw)
+            && (!config.end_date_raw || *date <= *config.end_date_raw);
     }
 
     std::string UtcNow()
@@ -318,7 +411,9 @@ namespace smedley::telemetry
     bool ShouldSampleDate(std::optional<int> date, int sample_days, std::optional<int> *last_sampled_date)
     {
         if (!date) return false;
-        if (!*last_sampled_date || *date < **last_sampled_date || *date - **last_sampled_date >= sample_days) {
+        constexpr int raw_date_units_per_day = 24;
+        if (!*last_sampled_date || *date < **last_sampled_date
+            || static_cast<int64_t>(*date) - **last_sampled_date >= static_cast<int64_t>(sample_days) * raw_date_units_per_day) {
             *last_sampled_date = *date;
             return true;
         }

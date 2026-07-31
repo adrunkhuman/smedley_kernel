@@ -1,6 +1,7 @@
 #include <smedley/launcher/launcher.hpp>
 
 #include <iostream>
+#include <cwctype>
 #include <optional>
 #include <stdexcept>
 
@@ -24,6 +25,9 @@ struct Options
     std::optional<bool> telemetry_enabled;
     std::optional<fs::path> telemetry_output;
     std::vector<std::string> telemetry_categories;
+    std::vector<std::string> telemetry_country_tags;
+    std::optional<int> telemetry_start_date_raw;
+    std::optional<int> telemetry_end_date_raw;
     std::optional<int> telemetry_sample_days;
     std::optional<int> telemetry_queue_capacity;
     std::optional<bool> telemetry_overwrite;
@@ -51,6 +55,9 @@ void PrintUsage()
         << "  --telemetry     Enable the built-in structured telemetry plugin\n"
         << "  --telemetry-output PATH  JSON Lines trace path (default: %LOCALAPPDATA%\\Smedley\\traces\\<run-id>.jsonl)\n"
         << "  --telemetry-category NAME  lifecycle or state; may be repeated\n"
+        << "  --telemetry-country TAG  Three-character country tag; may be repeated\n"
+        << "  --telemetry-start-date-raw N  Optional inclusive raw game date\n"
+        << "  --telemetry-end-date-raw N  Optional inclusive raw game date\n"
         << "  --telemetry-sample-days N  State sample interval from 1 through 365 (default: 1)\n"
         << "  --telemetry-queue-capacity N  Bounded record queue from 64 through 8192 (default: 1024)\n"
         << "  --telemetry-overwrite  Replace an existing telemetry output file\n"
@@ -77,7 +84,8 @@ Options ParseArguments(int argc, wchar_t **argv)
         if (argument == L"--telemetry") { options.telemetry_enabled = true; continue; }
         if (argument == L"--no-telemetry") { options.telemetry_enabled = false; continue; }
         if (argument == L"--telemetry-overwrite") { options.telemetry_overwrite = true; continue; }
-        if (argument == L"--speed" || argument == L"--telemetry-sample-days" || argument == L"--telemetry-queue-capacity") {
+        if (argument == L"--speed" || argument == L"--telemetry-sample-days" || argument == L"--telemetry-queue-capacity"
+            || argument == L"--telemetry-start-date-raw" || argument == L"--telemetry-end-date-raw") {
             if (++i == argc) throw std::runtime_error("missing numeric argument value");
             const std::wstring value = argv[i];
             size_t parsed = 0;
@@ -85,7 +93,9 @@ Options ParseArguments(int argc, wchar_t **argv)
                 const int number = std::stoi(value, &parsed);
                 if (argument == L"--speed") options.speed = number;
                 else if (argument == L"--telemetry-sample-days") options.telemetry_sample_days = number;
-                else options.telemetry_queue_capacity = number;
+                else if (argument == L"--telemetry-queue-capacity") options.telemetry_queue_capacity = number;
+                else if (argument == L"--telemetry-start-date-raw") options.telemetry_start_date_raw = number;
+                else options.telemetry_end_date_raw = number;
             } catch (const std::exception &) {
                 throw std::runtime_error("numeric telemetry and speed options must be integers");
             }
@@ -94,7 +104,7 @@ Options ParseArguments(int argc, wchar_t **argv)
         }
         if (argument != L"--profile" && argument != L"--game-dir" && argument != L"--kernel"
             && argument != L"--mod" && argument != L"--plugin" && argument != L"--save" && argument != L"--view-tag"
-            && argument != L"--telemetry-output" && argument != L"--telemetry-category") {
+            && argument != L"--telemetry-output" && argument != L"--telemetry-category" && argument != L"--telemetry-country") {
             throw std::runtime_error("unknown argument");
         }
         if (++i == argc) throw std::runtime_error("missing argument value");
@@ -114,6 +124,18 @@ Options ParseArguments(int argc, wchar_t **argv)
                 narrow_category += static_cast<char>(character);
             }
             options.telemetry_categories.push_back(std::move(narrow_category));
+        } else if (argument == L"--telemetry-country") {
+            const auto tag = value.wstring();
+            if (tag.size() != 3) throw std::runtime_error("--telemetry-country must be exactly three ASCII alphanumeric characters");
+            std::string normalized;
+            for (const wchar_t character : tag) {
+                if ((character < L'A' || character > L'Z') && (character < L'a' || character > L'z')
+                    && (character < L'0' || character > L'9')) {
+                    throw std::runtime_error("--telemetry-country must be exactly three ASCII alphanumeric characters");
+                }
+                normalized += static_cast<char>(towupper(character));
+            }
+            options.telemetry_country_tags.push_back(std::move(normalized));
         }
         else options.view_tag = value.wstring();
     }
@@ -183,6 +205,9 @@ int wmain(int argc, wchar_t **argv)
         if (options.telemetry_enabled) profile.telemetry_enabled = *options.telemetry_enabled;
         if (options.telemetry_output) profile.telemetry_output = *options.telemetry_output;
         if (!options.telemetry_categories.empty()) profile.telemetry_categories = options.telemetry_categories;
+        if (!options.telemetry_country_tags.empty()) profile.telemetry_country_tags = options.telemetry_country_tags;
+        if (options.telemetry_start_date_raw) profile.telemetry_start_date_raw = *options.telemetry_start_date_raw;
+        if (options.telemetry_end_date_raw) profile.telemetry_end_date_raw = *options.telemetry_end_date_raw;
         if (options.telemetry_sample_days) profile.telemetry_sample_days = *options.telemetry_sample_days;
         if (options.telemetry_queue_capacity) profile.telemetry_queue_capacity = *options.telemetry_queue_capacity;
         if (options.telemetry_overwrite) profile.telemetry_overwrite = *options.telemetry_overwrite;

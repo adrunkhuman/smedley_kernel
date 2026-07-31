@@ -28,6 +28,9 @@ namespace smedley::telemetry
         std::string run_id;
         std::filesystem::path output_path;
         std::vector<std::string> categories;
+        std::vector<std::string> country_tags;
+        std::optional<int> start_date_raw;
+        std::optional<int> end_date_raw;
         int sample_days = 1;
         int queue_capacity = 1024;
         bool overwrite = false;
@@ -62,6 +65,8 @@ namespace smedley::telemetry
     bool ValidateConfig(const Config &config, std::string *error);
     bool ParseLaunchArguments(const std::vector<std::wstring> &arguments, Config *config, std::string *error);
     bool HasCategory(const Config &config, std::string_view category);
+    bool HasCountryTag(const Config &config, std::string_view tag);
+    bool IsDateInRange(const Config &config, std::optional<int> date);
     std::string UtcNow();
     uint64_t MonotonicMicroseconds();
     uint64_t QpcToMicroseconds(uint64_t counter, uint64_t frequency);
