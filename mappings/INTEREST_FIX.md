@@ -27,8 +27,8 @@ All addresses below are RVAs in the cataloged Victoria II 3.04 executable.
 | Province POP-list vector `+0x194` | `verified-runtime` | Current code indexes 16-byte list elements from `+0x194/+0x198`. The destination run walked exactly 13 list records for each of 346-661 resolved provinces without a mismatch. |
 | POP size and linked-list next | `verified-runtime` | Creation allocates `0x288` bytes, current list walks use next at `+0x27c`, and the destination run walked 2,635-5,565 entries per creditor-bearing sample with exact list count/tail agreement. |
 | POP savings `+0x250` and scale | `verified-runtime` | Current code divides this signed 64-bit value by fixed-point `1000.0` at RVA `0x00b0b168` when updating state `+0x258`. The live aggregate correlation confirms the scale while exposing small accumulated bookkeeping/rounding differences. |
-| `CPop::GiveMoney` `0x0055a5f0` | `verified-static-callsites` | Fifteen direct callers agree on `EAX=CPop*`, `ESI=CashFlowType`, a stack-passed 64-bit amount, and callee cleanup with `ret 8`. |
-| Interest cash-flow index `7` | `historical-unverified` | Recovered from `794c98e`; runtime correlation has not established the label. |
+| `CPop::GiveMoney` `0x0055a5f0` | `verified-runtime` | Seven direct callers establish `EAX=CPop*`, `ESI=CashFlowType`, stack-passed 64-bit amount, and `ret 8`. A reversible fixture observed exact writes to money `+0x180`, indexed cash flow `+0x1d8`, and total `+0x218`, then exact restoration. |
+| Interest cash-flow index `7` | `verified-static-callsites` | The presentation path at RVA `0x00566440` reads POP `+0x210`, index 7 of `+0x1d8`, and formats it through localisation key `POP_DAILY_INTEREST`. The reversible fixture independently confirmed that selected slot 7 changed by the injected amount and restored; it did not execute the presentation path or snapshot all other slots. |
 
 The state constructor is VA `0x004cdc60`, hence RVA `0x000cdc60` for the
 preferred image base `0x00400000`. Earlier notes that treated `0x004cdc60` as
@@ -191,10 +191,38 @@ average and 13,821 microseconds at the observed maximum. The peak occurred on
 opt-in creditor destination POP walks. This remains bounded diagnostic work,
 but it is too expensive for default telemetry.
 
+## Reversible GiveMoney fixture
+
+`pop_money_fixture` is a contributor-only CMake target and manifest; it is not
+installed with the ordinary plugins. Selecting that manifest is explicit
+authorization for one temporary mutation. The fixture waits for a structurally
+valid destination POP, snapshots four 64-bit fields, invokes `CPop::GiveMoney`
+with cash-flow index 7 and raw amount `+1000`, snapshots again, invokes `-1000`,
+and verifies exact restoration. It performs no callback-thread I/O and reports
+the fixed-size result from a worker thread.
+
+Run `5ee018ab-f95f-4bc5-962e-d5cf5c968260` used only `campaign_runner` and this
+fixture from the unchanged supplied save. At raw date `59883432`, the selected
+Sweden creditor destination POP produced:
+
+| Field | Before | After `+1000` | After `-1000` |
+| --- | ---: | ---: | ---: |
+| Money `+0x180` | 23,890,866 | 23,891,866 | 23,890,866 |
+| Interest cash flow `+0x210` | 0 | 1,000 | 0 |
+| Total cash flow `+0x218` | 0 | 1,000 | 0 |
+| Savings `+0x250` | 27 | 27 | 27 |
+
+The fixture row had `sample_flags=0`, `addition_verified=1`, and
+`restoration_verified=1`. Its closed CSV SHA-256 was
+`d473db637f2b3c4cacfe865b295fa650ca2bee97523851342a6d970497cadb29`.
+The campaign still reached raw date `59883552`, remained responsive and paused,
+and preserved the source-save hash. This verifies the narrow ABI and field
+effects; it does not yet define a production allocation algorithm.
+
 ## Required evidence before mutation
 
-1. Invoke `CPop::GiveMoney` only in a disposable controlled fixture and verify
-   POP money plus cash-flow bucket `7` independently.
+1. Correlate the later destination-bank clearing path with state `+0x260`
+   assignment before treating that field as distributable interest.
 2. Define integer allocation, rounding, remainder ownership, conservation, and
    zero/negative-value behavior before implementing an independently selectable
    fix.

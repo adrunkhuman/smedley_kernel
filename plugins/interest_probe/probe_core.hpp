@@ -63,10 +63,19 @@ namespace interest_probe
         uint32_t collection_us = 0;
     };
 
+    struct PopMoneySnapshot
+    {
+        int64_t money_raw = 0;
+        int64_t interest_cash_flow_raw = 0;
+        int64_t total_cash_flow_raw = 0;
+        int64_t savings_raw = 0;
+    };
+
     using CountryResolver = const void *(*)(const void *context, int32_t ordinal);
     using ProvinceResolver = const void *(*)(const void *context, int32_t id);
 
     Sample CollectSample(const void *country, int32_t date_raw,
                          CountryResolver country_resolver = nullptr, ProvinceResolver province_resolver = nullptr,
-                         const void *resolver_context = nullptr);
+                         const void *resolver_context = nullptr, const void **immediate_pop = nullptr);
+    bool ReadPopMoneySnapshot(const void *pop, PopMoneySnapshot *snapshot);
 }

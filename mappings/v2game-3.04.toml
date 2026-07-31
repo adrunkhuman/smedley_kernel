@@ -316,9 +316,17 @@ source = "parent of commit 967a1a4"
 name = "CPop::GiveMoney"
 rva = 0x0055a5f0
 kind = "function"
-status = "verified-static-callsites"
+status = "verified-runtime"
 signature = "55 8b ec 83 b8 84 01 00 00 00"
-source = "15 direct callers corroborate EAX CPop pointer, ESI cash-flow type, stack-passed 64-bit amount, and ret 8; historical provenance is commit 794c98e"
+source = "seven direct callers establish EAX CPop pointer, ESI cash-flow type, stack-passed 64-bit amount, and ret 8; reversible runtime +1000/-1000 calls verified exact money +0x180, indexed cash-flow +0x1d8, and total +0x218 effects and restoration"
+
+[[symbols]]
+name = "POP daily-interest cash-flow presentation"
+rva = 0x00566440
+kind = "label"
+status = "verified-static-callsites"
+signature = "8b 88 10 02 00 00 8b 80 14 02 00 00 8b d1 0b d0"
+source = "reads CPop +0x210/+0x214 and formats it through localisation key POP_DAILY_INTEREST; a reversible runtime fixture independently confirmed that selected slot 7 changed by +1000 and restored"
 
 [[symbols]]
 name = "Game heap initialization hook"
@@ -644,7 +652,7 @@ fields = [
 name = "CPop"
 status = "historical-unverified"
 size = 0x0288
-source = "parent of commit 967a1a4 native/handles/CPop.hpp; current allocation and list-walk call sites plus a seven-day bounded walk verify size 0x288, savings +0x250, and next +0x27c while other fields remain historical"
+source = "parent of commit 967a1a4 native/handles/CPop.hpp; current static/runtime evidence verifies size 0x288, money +0x180, cash flow +0x1d8, total +0x218, savings +0x250, and next +0x27c while other fields remain historical"
 fields = [
   { name = "size", offset = 0x0058 },
   { name = "province", offset = 0x0064 },

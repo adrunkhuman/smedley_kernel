@@ -172,6 +172,9 @@ TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
     const int64_t destination_bank_interest = 40;
     const int64_t destination_state_savings = 120;
     const int64_t destination_state_interest = 30;
+    const int64_t destination_pop_money = 5000;
+    const int64_t destination_pop_interest_cash_flow = 40;
+    const int64_t destination_pop_total_cash_flow = 100;
     const int64_t destination_pop_savings = 120000;
     const void *debtor_bank_pointer = debtor_bank.data();
     const void *destination_bank_pointer = destination_bank.data();
@@ -204,6 +207,9 @@ TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
     Write(&destination_province, 0x194, pop_list_begin);
     Write(&destination_province, 0x198, pop_list_end);
     Write(&destination_province, 0x19c, pop_list_end);
+    Write(&destination_pop, 0x180, destination_pop_money);
+    Write(&destination_pop, 0x210, destination_pop_interest_cash_flow);
+    Write(&destination_pop, 0x218, destination_pop_total_cash_flow);
     Write(&destination_pop, 0x250, destination_pop_savings);
     Write(&creditor, 0x08, destination_tag);
     Write(&creditor, 0x0c, destination_ordinal);
@@ -212,7 +218,9 @@ TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
     Write(&creditor, 0x20, was_paid);
     const CountryLookup lookup{destination_ordinal, destination.data(), province_ids[0], destination_province.data()};
 
-    const auto sample = interest_probe::CollectSample(debtor.data(), 1234, ResolveCountry, ResolveProvince, &lookup);
+    const void *immediate_pop = nullptr;
+    const auto sample = interest_probe::CollectSample(
+        debtor.data(), 1234, ResolveCountry, ResolveProvince, &lookup, &immediate_pop);
     EXPECT_EQ(sample.creditor_count, 1u);
     EXPECT_EQ(sample.creditor_destinations, 1u);
     EXPECT_EQ(sample.creditors_was_paid, 1u);
@@ -229,6 +237,14 @@ TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
     EXPECT_EQ(sample.destination_pop_savings_raw, destination_pop_savings);
     EXPECT_EQ(sample.destination_pop_savings_state_scale_raw, destination_state_savings);
     EXPECT_EQ(sample.flags, 0u);
+    EXPECT_EQ(immediate_pop, destination_pop.data());
+    interest_probe::PopMoneySnapshot snapshot{};
+    ASSERT_TRUE(interest_probe::ReadPopMoneySnapshot(immediate_pop, &snapshot));
+    EXPECT_EQ(snapshot.money_raw, destination_pop_money);
+    EXPECT_EQ(snapshot.interest_cash_flow_raw, destination_pop_interest_cash_flow);
+    EXPECT_EQ(snapshot.total_cash_flow_raw, destination_pop_total_cash_flow);
+    EXPECT_EQ(snapshot.savings_raw, destination_pop_savings);
+    EXPECT_FALSE(interest_probe::ReadPopMoneySnapshot(nullptr, &snapshot));
 
     pop_lists[0].count = 2;
     const auto mismatched = interest_probe::CollectSample(

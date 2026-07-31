@@ -5,6 +5,10 @@ add_library(interest_probe MODULE plugin.cpp)
 target_link_libraries(interest_probe interest_probe_core smedley_kernel)
 target_include_directories(interest_probe PRIVATE "../../smedley_kernel/include")
 
+add_library(pop_money_fixture MODULE pop_money_fixture.cpp)
+target_link_libraries(pop_money_fixture interest_probe_core smedley_kernel)
+target_include_directories(pop_money_fixture PRIVATE "../../smedley_kernel/include")
+
 add_executable(interest_probe_test probe_core_test.cpp)
 target_link_libraries(interest_probe_test interest_probe_core GTest::gtest_main)
 include(GoogleTest)

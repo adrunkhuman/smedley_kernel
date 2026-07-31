@@ -88,6 +88,11 @@ destination POP-savings observations to `interest_probe.csv` without applying
 the historical fix. Its fields and limits are documented in
 [`mappings/INTEREST_FIX.md`](mappings/INTEREST_FIX.md).
 
+Native contributors can separately build the non-installed
+`pop_money_fixture` target. Explicitly selecting its manifest performs one
+reversible `+1000/-1000` POP money ABI check; ordinary players should use the
+read-only probe instead.
+
 `telemetry` is the opt-in JSON Lines telemetry plugin. Enable it in a profile,
 the CLI, or the native launcher and select its trusted manifest like any other
 native plugin. It records lifecycle events and sampled country economy state to

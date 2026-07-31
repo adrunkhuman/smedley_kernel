@@ -24,6 +24,9 @@ namespace interest_probe
         constexpr size_t state_interest_offset = 0x260;
         constexpr size_t bank_interest_offset = 0x20;
         constexpr size_t province_pop_lists_offset = 0x194;
+        constexpr size_t pop_money_offset = 0x180;
+        constexpr size_t pop_interest_cash_flow_offset = 0x210;
+        constexpr size_t pop_total_cash_flow_offset = 0x218;
         constexpr size_t pop_savings_offset = 0x250;
         constexpr size_t pop_next_offset = 0x27c;
         constexpr size_t creditor_tag_offset = 0x08;
@@ -156,8 +159,18 @@ namespace interest_probe
             return true;
         }
 
+        bool ReadPopMoney(const void *pop, PopMoneySnapshot *snapshot)
+        {
+            return snapshot != nullptr
+                && ReadAt(pop, pop_money_offset, &snapshot->money_raw)
+                && ReadAt(pop, pop_interest_cash_flow_offset, &snapshot->interest_cash_flow_raw)
+                && ReadAt(pop, pop_total_cash_flow_offset, &snapshot->total_cash_flow_raw)
+                && ReadAt(pop, pop_savings_offset, &snapshot->savings_raw);
+        }
+
         void CollectPops(const PointerVector &provinces, ProvinceResolver resolver,
-                         const void *resolver_context, TraversalScratch *scratch, Sample *sample)
+                         const void *resolver_context, TraversalScratch *scratch,
+                         const void **immediate_pop, Sample *sample)
         {
             uint32_t province_count = 0;
             if (!VectorCount(provinces, sizeof(int32_t), max_provinces_per_state, &province_count)) {
@@ -223,6 +236,11 @@ namespace interest_probe
                         AddChecked(savings, &sample->destination_pop_savings_raw, &sample->flags);
                         AddChecked(savings / pop_savings_state_scale,
                             &sample->destination_pop_savings_state_scale_raw, &sample->flags);
+                        if (immediate_pop != nullptr && *immediate_pop == nullptr) {
+                            PopMoneySnapshot snapshot{};
+                            if (!ReadPopMoney(pop, &snapshot)) sample->flags |= SAMPLE_POP_UNREADABLE;
+                            else *immediate_pop = pop;
+                        }
                         ++sample->destination_pops;
                         ++walked;
                         last = pop;
@@ -242,7 +260,8 @@ namespace interest_probe
 
     Sample CollectSampleImpl(const void *country, int32_t date_raw,
                              CountryResolver country_resolver, ProvinceResolver province_resolver,
-                             const void *resolver_context, bool collect_pops, TraversalScratch *scratch)
+                             const void *resolver_context, bool collect_pops, TraversalScratch *scratch,
+                             const void **immediate_pop)
     {
         Sample sample{};
         sample.date_raw = date_raw;
@@ -286,7 +305,8 @@ namespace interest_probe
                     } else {
                         sample.province_element_candidates += province_count;
                         if (collect_pops && province_resolver != nullptr) {
-                            CollectPops(provinces, province_resolver, resolver_context, scratch, &sample);
+                            CollectPops(provinces, province_resolver, resolver_context,
+                                scratch, immediate_pop, &sample);
                         }
                     }
                     int64_t savings = 0;
@@ -380,7 +400,7 @@ namespace interest_probe
                 continue;
             }
             const Sample destination_sample = CollectSampleImpl(
-                destination, date_raw, nullptr, province_resolver, resolver_context, true, scratch);
+                destination, date_raw, nullptr, province_resolver, resolver_context, true, scratch, immediate_pop);
             sample.destination_provinces_resolved += destination_sample.destination_provinces_resolved;
             sample.destination_pop_lists += destination_sample.destination_pop_lists;
             sample.destination_pops += destination_sample.destination_pops;
@@ -403,14 +423,16 @@ namespace interest_probe
 
     Sample CollectSample(const void *country, int32_t date_raw,
                          CountryResolver country_resolver, ProvinceResolver province_resolver,
-                         const void *resolver_context)
+                         const void *resolver_context, const void **immediate_pop)
     {
+        if (immediate_pop != nullptr) *immediate_pop = nullptr;
         traversal_scratch.province_attempts = 0;
         traversal_scratch.province_id_count = 0;
         traversal_scratch.pop_attempts = 0;
         traversal_scratch.pop_pointer_count = 0;
         Sample sample = CollectSampleImpl(
-            country, date_raw, country_resolver, province_resolver, resolver_context, false, &traversal_scratch);
+            country, date_raw, country_resolver, province_resolver, resolver_context,
+            false, &traversal_scratch, immediate_pop);
         sample.destination_province_attempts = traversal_scratch.province_attempts;
         sample.destination_pop_attempts = traversal_scratch.pop_attempts;
 
@@ -427,5 +449,14 @@ namespace interest_probe
             }
         }
         return sample;
+    }
+
+    bool ReadPopMoneySnapshot(const void *pop, PopMoneySnapshot *snapshot)
+    {
+        if (snapshot == nullptr) return false;
+        PopMoneySnapshot value{};
+        if (!ReadPopMoney(pop, &value)) return false;
+        *snapshot = value;
+        return true;
     }
 }
