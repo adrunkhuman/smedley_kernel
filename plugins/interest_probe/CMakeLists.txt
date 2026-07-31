@@ -1,4 +1,4 @@
-add_library(interest_probe_core STATIC probe_core.cpp)
+add_library(interest_probe_core STATIC probe_core.cpp interest_allocation.cpp)
 target_include_directories(interest_probe_core PUBLIC ".")
 
 add_library(interest_probe MODULE plugin.cpp)

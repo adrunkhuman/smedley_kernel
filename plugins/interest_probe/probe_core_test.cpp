@@ -1,5 +1,6 @@
 #include "probe_core.hpp"
 #include "pair_queue.hpp"
+#include "interest_allocation.hpp"
 
 #include <gtest/gtest.h>
 
@@ -7,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 
 namespace
 {
@@ -366,4 +368,99 @@ TEST(InterestProbeTest, RejectsFlaggedBeforeSample)
 
     EXPECT_FALSE(interest_probe::ComputeDestinationTransfers(before, &after));
     EXPECT_NE(after.flags & interest_probe::SAMPLE_DESTINATION_TRANSFER_INVALID, 0u);
+}
+
+TEST(InterestAllocationTest, ConservesPayoutWithDeterministicRemainders)
+{
+    std::array<interest_probe::AllocationEntry, 3> entries{{{1}, {1}, {1}}};
+    std::array<uint32_t, 3> scratch{};
+
+    EXPECT_EQ(interest_probe::AllocateInterest(1, entries.data(), entries.size(), scratch.data(), scratch.size()),
+        interest_probe::AllocationStatus::success);
+    EXPECT_EQ(entries[0].payout_raw, 334);
+    EXPECT_EQ(entries[1].payout_raw, 333);
+    EXPECT_EQ(entries[2].payout_raw, 333);
+}
+
+TEST(InterestAllocationTest, UsesLargestFractionalRemainder)
+{
+    std::array<interest_probe::AllocationEntry, 3> entries{{{3}, {2}, {1}}};
+    std::array<uint32_t, 3> scratch{};
+
+    EXPECT_EQ(interest_probe::AllocateInterest(1, entries.data(), entries.size(), scratch.data(), scratch.size()),
+        interest_probe::AllocationStatus::success);
+    EXPECT_EQ(entries[0].payout_raw, 500);
+    EXPECT_EQ(entries[1].payout_raw, 333);
+    EXPECT_EQ(entries[2].payout_raw, 167);
+}
+
+TEST(InterestAllocationTest, IgnoresNonpositiveSavings)
+{
+    std::array<interest_probe::AllocationEntry, 3> entries{{{10}, {0}, {-5}}};
+    std::array<uint32_t, 1> scratch{};
+
+    EXPECT_EQ(interest_probe::AllocateInterest(2, entries.data(), entries.size(), scratch.data(), scratch.size()),
+        interest_probe::AllocationStatus::success);
+    EXPECT_EQ(entries[0].payout_raw, 2000);
+    EXPECT_EQ(entries[1].payout_raw, 0);
+    EXPECT_EQ(entries[2].payout_raw, 0);
+}
+
+TEST(InterestAllocationTest, RejectsNoEligibleSavingsAndOverflow)
+{
+    std::array<interest_probe::AllocationEntry, 2> entries{{{0}, {-1}}};
+    std::array<uint32_t, 2> scratch{};
+    EXPECT_EQ(interest_probe::AllocateInterest(1, entries.data(), entries.size(), scratch.data(), scratch.size()),
+        interest_probe::AllocationStatus::no_eligible_savings);
+
+    entries = {{{2}, {1}}};
+    EXPECT_EQ(interest_probe::AllocateInterest((std::numeric_limits<int64_t>::max)() / 1000,
+        entries.data(), entries.size(), scratch.data(), scratch.size()),
+        interest_probe::AllocationStatus::overflow);
+    EXPECT_EQ(entries[0].payout_raw, 0);
+    EXPECT_EQ(entries[1].payout_raw, 0);
+}
+
+TEST(InterestAllocationTest, ClearsReusedOutputsForNoPayment)
+{
+    std::array<interest_probe::AllocationEntry, 1> entries{{{1}}};
+    std::array<uint32_t, 1> scratch{};
+    ASSERT_EQ(interest_probe::AllocateInterest(1, entries.data(), entries.size(), scratch.data(), scratch.size()),
+        interest_probe::AllocationStatus::success);
+    ASSERT_EQ(entries[0].payout_raw, 1000);
+
+    EXPECT_EQ(interest_probe::AllocateInterest(0, entries.data(), entries.size(), scratch.data(), scratch.size()),
+        interest_probe::AllocationStatus::no_payment);
+    EXPECT_EQ(entries[0].payout_raw, 0);
+    EXPECT_EQ(entries[0].remainder, 0u);
+}
+
+TEST(InterestAllocationTest, DistinguishesInvalidEmptyAndShortScratchInputs)
+{
+    std::array<interest_probe::AllocationEntry, 1> entries{{{1}}};
+    EXPECT_EQ(interest_probe::AllocateInterest(1, nullptr, 1, nullptr, 0),
+        interest_probe::AllocationStatus::invalid_input);
+    EXPECT_EQ(interest_probe::AllocateInterest(1, nullptr, 0, nullptr, 0),
+        interest_probe::AllocationStatus::no_eligible_savings);
+    EXPECT_EQ(interest_probe::AllocateInterest(1, entries.data(), entries.size(), nullptr, 0),
+        interest_probe::AllocationStatus::scratch_too_small);
+    EXPECT_EQ(entries[0].payout_raw, 0);
+}
+
+TEST(InterestAllocationTest, RejectsSavingsSumAndPayoutScaleOverflow)
+{
+    std::array<interest_probe::AllocationEntry, 2> entries{{
+        {(std::numeric_limits<int64_t>::max)()}, {1}}};
+    std::array<uint32_t, 2> scratch{};
+    EXPECT_EQ(interest_probe::AllocateInterest(1, entries.data(), entries.size(), scratch.data(), scratch.size()),
+        interest_probe::AllocationStatus::overflow);
+    EXPECT_EQ(entries[0].payout_raw, 0);
+    EXPECT_EQ(entries[1].payout_raw, 0);
+
+    entries = {{{1}, {1}}};
+    EXPECT_EQ(interest_probe::AllocateInterest((std::numeric_limits<int64_t>::max)() / 1000 + 1,
+        entries.data(), entries.size(), scratch.data(), scratch.size()),
+        interest_probe::AllocationStatus::overflow);
+    EXPECT_EQ(entries[0].payout_raw, 0);
+    EXPECT_EQ(entries[1].payout_raw, 0);
 }

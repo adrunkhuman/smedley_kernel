@@ -58,9 +58,9 @@ need an explicit policy and reproducible runtime fixture.
    benchmark policy.
 3. Find `CGuiTypes::LookupString` by following references to known names such
    as `tax_0_slider` and `take_loan`.
-4. Define a conservative integer allocation and remainder policy that pays the
-   now-verified individual destination-bank deltas. The global clearing run
-   disproved state `+0x260` as a conserved payout total.
+4. Integrate the tested deterministic integer allocator into an independently
+   selectable fix and verify exact POP payout conservation in a disposable
+   runtime fixture. State `+0x260` is not a conserved payout total.
 
 ## Runtime acceptance tests
 

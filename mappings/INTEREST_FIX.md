@@ -331,8 +331,40 @@ paused and responsive, and preserved the source-save hash. This verifies the
 exact per-creditor amount that a fix may distribute without reimplementing the
 loan formula or depending on state `+0x260`.
 
+## Allocation contract
+
+`AllocateInterest` is a deterministic preparation step that does not touch game
+state. It writes payout/remainder fields and ordering scratch supplied by its
+caller, clearing payout/remainder output before every valid-buffer result. Its
+contract is:
+
+1. The payout total is the verified individual destination-bank delta multiplied
+   by the verified `1000:1` state-to-POP money scale.
+2. Only destination POPs with strictly positive stored savings participate.
+   Zero or negative savings receive zero.
+3. Each base payout is the integer floor of `total * POP savings / summed
+   positive POP savings`.
+4. Remaining single raw POP-money units go to the largest fractional remainders.
+   Equal remainders use stable province/list/POP traversal order.
+5. A nonpositive transfer, no eligible savings, insufficient bounded scratch,
+   savings-sum overflow, payout-scale overflow, or multiplication overflow
+   produces no mutation. The implementation deliberately rejects an extreme
+   value instead of introducing floating-point or platform-dependent arithmetic.
+6. Every payout is computed before the first `CPop::GiveMoney` call. A
+   production plugin must verify that their exact sum equals `transfer * 1000`
+   before applying any entry.
+
+This largest-remainder policy is deterministic, exactly conservative in POP
+money units, and does not depend on the drifting state `+0x258` aggregate or the
+nonconserved state `+0x260` candidate. Win32 Release unit tests cover exact
+conservation, remainder ordering and ties, nonpositive savings, an empty
+eligible set, and conservative overflow rejection. No production mutation uses
+the allocator yet.
+
 ## Required evidence before mutation
 
-1. Define integer allocation, rounding, remainder ownership, conservation, and
-   zero/negative-value behavior before implementing an independently selectable
-   fix.
+1. Implement the allocator behind an independently selectable plugin with
+   bounded preallocated POP storage and no partial mutation path.
+2. Use a disposable runtime fixture to verify exact destination-bank-delta to
+   POP-money conservation, cash-flow slot 7 presentation data, unchanged POP
+   savings, source-save preservation, and clean opt-out behavior.
