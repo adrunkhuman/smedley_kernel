@@ -118,10 +118,10 @@ without inventing stronger gameplay semantics.
 
 | Event | Payload | Contract |
 | --- | --- | --- |
-| `world.economy.health` | completeness, snapshot/probe flags, country/state/province/POP counts, collection microseconds | Always emitted after an attempted scan; counts are traversal observations. |
-| `world.economy.capacity` | fixed limits and basis-point utilization | Emitted only for a complete zero-flag scan. Limits are 512 countries, 4,096 provinces, and 100,000 POP records. |
+| `world.economy.health` | structural completeness, snapshot/probe/credit flags, country/state/province/POP counts | Always emitted after an attempted scan; counts are traversal observations. Credit flags do not invalidate independently complete holdings and capacity records. |
+| `world.economy.capacity` | fixed limits, basis-point utilization, and collection microseconds | Emitted only for a structurally complete zero-flag scan. Limits are 512 countries, 4,096 provinces, and 100,000 POP records. |
 | `world.economy.holdings` | observed treasury, POP money, POP savings, bank interest accumulator, positive-balance counts, negative-treasury country count | Emitted only for a complete scan with `provisional` quality. Components remain separate and are not a claimed money-supply identity. |
-| `world.economy.credit` | creditor counts/paid bytes and creditor/state candidate aggregates | Emitted only for a complete scan with `provisional` quality. Every `_candidate_raw` field retains its mapping uncertainty. |
+| `world.economy.credit` | creditor counts/paid bytes and creditor/state candidate aggregates | Emitted only when structural and credit-specific flags are clear, with `provisional` quality. Every `_candidate_raw` field retains its mapping uncertainty. |
 
 POP money and POP savings are different storage categories. Savings and
 creditor/state values may be financial claims or bookkeeping aggregates; adding
@@ -159,8 +159,11 @@ snapshot; country records then check the country tag before treasury extraction
 and JSON formatting. Lifecycle progress remains useful when
 state records are excluded by date or country filters;
 they never perform file I/O or flush. The queue has fixed-capacity, fixed-size
-record slots. A callback uses a non-waiting queue lock; full, contended, stopped,
-or oversized records are explicitly counted as dropped. The sole worker writes
+record slots. Ordinary callbacks use a non-waiting queue lock; full, contended,
+stopped, or oversized records are explicitly counted as dropped. The four
+low-frequency economic records use the reliable emitter after a selected world
+scan so lock contention alone cannot split a snapshot; the queue remains bounded
+and publication still performs no file I/O. The sole worker writes
 complete JSON Lines incrementally and flushes at least once per second. An
 explicit future unload drains accepted records, appends a best-effort final
 summary using post-drain statistics, and flushes. The current kernel has no

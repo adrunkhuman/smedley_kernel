@@ -31,6 +31,7 @@ namespace interest_probe
         int32_t date_raw = 0;
         uint32_t snapshot_flags = 0;
         uint32_t probe_flags = 0;
+        uint32_t credit_flags = 0;
         uint32_t country_count = 0;
         uint32_t state_count = 0;
         uint32_t province_count = 0;

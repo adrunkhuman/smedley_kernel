@@ -78,11 +78,16 @@ namespace interest_probe
 
             uint32_t candidate_count = 0;
             for (size_t ordinal = 1; ordinal < slots; ++ordinal) {
+                const auto *country = game_state->country(static_cast<int32_t>(ordinal));
+                const Sample credit_quality = CollectSample(country, date);
+                constexpr uint32_t credit_flag_mask = SAMPLE_SUM_OVERFLOW | SAMPLE_CREDITOR_VECTOR_INVALID
+                    | SAMPLE_CREDITOR_UNREADABLE | SAMPLE_CREDITOR_TAG_INVALID;
+                snapshot.credit_flags |= credit_quality.flags & credit_flag_mask;
                 Sample quality{};
                 uint32_t collected = 0;
                 const uint32_t province_remaining = snapshot.province_count >= max_sample_destination_provinces
                     ? 0 : max_sample_destination_provinces - snapshot.province_count;
-                if (!CollectCountryPops(game_state->country(static_cast<int32_t>(ordinal)), date,
+                if (!CollectCountryPops(country, date,
                         ResolveProvince, game_state, candidates_.data() + candidate_count,
                         candidates_.size() - candidate_count, province_remaining, &collected, &quality)) {
                     snapshot.snapshot_flags |= SNAPSHOT_COLLECTION_FAILED;
@@ -96,16 +101,18 @@ namespace interest_probe
                 snapshot.state_count += quality.states_walked;
                 snapshot.province_count += quality.destination_province_attempts;
                 snapshot.pop_count += collected;
-                snapshot.creditor_count += quality.creditor_count;
-                snapshot.creditors_was_paid += quality.creditors_was_paid;
-                if (quality.creditor_count != 0) ++snapshot.countries_with_creditors;
+                snapshot.creditor_count += credit_quality.creditor_count;
+                snapshot.creditors_was_paid += credit_quality.creditors_was_paid;
+                if (credit_quality.creditor_count != 0) ++snapshot.countries_with_creditors;
                 if (quality.treasury_raw < 0) ++snapshot.countries_with_negative_treasury;
                 AddEconomicValue(quality.treasury_raw, &snapshot.treasury_observed_raw, &snapshot.snapshot_flags);
                 AddEconomicValue(quality.bank_interest_raw, &snapshot.bank_interest_accumulator_raw, &snapshot.snapshot_flags);
                 AddEconomicValue(quality.state_savings_raw, &snapshot.state_savings_candidate_raw, &snapshot.snapshot_flags);
                 AddEconomicValue(quality.state_interest_raw, &snapshot.state_interest_candidate_raw, &snapshot.snapshot_flags);
-                AddEconomicValue(quality.creditor_interest_raw, &snapshot.creditor_interest_candidate_raw, &snapshot.snapshot_flags);
-                AddEconomicValue(quality.creditor_debt_raw, &snapshot.creditor_debt_candidate_raw, &snapshot.snapshot_flags);
+                AddEconomicValue(credit_quality.creditor_interest_raw,
+                    &snapshot.creditor_interest_candidate_raw, &snapshot.credit_flags);
+                AddEconomicValue(credit_quality.creditor_debt_raw,
+                    &snapshot.creditor_debt_candidate_raw, &snapshot.credit_flags);
                 candidate_count += collected;
             }
 
@@ -156,14 +163,14 @@ namespace interest_probe
                 TelemetryBoolField("complete", snapshot.complete()),
                 TelemetryIntField("snapshot_flags", snapshot.snapshot_flags),
                 TelemetryIntField("probe_flags", snapshot.probe_flags),
+                TelemetryIntField("credit_flags", snapshot.credit_flags),
                 TelemetryIntField("country_count", snapshot.country_count),
                 TelemetryIntField("state_count", snapshot.state_count),
                 TelemetryIntField("province_count", snapshot.province_count),
                 TelemetryIntField("pop_count", snapshot.pop_count),
-                TelemetryIntField("collection_us", static_cast<int64_t>(snapshot.collection_us)),
             };
             static_assert(std::size(health) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
-            bridge_.Emit("world.economy.health", "provisional", snapshot.date_raw, nullptr, 0, health, 8);
+            bridge_.Emit("world.economy.health", "provisional", snapshot.date_raw, nullptr, 0, health, 8, true);
 
             if (!snapshot.complete()) return;
             const SmedleyTelemetryFieldV1 capacity[] = {
@@ -173,9 +180,10 @@ namespace interest_probe
                 TelemetryIntField("country_utilization_bp", UtilizationBasisPoints(snapshot.country_count, max_world_countries)),
                 TelemetryIntField("province_utilization_bp", UtilizationBasisPoints(snapshot.province_count, max_sample_destination_provinces)),
                 TelemetryIntField("pop_utilization_bp", UtilizationBasisPoints(snapshot.pop_count, max_sample_pops)),
+                TelemetryIntField("collection_us", static_cast<int64_t>(snapshot.collection_us)),
             };
             static_assert(std::size(capacity) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
-            bridge_.Emit("world.economy.capacity", "provisional", snapshot.date_raw, nullptr, 0, capacity, 6);
+            bridge_.Emit("world.economy.capacity", "provisional", snapshot.date_raw, nullptr, 0, capacity, 7, true);
 
             const SmedleyTelemetryFieldV1 holdings[] = {
                 TelemetryIntField("treasury_observed_raw", snapshot.treasury_observed_raw),
@@ -187,8 +195,9 @@ namespace interest_probe
                 TelemetryIntField("negative_treasury_countries", snapshot.countries_with_negative_treasury),
             };
             static_assert(std::size(holdings) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
-            bridge_.Emit("world.economy.holdings", "provisional", snapshot.date_raw, nullptr, 0, holdings, 7);
+            bridge_.Emit("world.economy.holdings", "provisional", snapshot.date_raw, nullptr, 0, holdings, 7, true);
 
+            if (snapshot.credit_flags != 0) return;
             const SmedleyTelemetryFieldV1 credit[] = {
                 TelemetryIntField("creditor_count", snapshot.creditor_count),
                 TelemetryIntField("creditors_was_paid", snapshot.creditors_was_paid),
@@ -199,7 +208,7 @@ namespace interest_probe
                 TelemetryIntField("state_interest_candidate_raw", snapshot.state_interest_candidate_raw),
             };
             static_assert(std::size(credit) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
-            bridge_.Emit("world.economy.credit", "provisional", snapshot.date_raw, nullptr, 0, credit, 7);
+            bridge_.Emit("world.economy.credit", "provisional", snapshot.date_raw, nullptr, 0, credit, 7, true);
         }
 
         CaptureConfig config_{};

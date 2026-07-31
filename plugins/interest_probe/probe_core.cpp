@@ -289,7 +289,8 @@ namespace interest_probe
     Sample CollectSampleImpl(const void *country, int32_t date_raw,
                               CountryResolver country_resolver, ProvinceResolver province_resolver,
                               const void *resolver_context, bool collect_pops, TraversalScratch *scratch,
-                              const void **immediate_pop, uint32_t province_limit, uint32_t pop_limit)
+                              const void **immediate_pop, uint32_t province_limit, uint32_t pop_limit,
+                              bool collect_creditors)
     {
         Sample sample{};
         sample.date_raw = date_raw;
@@ -376,7 +377,7 @@ namespace interest_probe
             sample.flags |= SAMPLE_CREDITOR_VECTOR_INVALID;
             return sample;
         }
-        if (sample.creditor_count == 0) return sample;
+        if (!collect_creditors || sample.creditor_count == 0) return sample;
         if (country_resolver != nullptr && sample.creditor_count > max_creditor_destinations) {
             sample.flags |= SAMPLE_CREDITOR_DESTINATION_LIMIT;
         }
@@ -402,6 +403,13 @@ namespace interest_probe
                 sample.flags |= SAMPLE_CREDITOR_UNREADABLE;
                 continue;
             }
+            if (country_resolver == nullptr) {
+                if (was_paid > 1) sample.flags |= SAMPLE_CREDITOR_TAG_INVALID;
+                AddChecked(interest, &sample.creditor_interest_raw, &sample.flags);
+                AddChecked(debt, &sample.creditor_debt_raw, &sample.flags);
+                if (was_paid != 0) ++sample.creditors_was_paid;
+                continue;
+            }
             if (!IsTagKey(key) || ordinal < 0 || was_paid > 1) {
                 sample.flags |= SAMPLE_CREDITOR_TAG_INVALID;
                 continue;
@@ -409,7 +417,6 @@ namespace interest_probe
             AddChecked(interest, &sample.creditor_interest_raw, &sample.flags);
             AddChecked(debt, &sample.creditor_debt_raw, &sample.flags);
             if (was_paid != 0) ++sample.creditors_was_paid;
-            if (country_resolver == nullptr) continue;
 
             bool duplicate = false;
             for (uint32_t prior = 0; prior < sample.creditor_destinations; ++prior) {
@@ -433,7 +440,7 @@ namespace interest_probe
             }
             const Sample destination_sample = CollectSampleImpl(
                 destination, date_raw, nullptr, province_resolver, resolver_context, true, scratch,
-                immediate_pop, province_limit, pop_limit);
+                immediate_pop, province_limit, pop_limit, false);
             sample.destination_provinces_resolved += destination_sample.destination_provinces_resolved;
             sample.destination_pop_lists += destination_sample.destination_pop_lists;
             sample.destination_pops += destination_sample.destination_pops;
@@ -467,7 +474,7 @@ namespace interest_probe
         traversal_scratch.pop_pointer_count = 0;
         Sample sample = CollectSampleImpl(
             country, date_raw, country_resolver, province_resolver, resolver_context,
-            false, &traversal_scratch, immediate_pop, max_destination_provinces, max_pops);
+            false, &traversal_scratch, immediate_pop, max_destination_provinces, max_pops, true);
         sample.destination_province_attempts = traversal_scratch.province_attempts;
         sample.destination_pop_attempts = traversal_scratch.pop_attempts;
 
@@ -547,7 +554,7 @@ namespace interest_probe
         const uint32_t pop_limit = static_cast<uint32_t>((std::min)(candidate_capacity,
             static_cast<size_t>(max_pops)));
         Sample sample = CollectSampleImpl(country, date_raw, nullptr, province_resolver,
-            resolver_context, true, &traversal_scratch, nullptr, province_limit, pop_limit);
+            resolver_context, true, &traversal_scratch, nullptr, province_limit, pop_limit, false);
         sample.destination_province_attempts = traversal_scratch.province_attempts;
         sample.destination_pop_attempts = traversal_scratch.pop_attempts;
         if ((sample.flags & SAMPLE_POP_LIMIT) == 0) {

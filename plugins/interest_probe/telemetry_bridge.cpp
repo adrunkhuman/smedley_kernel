@@ -55,7 +55,9 @@ namespace interest_probe
 
     SmedleyTelemetryEmitV1Fn TelemetryBridge::Resolve()
     {
-        if (emit_ != nullptr || resolution_attempted_) return emit_;
+        if (emit_ != nullptr || reliable_emit_ != nullptr || resolution_attempted_) {
+            return emit_;
+        }
         resolution_attempted_ = true;
         HMODULE own_module = nullptr;
         if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
@@ -78,6 +80,8 @@ namespace interest_probe
             if (modules[index] == nullptr || !ModulePath(modules[index], &candidate) || !SamePath(expected, candidate)) continue;
             emit_ = reinterpret_cast<SmedleyTelemetryEmitV1Fn>(
                 GetProcAddress(modules[index], SMEDLEY_TELEMETRY_EMIT_V1_SYMBOL));
+            reliable_emit_ = reinterpret_cast<SmedleyTelemetryEmitV1Fn>(
+                GetProcAddress(modules[index], SMEDLEY_TELEMETRY_EMIT_RELIABLE_V1_SYMBOL));
             break;
         }
         return emit_;
@@ -85,7 +89,8 @@ namespace interest_probe
 
     SmedleyTelemetryResult TelemetryBridge::Emit(const char *event_type, const char *quality, int32_t date_raw,
                                                   const SmedleyTelemetryFieldV1 *entities, uint32_t entity_count,
-                                                  const SmedleyTelemetryFieldV1 *payload, uint32_t payload_count)
+                                                  const SmedleyTelemetryFieldV1 *payload, uint32_t payload_count,
+                                                  bool reliable)
     {
         SmedleyTelemetryEmitV1Fn emit = nullptr;
         try {
@@ -93,6 +98,7 @@ namespace interest_probe
         } catch (...) {
             return SMEDLEY_TELEMETRY_UNAVAILABLE;
         }
+        if (reliable && reliable_emit_ != nullptr) emit = reliable_emit_;
         if (emit == nullptr) return SMEDLEY_TELEMETRY_UNAVAILABLE;
         SmedleyTelemetryRecordV1 record{sizeof(record), SMEDLEY_TELEMETRY_ABI_VERSION_V1,
             SMEDLEY_TELEMETRY_RECORD_HAS_GAME_DATE, 0,

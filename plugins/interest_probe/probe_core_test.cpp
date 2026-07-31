@@ -177,6 +177,46 @@ TEST(InterestProbeTest, RejectsMalformedProvinceVector)
     EXPECT_NE(sample.flags & interest_probe::SAMPLE_STATE_VECTOR_INVALID, 0u);
 }
 
+TEST(InterestProbeTest, AggregatesOpaqueCreditorsWithoutPollutingPopTraversal)
+{
+    std::array<std::byte, 0x1608> country{};
+    std::array<std::byte, 0x28> bank{};
+    std::array<std::byte, 0x28> creditor{};
+    std::array<void *, 1> creditors{creditor.data()};
+    const int64_t interest = 15;
+    const int64_t debt = 90;
+    const uint8_t was_paid = 1;
+    const void *bank_pointer = bank.data();
+    const void *creditor_begin = creditors.data();
+    const void *creditor_end = creditors.data() + creditors.size();
+
+    Write(&country, 0xe88, bank_pointer);
+    Write(&country, 0xe8c, creditor_begin);
+    Write(&country, 0xe90, creditor_end);
+    Write(&country, 0xe94, creditor_end);
+    Write(&creditor, 0x10, interest);
+    Write(&creditor, 0x18, debt);
+    Write(&creditor, 0x20, was_paid);
+
+    const auto aggregate = interest_probe::CollectSample(country.data(), 1234);
+    EXPECT_EQ(aggregate.creditor_count, 1u);
+    EXPECT_EQ(aggregate.creditors_was_paid, 1u);
+    EXPECT_EQ(aggregate.creditor_interest_raw, interest);
+    EXPECT_EQ(aggregate.creditor_debt_raw, debt);
+    EXPECT_EQ(aggregate.flags, 0u);
+
+    const uint8_t invalid_paid = 2;
+    Write(&creditor, 0x20, invalid_paid);
+    const CountryLookup lookup{};
+    uint32_t candidate_count = 0;
+    interest_probe::Sample quality{};
+    EXPECT_TRUE(interest_probe::CollectCountryPops(country.data(), 1234, ResolveProvince, &lookup,
+        nullptr, 0, interest_probe::max_sample_destination_provinces, &candidate_count, &quality));
+    EXPECT_EQ(candidate_count, 0u);
+    EXPECT_EQ(quality.creditor_count, 1u);
+    EXPECT_EQ(quality.flags, 0u);
+}
+
 TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
 {
     std::array<std::byte, 0x1608> debtor{};

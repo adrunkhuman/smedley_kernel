@@ -15,12 +15,14 @@ namespace interest_probe
     public:
         SmedleyTelemetryResult Emit(const char *event_type, const char *quality, int32_t date_raw,
                                     const SmedleyTelemetryFieldV1 *entities, uint32_t entity_count,
-                                    const SmedleyTelemetryFieldV1 *payload, uint32_t payload_count);
+                                    const SmedleyTelemetryFieldV1 *payload, uint32_t payload_count,
+                                    bool reliable = false);
 
     private:
         SmedleyTelemetryEmitV1Fn Resolve();
 
         SmedleyTelemetryEmitV1Fn emit_ = nullptr;
+        SmedleyTelemetryEmitV1Fn reliable_emit_ = nullptr;
         bool resolution_attempted_ = false;
     };
 }
