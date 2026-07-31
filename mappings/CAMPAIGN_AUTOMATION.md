@@ -115,6 +115,17 @@ This verifies the fixed-date pause harness on the supported executable; it does
 not establish a clean exit, final telemetry flush, saved result, or replay
 equivalence.
 
+Additional final-DLL acceptance covered three non-happy-path boundaries. Run
+`31a41204-121e-4e11-be5d-6ae3fb47f771` used no observer mode and an absolute
+target, completing exactly 10 days at raw date `59883624` with paused readback.
+Run `e1c015df-5b89-4f08-9925-90c49214f924` used a one-second timeout and failed
+after 1,013,936 microseconds at raw date `59883864`, reporting `timeout` and
+paused readback. Run `866c652a-fbef-49f5-91e1-b76bcadc0e81` requested the
+nonadvancing start date, emitted standalone `invalid_target`, and remained
+paused without inventing unavailable progress counters. All three traces had
+zero sequence gaps; available counters reported zero drops and no write
+failure. The source save hash remained unchanged.
+
 ## Current boundary
 
 Campaign entry, full-AI observer mode, and native unpause are verified. A

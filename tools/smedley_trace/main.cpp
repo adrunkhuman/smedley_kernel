@@ -17,6 +17,7 @@ namespace
                   << "  smedley_trace summary TRACE [--wait]\n"
                   << "  smedley_trace inspect TRACE [--event TYPE] [--category lifecycle|state] [--country TAG] [--limit N]\n"
                   << "  smedley_trace compare LEFT RIGHT\n"
+                  << "  smedley_trace assert-benchmark TRACE (--completed [--days N] | --failed REASON)\n"
                   << "  smedley_trace export-csv TRACE OUTPUT [--overwrite] --event country.daily\n"
                   << "  smedley_trace export-trace TRACE OUTPUT [--event TYPE] [--category lifecycle|state] [--country TAG] [--overwrite]\n";
     }
@@ -134,6 +135,51 @@ int wmain(int argc, wchar_t **argv)
         Summary left, right;
         if (!Read(argv[2], {}, &left, nullptr, 0, &error) || !Read(argv[3], {}, &right, nullptr, 0, &error)) { std::cerr << "smedley_trace: " << error << '\n'; return 1; }
         std::cout << FormatCompare(left, right);
+        return 0;
+    }
+
+    if (command == L"assert-benchmark" && argc >= 4) {
+        BenchmarkExpectation expectation;
+        bool status = false, days = false;
+        for (int index = 3; index < argc; ++index) {
+            const std::wstring option = argv[index];
+            if (option == L"--completed" && !status) {
+                expectation.status = BenchmarkStatus::Completed;
+                status = true;
+            } else if (option == L"--failed" && !status && ++index < argc) {
+                expectation.status = BenchmarkStatus::Failed;
+                if (!Utf8(argv[index], &expectation.reason) || !IsBenchmarkFailureReason(expectation.reason)) {
+                    std::cerr << "smedley_trace: invalid benchmark failure reason\n";
+                    return 2;
+                }
+                status = true;
+            } else if (option == L"--days" && !days && ++index < argc) {
+                const std::wstring text = argv[index];
+                size_t used = 0;
+                try {
+                    const auto parsed = std::stoll(text, &used);
+                    if (used != text.size() || parsed < 1 || parsed > 1000000) throw std::out_of_range("days");
+                    expectation.game_days = static_cast<int>(parsed);
+                } catch (...) {
+                    std::cerr << "smedley_trace: benchmark days must be from 1 through 1000000\n";
+                    return 2;
+                }
+                days = true;
+            } else {
+                std::cerr << "smedley_trace: invalid benchmark assertion arguments\n";
+                return 2;
+            }
+        }
+        if (!status || (expectation.status == BenchmarkStatus::Failed && days)) {
+            std::cerr << "smedley_trace: invalid benchmark assertion arguments\n";
+            return 2;
+        }
+        Summary summary;
+        if (!Read(argv[2], {}, &summary, nullptr, 0, &error) || !VerifyBenchmark(summary, expectation, &error)) {
+            std::cerr << "smedley_trace: " << error << '\n';
+            return 1;
+        }
+        std::cout << FormatBenchmarkVerification(summary) << '\n';
         return 0;
     }
 

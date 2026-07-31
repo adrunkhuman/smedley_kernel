@@ -139,6 +139,8 @@ smedley_trace validate run.jsonl
 smedley_trace summary run.jsonl
 smedley_trace inspect run.jsonl --event country.daily --country ENG --limit 20
 smedley_trace compare baseline.jsonl changed.jsonl
+smedley_trace assert-benchmark run.jsonl --completed --days 365
+smedley_trace assert-benchmark timeout.jsonl --failed timeout
 smedley_trace export-csv run.jsonl treasury.csv --event country.daily
 smedley_trace export-trace run.jsonl eng.jsonl --country ENG
 ```
@@ -151,6 +153,15 @@ the destination only after the complete source snapshot validates. It rejects
 reparse paths, hard-linked destinations, and input/output aliases. CSV text
 cells beginning with `=`, `+`, `-`, or `@` receive a leading apostrophe to avoid
 spreadsheet formula interpretation; JSON numeric cells remain numeric.
+
+`assert-benchmark` is the scriptable acceptance boundary. It exits successfully
+only when the trace has the requested completed or failed terminal state, typed
+completion invariants are exact, sequence gaps are zero, and available progress
+counters report zero drops and no writer failure. Completed and overshot runs
+require progress accounting, and an ignored incomplete final record fails the
+assertion. Immediate failures such as
+`invalid_target` can occur before a progress sample; the compact output reports
+those counters as unavailable rather than inventing zero.
 
 ## Native Extension ABI And Lifecycle
 

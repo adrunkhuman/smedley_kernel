@@ -395,10 +395,7 @@ namespace smedley::trace
                 return true;
             }
             if (record.payload.size() < 4 || record.payload.size() > 6 || !reason || reason->kind != JsonKind::String
-                || (reason->text != "timeout" && reason->text != "date_overshoot" && reason->text != "idler_unavailable"
-                    && reason->text != "invalid_pause_state" && reason->text != "pause_failed" && reason->text != "observer_invariant_failed"
-                    && reason->text != "date_regressed" && reason->text != "unexpected_pause" && reason->text != "invalid_target"
-                    && reason->text != "timer_unavailable")
+                || !IsBenchmarkFailureReason(reason->text)
                 || !HasOnlyFields(record, {"start_date_raw", "target_date_raw", "actual_date_raw", "elapsed_us", "reason", "paused"})) { *error = "benchmark.failed has an unsupported schema"; return false; }
             const auto *actual = Field(record, "actual_date_raw");
             const auto *paused = Field(record, "paused");
@@ -408,6 +405,21 @@ namespace smedley::trace
                             || ignored < (std::numeric_limits<int>::min)() || ignored > (std::numeric_limits<int>::max)()
                             || !record.game_date_raw || *record.game_date_raw != ignored))
                 || (paused && paused->kind != JsonKind::Boolean)) { *error = "benchmark.failed fields are inconsistent"; return false; }
+            const bool paused_true = paused != nullptr && paused->text == "true";
+            if ((invalid_target && target > start && (target - start) % 24 == 0)
+                || (reason->text == "date_overshoot" && (!actual || ignored <= target || !paused_true))
+                || (reason->text == "date_regressed" && (!actual || !paused_true))
+                || (reason->text == "timeout" && (!actual || !paused_true))
+                || (reason->text == "idler_unavailable" && (actual || paused))
+                || (reason->text == "invalid_pause_state" && (!actual || !paused_true))
+                || (reason->text == "pause_failed" && (!actual || paused_true))
+                || (reason->text == "observer_invariant_failed" && (!actual || !paused_true))
+                || (reason->text == "unexpected_pause" && (!actual || !paused_true))
+                || (reason->text == "timer_unavailable" && !actual)
+                || (reason->text == "invalid_target" && !actual)) {
+                *error = "benchmark.failed reason is inconsistent with its fields";
+                return false;
+            }
             return true;
         }
 
@@ -417,6 +429,7 @@ namespace smedley::trace
             bool terminal = false;
             int start_date_raw = 0;
             int target_date_raw = 0;
+            int timeout_seconds = 0;
         };
 
         bool BenchmarkTransition(const Record &record, BenchmarkTraceState *state, std::string *error)
@@ -430,6 +443,9 @@ namespace smedley::trace
                 state->started = true;
                 state->start_date_raw = static_cast<int>(start);
                 state->target_date_raw = static_cast<int>(target);
+                int64_t timeout = 0;
+                IntegerField(record, "timeout_seconds", &timeout);
+                state->timeout_seconds = static_cast<int>(timeout);
                 return true;
             }
             const auto *reason = Field(record, "reason");
@@ -437,6 +453,13 @@ namespace smedley::trace
             if (state->terminal || (invalid_target ? state->started : !state->started)
                 || (!invalid_target && (state->start_date_raw != start || state->target_date_raw != target))) {
                 *error = "benchmark terminal has no matching start or is duplicated";
+                return false;
+            }
+            int64_t elapsed = 0;
+            if (reason != nullptr && reason->text == "timeout"
+                && (!IntegerField(record, "elapsed_us", &elapsed)
+                    || elapsed < static_cast<int64_t>(state->timeout_seconds) * 1000000)) {
+                *error = "benchmark timeout elapsed before its configured deadline";
                 return false;
             }
             state->terminal = true;
@@ -643,7 +666,10 @@ namespace smedley::trace
                 if (previous_date && *record.game_date_raw < *previous_date) summary->date_regressed = true;
                 previous_date = record.game_date_raw;
             }
-            if (record.event == "telemetry.progress" || record.event == "telemetry.summary") summary->progress = record.payload;
+            if (record.event == "telemetry.progress" || record.event == "telemetry.summary") {
+                summary->progress_seen = true;
+                summary->progress = record.payload;
+            }
             CaptureBenchmark(record, &summary->benchmark);
             if (visitor && !visitor(record, error)) return false;
             return true;
@@ -730,6 +756,84 @@ namespace smedley::trace
         }, error)) return false;
         if (warning) *warning = summary.warning;
         return Publish(&destination, error);
+    }
+
+    bool IsBenchmarkFailureReason(const std::string &reason)
+    {
+        constexpr std::array<std::string_view, 10> reasons = {"timeout", "date_overshoot", "idler_unavailable",
+            "invalid_pause_state", "pause_failed", "observer_invariant_failed", "date_regressed", "unexpected_pause",
+            "timer_unavailable", "invalid_target"};
+        return std::find(reasons.begin(), reasons.end(), reason) != reasons.end();
+    }
+
+    bool VerifyBenchmark(const Summary &summary, const BenchmarkExpectation &expectation, std::string *error)
+    {
+        if (error == nullptr) return false;
+        auto fail = [&](const char *message) { *error = message; return false; };
+        if (!summary.warning.empty()) return fail("benchmark trace has an incomplete final record");
+        if (summary.gaps != 0) return fail("benchmark trace has sequence gaps");
+        if (summary.progress_seen) {
+            const auto dropped = summary.progress.find("dropped");
+            const auto write_failed = summary.progress.find("write_failed");
+            int64_t dropped_count = -1;
+            if (dropped == summary.progress.end() || dropped->second.kind != JsonKind::Number
+                || !ParseIntegerText(dropped->second.text, &dropped_count) || dropped_count != 0) {
+                return fail("benchmark trace reports dropped records or invalid drop accounting");
+            }
+            if (write_failed == summary.progress.end() || write_failed->second.kind != JsonKind::Boolean
+                || write_failed->second.text != "false") {
+                return fail("benchmark trace reports a writer failure or invalid writer status");
+            }
+        }
+        const auto &benchmark = summary.benchmark;
+        if (expectation.status == BenchmarkStatus::Completed) {
+            if (!expectation.reason.empty()) return fail("completed benchmark expectation cannot include a failure reason");
+            if (benchmark.status != "completed" || !benchmark.start_date_raw || !benchmark.target_date_raw
+                || !benchmark.actual_date_raw || !benchmark.game_days || !benchmark.elapsed_us || !benchmark.paused
+                || !*benchmark.paused || *benchmark.actual_date_raw != *benchmark.target_date_raw
+                || *benchmark.target_date_raw <= *benchmark.start_date_raw || *benchmark.game_days < 1
+                || *benchmark.elapsed_us == 0 || !benchmark.reason.empty()) {
+                return fail("trace does not contain a valid completed benchmark");
+            }
+            if (!summary.progress_seen) return fail("completed benchmark has no telemetry progress accounting");
+            if (expectation.game_days && *benchmark.game_days != *expectation.game_days) {
+                return fail("completed benchmark game-day count does not match the expectation");
+            }
+            return true;
+        }
+        if (expectation.game_days) return fail("failed benchmark expectation cannot include a game-day count");
+        if (expectation.reason.empty()) return fail("failed benchmark expectation requires a reason");
+        if (benchmark.status != "failed" || benchmark.reason != expectation.reason || !benchmark.start_date_raw
+            || !benchmark.target_date_raw || !benchmark.elapsed_us || *benchmark.elapsed_us == 0) {
+            return fail("trace does not contain the expected failed benchmark");
+        }
+        if (benchmark.reason == "date_overshoot" && !summary.progress_seen) {
+            return fail("overshot benchmark has no telemetry progress accounting");
+        }
+        return true;
+    }
+
+    std::string FormatBenchmarkVerification(const Summary &summary)
+    {
+        const auto value = [](const auto &field) { return field ? std::to_string(*field) : "unavailable"; };
+        const auto metric = [&](const char *key) {
+            const auto found = summary.progress.find(key);
+            return found == summary.progress.end() ? std::string("unavailable") : found->second.text;
+        };
+        const auto &benchmark = summary.benchmark;
+        std::ostringstream output;
+        output << "benchmark_verified status=" << benchmark.status
+               << " start=" << value(benchmark.start_date_raw)
+               << " target=" << value(benchmark.target_date_raw)
+               << " actual=" << value(benchmark.actual_date_raw)
+               << " game_days=" << value(benchmark.game_days)
+               << " elapsed_us=" << value(benchmark.elapsed_us)
+               << " reason=" << (benchmark.reason.empty() ? "unavailable" : benchmark.reason)
+               << " paused=" << (benchmark.paused ? (*benchmark.paused ? "true" : "false") : "unavailable")
+               << " gaps=" << summary.gaps
+               << " dropped=" << metric("dropped")
+               << " write_failed=" << metric("write_failed");
+        return output.str();
     }
 
     std::string FormatSummary(const Summary &summary)

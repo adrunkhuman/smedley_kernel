@@ -28,9 +28,15 @@ namespace smedley::trace
         std::string reason;
         std::optional<bool> paused;
     };
+    enum class BenchmarkStatus { Completed, Failed };
+    struct BenchmarkExpectation {
+        BenchmarkStatus status = BenchmarkStatus::Completed;
+        std::optional<int> game_days;
+        std::string reason;
+    };
     struct Summary {
         uint64_t records = 0, gaps = 0;
-        bool date_regressed = false;
+        bool date_regressed = false, progress_seen = false;
         std::map<std::string, uint64_t> events, categories, qualities;
         std::optional<uint64_t> first_sequence, last_sequence, first_monotonic_us, last_monotonic_us;
         std::optional<uint64_t> first_date_monotonic_us, last_date_monotonic_us;
@@ -48,6 +54,9 @@ namespace smedley::trace
                      std::string *error, std::string *warning = nullptr);
     bool ExportCountryCsv(const fs::path &input, const fs::path &output, bool overwrite,
                           std::string *error, std::string *warning = nullptr);
+    bool IsBenchmarkFailureReason(const std::string &reason);
+    bool VerifyBenchmark(const Summary &summary, const BenchmarkExpectation &expectation, std::string *error);
+    std::string FormatBenchmarkVerification(const Summary &summary);
     std::string FormatSummary(const Summary &summary);
     std::string FormatCompare(const Summary &left, const Summary &right);
 }
