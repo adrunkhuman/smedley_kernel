@@ -33,7 +33,8 @@ does not support quoted plugin arguments.
 With `--save`, `campaign_runner` uses native GUI dispatch on Victoria 2's
 frontend thread to enter Single Player, select the named save through the
 normal loader, and enter campaign mode. No mouse or keyboard input is
-synthesized. Campaigns start paused.
+synthesized. After verifying the in-game idler through RTTI, the runner unpauses
+the campaign through Victoria 2's native pause controller.
 
 The independent `economy_trace` plugin writes `economy_trace.csv` in the game
 directory. Each daily country update records the raw game date, country tag,

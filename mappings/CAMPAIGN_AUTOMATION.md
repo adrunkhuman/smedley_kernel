@@ -24,6 +24,9 @@ handlers run; the harness dispatches native GUI signals rather than coordinates.
    and emits the same native press/release sequence.
 8. `CGameState+0xb24` changes from RTTI `CFrontEnd` to `CInGameIdler`, proving
    campaign entry.
+9. The runner checks the pause state at `CInGameIdler+0x1538`, invokes
+   `CInGameIdler::TogglePause` at RVA `0x26a2c0` only when the value is `1`, and
+   verifies that it changed to `0`.
 
 ## Command
 
@@ -39,8 +42,7 @@ uses the file name to select a row already known to the game.
 
 ## Current boundary
 
-Campaign entry is verified. The campaign starts paused, so date progression does
-not begin until `CInGameIdler::TogglePause` is invoked. `economy_trace` is a
-separate observer and can be loaded alongside `campaign_runner` when CSV output
-is needed. Do not call pause or speed functions based on a non-null pointer
-alone; verify the idler phase first.
+Campaign entry and native unpause are verified. `economy_trace` is a separate
+observer and can be loaded alongside `campaign_runner` when CSV output is
+needed. Do not call pause or speed functions based on a non-null pointer alone;
+verify the idler phase first.

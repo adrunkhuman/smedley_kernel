@@ -3,6 +3,7 @@
 #include <smedley/log.hpp>
 #include <smedley/memory.hpp>
 #include <smedley/std/string.hpp>
+#include <smedley/v2/gamestate.hpp>
 
 #include <cstring>
 #include <filesystem>
@@ -19,6 +20,18 @@ namespace campaign_runner
         CampaignLauncher *launcher_instance = nullptr;
         uintptr_t frontend_constructor_return_address = 0;
         uintptr_t main_menu_return_address = 0;
+
+        bool IsInGameIdler(const void *object)
+        {
+            if (object == nullptr) {
+                return false;
+            }
+            const auto *vtable = *reinterpret_cast<const uintptr_t *const *>(object);
+            const auto locator = vtable[-1];
+            const auto type_descriptor = *reinterpret_cast<const uintptr_t *>(locator + 0x0c);
+            const auto *type_name = reinterpret_cast<const char *>(type_descriptor + 0x08);
+            return std::strcmp(type_name, ".?AVCInGameIdler@@") == 0;
+        }
 
         void __stdcall CaptureFrontendController(void *controller)
         {
@@ -146,9 +159,13 @@ namespace campaign_runner
         const auto release_dispatch = smedley::memory::Map::base_addr + 0x5ee550;
         constexpr unsigned char release_expected[] = {
             0x56, 0x8b, 0x70, 0x04, 0x85, 0xf6, 0x74, 0x10, 0x8b, 0x0e};
+        const auto toggle_pause = smedley::memory::Map::base_addr + 0x26a2c0;
+        constexpr unsigned char toggle_pause_expected[] = {
+            0x55, 0x8b, 0xec, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00};
         if (std::memcmp(reinterpret_cast<const void *>(load_save), load_save_expected, sizeof(load_save_expected)) != 0
             || std::memcmp(reinterpret_cast<const void *>(press_dispatch), press_expected, sizeof(press_expected)) != 0
-            || std::memcmp(reinterpret_cast<const void *>(release_dispatch), release_expected, sizeof(release_expected)) != 0) {
+            || std::memcmp(reinterpret_cast<const void *>(release_dispatch), release_expected, sizeof(release_expected)) != 0
+            || std::memcmp(reinterpret_cast<const void *>(toggle_pause), toggle_pause_expected, sizeof(toggle_pause_expected)) != 0) {
             logger_.Failure("campaign automation signature mismatch; save loading disabled");
             return false;
         }
@@ -195,6 +212,35 @@ namespace campaign_runner
         }
         KillTimer(nullptr, timer);
         launcher->save_timer_ = 0;
+        if (launcher->play_requested_) {
+            auto *game_state = smedley::v2::CCurrentGameState::instance();
+            auto *idler = game_state == nullptr ? nullptr : game_state->idler();
+            if (!IsInGameIdler(idler)) {
+                ++launcher->campaign_attempts_;
+                if (launcher->campaign_attempts_ < 30) {
+                    launcher->save_timer_ = SetTimer(nullptr, 0, 1'000, SaveTimerCallback);
+                } else {
+                    launcher->logger_.Failure("campaign did not enter CInGameIdler within 30 seconds");
+                }
+                return;
+            }
+            const auto pause_state = idler->pause_state();
+            if (pause_state == 0) {
+                launcher->logger_.Info("campaign is already unpaused");
+                return;
+            }
+            if (pause_state != 1) {
+                launcher->logger_.Failure("CInGameIdler pause state is neither paused nor unpaused");
+                return;
+            }
+            idler->TogglePause();
+            if (idler->pause_state() == 0) {
+                launcher->logger_.Info("unpaused campaign through CInGameIdler");
+            } else {
+                launcher->logger_.Failure("CInGameIdler remained paused after toggle");
+            }
+            return;
+        }
         auto *controller = launcher->frontend_controller_.load(std::memory_order_acquire);
         if (controller == nullptr) {
             launcher->logger_.Failure("frontend controller is unavailable for save selection");
@@ -229,7 +275,14 @@ namespace campaign_runner
             return;
         }
         if (*(reinterpret_cast<unsigned char *>(controller) + 0x5bd) != 0) {
-            launcher->DispatchControlSignal("play_button");
+            if (!launcher->DispatchControlSignal("play_button")) {
+                return;
+            }
+            launcher->play_requested_ = true;
+            launcher->save_timer_ = SetTimer(nullptr, 0, 1'000, SaveTimerCallback);
+            if (launcher->save_timer_ == 0) {
+                launcher->logger_.Failure("failed to schedule campaign unpause");
+            }
             return;
         }
         ++launcher->save_attempts_;

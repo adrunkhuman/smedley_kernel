@@ -34,8 +34,10 @@ namespace campaign_runner
         std::wstring save_path_;
         UINT_PTR save_timer_ = 0;
         int save_attempts_ = 0;
+        int campaign_attempts_ = 0;
         bool lobby_requested_ = false;
         bool save_selection_requested_ = false;
+        bool play_requested_ = false;
         std::atomic<void *> frontend_controller_ = nullptr;
         std::atomic<void *> main_menu_controller_ = nullptr;
     };

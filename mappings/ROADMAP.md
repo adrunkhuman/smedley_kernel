@@ -4,7 +4,7 @@
 
 - The CLI can start the exact cataloged `v2game.exe`, inject the kernel and a
   plugin, initialize both, and reach a responsive main window.
-- The executable identity and twenty code signatures are machine-checked.
+- The executable identity and 29 signatures are machine-checked.
 - Current country, province, and game-state layouts plus removed historical
   POP, bank, and GUI evidence are recorded without presenting hypotheses as
   verified facts.
@@ -12,22 +12,27 @@
   the normal handler, and enter campaign mode without mouse or keyboard input.
 - The independent `economy_trace` plugin provides a CSV output path once a
   campaign is running.
+- `campaign_runner` verifies RTTI `CInGameIdler`, invokes the native pause
+  toggle, and verifies the resulting pause byte. Date progression was observed
+  in runtime testing but is not yet enforced by the runner.
 
 ## Immediate blocker
 
-Campaign entry works, but the resulting game remains paused. Automation must
-verify RTTI `CInGameIdler` before invoking pause or speed controls.
+Campaign entry and unpause work. Speed 5 is already effectively unpaced. The
+next blockers are selecting native speed 5 before unpause and handling modal
+events that stop unattended date progression.
 
 ## Next mapping sequence
 
-1. Add a verified campaign-phase check and invoke `CInGameIdler::TogglePause`.
-2. Find `CGuiTypes::LookupString` by following references to known names such
-   as `button_speedup`, `tax_0_slider`, and `take_loan`.
-3. Dynamically verify historical POP constructor candidates at `0x554a40`,
+1. Select native speed index `4` before unpausing, then add run-until-date and
+   clean exit.
+2. Detect modal event interruptions and define an explicit benchmark policy.
+3. Find `CGuiTypes::LookupString` by following references to known names such
+   as `tax_0_slider` and `take_loan`.
+4. Dynamically verify historical POP constructor candidates at `0x554a40`,
    `0x554f40`, and `0x555450` before restoring `CPop` fields.
-4. Validate `CPop::GiveMoney` at `0x55a5f0`, then restore read-only POP money
+5. Validate `CPop::GiveMoney` at `0x55a5f0`, then restore read-only POP money
    and savings instrumentation before restoring the interest fix.
-5. Map speed control, then investigate frame pacing for faster simulation.
 
 ## Runtime acceptance tests
 

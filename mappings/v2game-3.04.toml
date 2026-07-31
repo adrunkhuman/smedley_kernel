@@ -175,6 +175,78 @@ status = "verified-runtime"
 signature = "55 8b ec 64 a1 00 00 00 00"
 source = "xref to 'on_unpause'; RTTI CInGameIdler; manual Space calls toggle byte this+0x1538"
 
+[[symbols]]
+name = "CInGameIdler::SpeedUp"
+rva = 0x0026a0d0
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 64 a1 00 00 00 00 6a ff 68"
+source = "CInGameIdler vtable +0x164; topbar button_speedup callback RVA 0x318ce0 invokes this slot"
+
+[[symbols]]
+name = "CInGameIdler::SpeedDown"
+rva = 0x0026a1b0
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 64 a1 00 00 00 00 6a ff 68"
+source = "CInGameIdler vtable +0x168; topbar button_speeddown callback RVA 0x318cf0 invokes this slot"
+
+[[symbols]]
+name = "CGameState daily pacing update"
+rva = 0x00282bd0
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 64 a1 00 00 00 00 6a ff 68"
+source = "reads CGameState+0xb28 and selects verified speed thresholds before advancing current_date"
+
+[[symbols]]
+name = "CGameState intra-day application service checkpoint"
+rva = 0x00285620
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
+source = "called repeatedly inside the daily simulation routine; speed-5 interval experiments changed application-pump frequency"
+
+[[symbols]]
+name = "Speed-up message handler"
+rva = 0x0032ee90
+kind = "function"
+status = "verified-static-callsites"
+signature = "8b 0d e8 88 25 01 8b 81 28 0b 00 00 40 83 f8 04"
+source = "increments CCurrentGameState+0xb28 and clamps the result to 4"
+
+[[symbols]]
+name = "Speed-down message handler"
+rva = 0x0032efe0
+kind = "function"
+status = "verified-static-callsites"
+signature = "8b 0d e8 88 25 01 8b 81 28 0b 00 00 48 83 f8 04"
+source = "decrements CCurrentGameState+0xb28 and clamps the result to 0"
+
+[[symbols]]
+name = "Application message/render service pump"
+rva = 0x005df2b0
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec a1 74 8a 25 01 83 ec 08 b1 01"
+source = "called by RVA 0x285620; loops PeekMessageA/TranslateMessage/DispatchMessageA and services application interfaces"
+
+[[symbols]]
+name = "Speed-5 daily pacing threshold"
+rva = 0x00a45bb8
+kind = "data"
+status = "verified-runtime"
+signature = "17 b7 d1 38"
+source = "float 0.0001 selected at CGameState daily pacing RVA 0x282c59; changing to 0.000001 had no measurable effect"
+
+[[symbols]]
+name = "Intra-day application service intervals"
+rva = 0x00b0956c
+kind = "data"
+status = "verified-runtime"
+signature = "8f c2 f5 3c 8f c2 f5 3c 8f c2 f5 3c 0a d7 23 3d 8f c2 75 3d"
+source = "five floats 0.03, 0.03, 0.03, 0.04, 0.06 indexed by CGameState+0xb28 at RVA 0x28568b"
+
 [[layouts]]
 name = "CGameState"
 status = "current-unverified"
@@ -185,6 +257,7 @@ fields = [
   { name = "countries", offset = 0x0adc },
   { name = "current_date", offset = 0x0b0c },
   { name = "idler", offset = 0x0b24 },
+  { name = "speed_index", offset = 0x0b28 },
   { name = "player_tag", offset = 0x0b5c },
   { name = "world_market", offset = 0x0bcc },
 ]
