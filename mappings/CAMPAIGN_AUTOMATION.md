@@ -126,6 +126,14 @@ paused without inventing unavailable progress counters. All three traces had
 zero sequence gaps; available counters reported zero drops and no write
 failure. The source save hash remained unchanged.
 
+GFM preflight resolves the installed descriptor's `user_dir = "GFM"` and accepts
+a save beneath that mod-specific `save games` directory. Runtime compatibility
+is not yet established: the only available candidate was a copied vanilla save,
+not a GFM-authored fixture, and runs `2ee97720-b85b-4616-9749-b59ad9e04e90` and
+`26e16827-a6a2-45e1-84f9-963ce6f80460` never reached the verified
+`CInGameIdler` transition. The source save retained SHA-256
+`662425a530dfacfb8e90fce73aa0555464cfd3803c036cb23c34423a252a571d`.
+
 ## Current boundary
 
 Campaign entry, full-AI observer mode, and native unpause are verified. A

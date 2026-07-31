@@ -726,6 +726,24 @@ TEST_F(LauncherCoreTest, DerivesModUserDirectoryAndEconomyTraceOnlyWhenUnambiguo
     EXPECT_FALSE(record.links.victoria_system_log.has_value());
 }
 
+TEST_F(LauncherCoreTest, ResolvesOneSafeModUserDirectory)
+{
+    const launcher::ModDescriptor gfm{"GFM", "mod/GFM", "GFM", {}, {}, {}};
+    const launcher::ModDescriptor same{"Submod", "mod/Submod", "gfm", {}, {}, {}};
+    const launcher::ModDescriptor other{"Other", "mod/Other", "Other", {}, {}, {}};
+    const launcher::ModDescriptor unsafe{"Unsafe", "mod/Unsafe", "../escape", {}, {}, {}};
+    const launcher::ModDescriptor unicode_upper{"Upper", "mod/Upper", "\xC3\x84", {}, {}, {}};
+    const launcher::ModDescriptor unicode_lower{"Lower", "mod/Lower", "\xC3\xA4", {}, {}, {}};
+
+    EXPECT_EQ(launcher::ResolveVictoriaUserDirectory(root, {}), root.lexically_normal());
+    EXPECT_EQ(launcher::ResolveVictoriaUserDirectory(root, {gfm}), root / L"GFM");
+    EXPECT_EQ(launcher::ResolveVictoriaUserDirectory(root, {gfm, same}), root / L"GFM");
+    EXPECT_EQ(launcher::ResolveVictoriaUserDirectory(root, {unicode_upper, unicode_lower}),
+              root / fs::u8path("\xC3\x84"));
+    EXPECT_FALSE(launcher::ResolveVictoriaUserDirectory(root, {gfm, other}).has_value());
+    EXPECT_FALSE(launcher::ResolveVictoriaUserDirectory(root, {unsafe}).has_value());
+}
+
 TEST_F(LauncherCoreTest, PersistsTelemetryTraceLinksWithoutLaunching)
 {
     launcher::LaunchPlan plan;

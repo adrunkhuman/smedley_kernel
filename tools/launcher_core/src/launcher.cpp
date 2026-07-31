@@ -320,17 +320,6 @@ namespace smedley::launcher
             return present;
         }
 
-        bool IsSaveInGameDirectory(const fs::path &save)
-        {
-            PWSTR documents = nullptr;
-            if (SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &documents) != S_OK) {
-                return false;
-            }
-            const fs::path save_root = fs::path(documents) / L"Paradox Interactive" / L"Victoria II" / L"save games";
-            CoTaskMemFree(documents);
-            return IsPathContained(save_root, save);
-        }
-
         bool WaitForRemoteThread(HANDLE thread, const char *operation, std::vector<Diagnostic> *diagnostics)
         {
             const auto result = WaitForSingleObject(thread, 30000);
@@ -691,26 +680,9 @@ namespace smedley::launcher
             for (const auto &plugin : plan.plugins) record.plugins.push_back({plugin.id, plugin.manifest_path});
             if (const auto base_user_dir = VictoriaBaseUserDirectory()) {
                 record.links.smedley_log = *base_user_dir / L"logs" / L"smedley.log";
-                std::vector<fs::path> selected_user_dirs;
-                bool invalid_user_dir = false;
-                for (const auto &mod : plan.mods) {
-                    if (mod.user_dir.empty()) continue;
-                    if (!IsSafeModUserDirectory(mod.user_dir)) {
-                        invalid_user_dir = true;
-                        break;
-                    }
-                    const auto user_dir = (*base_user_dir / fs::u8path(mod.user_dir)).lexically_normal();
-                    if (std::find(selected_user_dirs.begin(), selected_user_dirs.end(), user_dir) == selected_user_dirs.end()) {
-                        selected_user_dirs.push_back(user_dir);
-                    }
-                }
-                if (!invalid_user_dir && selected_user_dirs.size() == 1) {
-                    const auto &user_dir = selected_user_dirs.front();
-                    record.links.victoria_user_dir = user_dir;
-                    record.links.victoria_system_log = user_dir / L"logs" / L"system.log";
-                } else if (!invalid_user_dir && selected_user_dirs.empty()) {
-                    record.links.victoria_user_dir = *base_user_dir;
-                    record.links.victoria_system_log = *base_user_dir / L"logs" / L"system.log";
+                if (const auto user_dir = ResolveVictoriaUserDirectory(*base_user_dir, plan.mods)) {
+                    record.links.victoria_user_dir = *user_dir;
+                    record.links.victoria_system_log = *user_dir / L"logs" / L"system.log";
                 }
             }
             if (std::any_of(plan.plugins.begin(), plan.plugins.end(), [](const PluginManifest &plugin) { return plugin.id == "economy_trace"; })) {
@@ -1048,6 +1020,28 @@ namespace smedley::launcher
         const auto relative = canonical_path.lexically_relative(canonical_root);
         if (relative.empty() || relative.is_absolute()) return false;
         return std::none_of(relative.begin(), relative.end(), [](const fs::path &part) { return part == L".."; });
+    }
+
+    std::optional<fs::path> ResolveVictoriaUserDirectory(const fs::path &base,
+                                                         const std::vector<ModDescriptor> &mods)
+    {
+        std::vector<fs::path> selected;
+        for (const auto &mod : mods) {
+            if (mod.user_dir.empty()) continue;
+            if (!IsSafeModUserDirectory(mod.user_dir)) return std::nullopt;
+            const auto candidate = (base / fs::u8path(mod.user_dir)).lexically_normal();
+            const auto duplicate = std::find_if(selected.begin(), selected.end(), [&](const fs::path &existing) {
+                const auto &existing_value = existing.native();
+                const auto &candidate_value = candidate.native();
+                return CompareStringOrdinal(existing_value.data(), static_cast<int>(existing_value.size()),
+                                            candidate_value.data(), static_cast<int>(candidate_value.size()), TRUE)
+                    == CSTR_EQUAL;
+            });
+            if (duplicate == selected.end()) selected.push_back(candidate);
+        }
+        if (selected.empty()) return base.lexically_normal();
+        if (selected.size() == 1) return selected.front();
+        return std::nullopt;
     }
 
     PluginDiscovery DiscoverPlugins(const fs::path &game_dir)
@@ -1552,8 +1546,15 @@ namespace smedley::launcher
             if (plan.profile.inject && plan.profile.save) {
                 if (!IsRegularFile(*plan.profile.save)) {
                     AddDiagnostic(&plan.diagnostics, "save.missing", "save file does not exist", *plan.profile.save);
-                } else if (!IsSaveInGameDirectory(*plan.profile.save)) {
-                    AddDiagnostic(&plan.diagnostics, "save.outside_user_dir", "save must be inside Victoria II save games", *plan.profile.save);
+                } else if (const auto base_user_dir = VictoriaBaseUserDirectory()) {
+                    const auto user_dir = ResolveVictoriaUserDirectory(*base_user_dir, plan.mods);
+                    if (!user_dir) {
+                        AddDiagnostic(&plan.diagnostics, "save.user_dir_ambiguous", "could not derive one safe Victoria II user directory from the selected mods", *plan.profile.save);
+                    } else if (!IsPathContained(*user_dir / L"save games", *plan.profile.save)) {
+                        AddDiagnostic(&plan.diagnostics, "save.outside_user_dir", "save must be inside the selected Victoria II user directory's save games", *plan.profile.save);
+                    }
+                } else {
+                    AddDiagnostic(&plan.diagnostics, "save.user_dir", "could not resolve the Victoria II user directory", *plan.profile.save);
                 }
                 if (plan.profile.inject) {
                     arguments.push_back(L"-smedley-save=" + plan.profile.save->wstring());

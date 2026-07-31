@@ -176,6 +176,8 @@ namespace smedley::launcher
 
     bool HasErrors(const std::vector<Diagnostic> &diagnostics);
     bool IsPathContained(const fs::path &root, const fs::path &path);
+    std::optional<fs::path> ResolveVictoriaUserDirectory(const fs::path &base,
+                                                         const std::vector<ModDescriptor> &mods);
     std::wstring QuoteWindowsArgument(const std::wstring &argument);
     std::wstring BuildWindowsCommandLine(const std::vector<std::wstring> &arguments);
     std::wstring BuildInjectedCommandLine(const LaunchPlan &plan, const RunRecord &record);

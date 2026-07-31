@@ -139,6 +139,11 @@ Run target raw, and Timeout seconds fields through this same preflight.
 An otherwise custom timeout without a target is inert and produces a preflight
 warning; it neither requires campaign automation nor reaches the plugin.
 
+When one selected mod declares a safe `user_dir`, save preflight and run-record
+links use that mod-specific `save games` and log directory. Multiple distinct
+mod user directories are ambiguous and rejected instead of guessing which one
+the game will use.
+
 The process is intentionally left paused and open on completion or a safe
 failure. No clean exit, checkpoint save, benchmark save, or final game-state
 assertion is implemented or claimed.
