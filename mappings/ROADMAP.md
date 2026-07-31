@@ -18,8 +18,9 @@
 - Optional full-AI observer mode uses the native return-to-AI transition and
   verifies that no player-control entry remains before unpausing; runtime
   acceptance passed with `benchmark.v2` and `JAN`.
-- Observer view failover after annexation is implemented with native `tag`
-  followed by return-to-AI restoration; runtime annexation acceptance is pending.
+- The observer watchdog has a statically checked annexation-failover attempt,
+  but runtime testing proves it is not yet reliable: annexing the viewed
+  country leaves `CInGameIdler` before the timer can switch views.
 - Native speed selection, generic message-popup suppression, and bounded
   run-for-days targets are implemented. Two identical 365-day observer runs
   paused at the exact target with a 0.50 percent throughput difference and no

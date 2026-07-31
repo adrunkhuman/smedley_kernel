@@ -160,12 +160,20 @@ player-control entries. The corrected `debug fow` invocation produced
 zero-valued visibility readback
 and continued advancing `economy_trace` rows at speed 5.
 
-The observer watchdog detects when the viewing country owns no provinces. It
-pauses, selects the lowest-ordinal living AI country, invokes native `tag`, waits
-for the queued switch to mark that country human, immediately calls the native
-return-to-AI transition, verifies scheduler restoration, and resumes. This
-annexation failover is statically validated but awaits an actual runtime
-annexation in the corrected build.
+The observer watchdog contains a timer-driven attempt to recover when the
+viewing country owns no provinces: pause, select the lowest-ordinal living AI
+country, invoke native `tag`, restore that country to AI, verify the scheduler,
+and resume. It is not runtime-effective for annexation. Disposable fixture run
+`dd97c381-ea6d-490f-bff8-6173cda92079` first reached verified JAN observer
+postconditions, then had AI-controlled ENG execute `inherit = JAN` on January
+1, 1837. The game log confirmed that England annexed Jan Mayen, but Victoria II
+moved away from `CInGameIdler` before the one-second watchdog could observe the
+missing view; `campaign_runner` stopped with `observer campaign left
+CInGameIdler` and emitted no failover. Reliable recovery therefore remains
+blocked on a verified pre-game-over country-lifecycle boundary or a safe route
+back from the resulting controller. The disposable mod was removed and the
+source save retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 
 For manual view changes, observer mode replaces native `tag` with an error and
 registers `switch TAG`. `switch` validates a living scheduled-AI target, pauses,
