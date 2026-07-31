@@ -376,10 +376,13 @@ namespace interest_probe
             sample.flags |= SAMPLE_CREDITOR_VECTOR_INVALID;
             return sample;
         }
-        if (country_resolver == nullptr || sample.creditor_count == 0) return sample;
-        if (sample.creditor_count > max_creditor_destinations) sample.flags |= SAMPLE_CREDITOR_DESTINATION_LIMIT;
+        if (sample.creditor_count == 0) return sample;
+        if (country_resolver != nullptr && sample.creditor_count > max_creditor_destinations) {
+            sample.flags |= SAMPLE_CREDITOR_DESTINATION_LIMIT;
+        }
 
-        const uint32_t creditor_limit = (std::min)(sample.creditor_count, max_creditor_destinations);
+        const uint32_t creditor_limit = country_resolver == nullptr
+            ? sample.creditor_count : (std::min)(sample.creditor_count, max_creditor_destinations);
         for (uint32_t index = 0; index < creditor_limit; ++index) {
             const void *creditor = nullptr;
             if (!ReadAt(creditors.begin, index * sizeof(void *), &creditor) || creditor == nullptr) {
@@ -406,6 +409,7 @@ namespace interest_probe
             AddChecked(interest, &sample.creditor_interest_raw, &sample.flags);
             AddChecked(debt, &sample.creditor_debt_raw, &sample.flags);
             if (was_paid != 0) ++sample.creditors_was_paid;
+            if (country_resolver == nullptr) continue;
 
             bool duplicate = false;
             for (uint32_t prior = 0; prior < sample.creditor_destinations; ++prior) {

@@ -23,6 +23,12 @@ validation before launch.
 | `telemetry_queue_capacity` | integer | `1024` | 64 through 8192 fixed record slots. |
 | `telemetry_overwrite` | boolean | `false` | Required to replace an existing output. |
 
+Selecting `plugins/economic_telemetry.toml` adds bounded world economic
+snapshots. Its manifest depends on `telemetry`; collection is active only when
+the `state` category is selected and follows the same inclusive date bounds and
+`telemetry_sample_days` interval. It is separate because a complete world POP
+walk is materially more expensive than ordinary treasury sampling.
+
 If no output path is supplied, a real injected launch derives
 `%LOCALAPPDATA%\Smedley\traces\<run-id>.jsonl`. The launcher creates its run ID
 only after the shared `BuildLaunchPlan` phase. Before `CreateProcessW`, it
@@ -108,6 +114,34 @@ non-playable engine entries, and scheduler entries are not asserted to equal a
 count of AI-controlled countries. These names expose the observed containers
 without inventing stronger gameplay semantics.
 
+`economic_telemetry` emits these `state` records once per selected sample date:
+
+| Event | Payload | Contract |
+| --- | --- | --- |
+| `world.economy.health` | completeness, snapshot/probe flags, country/state/province/POP counts, collection microseconds | Always emitted after an attempted scan; counts are traversal observations. |
+| `world.economy.capacity` | fixed limits and basis-point utilization | Emitted only for a complete zero-flag scan. Limits are 512 countries, 4,096 provinces, and 100,000 POP records. |
+| `world.economy.holdings` | observed treasury, POP money, POP savings, bank interest accumulator, positive-balance counts, negative-treasury country count | Emitted only for a complete scan with `provisional` quality. Components remain separate and are not a claimed money-supply identity. |
+| `world.economy.credit` | creditor counts/paid bytes and creditor/state candidate aggregates | Emitted only for a complete scan with `provisional` quality. Every `_candidate_raw` field retains its mapping uncertainty. |
+
+POP money and POP savings are different storage categories. Savings and
+creditor/state values may be financial claims or bookkeeping aggregates; adding
+them to liquid balances can double-count value. `bank_interest_accumulator_raw`
+is the verified temporary destination of charged interest, not a national-bank
+cash balance. The plugin deliberately does not emit `world_money_supply`.
+
+With both `interest_fix` and `telemetry` selected, the fix emits:
+
+| Event | Payload | Contract |
+| --- | --- | --- |
+| `interest.fix.health` | status, flags, destination/province/POP counts, verified POP count, callback microseconds | One record for every finalized creditor-bearing fix attempt. The debtor tag is the entity. |
+| `interest.fix.value` | exact bank transfer, derived POP payout, paid and verified POP counts | Emitted only after a successful `paid` result. |
+
+Both records use `verified-runtime` quality. The health shape uses the ABI limit
+of eight combined entity/payload fields exactly. Telemetry delivery is
+nonblocking and independent of mutation: unavailable, filtered, dropped, or
+invalid telemetry never changes whether the fix pays POPs. `interest_fix.csv`
+records the two telemetry result codes for independent diagnosis.
+
 The project mapping inventory has historical status spellings, but telemetry
 uses only canonical project evidence levels. A daily record depends on weaker
 field/date evidence, so it is always `provisional`; a non-null date never
@@ -136,6 +170,14 @@ join the writer. `telemetry.progress` is emitted at least once per observed game
 date when `lifecycle` is selected. Up to the latest userspace queue and the
 one-second flush interval can be lost at real process exit. Completed prior
 lines remain independently parseable and no callbacks interleave output.
+
+The economic producer performs its bounded world traversal on the game thread
+only at selected dates. It allocates its fixed storage at plugin construction,
+retains no game pointers across callbacks, performs no file I/O, and reports
+`collection_us`. Interest-fix `callback_us` measures the AFTER callback from
+post-original sampling through validation and allocation/mutation
+postconditions, immediately before telemetry publication. The fix's CSV worker remains independently
+bounded at 1,024 result slots.
 
 ## Trace Tool
 

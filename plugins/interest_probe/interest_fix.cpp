@@ -1,5 +1,6 @@
 #include "interest_allocation.hpp"
 #include "probe_core.hpp"
+#include "telemetry_bridge.hpp"
 
 #include <smedley/events/dailyinterest.hpp>
 #include <smedley/memory.hpp>
@@ -26,6 +27,7 @@ namespace interest_probe
         enum class FixStatus : uint32_t
         {
             paid,
+            no_transfer,
             invalid_pair,
             collection_failed,
             allocation_failed,
@@ -43,11 +45,15 @@ namespace interest_probe
             FixStatus status = FixStatus::invalid_pair;
             uint32_t flags = 0;
             uint32_t destination_count = 0;
+            uint32_t province_count = 0;
             uint32_t pop_count = 0;
             uint32_t paid_pop_count = 0;
             uint32_t verified_pop_count = 0;
             int64_t transfer_raw = 0;
             int64_t payout_raw = 0;
+            uint64_t callback_us = 0;
+            SmedleyTelemetryResult health_telemetry_result = SMEDLEY_TELEMETRY_UNAVAILABLE;
+            SmedleyTelemetryResult value_telemetry_result = SMEDLEY_TELEMETRY_UNAVAILABLE;
         };
 
         template <size_t Capacity>
@@ -109,6 +115,7 @@ namespace interest_probe
         {
             switch (status) {
             case FixStatus::paid: return "paid";
+            case FixStatus::no_transfer: return "no_transfer";
             case FixStatus::invalid_pair: return "invalid_pair";
             case FixStatus::collection_failed: return "collection_failed";
             case FixStatus::allocation_failed: return "allocation_failed";
@@ -130,7 +137,8 @@ namespace interest_probe
             output_.open("interest_fix.csv", std::ios::trunc);
             if (!output_) throw std::runtime_error("cannot open interest_fix.csv in the game directory");
             output_ << "date_raw,country,status,flags,destination_count,pop_count,paid_pop_count,"
-                       "verified_pop_count,transfer_raw,payout_raw,dropped_results\n";
+                       "province_count,verified_pop_count,transfer_raw,payout_raw,callback_us,"
+                       "health_telemetry_result,value_telemetry_result,dropped_results\n";
             output_.flush();
             if (!output_) throw std::runtime_error("cannot initialize interest_fix.csv in the game directory");
             worker_ = std::thread([this] { WriteResults(); });
@@ -166,6 +174,7 @@ namespace interest_probe
                 return;
             }
             if (!has_pending_before_) return;
+            callback_started_ = std::chrono::steady_clock::now();
 
             Sample after = CollectSample(event.GetCountry(), game_state->current_date_raw(),
                 ResolveCountry, nullptr, game_state);
@@ -185,7 +194,13 @@ namespace interest_probe
             has_pending_before_ = false;
             result.destination_count = after.destination_transfer_count;
             result.transfer_raw = after.destination_transfer_raw;
-            if (after.destination_transfer_count == 0) return;
+            if (after.destination_transfer_count == 0) {
+                if (after.creditor_count != 0) {
+                    result.status = FixStatus::no_transfer;
+                    Publish(result);
+                }
+                return;
+            }
             if (pending_before_.treasury_raw < (std::numeric_limits<int64_t>::min)() + after.destination_transfer_raw
                 || after.treasury_raw != pending_before_.treasury_raw - after.destination_transfer_raw) {
                 result.status = FixStatus::conservation_failed;
@@ -247,11 +262,14 @@ namespace interest_probe
                         candidates_.size() - candidate_count_,
                         max_sample_destination_provinces - province_attempt_count,
                         &collected, &quality)) {
+                    result->province_count = province_attempt_count + quality.destination_province_attempts;
+                    result->pop_count = candidate_count_ + quality.destination_pop_attempts;
                     result->status = FixStatus::collection_failed;
                     result->flags |= quality.flags;
                     return false;
                 }
                 province_attempt_count += quality.destination_province_attempts;
+                result->province_count = province_attempt_count;
                 for (uint32_t index = 0; index < collected; ++index) {
                     allocations_[candidate_count_ + index].savings_raw = candidates_[candidate_count_ + index].savings_raw;
                 }
@@ -322,8 +340,34 @@ namespace interest_probe
             return static_cast<const smedley::v2::CCurrentGameState *>(context)->province(id);
         }
 
-        void Publish(const FixResult &result)
+        void Publish(FixResult result)
         {
+            result.callback_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - callback_started_).count());
+            const auto country = TelemetryStringField("country_tag", result.country_tag);
+            const SmedleyTelemetryFieldV1 health[] = {
+                TelemetryStringField("status", StatusName(result.status)),
+                TelemetryIntField("flags", result.flags),
+                TelemetryIntField("destination_count", result.destination_count),
+                TelemetryIntField("province_count", result.province_count),
+                TelemetryIntField("pop_count", result.pop_count),
+                TelemetryIntField("verified_pop_count", result.verified_pop_count),
+                TelemetryIntField("callback_us", static_cast<int64_t>(result.callback_us)),
+            };
+            static_assert(1 + std::size(health) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
+            result.health_telemetry_result = telemetry_.Emit(
+                "interest.fix.health", "verified-runtime", result.date_raw, &country, 1, health, 7);
+            const SmedleyTelemetryFieldV1 value[] = {
+                TelemetryIntField("transfer_raw", result.transfer_raw),
+                TelemetryIntField("payout_raw", result.payout_raw),
+                TelemetryIntField("paid_pop_count", result.paid_pop_count),
+                TelemetryIntField("verified_pop_count", result.verified_pop_count),
+            };
+            static_assert(1 + std::size(value) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
+            if (result.status == FixStatus::paid) {
+                result.value_telemetry_result = telemetry_.Emit(
+                    "interest.fix.value", "verified-runtime", result.date_raw, &country, 1, value, 4);
+            }
             if (!queue_.TryPush(result)) dropped_.fetch_add(1, std::memory_order_relaxed);
         }
 
@@ -335,8 +379,10 @@ namespace interest_probe
                 while (queue_.TryPop(&result)) {
                     output_ << result.date_raw << ',' << result.country_tag << ',' << StatusName(result.status)
                             << ",0x" << std::hex << result.flags << std::dec << ',' << result.destination_count << ','
-                            << result.pop_count << ',' << result.paid_pop_count << ',' << result.verified_pop_count << ','
-                            << result.transfer_raw << ',' << result.payout_raw << ','
+                            << result.pop_count << ',' << result.paid_pop_count << ',' << result.province_count << ','
+                            << result.verified_pop_count << ',' << result.transfer_raw << ',' << result.payout_raw << ','
+                            << result.callback_us << ',' << result.health_telemetry_result << ','
+                            << result.value_telemetry_result << ','
                             << dropped_.load(std::memory_order_relaxed) << '\n';
                     wrote = true;
                 }
@@ -355,6 +401,8 @@ namespace interest_probe
         std::array<AllocationEntry, max_sample_pops> allocations_{};
         std::array<PopMoneySnapshot, max_sample_pops> before_snapshots_{};
         std::array<uint32_t, max_sample_pops> order_scratch_{};
+        TelemetryBridge telemetry_{};
+        std::chrono::steady_clock::time_point callback_started_{};
         std::atomic<uint64_t> dropped_{0};
         std::atomic<bool> stop_{false};
         std::thread worker_;

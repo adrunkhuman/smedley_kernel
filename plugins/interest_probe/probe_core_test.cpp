@@ -1,6 +1,7 @@
 #include "probe_core.hpp"
 #include "pair_queue.hpp"
 #include "interest_allocation.hpp"
+#include "economic_telemetry_core.hpp"
 
 #include <gtest/gtest.h>
 
@@ -62,8 +63,10 @@ TEST(InterestProbeTest, CollectsBoundedStateAndBankCandidates)
     std::array<std::byte, 0x1608> country{};
     std::array<std::byte, 0x290> state{};
     std::array<std::byte, 0x28> bank{};
+    std::array<std::byte, 0x28> creditor_a{};
+    std::array<std::byte, 0x28> creditor_b{};
     std::array<int, 2> provinces{7, 11};
-    std::array<void *, 2> creditors{reinterpret_cast<void *>(1), reinterpret_cast<void *>(2)};
+    std::array<void *, 2> creditors{creditor_a.data(), creditor_b.data()};
     Node node{state.data(), nullptr, nullptr, 0, {}};
 
     const char tag[4] = {'E', 'N', 'G', '\0'};
@@ -72,6 +75,16 @@ TEST(InterestProbeTest, CollectsBoundedStateAndBankCandidates)
     const int64_t savings = 120;
     const int64_t interest = 30;
     const int64_t bank_interest = 40;
+    const char creditor_a_tag[4] = {'F', 'R', 'A', '\0'};
+    const char creditor_b_tag[4] = {'P', 'R', 'U', '\0'};
+    const int32_t creditor_a_ordinal = 2;
+    const int32_t creditor_b_ordinal = 3;
+    const int64_t creditor_a_interest = 5;
+    const int64_t creditor_b_interest = 7;
+    const int64_t creditor_a_debt = 20;
+    const int64_t creditor_b_debt = 30;
+    const uint8_t creditor_a_paid = 1;
+    const uint8_t creditor_b_paid = 0;
     const void *state_head = &node;
     const void *state_tail = &node;
     const void *bank_pointer = bank.data();
@@ -95,6 +108,16 @@ TEST(InterestProbeTest, CollectsBoundedStateAndBankCandidates)
     Write(&state, 0x258, savings);
     Write(&state, 0x260, interest);
     Write(&bank, 0x20, bank_interest);
+    Write(&creditor_a, 0x08, creditor_a_tag);
+    Write(&creditor_a, 0x0c, creditor_a_ordinal);
+    Write(&creditor_a, 0x10, creditor_a_interest);
+    Write(&creditor_a, 0x18, creditor_a_debt);
+    Write(&creditor_a, 0x20, creditor_a_paid);
+    Write(&creditor_b, 0x08, creditor_b_tag);
+    Write(&creditor_b, 0x0c, creditor_b_ordinal);
+    Write(&creditor_b, 0x10, creditor_b_interest);
+    Write(&creditor_b, 0x18, creditor_b_debt);
+    Write(&creditor_b, 0x20, creditor_b_paid);
 
     const auto sample = interest_probe::CollectSample(country.data(), 1234);
     EXPECT_STREQ(sample.country_tag, "ENG");
@@ -105,6 +128,9 @@ TEST(InterestProbeTest, CollectsBoundedStateAndBankCandidates)
     EXPECT_EQ(sample.states_with_savings, 1u);
     EXPECT_EQ(sample.states_with_interest, 1u);
     EXPECT_EQ(sample.creditor_count, 2u);
+    EXPECT_EQ(sample.creditors_was_paid, 1u);
+    EXPECT_EQ(sample.creditor_interest_raw, creditor_a_interest + creditor_b_interest);
+    EXPECT_EQ(sample.creditor_debt_raw, creditor_a_debt + creditor_b_debt);
     EXPECT_EQ(sample.treasury_raw, treasury);
     EXPECT_EQ(sample.state_savings_raw, savings);
     EXPECT_EQ(sample.state_interest_raw, interest);
@@ -240,6 +266,15 @@ TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
     EXPECT_EQ(sample.destination_pop_savings_state_scale_raw, destination_state_savings);
     EXPECT_EQ(sample.flags, 0u);
     EXPECT_EQ(immediate_pop, destination_pop.data());
+
+    const auto aggregate_only = interest_probe::CollectSample(debtor.data(), 1234);
+    EXPECT_EQ(aggregate_only.creditor_count, 1u);
+    EXPECT_EQ(aggregate_only.creditors_was_paid, 1u);
+    EXPECT_EQ(aggregate_only.creditor_interest_raw, creditor_interest);
+    EXPECT_EQ(aggregate_only.creditor_debt_raw, creditor_debt);
+    EXPECT_EQ(aggregate_only.creditor_destinations, 0u);
+    EXPECT_EQ(aggregate_only.flags, 0u);
+
     interest_probe::PopMoneySnapshot snapshot{};
     ASSERT_TRUE(interest_probe::ReadPopMoneySnapshot(immediate_pop, &snapshot));
     EXPECT_EQ(snapshot.money_raw, destination_pop_money);
@@ -476,4 +511,60 @@ TEST(InterestAllocationTest, RejectsSavingsSumAndPayoutScaleOverflow)
         interest_probe::AllocationStatus::overflow);
     EXPECT_EQ(entries[0].payout_raw, 0);
     EXPECT_EQ(entries[1].payout_raw, 0);
+}
+
+TEST(EconomicTelemetryTest, ParsesExactStateCategoryAndBounds)
+{
+    const auto config = interest_probe::ParseEconomicTelemetryArguments({
+        L"-smedley-telemetry-categories=lifecycle,state",
+        L"-smedley-telemetry-sample-days=30",
+        L"-smedley-telemetry-start-date-raw=-2147483648",
+        L"-smedley-telemetry-end-date-raw=2147483647"});
+    EXPECT_TRUE(config.enabled);
+    EXPECT_EQ(config.sample_days, 30);
+    EXPECT_EQ(config.start_date_raw, (std::numeric_limits<int32_t>::min)());
+    EXPECT_EQ(config.end_date_raw, (std::numeric_limits<int32_t>::max)());
+
+    const auto disabled = interest_probe::ParseEconomicTelemetryArguments({
+        L"-smedley-telemetry-categories=lifecycle,estate",
+        L"-smedley-telemetry-sample-days=366",
+        L"-smedley-telemetry-start-date-raw=1x"});
+    EXPECT_FALSE(disabled.enabled);
+    EXPECT_EQ(disabled.sample_days, 1);
+    EXPECT_FALSE(disabled.start_date_raw.has_value());
+}
+
+TEST(EconomicTelemetryTest, SamplesExactIntervalsAndResetsOnRegression)
+{
+    interest_probe::CaptureConfig config{};
+    config.enabled = true;
+    config.sample_days = 30;
+    config.start_date_raw = 100;
+    config.end_date_raw = 2000;
+    std::optional<int32_t> observed;
+    std::optional<int32_t> sampled;
+
+    EXPECT_FALSE(interest_probe::ShouldCaptureEconomicDate(99, config, &observed, &sampled));
+    EXPECT_TRUE(interest_probe::ShouldCaptureEconomicDate(100, config, &observed, &sampled));
+    EXPECT_FALSE(interest_probe::ShouldCaptureEconomicDate(100, config, &observed, &sampled));
+    EXPECT_FALSE(interest_probe::ShouldCaptureEconomicDate(819, config, &observed, &sampled));
+    EXPECT_TRUE(interest_probe::ShouldCaptureEconomicDate(820, config, &observed, &sampled));
+    EXPECT_TRUE(interest_probe::ShouldCaptureEconomicDate(200, config, &observed, &sampled));
+    EXPECT_FALSE(interest_probe::ShouldCaptureEconomicDate(2001, config, &observed, &sampled));
+}
+
+TEST(EconomicTelemetryTest, DetectsSignedAggregationOverflow)
+{
+    uint32_t flags = 0;
+    int64_t total = (std::numeric_limits<int64_t>::max)();
+    interest_probe::AddEconomicValue(1, &total, &flags);
+    EXPECT_EQ(total, (std::numeric_limits<int64_t>::max)());
+    EXPECT_NE(flags & interest_probe::SNAPSHOT_SUM_OVERFLOW, 0u);
+
+    flags = 0;
+    total = (std::numeric_limits<int64_t>::min)();
+    interest_probe::AddEconomicValue(-1, &total, &flags);
+    EXPECT_EQ(total, (std::numeric_limits<int64_t>::min)());
+    EXPECT_NE(flags & interest_probe::SNAPSHOT_SUM_OVERFLOW, 0u);
+    EXPECT_EQ(interest_probe::UtilizationBasisPoints(20000, 100000), 2000);
 }

@@ -92,9 +92,17 @@ fix. Its fields and limits are documented in
 `interest_fix` is the independently selectable gameplay fix. It restores each
 verified creditor-bank interest transfer to that bank's positive-savings POPs
 with exact deterministic integer conservation and records outcomes in
-`interest_fix.csv`. It is disabled unless its manifest is selected, conflicts
-with the historical `v2up` plugin, and intentionally increases the circulating
-money supply relative to vanilla. See the mapping document before enabling it.
+`interest_fix.csv` plus structured health/value telemetry when `telemetry` is
+also selected. It is disabled unless its manifest is selected, conflicts with
+the historical `v2up` plugin, and intentionally increases the circulating money
+supply relative to vanilla. See the mapping document before enabling it.
+
+`economic_telemetry` is a separately selected, read-only producer for bounded
+world economic snapshots. It depends on `telemetry`, follows its state sampling
+interval and date bounds, and reports traversal health, capacity utilization,
+observed treasuries and POP balances, savings, and explicitly provisional
+credit/state candidates. It keeps liquid holdings and financial claims separate
+instead of inventing a double-counted world-money total.
 
 Native contributors can separately build the non-installed
 `pop_money_fixture` target. Explicitly selecting its manifest performs one

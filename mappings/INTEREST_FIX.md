@@ -387,6 +387,23 @@ failure skips the complete debtor payout before mutation. A postcondition
 failure disables later payouts and is reported. The callback performs no file
 I/O; a bounded worker writes `interest_fix.csv`.
 
+The CSV columns after `paid_pop_count` now include `province_count`,
+`verified_pop_count`, `transfer_raw`, `payout_raw`, `callback_us`, both
+structured telemetry result codes, and `dropped_results`. `no_transfer` records
+a valid creditor-bearing boundary with no positive destination-bank delta.
+Telemetry result codes
+follow the C ABI: 0 unavailable, 1 filtered, 2 accepted, 3 dropped, and 4
+invalid. `interest.fix.health` is emitted for every finalized creditor-bearing
+attempt; `interest.fix.value` is emitted only for `paid`, so a failed or partial
+attempt cannot expose an intended payout as an observed result.
+
+Fix-enabled observer smoke run `5095e066-93e8-4faf-9060-dfa0199becd8`
+completed two exact days with zero gaps, drops, or writer failure. SWE traversed
+346 provinces and 2,635 POPs in 9,000 microseconds; SAR traversed 615 provinces
+and 5,077 POPs in 17,624 microseconds. Both health/value pairs were accepted,
+all flags were zero, all 753 paid POPs passed immediate postconditions, and the
+source save remained unchanged.
+
 Two-day smoke run `fb8fb767-d7ab-4fea-be87-7598d6f9c880` exercised the first
 two creditor-bearing calls. Sweden paid 4,947 bank units as 4,947,000 POP-money
 units across 261 verified POPs; Sardinia-Piedmont paid 6,406 as 6,406,000 across
