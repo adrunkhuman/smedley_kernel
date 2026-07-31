@@ -37,9 +37,9 @@ namespace interest_probe
         constexpr uint32_t max_provinces_per_state = 1024;
         constexpr uint32_t max_creditors = 4096;
         constexpr uint32_t max_creditor_destinations = max_sample_creditor_destinations;
-        constexpr uint32_t max_destination_provinces = 4096;
+        constexpr uint32_t max_destination_provinces = max_sample_destination_provinces;
         constexpr uint32_t max_pop_lists_per_province = 128;
-        constexpr uint32_t max_pops = 100000;
+        constexpr uint32_t max_pops = max_sample_pops;
         constexpr int64_t pop_savings_state_scale = 1000;
 
         struct ListNode
@@ -70,6 +70,8 @@ namespace interest_probe
         {
             std::array<int32_t, max_destination_provinces> province_ids{};
             std::array<uintptr_t, max_pops> pop_pointers{};
+            std::array<uintptr_t, max_pops> pop_identity_pointers{};
+            std::array<int64_t, max_pops> pop_savings{};
             uint32_t province_attempts = 0;
             uint32_t province_id_count = 0;
             uint32_t pop_attempts = 0;
@@ -94,6 +96,28 @@ namespace interest_probe
                 const DWORD readable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY
                     | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
                 if ((region.Protect & readable) == 0) return false;
+                const uintptr_t region_begin = reinterpret_cast<uintptr_t>(region.BaseAddress);
+                if (region_begin > (std::numeric_limits<uintptr_t>::max)() - region.RegionSize) return false;
+                const uintptr_t region_end = region_begin + region.RegionSize;
+                if (region_end <= cursor) return false;
+                cursor = (std::min)(end, region_end);
+            }
+            return true;
+        }
+
+        bool IsWritable(const void *pointer, size_t size)
+        {
+            if (pointer == nullptr || size == 0) return false;
+            const uintptr_t begin = reinterpret_cast<uintptr_t>(pointer);
+            if (begin > (std::numeric_limits<uintptr_t>::max)() - size) return false;
+            const uintptr_t end = begin + size;
+            uintptr_t cursor = begin;
+            while (cursor < end) {
+                MEMORY_BASIC_INFORMATION region{};
+                if (VirtualQuery(reinterpret_cast<const void *>(cursor), &region, sizeof(region)) != sizeof(region)) return false;
+                if (region.State != MEM_COMMIT || (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) return false;
+                const DWORD writable = PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+                if ((region.Protect & writable) == 0) return false;
                 const uintptr_t region_begin = reinterpret_cast<uintptr_t>(region.BaseAddress);
                 if (region_begin > (std::numeric_limits<uintptr_t>::max)() - region.RegionSize) return false;
                 const uintptr_t region_end = region_begin + region.RegionSize;
@@ -169,8 +193,9 @@ namespace interest_probe
         }
 
         void CollectPops(const PointerVector &provinces, ProvinceResolver resolver,
-                         const void *resolver_context, TraversalScratch *scratch,
-                         const void **immediate_pop, Sample *sample)
+                          const void *resolver_context, TraversalScratch *scratch,
+                          const void **immediate_pop, uint32_t province_limit,
+                          uint32_t pop_limit, Sample *sample)
         {
             uint32_t province_count = 0;
             if (!VectorCount(provinces, sizeof(int32_t), max_provinces_per_state, &province_count)) {
@@ -178,7 +203,7 @@ namespace interest_probe
                 return;
             }
             for (uint32_t province_index = 0; province_index < province_count; ++province_index) {
-                if (scratch->province_attempts >= max_destination_provinces) {
+                if (scratch->province_attempts >= province_limit) {
                     sample->flags |= SAMPLE_POP_LIMIT;
                     return;
                 }
@@ -221,18 +246,21 @@ namespace interest_probe
                     const void *last = nullptr;
                     uint32_t walked = 0;
                     while (pop != nullptr && walked < static_cast<uint32_t>(list.count)) {
-                        if (scratch->pop_attempts >= max_pops) {
+                        if (scratch->pop_attempts >= pop_limit) {
                             sample->flags |= SAMPLE_POP_LIMIT;
                             return;
                         }
                         ++scratch->pop_attempts;
-                        scratch->pop_pointers[scratch->pop_pointer_count++] = reinterpret_cast<uintptr_t>(pop);
                         int64_t savings = 0;
                         const void *next = nullptr;
                         if (!ReadAt(pop, pop_savings_offset, &savings) || !ReadAt(pop, pop_next_offset, &next)) {
                             sample->flags |= SAMPLE_POP_UNREADABLE;
                             break;
                         }
+                        scratch->pop_pointers[scratch->pop_pointer_count] = reinterpret_cast<uintptr_t>(pop);
+                        scratch->pop_identity_pointers[scratch->pop_pointer_count] = reinterpret_cast<uintptr_t>(pop);
+                        scratch->pop_savings[scratch->pop_pointer_count] = savings;
+                        ++scratch->pop_pointer_count;
                         AddChecked(savings, &sample->destination_pop_savings_raw, &sample->flags);
                         AddChecked(savings / pop_savings_state_scale,
                             &sample->destination_pop_savings_state_scale_raw, &sample->flags);
@@ -259,9 +287,9 @@ namespace interest_probe
     }
 
     Sample CollectSampleImpl(const void *country, int32_t date_raw,
-                             CountryResolver country_resolver, ProvinceResolver province_resolver,
-                             const void *resolver_context, bool collect_pops, TraversalScratch *scratch,
-                             const void **immediate_pop)
+                              CountryResolver country_resolver, ProvinceResolver province_resolver,
+                              const void *resolver_context, bool collect_pops, TraversalScratch *scratch,
+                              const void **immediate_pop, uint32_t province_limit, uint32_t pop_limit)
     {
         Sample sample{};
         sample.date_raw = date_raw;
@@ -307,7 +335,7 @@ namespace interest_probe
                         sample.province_element_candidates += province_count;
                         if (collect_pops && province_resolver != nullptr) {
                             CollectPops(provinces, province_resolver, resolver_context,
-                                scratch, immediate_pop, &sample);
+                                scratch, immediate_pop, province_limit, pop_limit, &sample);
                         }
                     }
                     int64_t savings = 0;
@@ -400,7 +428,8 @@ namespace interest_probe
                 continue;
             }
             const Sample destination_sample = CollectSampleImpl(
-                destination, date_raw, nullptr, province_resolver, resolver_context, true, scratch, immediate_pop);
+                destination, date_raw, nullptr, province_resolver, resolver_context, true, scratch,
+                immediate_pop, province_limit, pop_limit);
             sample.destination_provinces_resolved += destination_sample.destination_provinces_resolved;
             sample.destination_pop_lists += destination_sample.destination_pop_lists;
             sample.destination_pops += destination_sample.destination_pops;
@@ -434,7 +463,7 @@ namespace interest_probe
         traversal_scratch.pop_pointer_count = 0;
         Sample sample = CollectSampleImpl(
             country, date_raw, country_resolver, province_resolver, resolver_context,
-            false, &traversal_scratch, immediate_pop);
+            false, &traversal_scratch, immediate_pop, max_destination_provinces, max_pops);
         sample.destination_province_attempts = traversal_scratch.province_attempts;
         sample.destination_pop_attempts = traversal_scratch.pop_attempts;
 
@@ -444,9 +473,9 @@ namespace interest_probe
             if (std::adjacent_find(traversal_scratch.province_ids.begin(), province_end) != province_end) {
                 sample.flags |= SAMPLE_DUPLICATE_PROVINCE;
             }
-            auto pop_end = traversal_scratch.pop_pointers.begin() + traversal_scratch.pop_pointer_count;
-            std::sort(traversal_scratch.pop_pointers.begin(), pop_end);
-            if (std::adjacent_find(traversal_scratch.pop_pointers.begin(), pop_end) != pop_end) {
+            auto pop_end = traversal_scratch.pop_identity_pointers.begin() + traversal_scratch.pop_pointer_count;
+            std::sort(traversal_scratch.pop_identity_pointers.begin(), pop_end);
+            if (std::adjacent_find(traversal_scratch.pop_identity_pointers.begin(), pop_end) != pop_end) {
                 sample.flags |= SAMPLE_DUPLICATE_POP;
             }
         }
@@ -494,6 +523,52 @@ namespace interest_probe
         return true;
     }
 
+    bool CollectCountryPops(const void *country, int32_t date_raw,
+                            ProvinceResolver province_resolver, const void *resolver_context,
+                            PopCandidate *candidates, size_t candidate_capacity,
+                            uint32_t province_attempt_capacity, uint32_t *candidate_count,
+                            Sample *quality)
+    {
+        if (candidate_count == nullptr || quality == nullptr
+            || (candidate_capacity != 0 && candidates == nullptr)
+            || province_resolver == nullptr) {
+            return false;
+        }
+        *candidate_count = 0;
+        traversal_scratch.province_attempts = 0;
+        traversal_scratch.province_id_count = 0;
+        traversal_scratch.pop_attempts = 0;
+        traversal_scratch.pop_pointer_count = 0;
+        const uint32_t province_limit = (std::min)(province_attempt_capacity, max_destination_provinces);
+        const uint32_t pop_limit = static_cast<uint32_t>((std::min)(candidate_capacity,
+            static_cast<size_t>(max_pops)));
+        Sample sample = CollectSampleImpl(country, date_raw, nullptr, province_resolver,
+            resolver_context, true, &traversal_scratch, nullptr, province_limit, pop_limit);
+        sample.destination_province_attempts = traversal_scratch.province_attempts;
+        sample.destination_pop_attempts = traversal_scratch.pop_attempts;
+        if ((sample.flags & SAMPLE_POP_LIMIT) == 0) {
+            auto province_end = traversal_scratch.province_ids.begin() + traversal_scratch.province_id_count;
+            std::sort(traversal_scratch.province_ids.begin(), province_end);
+            if (std::adjacent_find(traversal_scratch.province_ids.begin(), province_end) != province_end) {
+                sample.flags |= SAMPLE_DUPLICATE_PROVINCE;
+            }
+            auto pop_end = traversal_scratch.pop_identity_pointers.begin() + traversal_scratch.pop_pointer_count;
+            std::sort(traversal_scratch.pop_identity_pointers.begin(), pop_end);
+            if (std::adjacent_find(traversal_scratch.pop_identity_pointers.begin(), pop_end) != pop_end) {
+                sample.flags |= SAMPLE_DUPLICATE_POP;
+            }
+        }
+        if (traversal_scratch.pop_pointer_count > candidate_capacity) sample.flags |= SAMPLE_POP_LIMIT;
+        *quality = sample;
+        if (sample.flags != 0) return false;
+        for (uint32_t index = 0; index < traversal_scratch.pop_pointer_count; ++index) {
+            candidates[index].address = reinterpret_cast<const void *>(traversal_scratch.pop_pointers[index]);
+            candidates[index].savings_raw = traversal_scratch.pop_savings[index];
+        }
+        *candidate_count = traversal_scratch.pop_pointer_count;
+        return true;
+    }
+
     bool ReadPopMoneySnapshot(const void *pop, PopMoneySnapshot *snapshot)
     {
         if (snapshot == nullptr) return false;
@@ -501,5 +576,13 @@ namespace interest_probe
         if (!ReadPopMoney(pop, &value)) return false;
         *snapshot = value;
         return true;
+    }
+
+    bool CanWritePopMoney(const void *pop)
+    {
+        if (pop == nullptr) return false;
+        return IsWritable(reinterpret_cast<const uint8_t *>(pop) + pop_money_offset, sizeof(int64_t))
+            && IsWritable(reinterpret_cast<const uint8_t *>(pop) + pop_interest_cash_flow_offset, sizeof(int64_t))
+            && IsWritable(reinterpret_cast<const uint8_t *>(pop) + pop_total_cash_flow_offset, sizeof(int64_t));
     }
 }

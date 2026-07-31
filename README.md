@@ -84,9 +84,17 @@ planned for broader tracing.
 
 `interest_probe` is a read-only reverse-engineering tool for the creditor-POP
 interest investigation. It writes bounded creditor, destination-bank, and
-destination POP-savings observations to `interest_probe.csv` without applying
-the historical fix. Its fields and limits are documented in
+destination POP-savings observations to `interest_probe.csv` and individual
+bank deltas to `interest_probe_transfers.csv` without applying the historical
+fix. Its fields and limits are documented in
 [`mappings/INTEREST_FIX.md`](mappings/INTEREST_FIX.md).
+
+`interest_fix` is the independently selectable gameplay fix. It restores each
+verified creditor-bank interest transfer to that bank's positive-savings POPs
+with exact deterministic integer conservation and records outcomes in
+`interest_fix.csv`. It is disabled unless its manifest is selected, conflicts
+with the historical `v2up` plugin, and intentionally increases the circulating
+money supply relative to vanilla. See the mapping document before enabling it.
 
 Native contributors can separately build the non-installed
 `pop_money_fixture` target. Explicitly selecting its manifest performs one

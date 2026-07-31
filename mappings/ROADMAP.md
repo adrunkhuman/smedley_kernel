@@ -58,9 +58,8 @@ need an explicit policy and reproducible runtime fixture.
    benchmark policy.
 3. Find `CGuiTypes::LookupString` by following references to known names such
    as `tax_0_slider` and `take_loan`.
-4. Integrate the tested deterministic integer allocator into an independently
-   selectable fix and verify exact POP payout conservation in a disposable
-   runtime fixture. State `+0x260` is not a conserved payout total.
+4. Run longer paired baseline/fix scenarios for the independently selectable
+   interest fix, then add genuine HFM/GFM fixtures and multiplayer validation.
 
 ## Runtime acceptance tests
 

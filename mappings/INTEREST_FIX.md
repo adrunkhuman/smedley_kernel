@@ -359,12 +359,72 @@ money units, and does not depend on the drifting state `+0x258` aggregate or the
 nonconserved state `+0x260` candidate. Win32 Release unit tests cover exact
 conservation, remainder ordering and ties, nonpositive savings, an empty
 eligible set, and conservative overflow rejection. No production mutation uses
-the allocator yet.
+the allocator unless the separate `interest_fix` manifest is selected.
 
-## Required evidence before mutation
+## Optional production fix
 
-1. Implement the allocator behind an independently selectable plugin with
-   bounded preallocated POP storage and no partial mutation path.
-2. Use a disposable runtime fixture to verify exact destination-bank-delta to
-   POP-money conservation, cash-flow slot 7 presentation data, unchanged POP
-   savings, source-save preservation, and clean opt-out behavior.
+`interest_fix` subscribes to the exact `PayDailyInterest` boundary and is
+disabled unless explicitly selected. It conflicts with historical `v2up`.
+For each creditor-bearing call it:
+
+1. captures bounded destination-bank balances before and after the original
+   game function;
+2. requires the individual bank deltas to sum exactly and to equal the debtor's
+   treasury loss;
+3. traverses at most 4,096 destination provinces and 100,000 POPs across the
+   complete callback, rejecting duplicate POP identities across all
+   destinations;
+4. computes every payout in preallocated storage and requires their sum to equal
+   the bank transfer multiplied by 1,000;
+5. verifies all known `CPop::GiveMoney` write ranges are writable and all money
+   and cash-flow additions are representable before the first call; and
+6. invokes cash-flow index 7 in deterministic destination/province/list/POP
+   order, then verifies each POP's exact money, slot 7, total-flow, and unchanged
+   savings postconditions.
+
+Any structural, identity, budget, overflow, conservation, or writable-memory
+failure skips the complete debtor payout before mutation. A postcondition
+failure disables later payouts and is reported. The callback performs no file
+I/O; a bounded worker writes `interest_fix.csv`.
+
+Two-day smoke run `fb8fb767-d7ab-4fea-be87-7598d6f9c880` exercised the first
+two creditor-bearing calls. Sweden paid 4,947 bank units as 4,947,000 POP-money
+units across 261 verified POPs; Sardinia-Piedmont paid 6,406 as 6,406,000 across
+492 verified POPs. All guards and postconditions passed with no flags or drops.
+The closed fix CSV SHA-256 was
+`fef04c5aade3e158f2600a388a1cc1de5bc1c0b036822a9fbe8122d3b9cbc697`.
+After final containment hardening, run
+`61b3d205-1ff1-4df5-a036-5a1e21ec1606` repeated those two exact paid rows and
+the same CSV hash with immediate per-POP postcondition checks and
+all-candidate duplicate rejection enabled.
+
+Full seven-day run `1b9b194b-06b2-4bff-9c36-145875a95a88` produced 12 `paid`
+rows, no flags or drops, and these exact totals:
+
+| Measure | Result |
+| --- | ---: |
+| Destination-bank transfer | 87,242 |
+| POP-money payout | 87,242,000 |
+| POP records traversed | 60,936 |
+| POPs receiving nonzero payouts | 7,514 |
+| POPs passing all postconditions | 7,514 |
+
+The simultaneously loaded read-only probe independently produced all 1,897
+boundary pairs with no flags or drops and measured destination-bank gain
+`+87,242` against debtor treasury delta `-87,242`. The fix CSV SHA-256 was
+`849735871fb3f59bdd2b24d86b754f4988c257c9e9b8f96a38f75408cbf6c4b7`;
+the probe CSV SHA-256 was
+`6cae03ed4636c80c26766e7c805d401f755c9a6ec25effed51e463aac8261cac`.
+The process reached the exact target and remained paused and responsive.
+
+Opt-out run `1759f606-f8b6-4588-aad0-31025e74fd60` repeated two days without
+selecting `interest_fix`; the prior fix CSV retained the same hash, timestamp,
+and length, proving the plugin did not load. Every run preserved the source-save
+SHA-256.
+
+## Remaining validation
+
+1. Repeat paired baseline/fix scenarios over a materially longer interval and
+   compare world money, late-game liquidity, bankruptcy, and throughput.
+2. Add genuine HFM and GFM save fixtures before claiming those mods as tested.
+3. Validate multiplayer compatibility before enabling the fix in multiplayer.

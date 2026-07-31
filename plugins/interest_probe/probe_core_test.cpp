@@ -247,6 +247,19 @@ TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
     EXPECT_EQ(snapshot.total_cash_flow_raw, destination_pop_total_cash_flow);
     EXPECT_EQ(snapshot.savings_raw, destination_pop_savings);
     EXPECT_FALSE(interest_probe::ReadPopMoneySnapshot(nullptr, &snapshot));
+    EXPECT_TRUE(interest_probe::CanWritePopMoney(destination_pop.data()));
+    EXPECT_FALSE(interest_probe::CanWritePopMoney(nullptr));
+
+    std::array<interest_probe::PopCandidate, 1> candidates{};
+    uint32_t candidate_count = 0;
+    interest_probe::Sample pop_quality{};
+    ASSERT_TRUE(interest_probe::CollectCountryPops(destination.data(), 1234, ResolveProvince, &lookup,
+        candidates.data(), candidates.size(), interest_probe::max_sample_destination_provinces,
+        &candidate_count, &pop_quality));
+    EXPECT_EQ(candidate_count, 1u);
+    EXPECT_EQ(candidates[0].address, destination_pop.data());
+    EXPECT_EQ(candidates[0].savings_raw, destination_pop_savings);
+    EXPECT_EQ(pop_quality.flags, 0u);
 
     pop_lists[0].count = 2;
     const auto mismatched = interest_probe::CollectSample(

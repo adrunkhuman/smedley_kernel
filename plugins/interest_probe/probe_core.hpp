@@ -6,6 +6,8 @@
 namespace interest_probe
 {
     constexpr uint32_t max_sample_creditor_destinations = 64;
+    constexpr uint32_t max_sample_destination_provinces = 4096;
+    constexpr uint32_t max_sample_pops = 100000;
 
     enum SampleFlag : uint32_t
     {
@@ -88,6 +90,12 @@ namespace interest_probe
         int64_t savings_raw = 0;
     };
 
+    struct PopCandidate
+    {
+        const void *address = nullptr;
+        int64_t savings_raw = 0;
+    };
+
     using CountryResolver = const void *(*)(const void *context, int32_t ordinal);
     using ProvinceResolver = const void *(*)(const void *context, int32_t id);
 
@@ -95,5 +103,11 @@ namespace interest_probe
                          CountryResolver country_resolver = nullptr, ProvinceResolver province_resolver = nullptr,
                          const void *resolver_context = nullptr, const void **immediate_pop = nullptr);
     bool ComputeDestinationTransfers(const Sample &before, Sample *after);
+    bool CollectCountryPops(const void *country, int32_t date_raw,
+                            ProvinceResolver province_resolver, const void *resolver_context,
+                            PopCandidate *candidates, size_t candidate_capacity,
+                            uint32_t province_attempt_capacity, uint32_t *candidate_count,
+                            Sample *quality);
     bool ReadPopMoneySnapshot(const void *pop, PopMoneySnapshot *snapshot);
+    bool CanWritePopMoney(const void *pop);
 }
