@@ -16,7 +16,7 @@ namespace smedley::trace
     struct Scalar { JsonKind kind = JsonKind::Null; std::string text; };
     struct Filter { std::string event; std::string category; std::string country; };
     struct Record {
-        std::string raw, run_id, wall_time_utc, event, category, quality;
+        std::string raw, run_id, wall_time_utc, event, category, mapping_id, quality;
         uint64_t sequence = 0, monotonic_us = 0;
         std::optional<int> game_date_raw;
         std::map<std::string, Scalar> entities, payload;
@@ -29,6 +29,9 @@ namespace smedley::trace
         std::optional<uint64_t> private_bytes_start, private_bytes_end, process_peak_working_set_bytes;
         std::string reason;
         std::optional<bool> paused;
+    };
+    struct LifecycleSummary {
+        std::optional<uint64_t> save_load_us, campaign_enter_us, observer_configure_us;
     };
     enum class BenchmarkStatus { Completed, Failed };
     struct BenchmarkExpectation {
@@ -44,6 +47,7 @@ namespace smedley::trace
         std::optional<uint64_t> first_date_monotonic_us, last_date_monotonic_us;
         std::optional<int> first_date, last_date;
         std::map<std::string, Scalar> progress;
+        LifecycleSummary lifecycle;
         BenchmarkSummary benchmark;
         std::string run_id, warning;
     };

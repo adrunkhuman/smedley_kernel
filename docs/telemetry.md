@@ -171,6 +171,16 @@ assertion. Immediate failures such as
 `invalid_target` can occur before a progress sample; the compact output reports
 those counters as unavailable rather than inventing zero.
 
+`summary` and `compare` derive three startup phase durations from existing
+monotonic lifecycle records: `lifecycle_save_load_us` spans save-selection
+request to frontend controller completion, `lifecycle_campaign_enter_us` spans
+controller completion to the first verified in-game idler, and
+`lifecycle_observer_configure_us` spans campaign entry to verified observer
+postconditions. A duration is unavailable unless both boundary events occur
+exactly once in causal order. These are telemetry observation intervals, so
+they include any scheduling or ingress delay at the boundaries; no new game
+timing hook or engine semantic is inferred.
+
 ## Native Extension ABI And Lifecycle
 
 `include/smedley/telemetry.h` defines stable C ABI v1. Extensions do not link

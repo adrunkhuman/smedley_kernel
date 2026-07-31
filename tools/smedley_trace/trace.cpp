@@ -337,6 +337,7 @@ namespace smedley::trace
             if (date->kind != JsonKind::Null) record->game_date_raw = static_cast<int>(raw_date);
             record->event = event->text;
             record->category = category->text;
+            record->mapping_id = mapping->text;
             record->quality = quality->text;
             if (!Scalars(*entities, &record->entities) || !Scalars(*payload, &record->payload)) {
                 *error = "entity and payload keys must be stable identifiers";
@@ -463,6 +464,76 @@ namespace smedley::trace
             int timeout_seconds = 0;
             std::optional<int> resources_date_raw;
         };
+
+        struct LifecycleMilestone
+        {
+            uint64_t sequence = 0;
+            uint64_t monotonic_us = 0;
+            bool duplicate = false;
+        };
+
+        struct LifecycleTraceState
+        {
+            LifecycleMilestone save_selection, save_load, campaign_enter, observer_configure;
+        };
+
+        bool IsLifecycleEndpoint(const Record &record)
+        {
+            if (record.category != "lifecycle" || record.mapping_id != "v2game-3.04"
+                || record.quality != "verified-runtime" || record.game_date_raw) return false;
+            if (record.event == "campaign.save_selection_requested") {
+                const auto *source = Field(record, "source");
+                return record.entities.empty() && record.payload.size() == 1 && source
+                    && source->kind == JsonKind::String && source->text == "campaign_runner";
+            }
+            if (record.event == "campaign.save_load_completed") {
+                return record.entities.empty() && record.payload.empty();
+            }
+            if (record.event == "campaign.entered") {
+                const auto *observer = Field(record, "observer_requested");
+                const auto *paused = Field(record, "requested_paused");
+                int64_t speed = 0;
+                return record.entities.empty() && record.payload.size() == 3
+                    && HasOnlyFields(record, {"observer_requested", "requested_speed", "requested_paused"})
+                    && observer && observer->kind == JsonKind::Boolean
+                    && IntegerField(record, "requested_speed", &speed) && speed >= 1 && speed <= 5
+                    && paused && paused->kind == JsonKind::Boolean;
+            }
+            if (record.event == "observer.configured") {
+                const auto country = record.entities.find("viewing_country");
+                const auto *ai = Field(record, "full_ai_control");
+                const auto *visibility = Field(record, "full_map_visibility");
+                return record.entities.size() == 1 && country != record.entities.end()
+                    && country->second.kind == JsonKind::String && IsTag(country->second.text)
+                    && record.payload.size() == 2 && HasOnlyFields(record, {"full_ai_control", "full_map_visibility"})
+                    && ai && ai->kind == JsonKind::Boolean && ai->text == "true"
+                    && visibility && visibility->kind == JsonKind::Boolean && visibility->text == "true";
+            }
+            return false;
+        }
+
+        void CaptureLifecycle(const Record &record, LifecycleTraceState *state)
+        {
+            LifecycleMilestone *milestone = nullptr;
+            if (record.event == "campaign.save_selection_requested") milestone = &state->save_selection;
+            else if (record.event == "campaign.save_load_completed") milestone = &state->save_load;
+            else if (record.event == "campaign.entered") milestone = &state->campaign_enter;
+            else if (record.event == "observer.configured") milestone = &state->observer_configure;
+            if (milestone == nullptr) return;
+            if (!IsLifecycleEndpoint(record) || milestone->sequence != 0) {
+                milestone->duplicate = true;
+                return;
+            }
+            milestone->sequence = record.sequence;
+            milestone->monotonic_us = record.monotonic_us;
+        }
+
+        std::optional<uint64_t> LifecycleDuration(const LifecycleMilestone &start, const LifecycleMilestone &end)
+        {
+            if (start.sequence == 0 || end.sequence == 0 || start.duplicate || end.duplicate
+                || start.sequence >= end.sequence || start.monotonic_us > end.monotonic_us) return std::nullopt;
+            return end.monotonic_us - start.monotonic_us;
+        }
 
         bool BenchmarkTransition(const Record &record, BenchmarkTraceState *state, std::string *error)
         {
@@ -683,6 +754,7 @@ namespace smedley::trace
         uint64_t consumed = 0, previous_sequence = 0, previous_monotonic_us = 0;
         std::optional<int> previous_date;
         BenchmarkTraceState benchmark_state;
+        LifecycleTraceState lifecycle_state;
         bool have_sequence = false;
         const uint64_t snapshot_bytes = static_cast<uint64_t>(snapshot.QuadPart);
         auto process = [&](bool complete_line) {
@@ -724,6 +796,7 @@ namespace smedley::trace
                 if (previous_date && *record.game_date_raw < *previous_date) summary->date_regressed = true;
                 previous_date = record.game_date_raw;
             }
+            CaptureLifecycle(record, &lifecycle_state);
             if (record.event == "telemetry.progress" || record.event == "telemetry.summary") {
                 summary->progress_seen = true;
                 summary->progress = record.payload;
@@ -764,6 +837,9 @@ namespace smedley::trace
         if (!line.empty() && !process(false)) { close_source(); return false; }
         close_source();
         if (summary->records == 0) { *error = "trace contains no complete telemetry records"; return false; }
+        summary->lifecycle.save_load_us = LifecycleDuration(lifecycle_state.save_selection, lifecycle_state.save_load);
+        summary->lifecycle.campaign_enter_us = LifecycleDuration(lifecycle_state.save_load, lifecycle_state.campaign_enter);
+        summary->lifecycle.observer_configure_us = LifecycleDuration(lifecycle_state.campaign_enter, lifecycle_state.observer_configure);
         return true;
     }
 
@@ -925,7 +1001,10 @@ namespace smedley::trace
             if (!start || !end) return std::string("unavailable");
             return *end >= *start ? std::to_string(*end - *start) : "-" + std::to_string(*start - *end);
         };
-        output << " benchmark_status=" << summary.benchmark.status
+        output << " lifecycle_save_load_us=" << benchmark_value(summary.lifecycle.save_load_us)
+               << " lifecycle_campaign_enter_us=" << benchmark_value(summary.lifecycle.campaign_enter_us)
+               << " lifecycle_observer_configure_us=" << benchmark_value(summary.lifecycle.observer_configure_us)
+               << " benchmark_status=" << summary.benchmark.status
                << " benchmark_start=" << benchmark_value(summary.benchmark.start_date_raw)
                << " benchmark_target=" << benchmark_value(summary.benchmark.target_date_raw)
                << " benchmark_actual=" << benchmark_value(summary.benchmark.actual_date_raw)
@@ -987,18 +1066,60 @@ namespace smedley::trace
             if (!summary.benchmark.game_days || !summary.benchmark.elapsed_us || *summary.benchmark.elapsed_us == 0) return std::string("unavailable");
             return std::to_string(*summary.benchmark.game_days * 1000000.0 / *summary.benchmark.elapsed_us);
         };
+        auto lifecycle_metric = [](const Summary &summary, const char *key) {
+            const std::string name(key);
+            const std::optional<uint64_t> *value = nullptr;
+            if (name == "lifecycle_save_load_us") value = &summary.lifecycle.save_load_us;
+            else if (name == "lifecycle_campaign_enter_us") value = &summary.lifecycle.campaign_enter_us;
+            else if (name == "lifecycle_observer_configure_us") value = &summary.lifecycle.observer_configure_us;
+            if (value == nullptr) return std::string("unavailable");
+            return *value ? std::to_string(**value) : std::string("unavailable");
+        };
+        auto lifecycle_delta = [](const Summary &left_summary, const Summary &right_summary, const char *key) {
+            const std::string name(key);
+            const std::optional<uint64_t> *left_value = nullptr, *right_value = nullptr;
+            if (name == "lifecycle_save_load_us") {
+                left_value = &left_summary.lifecycle.save_load_us;
+                right_value = &right_summary.lifecycle.save_load_us;
+            } else if (name == "lifecycle_campaign_enter_us") {
+                left_value = &left_summary.lifecycle.campaign_enter_us;
+                right_value = &right_summary.lifecycle.campaign_enter_us;
+            } else if (name == "lifecycle_observer_configure_us") {
+                left_value = &left_summary.lifecycle.observer_configure_us;
+                right_value = &right_summary.lifecycle.observer_configure_us;
+            }
+            if (left_value == nullptr || !*left_value || !*right_value) return std::string("unavailable");
+            return **right_value >= **left_value ? std::to_string(**right_value - **left_value)
+                : "-" + std::to_string(**left_value - **right_value);
+        };
+        auto comparable_metric = [&](const Summary &summary, const char *key) {
+            const std::string name(key);
+            if (name.rfind("benchmark_", 0) == 0) return benchmark_metric(summary, key);
+            if (name.rfind("lifecycle_", 0) == 0) return lifecycle_metric(summary, key);
+            if (name == "records") return std::to_string(summary.records);
+            if (name == "gaps") return std::to_string(summary.gaps);
+            if (name == "game_date_span_days") return date_span(summary);
+            if (name == "elapsed_us") return elapsed(summary);
+            if (name == "game_days_per_sec") return rate(summary);
+            return metric(summary, key);
+        };
         std::ostringstream output;
         output << "left_run_id=" << left.run_id << " right_run_id=" << right.run_id << '\n';
         for (const char *key : {"records", "gaps", "game_date_span_days", "elapsed_us", "game_days_per_sec",
+             "lifecycle_save_load_us", "lifecycle_campaign_enter_us", "lifecycle_observer_configure_us",
              "benchmark_game_days", "benchmark_elapsed_us", "benchmark_game_days_per_sec", "benchmark_process_cpu_us",
              "benchmark_process_cpu_percent", "benchmark_working_set_end_bytes", "benchmark_private_end_bytes",
              "benchmark_process_peak_working_set_bytes", "accepted", "written", "dropped", "high_water", "write_failed",
              "callback_enqueue_format_us_total", "callback_enqueue_format_us_mean", "callback_count"}) {
-            const std::string left_value = std::string(key).rfind("benchmark_", 0) == 0 ? benchmark_metric(left, key) : std::string(key) == "records" ? std::to_string(left.records) : std::string(key) == "gaps" ? std::to_string(left.gaps) : std::string(key) == "game_date_span_days" ? date_span(left) : std::string(key) == "elapsed_us" ? elapsed(left) : std::string(key) == "game_days_per_sec" ? rate(left) : metric(left, key);
-            const std::string right_value = std::string(key).rfind("benchmark_", 0) == 0 ? benchmark_metric(right, key) : std::string(key) == "records" ? std::to_string(right.records) : std::string(key) == "gaps" ? std::to_string(right.gaps) : std::string(key) == "game_date_span_days" ? date_span(right) : std::string(key) == "elapsed_us" ? elapsed(right) : std::string(key) == "game_days_per_sec" ? rate(right) : metric(right, key);
+            const std::string left_value = comparable_metric(left, key);
+            const std::string right_value = comparable_metric(right, key);
             double a = 0, b = 0;
             const bool boolean = std::string(key) == "write_failed";
-            output << key << " " << left_value << " | " << right_value << " | " << (!boolean && number(left_value, &a) && number(right_value, &b) ? std::to_string(b - a) : "unavailable") << '\n';
+            const bool lifecycle = std::string(key).rfind("lifecycle_", 0) == 0;
+            output << key << " " << left_value << " | " << right_value << " | "
+                   << (lifecycle ? lifecycle_delta(left, right, key)
+                       : !boolean && number(left_value, &a) && number(right_value, &b)
+                           ? std::to_string(b - a) : "unavailable") << '\n';
         }
         return output.str();
     }

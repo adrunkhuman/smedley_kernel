@@ -5,6 +5,7 @@
 #include <windows.h>
 
 #include <fstream>
+#include <string_view>
 
 namespace trace = smedley::trace;
 namespace fs = std::filesystem;
@@ -52,6 +53,24 @@ namespace
                 + ",\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":" + std::to_string(sequence * 10)
                 + ",\"game_date_raw\":" + std::to_string(date)
                 + ",\"event_type\":\"country.daily\",\"category\":\"state\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"provisional\",\"entities\":{\"country_tag\":\"ENG\"},\"payload\":{\"treasury_raw\":32768,\"treasury\":1.0}}";
+        }
+
+        std::string LifecycleLine(uint64_t sequence, uint64_t monotonic, const char *event, const char *run = "run-1") const
+        {
+            std::string entities = "{}", payload = "{}";
+            const std::string_view type(event);
+            if (type == "campaign.save_selection_requested") payload = "{\"source\":\"campaign_runner\"}";
+            else if (type == "campaign.entered") payload = "{\"observer_requested\":true,\"requested_speed\":5,\"requested_paused\":false}";
+            else if (type == "observer.configured") {
+                entities = "{\"viewing_country\":\"ENG\"}";
+                payload = "{\"full_ai_control\":true,\"full_map_visibility\":true}";
+            }
+            return std::string("{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"") + run
+                + "\",\"sequence\":" + std::to_string(sequence)
+                + ",\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":" + std::to_string(monotonic)
+                + ",\"game_date_raw\":null,\"event_type\":\"" + event
+                + "\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"verified-runtime\",\"entities\":"
+                + entities + ",\"payload\":" + payload + "}";
         }
     };
 }
@@ -214,6 +233,66 @@ TEST_F(TraceTest, ConvertsRawDateUnitsToGameDays)
     const auto formatted = trace::FormatSummary(summary);
     EXPECT_NE(formatted.find("game_date_span_days=1.000000"), std::string::npos);
     EXPECT_NE(formatted.find("game_days_per_sec=100000"), std::string::npos);
+}
+
+TEST_F(TraceTest, SummarizesAndComparesUniqueLifecyclePhaseTimings)
+{
+    const auto left = Path(L"lifecycle left");
+    const auto right = Path(L"lifecycle right");
+    Write(left, LifecycleLine(1, 100, "campaign.save_selection_requested", "left")
+        + "\n" + LifecycleLine(2, 250, "campaign.save_load_completed", "left")
+        + "\n" + LifecycleLine(3, 400, "campaign.entered", "left")
+        + "\n" + LifecycleLine(4, 700, "observer.configured", "left"));
+    Write(right, LifecycleLine(1, 100, "campaign.save_selection_requested", "right")
+        + "\n" + LifecycleLine(2, 300, "campaign.save_load_completed", "right")
+        + "\n" + LifecycleLine(3, 550, "campaign.entered", "right")
+        + "\n" + LifecycleLine(4, 1050, "observer.configured", "right"));
+    trace::Summary left_summary, right_summary;
+    std::string error;
+    ASSERT_TRUE(trace::Read(left, {}, &left_summary, nullptr, 0, &error)) << error;
+    ASSERT_TRUE(trace::Read(right, {}, &right_summary, nullptr, 0, &error)) << error;
+    EXPECT_EQ(left_summary.lifecycle.save_load_us, 150u);
+    EXPECT_EQ(left_summary.lifecycle.campaign_enter_us, 150u);
+    EXPECT_EQ(left_summary.lifecycle.observer_configure_us, 300u);
+    EXPECT_NE(trace::FormatSummary(left_summary).find("lifecycle_save_load_us=150"), std::string::npos);
+    EXPECT_NE(trace::FormatCompare(left_summary, right_summary).find("lifecycle_observer_configure_us 300 | 500 | 200"), std::string::npos);
+}
+
+TEST_F(TraceTest, LeavesAmbiguousLifecyclePhaseTimingsUnavailable)
+{
+    const auto path = Path(L"ambiguous lifecycle");
+    Write(path, LifecycleLine(1, 10, "campaign.save_selection_requested")
+        + "\n" + LifecycleLine(2, 20, "campaign.save_selection_requested")
+        + "\n" + LifecycleLine(3, 30, "campaign.save_load_completed")
+        + "\n" + LifecycleLine(4, 40, "campaign.entered"));
+    trace::Summary summary;
+    std::string error;
+    ASSERT_TRUE(trace::Read(path, {}, &summary, nullptr, 0, &error)) << error;
+    EXPECT_FALSE(summary.lifecycle.save_load_us);
+    EXPECT_EQ(summary.lifecycle.campaign_enter_us, 10u);
+    EXPECT_FALSE(summary.lifecycle.observer_configure_us);
+    EXPECT_NE(trace::FormatSummary(summary).find("lifecycle_save_load_us=unavailable"), std::string::npos);
+}
+
+TEST_F(TraceTest, IgnoresMalformedLifecycleEndpointsAndPreservesExactLargeDeltas)
+{
+    const auto malformed = Path(L"malformed lifecycle");
+    auto entered = LifecycleLine(3, 30, "campaign.entered");
+    entered.replace(entered.find("\"requested_speed\":5"), std::string("\"requested_speed\":5").size(), "\"requested_speed\":9");
+    Write(malformed, LifecycleLine(1, 10, "campaign.save_selection_requested")
+        + "\n" + LifecycleLine(2, 20, "campaign.save_load_completed") + "\n" + entered);
+    trace::Summary summary;
+    std::string error;
+    ASSERT_TRUE(trace::Read(malformed, {}, &summary, nullptr, 0, &error)) << error;
+    EXPECT_EQ(summary.lifecycle.save_load_us, 10u);
+    EXPECT_FALSE(summary.lifecycle.campaign_enter_us);
+
+    trace::Summary left, right;
+    left.run_id = "left";
+    right.run_id = "right";
+    left.lifecycle.save_load_us = UINT64_C(9007199254740992);
+    right.lifecycle.save_load_us = UINT64_C(9007199254740993);
+    EXPECT_NE(trace::FormatCompare(left, right).find("lifecycle_save_load_us 9007199254740992 | 9007199254740993 | 1"), std::string::npos);
 }
 
 TEST_F(TraceTest, SummarizesAndComparesCompletedBenchmarks)
