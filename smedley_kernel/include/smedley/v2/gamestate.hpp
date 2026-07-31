@@ -142,6 +142,12 @@ namespace smedley::v2
                 ? _countries[ordinal]
                 : nullptr;
         }
+        CProvince *province(int id) const
+        {
+            return id >= 0 && static_cast<size_t>(id) < _provinces.size()
+                ? _provinces[id]
+                : nullptr;
+        }
         int player_control_state(int ordinal) const
         {
             return ordinal >= 0 && static_cast<size_t>(ordinal) < _player_nations.size()

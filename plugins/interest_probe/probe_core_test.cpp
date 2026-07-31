@@ -30,12 +30,28 @@ namespace
     {
         int32_t ordinal;
         const void *country;
+        int32_t province_id = -1;
+        const void *province = nullptr;
+    };
+
+    struct PopList
+    {
+        const void *first;
+        const void *last;
+        int32_t count;
+        uint32_t unknown;
     };
 
     const void *ResolveCountry(const void *context, int32_t ordinal)
     {
         const auto *lookup = static_cast<const CountryLookup *>(context);
         return ordinal == lookup->ordinal ? lookup->country : nullptr;
+    }
+
+    const void *ResolveProvince(const void *context, int32_t id)
+    {
+        const auto *lookup = static_cast<const CountryLookup *>(context);
+        return id == lookup->province_id ? lookup->province : nullptr;
     }
 }
 
@@ -141,7 +157,11 @@ TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
     std::array<std::byte, 0x28> debtor_bank{};
     std::array<std::byte, 0x28> destination_bank{};
     std::array<std::byte, 0x290> destination_state{};
+    std::array<std::byte, 0x1a0> destination_province{};
+    std::array<std::byte, 0x288> destination_pop{};
     std::array<void *, 1> creditors{creditor.data()};
+    std::array<int32_t, 1> province_ids{3};
+    std::array<PopList, 1> pop_lists{{{destination_pop.data(), destination_pop.data(), 1, 0}}};
     Node destination_node{destination_state.data(), nullptr, nullptr, 0, {}};
     const char debtor_tag[4] = {'S', 'W', 'E', '\0'};
     const char destination_tag[4] = {'E', 'N', 'G', '\0'};
@@ -152,12 +172,17 @@ TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
     const int64_t destination_bank_interest = 40;
     const int64_t destination_state_savings = 120;
     const int64_t destination_state_interest = 30;
+    const int64_t destination_pop_savings = 120000;
     const void *debtor_bank_pointer = debtor_bank.data();
     const void *destination_bank_pointer = destination_bank.data();
     const void *destination_state_head = &destination_node;
     const int destination_state_count = 1;
     const void *creditor_begin = creditors.data();
     const void *creditor_end = creditors.data() + creditors.size();
+    const void *province_begin = province_ids.data();
+    const void *province_end = province_ids.data() + province_ids.size();
+    const void *pop_list_begin = pop_lists.data();
+    const void *pop_list_end = pop_lists.data() + pop_lists.size();
 
     Write(&debtor, 0x1c, debtor_tag);
     Write(&debtor, 0xe88, debtor_bank_pointer);
@@ -173,14 +198,21 @@ TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
     Write(&destination_bank, 0x20, destination_bank_interest);
     Write(&destination_state, 0x258, destination_state_savings);
     Write(&destination_state, 0x260, destination_state_interest);
+    Write(&destination_state, 0x48, province_begin);
+    Write(&destination_state, 0x4c, province_end);
+    Write(&destination_state, 0x50, province_end);
+    Write(&destination_province, 0x194, pop_list_begin);
+    Write(&destination_province, 0x198, pop_list_end);
+    Write(&destination_province, 0x19c, pop_list_end);
+    Write(&destination_pop, 0x250, destination_pop_savings);
     Write(&creditor, 0x08, destination_tag);
     Write(&creditor, 0x0c, destination_ordinal);
     Write(&creditor, 0x10, creditor_interest);
     Write(&creditor, 0x18, creditor_debt);
     Write(&creditor, 0x20, was_paid);
-    const CountryLookup lookup{destination_ordinal, destination.data()};
+    const CountryLookup lookup{destination_ordinal, destination.data(), province_ids[0], destination_province.data()};
 
-    const auto sample = interest_probe::CollectSample(debtor.data(), 1234, ResolveCountry, &lookup);
+    const auto sample = interest_probe::CollectSample(debtor.data(), 1234, ResolveCountry, ResolveProvince, &lookup);
     EXPECT_EQ(sample.creditor_count, 1u);
     EXPECT_EQ(sample.creditor_destinations, 1u);
     EXPECT_EQ(sample.creditors_was_paid, 1u);
@@ -189,7 +221,36 @@ TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
     EXPECT_EQ(sample.destination_bank_interest_raw, destination_bank_interest);
     EXPECT_EQ(sample.destination_state_savings_raw, destination_state_savings);
     EXPECT_EQ(sample.destination_state_interest_raw, destination_state_interest);
+    EXPECT_EQ(sample.destination_provinces_resolved, 1u);
+    EXPECT_EQ(sample.destination_province_attempts, 1u);
+    EXPECT_EQ(sample.destination_pop_lists, 1u);
+    EXPECT_EQ(sample.destination_pops, 1u);
+    EXPECT_EQ(sample.destination_pop_attempts, 1u);
+    EXPECT_EQ(sample.destination_pop_savings_raw, destination_pop_savings);
+    EXPECT_EQ(sample.destination_pop_savings_state_scale_raw, destination_state_savings);
     EXPECT_EQ(sample.flags, 0u);
+
+    pop_lists[0].count = 2;
+    const auto mismatched = interest_probe::CollectSample(
+        debtor.data(), 1234, ResolveCountry, ResolveProvince, &lookup);
+    EXPECT_NE(mismatched.flags & interest_probe::SAMPLE_POP_LIST_INVALID, 0u);
+
+    pop_lists[0].count = 100001;
+    const auto limited = interest_probe::CollectSample(
+        debtor.data(), 1234, ResolveCountry, ResolveProvince, &lookup);
+    EXPECT_NE(limited.flags & interest_probe::SAMPLE_POP_LIMIT, 0u);
+
+    pop_lists[0].count = 1;
+    std::array<int32_t, 2> duplicate_province_ids{province_ids[0], province_ids[0]};
+    const void *duplicate_begin = duplicate_province_ids.data();
+    const void *duplicate_end = duplicate_province_ids.data() + duplicate_province_ids.size();
+    Write(&destination_state, 0x48, duplicate_begin);
+    Write(&destination_state, 0x4c, duplicate_end);
+    Write(&destination_state, 0x50, duplicate_end);
+    const auto duplicate = interest_probe::CollectSample(
+        debtor.data(), 1234, ResolveCountry, ResolveProvince, &lookup);
+    EXPECT_NE(duplicate.flags & interest_probe::SAMPLE_DUPLICATE_PROVINCE, 0u);
+    EXPECT_NE(duplicate.flags & interest_probe::SAMPLE_DUPLICATE_POP, 0u);
 }
 
 TEST(InterestProbeTest, RejectsMismatchedCreditorDestination)
@@ -218,7 +279,7 @@ TEST(InterestProbeTest, RejectsMismatchedCreditorDestination)
     Write(&creditor, 0x0c, destination_ordinal);
     const CountryLookup lookup{destination_ordinal, destination.data()};
 
-    const auto sample = interest_probe::CollectSample(debtor.data(), 1234, ResolveCountry, &lookup);
+    const auto sample = interest_probe::CollectSample(debtor.data(), 1234, ResolveCountry, nullptr, &lookup);
     EXPECT_EQ(sample.creditor_destinations, 0u);
     EXPECT_NE(sample.flags & interest_probe::SAMPLE_CREDITOR_DESTINATION_INVALID, 0u);
 }

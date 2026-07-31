@@ -65,6 +65,30 @@ signature = "55 8b ec 6a ff 68 64 af b5 00"
 source = "callers at RVAs 0x000fc0cb, 0x00121785, and 0x001218fb allocate 0x290 bytes; constructor initializes 64-bit slots +0x258 and +0x260"
 
 [[symbols]]
+name = "Province POP-list traversal"
+rva = 0x000a9362
+kind = "label"
+status = "verified-runtime"
+signature = "8b 81 94 01 00 00 8b 91 98 01 00 00 2b d0 33 ff"
+source = "current executable walks 16-byte CProvince+0x194/+0x198 records and follows each POP next pointer at +0x27c; a seven-day destination run resolved 346-661 provinces and 2,635-5,565 POPs per creditor-bearing sample with exact list count/tail agreement"
+
+[[symbols]]
+name = "POP savings state-scale update"
+rva = 0x000b5b92
+kind = "label"
+status = "verified-runtime"
+signature = "8b 83 94 01 00 00 8b 34 02 85 f6 0f 84 98 00 00 00 8b 86 50 02 00 00"
+source = "current executable reads POP +0x250, divides through the 1000.0 fixed-point global at RVA 0x00b0b168, and subtracts the result from state +0x258; live destination aggregates tracked within 19-108 raw state units"
+
+[[symbols]]
+name = "POP money scale"
+rva = 0x00b0b168
+kind = "data"
+status = "verified-runtime"
+signature = "00 00 f4 01 00 00 00 00"
+source = "64-bit fixed-point raw value 32768000 (1000.0 at 15 fractional bits), referenced by the POP +0x250 to state +0x258 update path and corroborated by seven-day aggregate runtime correlation"
+
+[[symbols]]
 name = "Native tag console-command handler"
 rva = 0x0001f720
 kind = "function"
@@ -595,7 +619,7 @@ source = "size from existing flags.hpp; PMIA 1.9.0 calls CTernary<CFlag *>::Get(
 name = "CState"
 status = "provisional"
 size = 0x0290
-source = "constructor RVA 0x000cdc60 and three allocation call sites establish size and 64-bit field shape; a seven-day supplied-save probe walked all 597 reported states and accepted stable +0x48 four-byte vector shapes, while vector and economic semantics remain provisional"
+source = "constructor RVA 0x000cdc60 and three allocation call sites establish size and 64-bit field shape; runtime resolved +0x48 elements as province indices and correlated +0x258 with scaled POP savings, while +0x260 semantics remain provisional"
 fields = [
   { name = "provinces_candidate", offset = 0x0048 },
   { name = "savings_in_bank_candidate", offset = 0x0258 },
@@ -606,7 +630,7 @@ fields = [
 name = "CProvince"
 status = "current-unverified"
 size = 0x0398
-source = "smedley_kernel/include/smedley/v2/province.hpp"
+source = "smedley_kernel/include/smedley/v2/province.hpp; +0x194 alone is verified-runtime as a vector of 16-byte POP-list records"
 fields = [
   { name = "owner", offset = 0x0128 },
   { name = "controller", offset = 0x0130 },
@@ -620,7 +644,7 @@ fields = [
 name = "CPop"
 status = "historical-unverified"
 size = 0x0288
-source = "parent of commit 967a1a4 native/handles/CPop.hpp; current allocation and list-walk call sites corroborate size 0x288 and next +0x27c"
+source = "parent of commit 967a1a4 native/handles/CPop.hpp; current allocation and list-walk call sites plus a seven-day bounded walk verify size 0x288, savings +0x250, and next +0x27c while other fields remain historical"
 fields = [
   { name = "size", offset = 0x0058 },
   { name = "province", offset = 0x0064 },

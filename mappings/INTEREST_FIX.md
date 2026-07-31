@@ -21,11 +21,12 @@ All addresses below are RVAs in the cataloged Victoria II 3.04 executable.
 | `PayDailyInterest` boundary `0x00108d3e` | `verified-runtime` | The kernel replaces the sole direct call with a register/flags-preserving trampoline, emits `before`, invokes the original callee, emits `after`, and resumes at `0x00108d43`. Both subscribed and unsubscribed runtime fixtures reached exact targets. |
 | Country state list `+0xe44` | `verified-current` | Current country update code walks node data at `+0`, next at `+8`, and terminates at null. State-creation callers maintain head `+0xe44`, tail `+0xe48`, and count `+0xe4c`; the seven-day runtime probe walked every reported state without a mismatch. |
 | State constructor `0x000cdc60` | `verified-static-callsites` | Three callers allocate `0x290` bytes. The constructor initializes 64-bit slots `+0x258` and `+0x260` to zero. |
-| State `+0x48` vector candidate | `provisional` | Recovered from `794c98e`; the seven-day runtime probe accepted a stable 2,311 readable four-byte elements per daily world pass, but did not read or correlate them as province IDs. |
-| State `+0x258/+0x260` economic labels | `provisional` | Their 64-bit shape is statically corroborated, but `savings_in_bank` and `interest_payments` semantics still require runtime correlation. |
-| Province POP-list vector `+0x194` | `verified-static-callsites` | Current POP code indexes 16-byte list elements from the vector begin pointer at `+0x194`. |
-| POP size and linked-list next | `verified-static-callsites` | Creation allocates `0x288` bytes and current list walks use next at `+0x27c`. |
-| POP savings candidate `+0x250` | `verified-static-callsites` | Current POP economy code performs signed 64-bit transfers at `+0x250/+0x254`; the savings label remains provisional. |
+| State province vector `+0x48` | `verified-runtime` | Current code and the destination POP run agree that its four-byte elements are game-state province indices. All 346-661 destination provinces per creditor-bearing sample resolved to readable province POP vectors with no quality flag. |
+| State savings `+0x258` | `verified-runtime` | Current code converts POP savings through the global `1000.0` scale when updating this 64-bit state value. Across 12 live destination samples, summed `POP+0x250 / 1000` tracked it within 19-116 raw state units. |
+| State interest candidate `+0x260` | `provisional` | Its 64-bit shape and changing live values are established, but the `interest_payments` economic label still lacks an independently observed state-to-POP transfer. |
+| Province POP-list vector `+0x194` | `verified-runtime` | Current code indexes 16-byte list elements from `+0x194/+0x198`. The destination run walked exactly 13 list records for each of 346-661 resolved provinces without a mismatch. |
+| POP size and linked-list next | `verified-runtime` | Creation allocates `0x288` bytes, current list walks use next at `+0x27c`, and the destination run walked 2,635-5,565 entries per creditor-bearing sample with exact list count/tail agreement. |
+| POP savings `+0x250` and scale | `verified-runtime` | Current code divides this signed 64-bit value by fixed-point `1000.0` at RVA `0x00b0b168` when updating state `+0x258`. The live aggregate correlation confirms the scale while exposing small accumulated bookkeeping/rounding differences. |
 | `CPop::GiveMoney` `0x0055a5f0` | `verified-static-callsites` | Fifteen direct callers agree on `EAX=CPop*`, `ESI=CashFlowType`, a stack-passed 64-bit amount, and callee cleanup with `ret 8`. |
 | Interest cash-flow index `7` | `historical-unverified` | Recovered from `794c98e`; runtime correlation has not established the label. |
 
@@ -47,6 +48,9 @@ emits `before` and `after` observations around the original callee. Each phase:
 - caps creditor destination traversal at 64 entries, validates each destination
   tag and ordinal against the bounded game-state country vector, and records
   candidate creditor values plus aggregate destination bank/state values;
+- attempts at most 4,096 destination province resolutions, validates at most 128
+  16-byte POP-list records per province, and attempts at most 100,000 POP reads across the
+  complete callback while retaining raw and `/1000` savings totals;
 - retains only the copied `before` POD until `after`, then atomically enqueues
   one fixed-size pair in a 1,024-slot single-producer queue; and
 - reports dropped pairs and collection time while a worker performs all CSV I/O.
@@ -154,12 +158,43 @@ microseconds per phase on average and 619 microseconds at the observed maximum.
 The additional cost occurs only for the opt-in probe and remains bounded by the
 creditor and state traversal limits.
 
+## POP savings scale run
+
+Run `3225cbfe-9174-4d15-972c-e109009e5d37` repeated the seven-day fixture with
+destination-only POP traversal. It reached raw date `59883552`, remained paused
+and responsive, and preserved the source-save hash. The closed CSV had SHA-256
+`f3e076fb836de2cc2cba67e0a330987bbbe0aeb4e6d4f305c9fd4c0f381847bc`.
+
+The 3,794 rows again formed 1,897 ordered pairs. Every creditor destination,
+state province index, province POP vector, 16-byte list record, list count/tail,
+and linked POP resolved without a quality flag. There were no malformed pairs
+or drops. The 12 creditor-bearing pairs covered 346-661 destination provinces,
+4,498-8,593 POP-list records, and 2,635-5,565 linked POPs per phase. Every
+province had exactly 13 list records in this fixture. Attempt and successful
+counts agreed for every province and POP, and no duplicate identity was found.
+
+The executable converts each POP savings value to state scale by dividing by
+`1000`. Runtime totals corroborated that scale but were deliberately not forced
+to equality: summed per-POP truncated values exceeded aggregate state `+0x258`
+by 19-108 raw state units. For example, the first Sweden sample observed raw POP
+savings `1,909,522,541`, per-POP `/1000` sum `1,909,394`, and state savings
+`1,909,375`. Neither POP nor state savings changed inside any observed
+`PayDailyInterest` call.
+
+The small difference is real evidence of accumulated transaction rounding or
+bookkeeping behavior. A future fix must use the stored state denominator and
+define remainder ownership; it must not assume that recomputing POP savings
+produces exact state equality.
+
+Collection consumed 345,637 microseconds over all phases: 91.10 microseconds on
+average and 13,821 microseconds at the observed maximum. The peak occurred on
+opt-in creditor destination POP walks. This remains bounded diagnostic work,
+but it is too expensive for default telemetry.
+
 ## Required evidence before mutation
 
-1. Add bounded POP-level sampling and prove that POP `+0x250` sums use the same
-   scale as state `+0x258`.
-2. Invoke `CPop::GiveMoney` only in a disposable controlled fixture and verify
+1. Invoke `CPop::GiveMoney` only in a disposable controlled fixture and verify
    POP money plus cash-flow bucket `7` independently.
-3. Define integer allocation, rounding, remainder ownership, conservation, and
+2. Define integer allocation, rounding, remainder ownership, conservation, and
    zero/negative-value behavior before implementing an independently selectable
    fix.

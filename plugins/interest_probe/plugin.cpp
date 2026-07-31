@@ -33,10 +33,13 @@ namespace interest_probe
             output_.open("interest_probe.csv", std::ios::trunc);
             if (!output_) throw std::runtime_error("cannot open interest_probe.csv in the game directory");
             output_ << "date_raw,phase,country,state_count_reported,states_walked,province_element_candidates,states_with_savings,"
-                       "states_with_interest,creditor_count,creditor_destinations,creditors_was_paid,treasury_raw,"
+                       "states_with_interest,creditor_count,creditor_destinations,creditors_was_paid,"
+                       "destination_provinces_resolved,destination_province_attempts,destination_pop_lists,"
+                       "destination_pops,destination_pop_attempts,treasury_raw,"
                        "state_savings_candidate_raw,state_interest_candidate_raw,bank_interest_raw,"
                        "creditor_interest_candidate_raw,creditor_debt_candidate_raw,destination_bank_interest_raw,"
                        "destination_state_savings_candidate_raw,destination_state_interest_candidate_raw,"
+                       "destination_pop_savings_candidate_raw,destination_pop_savings_state_scale_candidate_raw,"
                        "flags,collection_us,dropped_pairs\n";
             output_.flush();
             if (!output_) throw std::runtime_error("cannot initialize interest_probe.csv in the game directory");
@@ -70,7 +73,8 @@ namespace interest_probe
             QueryPerformanceCounter(&started);
             const auto *game_state = smedley::v2::CCurrentGameState::instance();
             Sample sample = CollectSample(event.GetCountry(), game_state == nullptr ? 0 : game_state->current_date_raw(),
-                game_state == nullptr ? nullptr : ResolveCountry, game_state);
+                game_state == nullptr ? nullptr : ResolveCountry,
+                game_state == nullptr ? nullptr : ResolveProvince, game_state);
             if (game_state == nullptr) sample.flags |= SAMPLE_DATE_UNAVAILABLE;
             if (smedley::events::DailyInterestEvent::CallbackFailures() != 0) sample.flags |= SAMPLE_EVENT_CALLBACK_FAILURE;
             QueryPerformanceCounter(&finished);
@@ -149,10 +153,14 @@ namespace interest_probe
             output_ << ',' << phase << ',' << sample.country_tag << ',' << sample.state_count_reported << ','
                     << sample.states_walked << ',' << sample.province_element_candidates << ',' << sample.states_with_savings << ','
                     << sample.states_with_interest << ',' << sample.creditor_count << ',' << sample.creditor_destinations << ','
-                    << sample.creditors_was_paid << ',' << sample.treasury_raw << ',' << sample.state_savings_raw << ','
+                    << sample.creditors_was_paid << ',' << sample.destination_provinces_resolved << ','
+                    << sample.destination_province_attempts << ',' << sample.destination_pop_lists << ','
+                    << sample.destination_pops << ',' << sample.destination_pop_attempts << ',' << sample.treasury_raw << ','
+                    << sample.state_savings_raw << ','
                     << sample.state_interest_raw << ',' << sample.bank_interest_raw << ',' << sample.creditor_interest_raw << ','
                     << sample.creditor_debt_raw << ',' << sample.destination_bank_interest_raw << ','
-                    << sample.destination_state_savings_raw << ',' << sample.destination_state_interest_raw << ",0x"
+                    << sample.destination_state_savings_raw << ',' << sample.destination_state_interest_raw << ','
+                    << sample.destination_pop_savings_raw << ',' << sample.destination_pop_savings_state_scale_raw << ",0x"
                     << std::hex << sample.flags << std::dec << ',' << sample.collection_us << ','
                     << dropped_.load(std::memory_order_relaxed) << '\n';
         }
@@ -161,6 +169,12 @@ namespace interest_probe
         {
             const auto *game_state = static_cast<const smedley::v2::CCurrentGameState *>(context);
             return game_state == nullptr ? nullptr : game_state->country(ordinal);
+        }
+
+        static const void *ResolveProvince(const void *context, int32_t id)
+        {
+            const auto *game_state = static_cast<const smedley::v2::CCurrentGameState *>(context);
+            return game_state == nullptr ? nullptr : game_state->province(id);
         }
 
         void ReportWriteFailure(const char *message) noexcept
