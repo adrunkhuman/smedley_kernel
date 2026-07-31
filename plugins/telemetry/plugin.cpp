@@ -156,7 +156,8 @@ namespace telemetry_plugin
 
         SmedleyTelemetryResult EmitTyped(const char *event_type, const char *category, std::optional<int> game_date_raw,
                                          const SmedleyTelemetryFieldV1 *entities, uint32_t entity_count,
-                                         const SmedleyTelemetryFieldV1 *payload, uint32_t payload_count, bool initial)
+                                         const SmedleyTelemetryFieldV1 *payload, uint32_t payload_count,
+                                         bool initial, bool reliable = false)
         {
             const char *quality = game_date_raw ? "provisional" : "verified-current";
             SmedleyTelemetryRecordV1 record{sizeof(record), SMEDLEY_TELEMETRY_ABI_VERSION_V1,
@@ -164,7 +165,7 @@ namespace telemetry_plugin
                 event_type, static_cast<uint32_t>(std::strlen(event_type)), category, static_cast<uint32_t>(std::strlen(category)),
                 "v2game-3.04", 11, quality, static_cast<uint32_t>(std::strlen(quality)), game_date_raw.value_or(0), 0,
                 entities, entity_count, payload, payload_count, {0, 0, 0, 0}};
-            return EmitRecord(&record, initial);
+            return EmitRecord(&record, initial, reliable);
         }
 
         void OnDailyUpdate(smedley::events::DailyUpdateEvent &event)
@@ -189,7 +190,7 @@ namespace telemetry_plugin
             if (lifecycle_enabled && regressed) {
                 const SmedleyTelemetryFieldV1 payload[] = {
                     IntField("previous_date_raw", *previous_date), IntField("current_date_raw", *raw_date), IntField("delta_raw", delta)};
-                EmitTyped("date.regressed", "lifecycle", raw_date, nullptr, 0, payload, 3, false);
+                EmitTyped("date.regressed", "lifecycle", raw_date, nullptr, 0, payload, 3, false, true);
             }
             const bool progress = lifecycle_enabled && (!last_progress_date_ || *raw_date != *last_progress_date_);
             const bool sampled = state_enabled && smedley::telemetry::IsDateInRange(config_, raw_date)
@@ -201,7 +202,7 @@ namespace telemetry_plugin
                         IntField("country_slot_count", static_cast<int64_t>(game_state->country_count())),
                         IntField("ai_scheduler_entry_count", static_cast<int64_t>(game_state->country_ai_count())),
                         BoolField("human_control_present", game_state->has_human_controlled_country())};
-                    EmitTyped("world.daily", "state", raw_date, nullptr, 0, payload, 3, false);
+                    EmitTyped("world.daily", "state", raw_date, nullptr, 0, payload, 3, false, true);
                 }
                 const auto *country = event.GetCountry();
                 if (country != nullptr && smedley::telemetry::HasCountryTag(config_, country->tag().str())) {
@@ -215,8 +216,8 @@ namespace telemetry_plugin
             smedley::telemetry::PreparedRecordV1 progress_record;
             if (progress && PrepareEnvelope("telemetry.progress", "lifecycle", raw_date, "{}", StatsPayload(writer_->stats()), &progress_record)
                 && smedley::telemetry::PublishPreparedRecord(
-                    progress_record, &sequence_, &emission_mutex_, false,
-                    [this](std::string_view line) { return writer_->TryWrite(line); },
+                    progress_record, &sequence_, &emission_mutex_, true,
+                    [this](std::string_view line) { return writer_->WriteReliable(line); },
                     [this] { writer_->MarkDropped(); }) == SMEDLEY_TELEMETRY_ACCEPTED) {
                 last_progress_date_ = *raw_date;
             }

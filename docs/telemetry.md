@@ -162,9 +162,10 @@ state records are excluded by date or country filters;
 they never perform file I/O or flush. The queue has fixed-capacity, fixed-size
 record slots. Ordinary callbacks use a non-waiting queue lock; full, contended,
 stopped, or oversized records are explicitly counted as dropped. The four
-low-frequency economic records and opt-in interest-fix result records use the
-reliable emitter so lock contention alone cannot split their evidence; the queue
-remains bounded and publication still performs no file I/O. The sole worker writes
+global progress/world samples, low-frequency economic records, and opt-in
+interest-fix result records use reliable bounded publication so lock contention
+alone cannot split their evidence; the queue remains bounded and publication
+still performs no file I/O. The sole worker writes
 complete JSON Lines incrementally and flushes at least once per second. An
 explicit future unload drains accepted records, appends a best-effort final
 summary using post-drain statistics, and flushes. The current kernel has no
