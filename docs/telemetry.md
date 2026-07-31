@@ -101,6 +101,13 @@ fixed-point representation is 48.15. It deliberately does not contain
 `treasury_shadow`, pointers, guessed AI intentions, candidates, scores, or
 decision reasoning. This is economy state telemetry, not a decision trace.
 
+`world.daily` is emitted once per selected sample date before country filtering.
+It reports `country_slot_count`, `ai_scheduler_entry_count`, and
+`human_control_present` with `provisional` quality. Country slots include
+non-playable engine entries, and scheduler entries are not asserted to equal a
+count of AI-controlled countries. These names expose the observed containers
+without inventing stronger gameplay semantics.
+
 The project mapping inventory has historical status spellings, but telemetry
 uses only canonical project evidence levels. A daily record depends on weaker
 field/date evidence, so it is always `provisional`; a non-null date never
@@ -113,8 +120,9 @@ from v1 rather than logging pointers or inferred relationships.
 ## Bounded Delivery
 
 The selected plugin starts a worker after opening the output. State callbacks
-first check category, date range, and sampling, then check the country tag before
-treasury extraction and JSON formatting. Lifecycle progress remains useful when
+first check category, date range, and sampling. A selected date emits one global
+snapshot; country records then check the country tag before treasury extraction
+and JSON formatting. Lifecycle progress remains useful when
 state records are excluded by date or country filters;
 they never perform file I/O or flush. The queue has fixed-capacity, fixed-size
 record slots. A callback uses a non-waiting queue lock; full, contended, stopped,

@@ -48,6 +48,14 @@ namespace telemetry_plugin
             return field;
         }
 
+        SmedleyTelemetryFieldV1 BoolField(const char *key, bool value)
+        {
+            SmedleyTelemetryFieldV1 field{sizeof(field), SMEDLEY_TELEMETRY_ABI_VERSION_V1, key,
+                static_cast<uint32_t>(std::strlen(key)), SMEDLEY_TELEMETRY_BOOL, 0, {}};
+            field.value.bool_value = value ? 1u : 0u;
+            return field;
+        }
+
         SmedleyTelemetryFieldV1 StringField(const char *key, const char *value)
         {
             SmedleyTelemetryFieldV1 field{sizeof(field), SMEDLEY_TELEMETRY_ABI_VERSION_V1, key,
@@ -180,8 +188,17 @@ namespace telemetry_plugin
                 EmitTyped("date.regressed", "lifecycle", raw_date, nullptr, 0, payload, 3, false);
             }
             const bool progress = lifecycle_enabled && (!last_progress_date_ || *raw_date != *last_progress_date_);
-            if (state_enabled && smedley::telemetry::IsDateInRange(config_, raw_date)
-                && smedley::telemetry::ShouldSampleDate(raw_date, config_.sample_days, &sampled_date_)) {
+            const bool sampled = state_enabled && smedley::telemetry::IsDateInRange(config_, raw_date)
+                && smedley::telemetry::ShouldSampleDate(raw_date, config_.sample_days, &sampled_date_);
+            if (sampled) {
+                if (last_world_date_ != raw_date) {
+                    last_world_date_ = raw_date;
+                    const SmedleyTelemetryFieldV1 payload[] = {
+                        IntField("country_slot_count", static_cast<int64_t>(game_state->country_count())),
+                        IntField("ai_scheduler_entry_count", static_cast<int64_t>(game_state->country_ai_count())),
+                        BoolField("human_control_present", game_state->has_human_controlled_country())};
+                    EmitTyped("world.daily", "state", raw_date, nullptr, 0, payload, 3, false);
+                }
                 const auto *country = event.GetCountry();
                 if (country != nullptr && smedley::telemetry::HasCountryTag(config_, country->tag().str())) {
                     const auto country_tag = StringField("country_tag", country->tag().str());
@@ -241,6 +258,7 @@ namespace telemetry_plugin
         std::atomic<uint64_t> skipped_unsampleable_{0};
         std::atomic<bool> write_failure_logged_{false};
         std::optional<int> sampled_date_;
+        std::optional<int> last_world_date_;
         std::optional<int> last_progress_date_;
         std::optional<int> last_observed_date_;
 

@@ -13,3 +13,26 @@ calculations.
 This observation establishes the unit conversion and repeated live behavior;
 it does not upgrade the surrounding `CGameState` layout or field semantics
 beyond the quality carried by each telemetry record.
+
+## World Snapshot Containers
+
+`world.daily` reads the existing `CGameState` country-slot vector at `+0x0adc`,
+AI scheduler vector at `+0x00a4`, and player-control vector at `+0x0aec` once per
+selected date. Observer automation already uses the same containers for its
+runtime invariants, including exact scheduler growth when returning a country
+to AI. The record remains `provisional`: slot count is not a playable-country
+count, scheduler membership is not a general AI-control definition, and the
+surrounding `CGameState` layout is not promoted wholesale.
+
+Runtime run `c1a299d3-9172-40fd-bceb-b5547048d481` exercised a ten-day vanilla
+observer interval. It emitted exactly ten `world.daily` and ten JAN
+`country.daily` records. Every world record reported 272 country slots, 272 AI
+scheduler entries, and `human_control_present=false`, matching the independently
+logged observer transition from 271 to 272 scheduler entries. The 40-record
+trace had zero gaps, drops, or write failures and completed at the exact target.
+
+A complementary non-observer probe observed 272 slots, 271 scheduler entries,
+and `human_control_present=true`, but its trace dropped unrelated back-to-back
+lifecycle records and lacked a terminal record. It corroborates the container
+transition but is not acceptance evidence; reliable low-frequency lifecycle
+ingress remains separate work.
