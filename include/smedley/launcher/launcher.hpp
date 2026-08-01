@@ -63,6 +63,7 @@ namespace smedley::launcher
         bool detach = false;
         std::optional<int> run_days;
         std::optional<int> run_until_date_raw;
+        bool quit_after_run = false;
         int run_timeout_seconds = 600;
         std::optional<std::string> run_parse_error;
         bool telemetry_enabled = false;

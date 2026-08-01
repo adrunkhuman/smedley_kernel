@@ -81,8 +81,10 @@ scheduling. A timer-driven fallback handles other country disappearances.
 
 It also has bounded fixed-date benchmark runs: `--run-days 365 --detach` resumes
 a configured campaign, pauses it at the exact target date, and reports typed
-telemetry when available. It deliberately leaves the game open and paused; this
-is not a verified clean exit, save, or state-assertion workflow.
+telemetry when available. The default leaves the game open and paused.
+`--quit-after-run` instead requests Victoria II's verified native exit after a
+successful exact-target run; failures remain paused and open. It does not save
+or provide a final plugin-drain or state-assertion workflow.
 
 `telemetry` provides versioned JSON Lines records, including sampled country
 treasury state and bounded world economic snapshots when `state` is selected.
@@ -139,6 +141,7 @@ The current release supports Windows, MSVC x86, and the executable identified
 above. The native C ABI currently covers lifecycle, not game services. Plugin
 dependency versions, general third-party plugin settings, broad AI decision
 telemetry, profiling, and profiler-backed engine optimizations are still in
-active development. Normal-exit plugin callbacks also await a verified game
-shutdown boundary. See the repository's GitHub issues for the current roadmap
-and [`mappings/`](mappings/) for reverse-engineering evidence.
+active development. Pre-exit plugin callbacks and coordinated telemetry drain
+remain unimplemented despite the verified native game-exit request. See
+[`mappings/ROADMAP.md`](mappings/ROADMAP.md) for the current roadmap and
+[`mappings/`](mappings/) for reverse-engineering evidence.

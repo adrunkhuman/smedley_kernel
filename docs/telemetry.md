@@ -183,9 +183,10 @@ evidence. The queue remains bounded, and publication still performs no file I/O.
 The sole worker writes
 complete JSON Lines incrementally and flushes at least once per second. An
 explicit future unload drains accepted records, appends a best-effort final
-summary using post-drain statistics, and flushes. The current kernel has no
-verified normal game-shutdown callback and does not unload plugins from
-`DllMain`; normal process exit therefore does not emit `telemetry.summary` or
+summary using post-drain statistics, and flushes. `campaign_runner` can now
+request Victoria II's verified native game exit after a successful bounded run,
+but the kernel has no pre-exit plugin callback and does not unload plugins from
+`DllMain`; native process exit therefore does not emit `telemetry.summary` or
 join the writer. `telemetry.progress` is emitted at least once per observed game
 date when `lifecycle` is selected. Up to the latest userspace queue and the
 one-second flush interval can be lost at real process exit. Completed prior

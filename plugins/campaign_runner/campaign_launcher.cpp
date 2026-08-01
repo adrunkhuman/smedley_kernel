@@ -400,12 +400,14 @@ namespace campaign_runner
         std::wstring observer_view_tag,
         int speed,
         bool start_paused,
+        bool quit_after_run,
         CampaignRunCondition condition)
     {
         save_path_ = std::move(save_path);
         observe_ = observe;
         target_speed_ = speed;
         start_paused_ = start_paused;
+        quit_after_run_ = quit_after_run;
         run_condition_ = condition;
         observer_enabled_ = false;
         speed_ready_ = false;
@@ -424,6 +426,11 @@ namespace campaign_runner
         }
         if (run_condition_.requested() && (start_paused_ || !observer_view_tag.empty())) {
             logger_.Failure("benchmark target runs require unpaused start and do not support an initial view switch");
+            launcher_instance = nullptr;
+            return false;
+        }
+        if (quit_after_run_ && !run_condition_.requested()) {
+            logger_.Failure("quit-after-run requires a benchmark run target");
             launcher_instance = nullptr;
             return false;
         }
@@ -751,6 +758,8 @@ namespace campaign_runner
             0x8b, 0x81, 0x28, 0x0b, 0x00, 0x00, 0x48, 0x83, 0xf8, 0x04};
         const auto tag_handler = smedley::memory::Map::base_addr + 0x1f720;
         constexpr unsigned char tag_handler_expected[] = {0x55, 0x8b, 0xec, 0x6a, 0xff};
+        const auto request_quit = smedley::memory::Map::base_addr + 0x24edb0;
+        constexpr unsigned char request_quit_expected[] = {0xc6, 0x81, 0x20, 0x1d, 0x00, 0x00, 0x01, 0xc3};
         if (std::memcmp(reinterpret_cast<const void *>(load_save), load_save_expected, sizeof(load_save_expected)) != 0
             || std::memcmp(reinterpret_cast<const void *>(press_dispatch), press_expected, sizeof(press_expected)) != 0
             || std::memcmp(reinterpret_cast<const void *>(release_dispatch), release_expected, sizeof(release_expected)) != 0
@@ -774,7 +783,11 @@ namespace campaign_runner
             || std::memcmp(
                 reinterpret_cast<const void *>(tag_handler),
                 tag_handler_expected,
-                sizeof(tag_handler_expected)) != 0) {
+                sizeof(tag_handler_expected)) != 0
+            || std::memcmp(
+                reinterpret_cast<const void *>(request_quit),
+                request_quit_expected,
+                sizeof(request_quit_expected)) != 0) {
             logger_.Failure("campaign automation signature mismatch; save loading disabled");
             return false;
         }
@@ -1136,12 +1149,39 @@ namespace campaign_runner
         if (reason == nullptr) {
             ReportTelemetryResult(telemetry_.BenchmarkCompleted(benchmark_.start_date_raw(), benchmark_.target_date_raw(),
                 actual_date_raw.value_or(benchmark_.target_date_raw()), benchmark_.requested_days(), elapsed));
-            logger_.Info("benchmark completed; campaign remains paused and open");
+            if (quit_after_run_ && actual_date_raw && *actual_date_raw == benchmark_.target_date_raw()) {
+                RequestQuitAfterRun();
+            } else {
+                logger_.Info("benchmark completed; campaign remains paused and open");
+            }
         } else {
             ReportTelemetryResult(telemetry_.BenchmarkFailed(benchmark_.start_date_raw(), benchmark_.target_date_raw(),
                 actual_date_raw, elapsed, reason, paused));
             logger_.Failure(std::string("benchmark failed: ") + reason + "; campaign remains open");
         }
+    }
+
+    void CampaignLauncher::RequestQuitAfterRun()
+    {
+        const auto *game_state = smedley::v2::CCurrentGameState::instance();
+        auto *idler = game_state == nullptr ? nullptr : game_state->idler();
+        if (!IsInGameIdler(idler)) {
+            logger_.Failure("native quit request failed because CInGameIdler is unavailable; campaign remains paused and open");
+            return;
+        }
+        const auto vtable = *reinterpret_cast<uintptr_t **>(idler);
+        const auto request_quit = vtable[0x110 / sizeof(uintptr_t)];
+        if (request_quit != smedley::memory::Map::base_addr + 0x24edb0) {
+            logger_.Failure("native quit virtual method mismatch; campaign remains paused and open");
+            return;
+        }
+        using RequestQuit = void (__thiscall *)(void *);
+        reinterpret_cast<RequestQuit>(request_quit)(idler);
+        if (*(reinterpret_cast<const unsigned char *>(idler) + 0x1d20) != 1) {
+            logger_.Failure("native quit request did not set the expected state; campaign remains paused and open");
+            return;
+        }
+        logger_.Info("requested native game exit after successful bounded run");
     }
 
     bool CampaignLauncher::TickBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler)

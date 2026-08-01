@@ -193,6 +193,22 @@ TEST(CampaignLaunchArgumentsTest, IgnoresOtherSmedleyArgumentsAndRejectsBenchmar
     EXPECT_FALSE(campaign_runner::ParseCampaignLaunchArguments({L"v2game.exe", L"-smedley-save=C:\\save.v2", L"-smedley-run-until-date-raw"}, &arguments, &error));
 }
 
+TEST(CampaignLaunchArgumentsTest, ParsesQuitAfterRunOnlyWithOneBoundedRunTarget)
+{
+    campaign_runner::CampaignLaunchArguments arguments;
+    std::string error;
+    ASSERT_TRUE(campaign_runner::ParseCampaignLaunchArguments({L"v2game.exe", L"-smedley-save=C:\\save.v2",
+        L"-smedley-run-days=1", L"-smedley-quit-after-run"}, &arguments, &error)) << error;
+    EXPECT_TRUE(arguments.quit_after_run);
+
+    EXPECT_FALSE(campaign_runner::ParseCampaignLaunchArguments({L"v2game.exe", L"-smedley-save=C:\\save.v2",
+        L"-smedley-quit-after-run"}, &arguments, &error));
+    EXPECT_FALSE(campaign_runner::ParseCampaignLaunchArguments({L"v2game.exe", L"-smedley-save=C:\\save.v2",
+        L"-smedley-run-days=1", L"-smedley-quit-after-run", L"-smedley-quit-after-run"}, &arguments, &error));
+    EXPECT_FALSE(campaign_runner::ParseCampaignLaunchArguments({L"v2game.exe", L"-smedley-save=C:\\save.v2",
+        L"-smedley-run-days=1", L"-smedley-quit-after-run=true"}, &arguments, &error));
+}
+
 TEST(BenchmarkControllerTest, RejectsInvalidTargetMathAndDetectsFailures)
 {
     campaign_runner::BenchmarkController controller;

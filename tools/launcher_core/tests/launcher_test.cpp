@@ -129,6 +129,7 @@ TEST_F(LauncherCoreTest, SavesAndLoadsProfileWithSpaces)
     original.start_paused = true;
     original.detach = true;
     original.run_days = 365;
+    original.quit_after_run = true;
     original.run_timeout_seconds = 900;
     original.scripts = {fs::path(L"scripts/observer.lua"), fs::path(L"scripts/report.lua")};
     original.script_instruction_budget = 250000;
@@ -152,6 +153,7 @@ TEST_F(LauncherCoreTest, SavesAndLoadsProfileWithSpaces)
     EXPECT_TRUE(loaded.start_paused);
     EXPECT_TRUE(loaded.detach);
     EXPECT_EQ(loaded.run_days, original.run_days);
+    EXPECT_TRUE(loaded.quit_after_run);
     EXPECT_EQ(loaded.run_timeout_seconds, 900);
     EXPECT_EQ(loaded.scripts, original.scripts);
     EXPECT_EQ(loaded.script_instruction_budget, 250000);
@@ -179,6 +181,7 @@ TEST_F(LauncherCoreTest, SavesAndLoadsUnicodeProfilePaths)
     EXPECT_EQ(loaded.mods, original.mods);
     EXPECT_EQ(loaded.speed, 5);
     EXPECT_FALSE(loaded.start_paused);
+    EXPECT_FALSE(loaded.quit_after_run);
 }
 
 TEST_F(LauncherCoreTest, RejectsMalformedCampaignRunControlTypes)
@@ -200,6 +203,14 @@ TEST_F(LauncherCoreTest, RejectsMalformedCampaignRunControlTypes)
     Write(root / L"bad-run.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\nrun_days = \"365\"\n");
     EXPECT_FALSE(launcher::LoadProfile(root / L"bad-run.toml", &profile, &diagnostics));
     EXPECT_EQ(diagnostics.back().code, "profile.schema");
+    diagnostics.clear();
+    Write(root / L"bad-quit-after-run.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\nquit_after_run = \"true\"\n");
+    EXPECT_FALSE(launcher::LoadProfile(root / L"bad-quit-after-run.toml", &profile, &diagnostics));
+    EXPECT_EQ(diagnostics.back().code, "profile.schema");
+    diagnostics.clear();
+    Write(root / L"quit-without-target.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\nquit_after_run = true\n");
+    EXPECT_FALSE(launcher::LoadProfile(root / L"quit-without-target.toml", &profile, &diagnostics));
+    EXPECT_EQ(diagnostics.back().code, "campaign.quit_after_run");
     diagnostics.clear();
     Write(root / L"bad-timeout.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\nrun_timeout_seconds = 0\n");
     EXPECT_FALSE(launcher::LoadProfile(root / L"bad-timeout.toml", &profile, &diagnostics));
@@ -339,6 +350,8 @@ TEST_F(LauncherCoreTest, NoInjectionIgnoresStaleAutomationSettings)
     profile.view_tag = L"not-a-tag";
     profile.speed = 3;
     profile.start_paused = true;
+    profile.run_days = 365;
+    profile.quit_after_run = true;
 
     const auto plan = launcher::BuildLaunchPlan(profile);
 
@@ -353,6 +366,9 @@ TEST_F(LauncherCoreTest, NoInjectionIgnoresStaleAutomationSettings)
     }));
     EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
         return diagnostic.code == "safe_mode.start_paused_ignored" && diagnostic.severity == launcher::Severity::Warning;
+    }));
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "safe_mode.quit_after_run_ignored" && diagnostic.severity == launcher::Severity::Warning;
     }));
 }
 
@@ -418,10 +434,12 @@ TEST_F(LauncherCoreTest, WiresBenchmarkTargetsAndRejectsUnsafeCombinations)
     profile.save = root / L"missing.v2";
     profile.detach = true;
     profile.run_days = 365;
+    profile.quit_after_run = true;
     profile.run_timeout_seconds = 900;
     auto plan = launcher::BuildLaunchPlan(profile);
     EXPECT_NE(plan.command_line.find(L"-smedley-run-days=365"), std::wstring::npos);
     EXPECT_NE(plan.command_line.find(L"-smedley-run-timeout-seconds=900"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-quit-after-run"), std::wstring::npos);
     EXPECT_FALSE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
         return diagnostic.code.rfind("campaign.run", 0) == 0;
     }));
@@ -434,6 +452,7 @@ TEST_F(LauncherCoreTest, WiresBenchmarkTargetsAndRejectsUnsafeCombinations)
     EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
         return diagnostic.code == "campaign.run_target" || diagnostic.code == "campaign.run_detach" || diagnostic.code == "campaign.run_view_tag";
     }));
+    EXPECT_EQ(plan.command_line.find(L"-smedley-quit-after-run"), std::wstring::npos);
     profile.inject = false;
     plan = launcher::BuildLaunchPlan(profile);
     EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {

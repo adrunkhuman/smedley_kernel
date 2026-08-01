@@ -29,7 +29,7 @@ namespace campaign_runner
         explicit CampaignLauncher(smedley::Logger &logger) noexcept;
 
         bool Start(std::wstring save_path, bool observe, std::wstring observer_view_tag, int speed, bool start_paused,
-                    CampaignRunCondition condition);
+                   bool quit_after_run, CampaignRunCondition condition);
         void Stop();
         void CaptureConsoleCommandManager(smedley::v2::CConsoleCmdManager *manager);
         void CaptureFrontendController(void *controller);
@@ -53,6 +53,7 @@ namespace campaign_runner
         bool TickBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler);
         void FinishBenchmark(const char *reason, std::optional<int> actual_date_raw, std::optional<bool> paused);
         void FinishInvalidBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler);
+        void RequestQuitAfterRun();
         void ReportTelemetryResult(SmedleyTelemetryResult result);
         bool ObserverInvariantsValid(smedley::v2::CCurrentGameState *game_state) const;
         bool EmitObserverConfiguredIfReady(smedley::v2::CCurrentGameState *game_state);
@@ -83,6 +84,7 @@ namespace campaign_runner
         bool speed_ready_ = false;
         int target_speed_ = 5;
         bool start_paused_ = false;
+        bool quit_after_run_ = false;
         CampaignRunCondition run_condition_;
         BenchmarkController benchmark_;
         bool benchmark_started_ = false;

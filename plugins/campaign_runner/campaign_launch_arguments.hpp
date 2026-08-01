@@ -23,6 +23,7 @@ namespace campaign_runner
         int speed = 5;
         bool speed_requested = false;
         bool start_paused = false;
+        bool quit_after_run = false;
         CampaignRunCondition run_condition;
     };
 

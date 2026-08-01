@@ -24,6 +24,7 @@ struct Options
     std::optional<bool> start_paused;
     std::optional<int> run_days;
     std::optional<int> run_until_date_raw;
+    std::optional<bool> quit_after_run;
     std::optional<int> run_timeout_seconds;
     std::optional<bool> telemetry_enabled;
     std::optional<fs::path> telemetry_output;
@@ -61,6 +62,7 @@ void PrintUsage()
         << "  --start-paused  Leave a loaded campaign paused; incompatible with --observe\n"
         << "  --run-days N    Benchmark exactly N game days (1 through 1000000)\n"
         << "  --run-until-date-raw N  Benchmark to an absolute raw date; incompatible with --run-days\n"
+        << "  --quit-after-run  Quit only after a successful bounded run\n"
         << "  --run-timeout-seconds N  Benchmark timeout (1 through 86400; default: 600)\n"
         << "  --telemetry     Enable the built-in structured telemetry plugin\n"
         << "  --telemetry-output PATH  JSON Lines trace path (default: %LOCALAPPDATA%\\Smedley\\traces\\<run-id>.jsonl)\n"
@@ -95,6 +97,7 @@ Options ParseArguments(int argc, wchar_t **argv)
         if (argument == L"--observe") { options.observer = true; continue; }
         if (argument == L"--no-inject") { options.inject = false; continue; }
         if (argument == L"--start-paused") { options.start_paused = true; continue; }
+        if (argument == L"--quit-after-run") { options.quit_after_run = true; continue; }
         if (argument == L"--telemetry") { options.telemetry_enabled = true; continue; }
         if (argument == L"--no-telemetry") { options.telemetry_enabled = false; continue; }
         if (argument == L"--telemetry-overwrite") { options.telemetry_overwrite = true; continue; }
@@ -230,6 +233,7 @@ int wmain(int argc, wchar_t **argv)
         if (options.start_paused) profile.start_paused = *options.start_paused;
         if (options.run_days) profile.run_days = *options.run_days;
         if (options.run_until_date_raw) profile.run_until_date_raw = *options.run_until_date_raw;
+        if (options.quit_after_run) profile.quit_after_run = *options.quit_after_run;
         if (options.run_timeout_seconds) profile.run_timeout_seconds = *options.run_timeout_seconds;
         if (options.telemetry_enabled) profile.telemetry_enabled = *options.telemetry_enabled;
         if (options.telemetry_output) profile.telemetry_output = *options.telemetry_output;

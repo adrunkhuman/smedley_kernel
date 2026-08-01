@@ -56,6 +56,7 @@ namespace
         run_days_edit,
         run_until_date_edit,
         run_timeout_edit,
+        quit_after_run_check,
     };
 
     std::wstring Utf8ToWide(const std::string &value)
@@ -608,6 +609,7 @@ namespace
             run_until_date_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", run_until_date_edit);
             run_timeout_label_ = AddLabel(L"Timeout s:");
             run_timeout_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"600", run_timeout_edit);
+            quit_after_run_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"Quit after successful bounded run", quit_after_run_check);
 
             diagnostics_label_ = AddLabel(L"&Diagnostics:");
             diagnostics_ = AddControl(WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL | WS_TABSTOP,
@@ -671,7 +673,7 @@ namespace
 
             PlaceLabel(plugin_label_, y, label_width, row, margin);
             y += row;
-            const int bottom_fixed = Scale(26 * 11 + 30 + 130 + 44);
+            const int bottom_fixed = Scale(26 * 12 + 30 + 130 + 44);
             const int plugin_height = std::max(Scale(100), height - y - bottom_fixed);
             MoveWindow(plugins_, margin, y, right - margin, plugin_height, TRUE);
             y += plugin_height + Scale(4);
@@ -715,6 +717,8 @@ namespace
             PlaceLabel(run_timeout_label_, y, Scale(62), row, margin + Scale(345));
             MoveWindow(run_timeout_, margin + Scale(407), y, Scale(75), Scale(22), TRUE);
             y += row;
+            MoveWindow(quit_after_run_, margin, y, right - margin, Scale(22), TRUE);
+            y += row;
 
             PlaceLabel(diagnostics_label_, y, label_width, row, margin);
             y += row;
@@ -755,7 +759,8 @@ namespace
                 }
             } else if (id == launch_button && notification == BN_CLICKED) LaunchGame();
             else if (id == recent_runs_button && notification == BN_CLICKED) RecentRunsWindow::Show(window_);
-            else if ((id == safe_mode_check || id == observer_check || id == start_paused_check || id == telemetry_enabled_check || id == telemetry_overwrite_check) && notification == BN_CLICKED) RefreshPlan();
+            else if ((id == safe_mode_check || id == observer_check || id == start_paused_check || id == quit_after_run_check
+                      || id == telemetry_enabled_check || id == telemetry_overwrite_check) && notification == BN_CLICKED) RefreshPlan();
             else if (id == mod_combo && notification == CBN_SELCHANGE) {
                 retained_mods_.clear();
                 unsupported_multi_mod_ = false;
@@ -821,6 +826,7 @@ namespace
             std::optional<int> timeout;
             parse_run(run_timeout_, &timeout, "run_timeout_seconds", true);
             if (timeout) profile.run_timeout_seconds = *timeout;
+            profile.quit_after_run = SendMessageW(quit_after_run_, BM_GETCHECK, 0, 0) == BST_CHECKED;
             profile.telemetry_enabled = SendMessageW(telemetry_enabled_, BM_GETCHECK, 0, 0) == BST_CHECKED;
             profile.telemetry_overwrite = SendMessageW(telemetry_overwrite_, BM_GETCHECK, 0, 0) == BST_CHECKED;
             const auto telemetry_output = GetText(telemetry_output_);
@@ -1032,6 +1038,7 @@ namespace
             SetText(run_days_, profile.run_days ? std::to_wstring(*profile.run_days) : L"");
             SetText(run_until_date_, profile.run_until_date_raw ? std::to_wstring(*profile.run_until_date_raw) : L"");
             SetText(run_timeout_, std::to_wstring(profile.run_timeout_seconds));
+            SendMessageW(quit_after_run_, BM_SETCHECK, profile.quit_after_run ? BST_CHECKED : BST_UNCHECKED, 0);
             retained_detach_ = profile.detach;
             retained_scripts_ = profile.scripts;
             retained_script_instruction_budget_ = profile.script_instruction_budget;
@@ -1119,6 +1126,7 @@ namespace
         HWND run_until_date_ = nullptr;
         HWND run_timeout_label_ = nullptr;
         HWND run_timeout_ = nullptr;
+        HWND quit_after_run_ = nullptr;
         HWND diagnostics_label_ = nullptr;
         HWND diagnostics_ = nullptr;
         HWND status_ = nullptr;

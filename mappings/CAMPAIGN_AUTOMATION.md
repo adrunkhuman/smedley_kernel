@@ -91,8 +91,16 @@ observer invariants. At the exact target it invokes verified `TogglePause` and
 reads back the paused state. Overshoot, timeout, date regression, invalid
 idler/pause state, or observer invariant failure is a failed benchmark. Both
 terminal paths stop monitoring and popup suppression, cancel the timer, and
-leave the campaign safely paused/open when pause readback succeeds. They never
-attempt an exit or write a save.
+leave the campaign safely paused/open when pause readback succeeds. A successful
+exact-target run may then request the verified native quit operation when
+`quit_after_run` is explicitly enabled. Failures never attempt an exit, and no
+terminal path writes a save.
+
+The benchmark is terminally paused before the exit request. The runner validates
+the idler RTTI, exact vtable target, and post-call request flag. A failed
+validation or readback logs a failure and leaves the campaign paused and open.
+Successful dispatch requests game exit; it does not guarantee telemetry
+durability.
 
 An invalid runtime target or unavailable benchmark timer is terminal. The runner
 first attempts and reads back pause; its failure record reports whether that
@@ -112,8 +120,19 @@ second, a 0.50 percent repeat difference). Both observed 98,644 daily callbacks,
 and the source save retained SHA-256
 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 This verifies the fixed-date pause harness on the supported executable; it does
-not establish a clean exit, final telemetry flush, saved result, or replay
+not establish a final telemetry flush, saved result, or replay
 equivalence.
+
+Runtime acceptance on August 1, 2026 mapped the accepted `QUIT` confirmation
+callback at RVA `0x276500` to primary `CInGameIdler` vtable slot `+0x110`. Its
+target at RVA `0x24edb0` sets `CInGameIdler+0x1d20` to one. Detached run
+`21b024dd-ec69-4d46-a22e-1d309ab83b21` loaded the unmodified `benchmark.v2`,
+completed an exact one-day target, read back that native quit-request state, and
+exited without `ExitProcess`, `TerminateProcess`, `WM_CLOSE`, or synthetic
+input. The source save retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+This verifies process exit only, not durable terminal telemetry; the kernel still
+has no pre-exit plugin lifecycle notification or final telemetry drain.
 
 Additional final-DLL acceptance covered three non-happy-path boundaries. Run
 `31a41204-121e-4e11-be5d-6ae3fb47f771` used no observer mode and an absolute

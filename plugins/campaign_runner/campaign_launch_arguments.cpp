@@ -38,6 +38,10 @@ namespace campaign_runner
                 if (result->start_paused) return fail("-smedley-start-paused must not be repeated");
                 result->start_paused = true;
             } else if (malformed(argument, L"-smedley-start-paused")) return fail("malformed -smedley-start-paused argument");
+            else if (argument == L"-smedley-quit-after-run") {
+                if (result->quit_after_run) return fail("-smedley-quit-after-run must not be repeated");
+                result->quit_after_run = true;
+            } else if (malformed(argument, L"-smedley-quit-after-run")) return fail("malformed -smedley-quit-after-run argument");
             else {
                 const bool days = argument == L"-smedley-run-days" || argument.rfind(L"-smedley-run-days=", 0) == 0;
                 const bool target = argument == L"-smedley-run-until-date-raw" || argument.rfind(L"-smedley-run-until-date-raw=", 0) == 0;
@@ -68,6 +72,7 @@ namespace campaign_runner
         if (result->observe && result->start_paused) return fail("observer mode cannot start paused because its watchdog requires advancement");
         if (result->run_condition.days && result->run_condition.target_date_raw) return fail("-smedley-run-days and -smedley-run-until-date-raw are mutually exclusive");
         if (result->run_condition.requested() && (result->start_paused || result->view_tag)) return fail("benchmark target runs require unpaused start and do not support -smedley-view-tag");
+        if (result->quit_after_run && !result->run_condition.requested()) return fail("-smedley-quit-after-run requires a benchmark run target");
         return true;
     }
 }

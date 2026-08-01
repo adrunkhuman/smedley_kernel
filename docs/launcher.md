@@ -28,6 +28,7 @@ start_paused = false # optional; requires a save and campaign_runner; incompatib
 detach = false
 run_days = 365 # optional; 1 through 1000000, mutually exclusive with run_until_date_raw
 run_until_date_raw = 123456 # optional signed int raw-date target
+quit_after_run = false # optional; native exit only after successful exact-target completion
 run_timeout_seconds = 600 # persisted default; used only when a run target exists, 1 through 86400
 telemetry_enabled = false
 telemetry_output = "C:\\traces\\gfm.jsonl" # optional; default is per-run under %LOCALAPPDATA%
@@ -64,6 +65,7 @@ smedley_cli --game-dir "C:\Games\Victoria 2" --discover
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin "plugins\campaign runner.toml" --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --observe
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.toml --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --speed 3 --start-paused --detach
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.toml --plugin plugins\telemetry.toml --telemetry --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --speed 5 --run-days 365 --run-timeout-seconds 600 --detach
+smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.toml --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --run-days 1 --quit-after-run --detach
 smedley_cli --history
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\telemetry.toml --telemetry --telemetry-category lifecycle --telemetry-category state --telemetry-sample-days 7 --telemetry-queue-capacity 512 --detach
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\scripting.toml --script scripts\examples\country_log.lua --detach
@@ -74,6 +76,9 @@ diagnostics without starting a process. `--discover` enumerates valid
 `GAME_DIR/plugins/*.toml` manifests and `GAME_DIR/mod/*.mod` descriptors in a
 stable order. `--no-inject` starts the verified game with ordinary selected mods
 but does not load the kernel or native plugins.
+
+`--quit-after-run` enables `quit_after_run`. It has no disabling counterpart, so
+a profile value of `true` remains active unless the profile is edited.
 
 `--telemetry` enables the profile telemetry settings. These options override
 their corresponding profile fields:
@@ -172,19 +177,22 @@ watchdog instead of reporting `unexpected_pause` first.
 | --- | --- |
 | Non-default run controls | Require a save and the `campaign_runner` plugin. |
 | `run_days` or `run_until_date_raw` | Request a bounded benchmark interval. Require injection, a selected save, `campaign_runner`, `start_paused = false`, and `detach = true`. Safe mode warns that stale targets are ignored. |
+| `quit_after_run` | Requires a bounded run target. After exact-target completion, attempts to queue `benchmark.completed` when telemetry is available, then requests Victoria II's verified native quit operation. The request does not flush or drain plugins; queued records and `telemetry.summary` may be lost at process exit. A failed native-request validation or readback leaves the campaign paused and open. It never applies to failed runs. |
 | `view_tag` with a run target | Rejected because the view switch is asynchronous after simulation resumes. Observer mode itself remains optional. |
 | Custom timeout without a target | Inert and produces a preflight warning. It neither requires campaign automation nor reaches the plugin. |
 
-The GUI exposes Run days, Run target raw, and Timeout seconds fields through the
-same preflight.
+The GUI exposes Run days, Run target raw, Timeout seconds, and **Quit after
+successful bounded run** through the same preflight.
 
 When one selected mod declares a safe `user_dir`, save preflight and run-record
 links use that mod-specific `save games` and log directory. Multiple distinct
 mod user directories are ambiguous and rejected instead of guessing which one
 the game will use.
 
-The process is intentionally left paused and open on completion or a safe
-failure. No clean exit, checkpoint save, benchmark save, or final game-state
+By default the process is intentionally left paused and open on completion.
+Every safe failure also remains open. An explicitly enabled `quit_after_run`
+requests the verified native game exit only after exact-target success. No
+checkpoint save, benchmark save, final plugin drain, or final game-state
 assertion is implemented or claimed.
 
 ## Current limits

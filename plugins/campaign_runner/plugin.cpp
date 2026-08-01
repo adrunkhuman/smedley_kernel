@@ -52,6 +52,7 @@ namespace campaign_runner
                 arguments.view_tag.value_or(std::wstring{}),
                 arguments.speed,
                 arguments.start_paused,
+                arguments.quit_after_run,
                 arguments.run_condition);
         }
 

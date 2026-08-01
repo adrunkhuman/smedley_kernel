@@ -400,6 +400,14 @@ signature = "55 8b ec 64 a1 00 00 00 00 6a ff 68"
 source = "CInGameIdler vtable +0x168; topbar button_speeddown callback RVA 0x318cf0 invokes this slot"
 
 [[symbols]]
+name = "CInGameIdler::RequestQuit"
+rva = 0x0024edb0
+kind = "function"
+status = "verified-runtime"
+signature = "c6 81 20 1d 00 00 01 c3"
+source = "accepted QUIT DefaultDialog callback RVA 0x276500 invokes primary CInGameIdler vtable +0x110; x86 __thiscall method sets this+0x1d20; campaign_runner run 21b024dd-ec69-4d46-a22e-1d309ab83b21 read back 1 and exited without external termination"
+
+[[symbols]]
 name = "CGameState daily pacing update"
 rva = 0x00282bd0
 kind = "function"

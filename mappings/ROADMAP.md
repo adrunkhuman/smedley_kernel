@@ -4,7 +4,7 @@
 
 - The CLI can start the exact cataloged `v2game.exe`, inject the kernel and a
   plugin, initialize both, and reach a responsive main window.
-- The executable identity and 55 signatures are machine-checked.
+- The executable identity and 56 signatures are machine-checked.
 - Current country, province, and game-state layouts plus removed historical
   POP, bank, and GUI evidence are recorded without presenting hypotheses as
   verified facts.
@@ -26,6 +26,10 @@
   run-for-days targets are implemented. Two identical 365-day observer runs
   paused at the exact target with a 0.50 percent throughput difference and no
   telemetry gaps, drops, or source-save mutation.
+- Successful bounded runs can opt into the native `CInGameIdler` quit request.
+  Run `21b024dd-ec69-4d46-a22e-1d309ab83b21` completed an exact one-day target,
+  read back the request flag, and exited without external process termination
+  or source-save mutation. Failed runs remain paused and open.
 - The built-in `scripting` plugin runs source-visible Lua in private bounded
   states off the game callback, delivers copied daily snapshots, schedules
   in-memory callbacks, and queues a signature-checked native pause. Runtime run
@@ -46,9 +50,10 @@
 ## Current blocker
 
 Campaign entry, observer setup, native speed 5, generic message-popup
-suppression, and exact-date pause work. The immediate automation blocker is a
-verified save/checkpoint and clean native exit boundary; until then benchmark
-runs deliberately remain paused and open.
+suppression, exact-date pause, and opt-in native exit work. The remaining
+automation blocker is a verified save/checkpoint plus a coordinated pre-exit
+plugin lifecycle boundary for final telemetry drain. Runs without the exit
+option, and every failed run, deliberately remain paused and open.
 
 ## Additional policy gap
 
@@ -57,8 +62,8 @@ fixture.
 
 ## Next mapping sequence
 
-1. Find a verified save/checkpoint and clean exit boundary, including final
-   telemetry drain semantics.
+1. Find a verified save/checkpoint boundary and add pre-exit plugin notification
+   with final telemetry drain semantics.
 2. Reproduce non-generic modal event interruptions and define an explicit
    benchmark policy.
 3. Find `CGuiTypes::LookupString` by following references to known names such
