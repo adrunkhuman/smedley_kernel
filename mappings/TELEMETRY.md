@@ -44,9 +44,9 @@ SHA-256 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 
 `economic_telemetry` reuses the bounded state/province/POP traversal documented
 in `INTEREST_FIX.md`. It scans country ordinals 1 through `country_count - 1`
-at the first daily callback selected by telemetry sampling, retaining no raw
-pointers afterward. Complete snapshots require zero traversal flags and unique
-POP identities across every country.
+once on the first daily callback for each telemetry-selected sample date,
+retaining no raw pointers afterward. Complete snapshots require zero traversal
+flags and unique POP identities across every country.
 
 | Field family | Source | Evidence and interpretation |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ POP identities across every country.
 | `pop_money_observed_raw` | bounded POP `+0x180` | Narrow field behavior is runtime verified by `CPop::GiveMoney`; completeness of the world traversal remains provisional. |
 | `pop_savings_observed_raw` | bounded POP `+0x250` | Runtime-verified savings storage and `1000:1` relation to state scale; it is a deposit/claim category, not liquid POP money. |
 | `bank_interest_accumulator_raw` | each country bank `+0x20` | Runtime-verified temporary interest destination, not bank cash. |
-| creditor counts and `was_paid` | bounded `CCreditor` vectors | Structure and paid byte are runtime verified. `+0x10`/`+0x18` names remain candidates. |
+| creditor counts and `was_paid` | bounded `CCreditor` vectors | Structure and paid byte are runtime verified. The interpretations of `+0x10` and `+0x18` remain provisional. |
 | state `+0x258`/`+0x260` | bounded country state lists | Savings correlation is runtime verified with rounding drift; `+0x260` is nonconserved and provisional. |
 
 The plugin emits observed components separately and makes no additive
@@ -71,9 +71,10 @@ capacity traversal.
 
 Observer smoke run `adfe8a43-413c-448a-b68b-3fd58f001723` completed two exact
 days with two complete snapshots: 271 countries, 597 states, 2,311 provinces,
-and 19,996 then 20,030 POP records. Collection cost was 92,611 and 90,725
-microseconds. All eight economic records were accepted with zero sequence gaps,
-drops, or writer failure, and the source save remained unchanged.
+and 19,996 then 20,030 POP records. Collection took 92,611 microseconds for the
+first snapshot and 90,725 microseconds for the second. All eight economic records
+were accepted with zero sequence gaps, drops, or writer failure, and the source
+save remained unchanged.
 
 ## Historical pre-batching paired ten-year observer benchmark
 

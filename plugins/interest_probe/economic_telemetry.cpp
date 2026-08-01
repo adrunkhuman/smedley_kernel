@@ -45,7 +45,7 @@ namespace interest_probe
             AddEventHandler<smedley::events::DailyUpdateEvent>(
                 "economic_telemetry.world", [this](smedley::events::DailyUpdateEvent &) { OnDailyUpdate(); });
             registered_ = true;
-            logger().Info("enabled bounded sampled world economic telemetry");
+            logger().Info("enabled bounded, sampled world economic telemetry");
         }
 
         void OnUnload() override

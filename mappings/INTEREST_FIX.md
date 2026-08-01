@@ -38,10 +38,11 @@ does not claim a measured total-money effect.
 
 Loan creation passes the debtor's own tag and nonzero ordinal for domestic-bank
 debt, another country's tag/ordinal for foreign debt, and literal `---` with
-ordinal zero for the Shadowy Financiers fallback. The first two forms credit the
-identified country bank and are paid to that country's savers. The ordinal-zero
-form has no lender POPs or destination-bank credit, so its exact treasury
-residual remains a measured vanilla sink.
+ordinal zero for the Shadowy Financiers fallback, displayed as "Private
+Investors" in vanilla localization. The first two forms credit the identified
+country bank and are paid to that country's savers. The ordinal-zero form has no
+lender POPs or destination-bank credit, so its exact treasury residual remains a
+measured vanilla sink.
 
 ## Current static evidence
 
@@ -444,16 +445,16 @@ they are not part of the current batched CSV status vocabulary above.
 Sixty-day regression run `b88ce485-ed56-4634-9bb0-0927b0a83117` exercised the
 ordinal-zero form after the diagnostic correction. It reached the exact target
 with zero telemetry gaps, drops, or writer failure and produced 181 `paid` plus
-322 `no_transfer` health records, all with flags zero. Every paid result had a
+322 `no_transfer` health records, all with zero flags. Every paid result had a
 paired value record, both monthly economic snapshots were complete, and the
 source-save hash remained unchanged.
 
 Fix-enabled observer smoke run `5095e066-93e8-4faf-9060-dfa0199becd8`
-completed two exact days with zero gaps, drops, or writer failure. SWE traversed
-346 provinces and 2,635 POPs in 9,000 microseconds; SAR traversed 615 provinces
-and 5,077 POPs in 17,624 microseconds. Both health/value pairs were accepted,
-all flags were zero, all 753 paid POPs passed immediate postconditions, and the
-source save remained unchanged.
+completed two exact days with zero gaps, drops, or writer failures. Sweden (SWE)
+traversed 346 provinces and 2,635 POPs in 9,000 microseconds; Sardinia-Piedmont
+(SAR) traversed 615 provinces and 5,077 POPs in 17,624 microseconds. Both
+health/value pairs were accepted, all flags were zero, all 753 paid POPs passed
+immediate postconditions, and the source save remained unchanged.
 
 Two-day smoke run `fb8fb767-d7ab-4fea-be87-7598d6f9c880` exercised the first
 two creditor-bearing calls. Sweden paid 4,947 bank units as 4,947,000 POP-money

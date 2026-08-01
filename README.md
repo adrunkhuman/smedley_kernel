@@ -12,8 +12,9 @@ New native plugins can use the narrow versioned C lifecycle ABI documented in
 legacy compatibility path. A separate C capability table provides copied daily
 country events without exposing game pointers. Native plugins may submit bounded
 typed records through the telemetry C extension API in
-[`include/smedley/telemetry.h`](include/smedley/telemetry.h). They resolve
-telemetry dynamically and never require it as a dependency.
+[`include/smedley/telemetry.h`](include/smedley/telemetry.h). Plugins resolve the
+telemetry ABI dynamically. They may still declare `telemetry` as a manifest
+dependency when they require the telemetry plugin at runtime.
 
 This fork currently supports one exact English x86 `v2game.exe`:
 

@@ -114,14 +114,16 @@ non-playable engine entries, and scheduler entries are not asserted to equal a
 count of AI-controlled countries. These names expose the observed containers
 without inventing stronger gameplay semantics.
 
-`economic_telemetry` emits these `state` records once per selected sample date:
+`economic_telemetry` attempts one bounded scan per selected sample date. It
+always attempts to emit `world.economy.health`; it attempts the other `state`
+records only when their stated completeness and flag conditions pass:
 
 | Event | Payload | Contract |
 | --- | --- | --- |
-| `world.economy.health` | structural completeness, snapshot/probe/credit flags, country/state/province/POP counts | Always emitted after an attempted scan; counts are traversal observations. Credit flags do not invalidate independently complete holdings and capacity records. |
+| `world.economy.health` | structural completeness, snapshot/probe/credit flags, country/state/province/POP counts | Emission is attempted after every scan; counts are traversal observations. Credit flags do not invalidate independently complete holdings and capacity records. |
 | `world.economy.capacity` | fixed limits, basis-point utilization, and collection microseconds | Emitted only for a structurally complete zero-flag scan. Limits are 512 countries, 4,096 provinces, and 100,000 POP records. |
 | `world.economy.holdings` | observed treasury, POP money, POP savings, bank interest accumulator, positive-balance counts, negative-treasury country count | Emitted only for a complete scan with `provisional` quality. Components remain separate and are not a claimed money-supply identity. |
-| `world.economy.credit` | creditor counts/paid bytes and creditor/state candidate aggregates | Emitted only when structural and credit-specific flags are clear, with `provisional` quality. Every `_candidate_raw` field retains its mapping uncertainty. |
+| `world.economy.credit` | creditor counts, paid-entry counts, and creditor/state candidate aggregates | Emitted only when structural and credit-specific flags are clear, with `provisional` quality. Every `_candidate_raw` field retains its mapping uncertainty. |
 
 POP money and POP savings are different storage categories. Savings and
 creditor/state values may be financial claims or bookkeeping aggregates; adding
@@ -182,9 +184,9 @@ The economic producer performs its bounded world traversal on the game thread
 only at selected dates. It allocates its fixed storage at plugin construction,
 retains no game pointers across callbacks, performs no file I/O, and reports
 `collection_us`. Interest-fix `callback_us` measures the AFTER callback from
-post-original sampling through validation and allocation/mutation
-postconditions, immediately before telemetry publication. The fix's CSV worker remains independently
-bounded at 1,024 result slots.
+post-original sampling through validation and allocation/mutation postconditions,
+immediately before telemetry publication. The fix's CSV worker remains
+independently bounded at 1,024 result slots.
 
 ## Trace Tool
 
