@@ -75,7 +75,7 @@ and 19,996 then 20,030 POP records. Collection cost was 92,611 and 90,725
 microseconds. All eight economic records were accepted with zero sequence gaps,
 drops, or writer failure, and the source save remained unchanged.
 
-## Pre-batching paired ten-year observer benchmark
+## Historical pre-batching paired ten-year observer benchmark
 
 Consecutive runs on 2026-08-01 used pre-batching commit `f057bf5`, the same unmodified
 `benchmark.v2`, observer mode, speed 5, 3,650 days, a 7,200-second safety
@@ -130,6 +130,73 @@ or a causal estimate:
 | `creditor_count` | 455 | 576 | +121 |
 | `creditor_debt_candidate_raw` | 4,019,948,489 | 2,864,622,699 | -1,155,325,790 |
 | `state_interest_candidate_raw` | 1,924,693,371 | 1,179,563,725 | -745,129,646 |
+
+Both final samples reported zero negative-treasury countries and a zero bank
+interest accumulator. Bankruptcy and comprehensive world-money supply remain
+unmapped, so this benchmark does not make claims about either.
+
+## Final batched paired ten-year observer benchmark
+
+Consecutive runs on 2026-08-01 used final commit `d8458bd`, the same unmodified
+`benchmark.v2`, observer mode, speed 5, 3,650 days, a 1,800-second safety
+timeout, 30-day economic sampling, queue capacity 8,192, and country filter
+`ZZZ`. Both advanced from raw date `59883384` to exact target `59970984`,
+remained paused and responsive, and preserved source-save SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
+| Variant | Run ID | Trace SHA-256 | Records | Gaps/drops/write failure |
+| --- | --- | --- | ---: | --- |
+| Baseline | `3cca7928-811d-4819-a431-7a4baf960ab4` | `a8369aee355d6d61e63346486b9de85d9359cfa13733781ed110f3849816621c` | 4,270 | `0 / 0 / false` |
+| `interest_fix` | `c99a16f5-41e3-40ef-8f75-f6cc835f3aee` | `0acbe58e187c5d4950ec03908294d8b653c678b6faf0e373762c6588f7e7b7fc` | 11,571 | `0 / 0 / false` |
+
+Each trace contains 122 health, capacity, holdings, and credit snapshots. All
+244 health records have `complete=true` and zero snapshot, probe, and credit
+flags. Capacity remained below every fixed bound:
+
+| Peak or cost | Baseline | `interest_fix` | Limit |
+| --- | ---: | ---: | ---: |
+| Countries | 271 (52.92%) | 271 (52.92%) | 512 |
+| Provinces | 2,360 (57.61%) | 2,348 (57.32%) | 4,096 |
+| POPs | 23,059 (23.05%) | 23,074 (23.07%) | 100,000 |
+| Snapshot collection, median | 28,950 us | 29,205 us | n/a |
+| Snapshot collection, maximum | 35,310 us | 34,712 us | n/a |
+
+The benchmark's process counters produced this paired performance result:
+
+| Measure | Baseline | `interest_fix` | Observed ratio/delta |
+| --- | ---: | ---: | ---: |
+| Benchmark elapsed | 222.658 s | 314.257 s | 1.411x |
+| Game days/second | 16.3928 | 11.6147 | 0.709x |
+| Process CPU | 294.672 s | 389.734 s | 1.323x |
+| Peak working set | 1,473,703,936 | 1,479,155,712 | +5,451,776 bytes |
+| End working set | 1,381,883,904 | 1,393,106,944 | +11,223,040 bytes |
+| End private bytes | 1,590,743,040 | 1,604,603,904 | +13,860,864 bytes |
+
+The fix reported 72.554 seconds inside its recipient-processing callbacks,
+79.2% of the 91.599-second wall-time increase. This is an opt-in gameplay fix
+whose daily country sampling, bounded POP traversal, exact allocation, mutation,
+and postcondition checks remain material. Daily recipient batching reduced the
+historical pre-batching slowdown from 8.40x elapsed time to 1.41x on this
+fixture; this is not a claim about other machines, saves, or mods.
+
+The fix emitted 3,650 aggregate health/value pairs plus one zero-transfer
+treasury-mismatch warning. Every named transfer was paid exactly: aggregate
+destination-bank gain `2,003,503,700`, domestic `343,963,354`, foreign
+`1,659,540,346`, and POP payout `2,003,503,700,000`. There were zero rejected
+debtors, failed recipients, result-queue drops, or postcondition failures.
+
+Final sampled economic observations differed as follows. These remain separate
+raw categories from divergent simulations, not an additive money-supply
+identity or causal decomposition:
+
+| Final field | Baseline | `interest_fix` | Difference |
+| --- | ---: | ---: | ---: |
+| `treasury_observed_raw` | 99,030,403,012 | 106,278,163,339 | +7,247,760,327 |
+| `pop_money_observed_raw` | 28,056,708,337,586 | 31,425,196,653,994 | +3,368,488,316,408 |
+| `pop_savings_observed_raw` | 125,012,634,775,634 | 144,892,903,609,587 | +19,880,268,833,953 |
+| `creditor_count` | 492 | 622 | +130 |
+| `creditor_debt_candidate_raw` | 2,629,676,588 | 3,551,628,691 | +921,952,103 |
+| `state_interest_candidate_raw` | 1,438,307,103 | 1,850,768,026 | +412,460,923 |
 
 Both final samples reported zero negative-treasury countries and a zero bank
 interest accumulator. Bankruptcy and comprehensive world-money supply remain

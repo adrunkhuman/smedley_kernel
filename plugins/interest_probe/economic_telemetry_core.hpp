@@ -59,6 +59,7 @@ namespace interest_probe
     bool ShouldCaptureEconomicDate(int32_t date, const CaptureConfig &config,
                                    std::optional<int32_t> *last_observed_date,
                                    std::optional<int32_t> *last_sampled_date);
-    void AddEconomicValue(int64_t value, int64_t *total, uint32_t *flags);
+    void AddEconomicValue(int64_t value, int64_t *total, uint32_t *flags,
+                          uint32_t overflow_flag = SNAPSHOT_SUM_OVERFLOW);
     int64_t UtilizationBasisPoints(uint32_t value, uint32_t limit);
 }

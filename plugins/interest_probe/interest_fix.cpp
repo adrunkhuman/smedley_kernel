@@ -469,6 +469,7 @@ namespace interest_probe
             }
 
             int64_t payout_total = 0;
+            uint32_t eligible_pop_count = 0;
             for (uint32_t index = 0; index < collected; ++index) {
                 const int64_t payout = allocations_[index].payout_raw;
                 if (payout == 0) continue;
@@ -494,14 +495,14 @@ namespace interest_probe
                     return;
                 }
                 payout_total += payout;
-                ++result->paid_pop_count;
+                ++eligible_pop_count;
             }
             if (payout_total != result->transfer_raw * 1000) {
                 result->status = FixStatus::conservation_failed;
                 return;
             }
             result->payout_raw = payout_total;
-            if (result->paid_pop_count > daily_pop_set_capacity - daily_paid_pops_.size()) {
+            if (eligible_pop_count > daily_pop_set_capacity - daily_paid_pops_.size()) {
                 result->status = FixStatus::pop_identity_limit;
                 return;
             }
@@ -518,6 +519,7 @@ namespace interest_probe
                 const int64_t payout = allocations_[index].payout_raw;
                 if (payout == 0) continue;
                 GiveMoney(candidates_[index].address, payout);
+                ++result->paid_pop_count;
                 PopMoneySnapshot after{};
                 const PopMoneySnapshot &before = before_snapshots_[index];
                 if (!ReadPopMoneySnapshot(candidates_[index].address, &after)

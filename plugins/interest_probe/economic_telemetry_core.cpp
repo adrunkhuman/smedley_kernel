@@ -74,11 +74,12 @@ namespace interest_probe
         return true;
     }
 
-    void AddEconomicValue(int64_t value, int64_t *total, uint32_t *flags)
+    void AddEconomicValue(int64_t value, int64_t *total, uint32_t *flags,
+                          uint32_t overflow_flag)
     {
         if ((value > 0 && *total > (std::numeric_limits<int64_t>::max)() - value)
             || (value < 0 && *total < (std::numeric_limits<int64_t>::min)() - value)) {
-            *flags |= SNAPSHOT_SUM_OVERFLOW;
+            *flags |= overflow_flag;
             return;
         }
         *total += value;

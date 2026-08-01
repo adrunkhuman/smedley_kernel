@@ -756,5 +756,11 @@ TEST(EconomicTelemetryTest, DetectsSignedAggregationOverflow)
     interest_probe::AddEconomicValue(-1, &total, &flags);
     EXPECT_EQ(total, (std::numeric_limits<int64_t>::min)());
     EXPECT_NE(flags & interest_probe::SNAPSHOT_SUM_OVERFLOW, 0u);
+
+    flags = 0;
+    total = (std::numeric_limits<int64_t>::max)();
+    interest_probe::AddEconomicValue(1, &total, &flags, interest_probe::SAMPLE_SUM_OVERFLOW);
+    EXPECT_NE(flags & interest_probe::SAMPLE_SUM_OVERFLOW, 0u);
+    EXPECT_EQ(flags & interest_probe::SNAPSHOT_SUM_OVERFLOW, 0u);
     EXPECT_EQ(interest_probe::UtilizationBasisPoints(20000, 100000), 2000);
 }

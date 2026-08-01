@@ -110,9 +110,11 @@ namespace interest_probe
                 AddEconomicValue(quality.state_savings_raw, &snapshot.state_savings_candidate_raw, &snapshot.snapshot_flags);
                 AddEconomicValue(quality.state_interest_raw, &snapshot.state_interest_candidate_raw, &snapshot.snapshot_flags);
                 AddEconomicValue(credit_quality.creditor_interest_raw,
-                    &snapshot.creditor_interest_candidate_raw, &snapshot.credit_flags);
+                    &snapshot.creditor_interest_candidate_raw, &snapshot.credit_flags,
+                    SAMPLE_SUM_OVERFLOW);
                 AddEconomicValue(credit_quality.creditor_debt_raw,
-                    &snapshot.creditor_debt_candidate_raw, &snapshot.credit_flags);
+                    &snapshot.creditor_debt_candidate_raw, &snapshot.credit_flags,
+                    SAMPLE_SUM_OVERFLOW);
                 candidate_count += collected;
             }
 

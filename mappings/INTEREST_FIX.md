@@ -381,9 +381,10 @@ classifies self-tagged amounts as domestic and other named amounts as foreign.
 After every expected country pair for the date has completed, it processes each
 recipient once in ascending ordinal order:
 
-1. requires each debtor's individual nonzero-ordinal bank deltas to sum exactly
-   and not exceed its treasury loss, recording the remainder as the Private
-   Investor sink;
+1. requires each debtor's individual nonzero-ordinal bank deltas to sum exactly,
+   and records any matching treasury-loss remainder as the Private Investor
+   sink; a treasury mismatch is reported but does not discard directly observed
+   destination-bank gains;
 2. sums transfers with checked arithmetic and retains no game pointers across
    callbacks;
 3. traverses at most 4,096 recipient provinces and 100,000 POPs, rejecting
@@ -401,10 +402,12 @@ their current bank values directly. A creditor entry repaid and removed by the
 original function therefore remains measurable without retaining its pointer or
 requiring the mutable creditor vector to keep the same order.
 
-Any structural, identity, budget, overflow, conservation, or writable-memory
-failure skips that debtor pair or recipient before mutation. A postcondition
-failure disables later payouts and is reported. Callbacks perform no file I/O;
-a bounded worker writes `interest_fix.csv`.
+Any structural, identity, budget, overflow, destination-transfer, or
+writable-memory failure skips that debtor pair or recipient before mutation. A
+treasury mismatch suppresses only the uncertain Private Investor residual; it
+does not invalidate exact named destination-bank gains. A postcondition failure
+disables later payouts and is reported. Callbacks perform no file I/O; a bounded
+worker writes `interest_fix.csv`.
 
 The exact batched CSV header is:
 
@@ -513,6 +516,47 @@ Opt-out run `1759f606-f8b6-4588-aad0-31025e74fd60` repeated two days without
 selecting `interest_fix`; the prior fix CSV retained the same hash, timestamp,
 and length, proving the plugin did not load. Every run preserved the source-save
 SHA-256.
+
+## Batched ten-year fix result
+
+Final run `c99a16f5-41e3-40ef-8f75-f6cc835f3aee` used commit `d8458bd`, the
+unchanged supplied save, observer mode, speed 5, and 3,650 exact days. The
+11,571-record trace had SHA-256
+`0acbe58e187c5d4950ec03908294d8b653c678b6faf0e373762c6588f7e7b7fc` and zero
+sequence gaps, telemetry drops, or writer failures. The source save retained
+SHA-256 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
+The closed `interest_fix.csv` had SHA-256
+`a077b00228dbd26c15961b08a869e8a89ba87a60e62b13dffc920c5161027b0e` and these
+complete results:
+
+| Measure | Result |
+| --- | ---: |
+| Daily summaries | 3,650 `day_summary`; 0 `day_partial` |
+| Successful recipient payouts | 132,351 |
+| Rejected debtors / recipient failures | 0 / 0 |
+| Named destination-bank transfer | 2,003,503,700 |
+| Domestic / foreign transfer | 343,963,354 / 1,659,540,346 |
+| Exact POP-money payout | 2,003,503,700,000 |
+| POP payout instances passing postconditions | 8,635,406 |
+| Measured Private Investor sink | 3,552,798,087 |
+
+Every recipient payout equaled its transfer multiplied by 1,000; every paid POP
+passed money, interest-flow, total-flow, and unchanged-savings postconditions.
+All 3,650 daily transfer totals in the CSV exactly matched their structured
+`interest.fix.value` records. One zero-transfer BOL debtor emitted
+`treasury_mismatch` because its treasury moved opposite the expected direction;
+no named bank gain or payout depended on that residual. All other daily summary
+flags were zero, and every health/value telemetry publication was accepted.
+
+The successful run had no `no_eligible_savings` result. A prior deterministic
+simulation path did encounter this guard for countries with POPs but no positive
+stored savings. The allocator correctly performs no mutation in that case:
+there is no current depositor weighting with which to assign the bank gain, and
+inventing a recipient would violate the documented allocation model.
+
+The matched no-fix baseline and full performance/economic comparison are
+recorded in `TELEMETRY.md`.
 
 ## Remaining validation
 
