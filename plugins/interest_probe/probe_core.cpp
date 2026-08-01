@@ -82,7 +82,22 @@ namespace interest_probe
         // bounded identity set off that thread's stack without hot-path allocation.
         TraversalScratch traversal_scratch;
 
-        bool IsReadable(const void *pointer, size_t size)
+        struct MemoryRegionCache
+        {
+            uintptr_t begin = 0;
+            uintptr_t end = 0;
+            DWORD protect = 0;
+            DWORD state = 0;
+        };
+
+        MemoryRegionCache memory_region_cache;
+
+        void ResetMemoryRegionCache()
+        {
+            memory_region_cache = {};
+        }
+
+        bool IsAccessible(const void *pointer, size_t size, bool require_writable)
         {
             if (pointer == nullptr || size == 0) return false;
             const uintptr_t begin = reinterpret_cast<uintptr_t>(pointer);
@@ -90,41 +105,40 @@ namespace interest_probe
             const uintptr_t end = begin + size;
             uintptr_t cursor = begin;
             while (cursor < end) {
-                MEMORY_BASIC_INFORMATION region{};
-                if (VirtualQuery(reinterpret_cast<const void *>(cursor), &region, sizeof(region)) != sizeof(region)) return false;
-                if (region.State != MEM_COMMIT || (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) return false;
-                const DWORD readable = PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY
-                    | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
-                if ((region.Protect & readable) == 0) return false;
-                const uintptr_t region_begin = reinterpret_cast<uintptr_t>(region.BaseAddress);
-                if (region_begin > (std::numeric_limits<uintptr_t>::max)() - region.RegionSize) return false;
-                const uintptr_t region_end = region_begin + region.RegionSize;
-                if (region_end <= cursor) return false;
-                cursor = (std::min)(end, region_end);
+                if (cursor < memory_region_cache.begin || cursor >= memory_region_cache.end) {
+                    MEMORY_BASIC_INFORMATION region{};
+                    if (VirtualQuery(reinterpret_cast<const void *>(cursor), &region, sizeof(region)) != sizeof(region)) {
+                        return false;
+                    }
+                    const uintptr_t region_begin = reinterpret_cast<uintptr_t>(region.BaseAddress);
+                    if (region_begin > (std::numeric_limits<uintptr_t>::max)() - region.RegionSize) return false;
+                    memory_region_cache.begin = region_begin;
+                    memory_region_cache.end = region_begin + region.RegionSize;
+                    memory_region_cache.protect = region.Protect;
+                    memory_region_cache.state = region.State;
+                }
+                if (memory_region_cache.state != MEM_COMMIT
+                    || (memory_region_cache.protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) {
+                    return false;
+                }
+                const DWORD allowed = require_writable
+                    ? PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
+                    : PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY
+                        | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+                if ((memory_region_cache.protect & allowed) == 0 || memory_region_cache.end <= cursor) return false;
+                cursor = (std::min)(end, memory_region_cache.end);
             }
             return true;
         }
 
+        bool IsReadable(const void *pointer, size_t size)
+        {
+            return IsAccessible(pointer, size, false);
+        }
+
         bool IsWritable(const void *pointer, size_t size)
         {
-            if (pointer == nullptr || size == 0) return false;
-            const uintptr_t begin = reinterpret_cast<uintptr_t>(pointer);
-            if (begin > (std::numeric_limits<uintptr_t>::max)() - size) return false;
-            const uintptr_t end = begin + size;
-            uintptr_t cursor = begin;
-            while (cursor < end) {
-                MEMORY_BASIC_INFORMATION region{};
-                if (VirtualQuery(reinterpret_cast<const void *>(cursor), &region, sizeof(region)) != sizeof(region)) return false;
-                if (region.State != MEM_COMMIT || (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) return false;
-                const DWORD writable = PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
-                if ((region.Protect & writable) == 0) return false;
-                const uintptr_t region_begin = reinterpret_cast<uintptr_t>(region.BaseAddress);
-                if (region_begin > (std::numeric_limits<uintptr_t>::max)() - region.RegionSize) return false;
-                const uintptr_t region_end = region_begin + region.RegionSize;
-                if (region_end <= cursor) return false;
-                cursor = (std::min)(end, region_end);
-            }
-            return true;
+            return IsAccessible(pointer, size, true);
         }
 
         bool CopyReadable(void *destination, const void *source, size_t size)
@@ -499,6 +513,7 @@ namespace interest_probe
                          CountryResolver country_resolver, ProvinceResolver province_resolver,
                          const void *resolver_context, const void **immediate_pop)
     {
+        ResetMemoryRegionCache();
         if (immediate_pop != nullptr) *immediate_pop = nullptr;
         traversal_scratch.province_attempts = 0;
         traversal_scratch.province_id_count = 0;
@@ -529,6 +544,7 @@ namespace interest_probe
     Sample CollectInterestSample(const void *country, int32_t date_raw,
                                  CountryResolver country_resolver, const void *resolver_context)
     {
+        ResetMemoryRegionCache();
         return CollectSampleImpl(country, date_raw, country_resolver, nullptr, resolver_context,
             false, false, &traversal_scratch, nullptr, 0, 0, true);
     }
@@ -654,6 +670,7 @@ namespace interest_probe
 
     bool CanWritePopMoney(const void *pop)
     {
+        ResetMemoryRegionCache();
         if (pop == nullptr) return false;
         constexpr size_t span = pop_total_cash_flow_offset + sizeof(int64_t) - pop_money_offset;
         return IsWritable(reinterpret_cast<const uint8_t *>(pop) + pop_money_offset, span);
