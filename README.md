@@ -78,9 +78,9 @@ a configured campaign, pauses it at the exact target date, and reports typed
 telemetry when available. It deliberately leaves the game open and paused; this
 is not a verified clean exit, save, or state-assertion workflow.
 
-`economy_trace` records daily country treasury snapshots to CSV. It is an early
-instrumentation plugin, not yet the versioned JSON Lines telemetry system
-planned for broader tracing.
+`economy_trace` is the legacy CSV tool for daily country treasury snapshots.
+Use `telemetry` for versioned JSON Lines records and add `economic_telemetry`
+for bounded world economic snapshots.
 
 `interest_probe` is a read-only reverse-engineering tool for the creditor-POP
 interest investigation. It writes bounded creditor, destination-bank, and
@@ -94,8 +94,10 @@ verified creditor-bank interest transfer to that bank's positive-savings POPs
 with exact deterministic integer conservation and records outcomes in
 `interest_fix.csv` plus structured health/value telemetry when `telemetry` is
 also selected. It is disabled unless its manifest is selected, conflicts with
-the historical `v2up` plugin, and intentionally increases the circulating money
-supply relative to vanilla. See the mapping document before enabling it.
+the historical `v2up` plugin, and intentionally returns interest omitted by
+vanilla to depositor POP balances. Comprehensive world-money supply remains
+unmapped, so no total-money effect is claimed. See the mapping document before
+enabling it.
 
 `economic_telemetry` is a separately selected, read-only producer for bounded
 world economic snapshots. It depends on `telemetry`, follows its state sampling

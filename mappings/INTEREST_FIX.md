@@ -32,7 +32,9 @@ it must not reimplement the interest formula or merge domestic and foreign
 modifier behavior. The wiki also supports savings-weighted POP distribution as
 the gameplay model, while runtime evidence remains authoritative for storage,
 scale, ordering, and safe mutation. The feature must remain opt-in because
-restoring the payment changes the vanilla money supply.
+restoring the omitted payment changes vanilla liquidity behavior and observed
+POP balances. Comprehensive world-money supply remains unmapped, so the project
+does not claim a measured total-money effect.
 
 Loan creation passes the debtor's own tag and nonzero ordinal for domestic-bank
 debt, another country's tag/ordinal for foreign debt, and literal `---` with
@@ -436,6 +438,8 @@ successful recipients; the individual failure rows identify every omission.
 The runtime evidence below through commit `f057bf5` describes the earlier
 per-debtor implementation. It remains provenance for mappings and exact
 mutation checks, not acceptance evidence for the batched implementation.
+`no_transfer` and `allocation_failed` below are historical per-debtor statuses;
+they are not part of the current batched CSV status vocabulary above.
 
 Sixty-day regression run `b88ce485-ed56-4634-9bb0-0927b0a83117` exercised the
 ordinal-zero form after the diagnostic correction. It reached the exact target

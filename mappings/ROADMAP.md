@@ -58,8 +58,8 @@ need an explicit policy and reproducible runtime fixture.
    benchmark policy.
 3. Find `CGuiTypes::LookupString` by following references to known names such
    as `tax_0_slider` and `take_loan`.
-4. Analyze paired ten-year baseline/fix economic telemetry, then add genuine
-   HFM/GFM fixtures and multiplayer validation.
+4. Add genuine HFM/GFM interest-fix fixtures and multiplayer validation; the
+   paired ten-year vanilla baseline/fix analysis is complete.
 
 ## Runtime acceptance tests
 
