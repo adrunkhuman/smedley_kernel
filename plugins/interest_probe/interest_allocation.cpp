@@ -60,17 +60,20 @@ namespace interest_probe
             order_scratch[order_count++] = static_cast<uint32_t>(index);
         }
 
-        std::sort(order_scratch, order_scratch + order_count,
-            [entries](uint32_t left, uint32_t right) {
-                if (entries[left].remainder != entries[right].remainder) {
-                    return entries[left].remainder > entries[right].remainder;
-                }
-                return left < right;
-            });
         const int64_t remainder_units = payout_total - allocated;
         if (remainder_units < 0 || static_cast<uint64_t>(remainder_units) > order_count) {
             for (size_t index = 0; index < entry_count; ++index) entries[index].payout_raw = 0;
             return AllocationStatus::overflow;
+        }
+        const auto remainder_order = [entries](uint32_t left, uint32_t right) {
+            if (entries[left].remainder != entries[right].remainder) {
+                return entries[left].remainder > entries[right].remainder;
+            }
+            return left < right;
+        };
+        if (remainder_units != 0 && static_cast<size_t>(remainder_units) != order_count) {
+            std::nth_element(order_scratch, order_scratch + remainder_units,
+                order_scratch + order_count, remainder_order);
         }
         for (int64_t index = 0; index < remainder_units; ++index) {
             ++entries[order_scratch[index]].payout_raw;
