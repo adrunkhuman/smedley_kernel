@@ -619,11 +619,29 @@ source = "size from existing flags.hpp; PMIA 1.9.0 calls CTernary<CFlag *>::Get(
 name = "CState"
 status = "provisional"
 size = 0x0290
-source = "constructor RVA 0x000cdc60 and three allocation call sites establish size and 64-bit field shape; runtime resolved +0x48 elements as province indices and correlated +0x258 with scaled POP savings, while +0x260 semantics remain provisional"
+source = "constructor RVA 0x000cdc60 and three allocation call sites establish size; runtime resolved +0x48 elements as province indices, correlated +0x60 with state factory counts, and correlated +0x258 with scaled POP savings, while +0x260 semantics remain provisional"
 fields = [
   { name = "provinces_candidate", offset = 0x0048 },
+  { name = "factories", offset = 0x0060 },
   { name = "savings_in_bank_candidate", offset = 0x0258 },
   { name = "interest_payments_candidate", offset = 0x0260 },
+]
+
+[[layouts]]
+name = "CStateBuilding"
+status = "verified-runtime"
+size = 0x0220
+source = "RTTI and constructor RVA 0x000f2bc0 establish object shape; two live benchmark dates correlated type, level, employees, output, budget, spending, income, paychecks, and investment against the Production UI"
+fields = [
+  { name = "definition", offset = 0x0018 },
+  { name = "level", offset = 0x0020 },
+  { name = "output", offset = 0x00d8 },
+  { name = "employees", offset = 0x0128 },
+  { name = "budget", offset = 0x0150 },
+  { name = "market_spending", offset = 0x0158 },
+  { name = "sales_income", offset = 0x0160 },
+  { name = "paychecks", offset = 0x0168 },
+  { name = "investment", offset = 0x0170 },
 ]
 
 [[layouts]]

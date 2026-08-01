@@ -80,6 +80,14 @@ namespace smedley::clausewitz
         protected:
             Node *_cur;
         };
+        bool bounded_size(int maximum, int *result) const
+        {
+            if (result == nullptr || _size < 0 || _size > maximum) return false;
+            if ((_size == 0) != (_head == nullptr && _tail == nullptr)) return false;
+            if (_size > 0 && (_head == nullptr || _tail == nullptr)) return false;
+            *result = _size;
+            return true;
+        }
     protected:
         Node *_head;
         Node *_tail;

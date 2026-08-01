@@ -133,6 +133,7 @@ namespace smedley::v2
         inline const sstd::vector<CCountry *> countries() const { return _countries; }
         inline sstd::vector<CCountry *> countries() { return _countries; }
         int current_date_raw() const { return _current_date.raw_value(); }
+        bool ongoing_war_count_candidate(int *count) const { return _ongoing_wars.bounded_size(4096, count); }
         CInGameIdler *idler() const { return _idler; }
         int speed_index() const { return _speed_index; }
         const CCountryTag &player_tag() const { return _player_tag; }

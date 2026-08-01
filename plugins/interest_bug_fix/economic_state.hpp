@@ -8,6 +8,7 @@ namespace interest_bug_fix
     constexpr uint32_t max_sample_creditor_destinations = 64;
     constexpr uint32_t max_sample_destination_provinces = 4096;
     constexpr uint32_t max_sample_pops = 100000;
+    constexpr uint32_t max_sample_factories = 4096;
 
     enum SampleFlag : uint32_t
     {
@@ -102,6 +103,33 @@ namespace interest_bug_fix
         PopMoneySnapshot economy;
     };
 
+    enum FactoryCaptureFlag : uint32_t
+    {
+        FACTORY_COUNTRY_UNREADABLE = 1u << 0,
+        FACTORY_STATE_LIST_INVALID = 1u << 1,
+        FACTORY_STATE_UNREADABLE = 1u << 2,
+        FACTORY_LIST_INVALID = 1u << 3,
+        FACTORY_UNREADABLE = 1u << 4,
+        FACTORY_DEFINITION_INVALID = 1u << 5,
+        FACTORY_LIMIT = 1u << 6,
+    };
+
+    struct FactorySnapshot
+    {
+        uint32_t state_index = 0;
+        uint32_t factory_index = 0;
+        int32_t anchor_province_id_candidate = -1;
+        char factory_type[64]{};
+        int32_t level = 0;
+        int32_t employee_count = 0;
+        int32_t output_raw = 0;
+        int64_t budget_raw = 0;
+        int64_t market_spending_raw = 0;
+        int64_t sales_income_raw = 0;
+        int64_t paychecks_raw = 0;
+        int64_t investment_raw = 0;
+    };
+
     using CountryResolver = const void *(*)(const void *context, int32_t ordinal);
     using ProvinceResolver = const void *(*)(const void *context, int32_t id);
 
@@ -124,4 +152,7 @@ namespace interest_bug_fix
     bool ReadPopMoneySnapshot(const void *pop, PopMoneySnapshot *snapshot);
     bool ReadPopDetailSnapshot(const void *pop, PopDetailSnapshot *snapshot);
     bool CanWritePopMoney(const void *pop);
+    bool CollectCountryFactories(const void *country, FactorySnapshot *snapshots,
+                                 size_t snapshot_capacity, uint32_t *snapshot_count,
+                                 uint32_t *flags);
 }

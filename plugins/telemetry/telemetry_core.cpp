@@ -503,8 +503,12 @@ namespace smedley::telemetry
             return false;
         }
         for (const auto &rule : config.capture_rules) {
-            if (rule.family != "world.daily" && rule.family != "world.economy" && rule.family != "country.daily"
-                && rule.family != "province.daily" && rule.family != "pop.economy"
+            if (rule.family != "world.daily" && rule.family != "world.economy" && rule.family != "world.military"
+                && rule.family != "country.daily" && rule.family != "country.metrics"
+                && rule.family != "country.military" && rule.family != "country.diplomacy"
+                && rule.family != "state.factory"
+                && rule.family != "province.daily" && rule.family != "province.production"
+                && rule.family != "pop.economy"
                 && rule.family != "pop.demographics" && rule.family != "pop.aggregate") {
                 *error = "telemetry capture rule contains an unknown family";
                 return false;
@@ -531,10 +535,25 @@ namespace smedley::telemetry
                         || field == "human_control_present";
                 }
                 if (rule.family == "country.daily") return field == "treasury_raw" || field == "treasury";
+                if (rule.family == "country.metrics") return field == "power" || field == "politics";
+                if (rule.family == "country.military") {
+                    return field == "unit_count_candidate" || field == "mobilized_candidate"
+                        || field == "scheduled_mobilization_count_candidate" || field == "leadership_candidate_raw"
+                        || field == "military_ranking_candidate";
+                }
+                if (rule.family == "country.diplomacy") return field == "status" || field == "relations";
+                if (rule.family == "state.factory") {
+                    return field == "identity" || field == "employment"
+                        || field == "production" || field == "finance";
+                }
+                if (rule.family == "world.military") return field == "ongoing_war_count_candidate";
                 if (rule.family == "province.daily") {
                     return field == "owner_tag_candidate" || field == "controller_tag_candidate"
                         || field == "colonial_level_candidate" || field == "life_rating_candidate"
                         || field == "infrastructure_candidate_raw";
+                }
+                if (rule.family == "province.production") {
+                    return field == "building_slot_count_candidate" || field == "construction_count_candidate";
                 }
                 if (rule.family == "pop.economy") {
                     return field == "money_raw" || field == "savings_raw"
@@ -559,8 +578,11 @@ namespace smedley::telemetry
                     return false;
                 }
             }
-            if (rule.family != "country.daily" && !rule.country_tags.empty()) {
-                *error = "telemetry capture country filters are only supported by country.daily";
+            if (rule.family != "country.daily" && rule.family != "country.metrics"
+                && rule.family != "country.military" && rule.family != "country.diplomacy"
+                && rule.family != "state.factory"
+                && !rule.country_tags.empty()) {
+                *error = "telemetry capture country filters are only supported by country families";
                 return false;
             }
             for (size_t index = 0; index < rule.province_ids.size(); ++index) {
@@ -571,7 +593,7 @@ namespace smedley::telemetry
                     return false;
                 }
             }
-            if (rule.family != "province.daily" && rule.family != "pop.economy"
+            if (rule.family != "province.daily" && rule.family != "province.production" && rule.family != "pop.economy"
                 && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
                 && !rule.province_ids.empty()) {
                 *error = "telemetry capture province filters are only supported by province and POP families";

@@ -45,6 +45,15 @@ namespace
         uint32_t unknown;
     };
 
+    struct FactoryNode
+    {
+        std::array<std::byte, 0x220> data{};
+        const FactoryNode *previous = nullptr;
+        const FactoryNode *next = nullptr;
+        uint8_t deleted = 0;
+        uint8_t padding[3]{};
+    };
+
     const void *ResolveCountry(const void *context, int32_t ordinal)
     {
         const auto *lookup = static_cast<const CountryLookup *>(context);
@@ -677,6 +686,90 @@ TEST(InterestAllocationTest, RejectsSavingsSumAndPayoutScaleOverflow)
         interest_probe::AllocationStatus::overflow);
     EXPECT_EQ(entries[0].payout_raw, 0);
     EXPECT_EQ(entries[1].payout_raw, 0);
+}
+
+TEST(InterestBugFixTest, CollectsBoundedFactoryFields)
+{
+    std::array<std::byte, 0x1608> country{};
+    std::array<std::byte, 0x290> state{};
+    std::array<std::byte, 0x80> definition{};
+    std::array<int32_t, 1> provinces{549};
+    Node state_node{state.data(), nullptr, nullptr, 0, {}};
+    FactoryNode factory_node{};
+    const void *state_head = &state_node;
+    const int state_count = 1;
+    const void *province_begin = provinces.data();
+    const void *province_end = provinces.data() + provinces.size();
+    const void *factory_head = &factory_node;
+    const int factory_count = 1;
+    const void *definition_pointer = definition.data();
+    const char factory_type[] = "glass_factory";
+    const uint32_t factory_type_size = sizeof(factory_type) - 1;
+    const uint32_t factory_type_capacity = 15;
+    const int32_t level = 1;
+    const int32_t employees = 1998;
+    const int32_t output = 13437;
+    const int64_t budget = 8244550872;
+    const int64_t spending = 362208000;
+    const int64_t income = 497291000;
+    const int64_t paychecks = 8504523;
+    const int64_t investment = 804455000;
+
+    Write(&country, 0xe44, state_head);
+    Write(&country, 0xe48, state_head);
+    Write(&country, 0xe4c, state_count);
+    Write(&state, 0x48, province_begin);
+    Write(&state, 0x4c, province_end);
+    Write(&state, 0x50, province_end);
+    Write(&state, 0x60, factory_head);
+    Write(&state, 0x64, factory_head);
+    Write(&state, 0x68, factory_count);
+    Write(&factory_node.data, 0x18, definition_pointer);
+    Write(&factory_node.data, 0x20, level);
+    Write(&factory_node.data, 0xd8, output);
+    Write(&factory_node.data, 0x128, employees);
+    Write(&factory_node.data, 0x150, budget);
+    Write(&factory_node.data, 0x158, spending);
+    Write(&factory_node.data, 0x160, income);
+    Write(&factory_node.data, 0x168, paychecks);
+    Write(&factory_node.data, 0x170, investment);
+    std::memcpy(definition.data() + 0x20, factory_type, sizeof(factory_type));
+    Write(&definition, 0x30, factory_type_size);
+    Write(&definition, 0x34, factory_type_capacity);
+
+    std::array<interest_probe::FactorySnapshot, 2> snapshots{};
+    uint32_t captured = 0;
+    uint32_t flags = 0;
+    ASSERT_TRUE(interest_probe::CollectCountryFactories(
+        country.data(), snapshots.data(), snapshots.size(), &captured, &flags));
+    ASSERT_EQ(flags, 0u);
+    ASSERT_EQ(captured, 1u);
+    const auto &snapshot = snapshots[0];
+    EXPECT_EQ(snapshot.state_index, 0u);
+    EXPECT_EQ(snapshot.factory_index, 0u);
+    EXPECT_EQ(snapshot.anchor_province_id_candidate, 549);
+    EXPECT_STREQ(snapshot.factory_type, factory_type);
+    EXPECT_EQ(snapshot.level, level);
+    EXPECT_EQ(snapshot.employee_count, employees);
+    EXPECT_EQ(snapshot.output_raw, output);
+    EXPECT_EQ(snapshot.budget_raw, budget);
+    EXPECT_EQ(snapshot.market_spending_raw, spending);
+    EXPECT_EQ(snapshot.sales_income_raw, income);
+    EXPECT_EQ(snapshot.paychecks_raw, paychecks);
+    EXPECT_EQ(snapshot.investment_raw, investment);
+
+    factory_node.next = &factory_node;
+    const int malformed_factory_count = 2;
+    Write(&state, 0x68, malformed_factory_count);
+    EXPECT_FALSE(interest_probe::CollectCountryFactories(
+        country.data(), snapshots.data(), snapshots.size(), &captured, &flags));
+    EXPECT_NE(flags & interest_probe::FACTORY_LIST_INVALID, 0u);
+
+    factory_node.next = nullptr;
+    Write(&state, 0x68, factory_count);
+    EXPECT_FALSE(interest_probe::CollectCountryFactories(
+        country.data(), snapshots.data(), 0, &captured, &flags));
+    EXPECT_NE(flags & interest_probe::FACTORY_LIMIT, 0u);
 }
 
 TEST(InterestBugFixTest, ReadsValidatedPopDetailCandidates)

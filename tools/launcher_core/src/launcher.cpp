@@ -602,10 +602,25 @@ namespace smedley::launcher
                     || field == "human_control_present";
             }
             if (rule.family == "country.daily") return field == "treasury_raw" || field == "treasury";
+            if (rule.family == "country.metrics") return field == "power" || field == "politics";
+            if (rule.family == "country.military") {
+                return field == "unit_count_candidate" || field == "mobilized_candidate"
+                    || field == "scheduled_mobilization_count_candidate" || field == "leadership_candidate_raw"
+                    || field == "military_ranking_candidate";
+            }
+            if (rule.family == "country.diplomacy") return field == "status" || field == "relations";
+            if (rule.family == "state.factory") {
+                return field == "identity" || field == "employment"
+                    || field == "production" || field == "finance";
+            }
+            if (rule.family == "world.military") return field == "ongoing_war_count_candidate";
             if (rule.family == "province.daily") {
                 return field == "owner_tag_candidate" || field == "controller_tag_candidate"
                     || field == "colonial_level_candidate" || field == "life_rating_candidate"
                     || field == "infrastructure_candidate_raw";
+            }
+            if (rule.family == "province.production") {
+                return field == "building_slot_count_candidate" || field == "construction_count_candidate";
             }
             if (rule.family == "pop.economy") {
                 return field == "money_raw" || field == "savings_raw"
@@ -684,8 +699,12 @@ namespace smedley::launcher
             for (size_t rule_index = 0; rule_index < profile.telemetry_captures.size(); ++rule_index) {
                 const auto &rule = profile.telemetry_captures[rule_index];
                 const std::string prefix = "telemetry_captures[" + std::to_string(rule_index) + "] ";
-                if (rule.family != "world.daily" && rule.family != "world.economy" && rule.family != "country.daily"
-                    && rule.family != "province.daily" && rule.family != "pop.economy"
+                if (rule.family != "world.daily" && rule.family != "world.economy" && rule.family != "world.military"
+                    && rule.family != "country.daily" && rule.family != "country.metrics"
+                    && rule.family != "country.military" && rule.family != "country.diplomacy"
+                    && rule.family != "state.factory"
+                    && rule.family != "province.daily" && rule.family != "province.production"
+                    && rule.family != "pop.economy"
                     && rule.family != "pop.demographics" && rule.family != "pop.aggregate") {
                     AddDiagnostic(diagnostics, "telemetry.capture_family", prefix + "contains an unknown family", path);
                     return false;
@@ -715,8 +734,11 @@ namespace smedley::launcher
                         return false;
                     }
                 }
-                if (rule.family != "country.daily" && !rule.country_tags.empty()) {
-                    AddDiagnostic(diagnostics, "telemetry.capture_country_tags", prefix + "country_tags are only supported by country.daily", path);
+                if (rule.family != "country.daily" && rule.family != "country.metrics"
+                    && rule.family != "country.military" && rule.family != "country.diplomacy"
+                    && rule.family != "state.factory"
+                    && !rule.country_tags.empty()) {
+                    AddDiagnostic(diagnostics, "telemetry.capture_country_tags", prefix + "country_tags are only supported by country families", path);
                     return false;
                 }
                 for (size_t province_index = 0; province_index < rule.province_ids.size(); ++province_index) {
@@ -727,7 +749,7 @@ namespace smedley::launcher
                         return false;
                     }
                 }
-                if (rule.family != "province.daily" && rule.family != "pop.economy"
+                if (rule.family != "province.daily" && rule.family != "province.production" && rule.family != "pop.economy"
                     && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
                     && !rule.province_ids.empty()) {
                     AddDiagnostic(diagnostics, "telemetry.capture_province_ids", prefix + "province_ids are only supported by province and POP families", path);

@@ -128,6 +128,8 @@ namespace smedley::v2
         int colonial_level_candidate() const { return _colonial_level; }
         int life_rating_candidate() const { return _life_rating; }
         int infrastructure_candidate() const { return _infrastructure; }
+        bool building_slot_count_candidate(size_t *count) const { return _buildings.bounded_size(64, count); }
+        bool construction_count_candidate(int *count) const { return _constructions.bounded_size(4096, count); }
     };
 
     static_assert(sizeof(CProvince) == 0x398);

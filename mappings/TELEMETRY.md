@@ -152,6 +152,99 @@ unmapped, so this benchmark does not make claims about either.
 
 ## Province candidate snapshots
 
+## Country metric candidates
+
+`country.metrics` reads historical `CCountry` candidates plurality `+0x1a8`,
+diplomatic points `+0x65c`, war exhaustion `+0x680`, leadership `+0x7d0`, research
+points `+0xe3c`, prestige `+0xea0`, rankings `+0x1404` through `+0x1410`, and
+infamy `+0x1430`. Country tags remain the stable entity identity. Clausewitz
+scalar candidates use 1/1000 storage; leadership uses 48.15 fixed point.
+
+Vanilla one-day run `f1e91e80-a3fc-41f6-9dc4-45fc2577f068` loaded the unchanged
+`benchmark.v2` and selected PRU. Runtime values exactly matched save values for
+prestige (`50055` / 1000), plurality (`25059` / 1000), diplomatic points (`5000`
+/ 1000), research points (`32603` / 1000), and leadership (`270728` / 32768).
+Infamy and war exhaustion were zero, consistent with omitted zero-valued save
+keys. Integer rankings were overall 4, military 4, industrial 4, and prestige 5;
+these had no direct serialized counterpart and remain provisional candidates.
+
+## Province production candidates
+
+`province.production` reads the historical province construction list at
+`+0xd8` and province-building vector at `+0x118`. Vanilla one-day run
+`efc1f359-f33a-4105-a2f1-1fba825fe34d` reported three building slots and zero
+constructions for Berlin. The save serialized fort and railroad entries but no
+naval base, demonstrating that vector length is a definition-slot count rather
+than a count of active buildings. Save factories are state-level and use the
+separate mapping below. Building metadata is bounded to 64 slots and the
+construction list to 4,096 entries; invalid metadata suppresses the record.
+
+## State factories
+
+The supplied vanilla `benchmark.v2` and its Production UI establish that PRU
+has four factories in Brandenburg, one in Nordrhein, and two in Schlesien on
+1836.1.2. A read-only live-process probe resolved Berlin province 549 to the
+Brandenburg `CState` and found a linked list at `CState+0x60` with exactly four
+`CStateBuilding` nodes. The other two nonempty Prussian lists contained exactly
+one and two nodes. RTTI identifies the node object as `CStateBuilding`; static
+constructor RVA `0x000f2bc0` initializes through `+0x218`, and live links begin
+at `+0x220`, establishing object size `0x220`.
+
+The four definition keys at `CStateBuilding+0x18` resolved in UI order to
+`glass_factory`, `ammunition_factory`, `small_arms_factory`, and `paper_mill`.
+Level `+0x20` was one for each. Employee count `+0x128` exactly matched 1,998,
+1,698, 1,848, and 2,431. Small Arms output `+0xd8` matched 0.410 on 1836.1.2 and
+0.389 on 1836.1.3 after division by 32,768.
+
+Small Arms finance fields correlated on two dates: budget `+0x150`, market
+spending `+0x158`, sales income `+0x160`, paychecks `+0x168`, and investment
+`+0x170`. These are nonnegative 64-bit amounts displayed after division by
+32,768,000; expense signs are UI presentation. The vanilla define
+`FACTORY_PAYCHECKS_LEFTOVER_FACTOR = 0.25` describes distribution from factory
+leftovers, while GFM overrides it to 0.3. The wiki does not establish payment
+cadence, and telemetry does not infer one.
+
+Capture bounds state lists to 512, factory lists to 64 per state, and output to
+4,096 factories per selected country. It validates list links, readable spans,
+normalized definition keys, and nonnegative observed values. Entity identity
+uses country tag, factory-definition key, and the first state province as an
+explicit candidate; state splitting and durable state-region identity remain
+unmapped.
+
+Injected vanilla run `40d36695-696f-408e-af64-df266a1cfcc8` loaded the unchanged
+benchmark and emitted four record groups for each of seven PRU factories. The
+28 records had zero filtered, dropped, or invalid results and preserved the
+independently observed Brandenburg values exactly.
+
+## Military aggregate candidates
+
+`country.military` reads the historical country unit list `+0x7b4`, leadership
+`+0x7d0`, mobilization byte `+0x120`, military ranking `+0x1408`, and scheduled
+mobilizations vector `+0x15dc`. `world.military` reads the ongoing-war list count
+at `CGameState+0xb3c`. Vanilla run `970c3cf3-f56f-4f10-aed8-5f153534150a`
+reported 12 PRU unit-list entries, no active or scheduled mobilization,
+leadership raw 270728, military rank 4, and three ongoing-war list entries.
+`CUnit`, `CWar`, combat storage, and durable identities remain unmapped, so no
+composition, participant, battle, casualty, or movement semantics are claimed.
+Country values are observed from that country's `DailyUpdateEvent`; there is no
+additional country traversal. Metadata limits are 100,000 units or scheduled
+mobilizations and 4,096 ongoing wars. Invalid list structure or exceeded limits
+suppresses the affected record.
+
+## Diplomacy and sphere candidates
+
+`country.diplomacy` reads historical country fields substate/vassal flags
+`+0xcf4/+0xcf5`, overlord `+0xcf8`, vassals `+0xd38`, allies `+0xd58`, guarantees
+`+0xd78`, neighbors `+0xd88`, spherelings `+0x1418`, and sphere leader `+0x1428`.
+Country tags are stable identities; relation objects and influence storage are
+not exposed. Vanilla run `70db3477-0e35-4fa6-8ea4-415bc96e7483` observed PRU
+with no overlord or sphere leader, 15 spherelings, five allies, zero vassals and
+guarantees, and 21 neighbors. These vector semantics remain provisional pending
+change-over-time and symmetry probes.
+Each relation vector is bounded to 512 entries and candidate tags must contain
+three normalized bytes plus a terminator. Invalid metadata suppresses only its
+status or relations record and is reported through family `invalid` accounting.
+
 `province.daily` reads the historical `CProvince` candidate fields ID `+0x58`,
 owner `+0x128`, controller `+0x130`, colonial level `+0x190`, life rating
 `+0x1a4`, and infrastructure `+0x2b8`. These fields remain provisional and are

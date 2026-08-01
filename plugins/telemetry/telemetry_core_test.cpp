@@ -410,6 +410,80 @@ TEST(TelemetryConfigTest, RejectsCaptureRulesWithoutStateCategory)
     EXPECT_EQ(error, "telemetry capture rules require the state category");
 }
 
+TEST(TelemetryConfigTest, AcceptsCountryMetricGroups)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=country.metrics|monthly|power,politics|PRU|||"}, &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "country.metrics");
+    EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"PRU"}));
+}
+
+TEST(TelemetryConfigTest, AcceptsProvinceProductionCandidates)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=province.production|weekly|building_slot_count_candidate,construction_count_candidate||549||"},
+        &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "province.production");
+    EXPECT_EQ(config.capture_rules[0].province_ids, (std::vector<int32_t>{549}));
+}
+
+TEST(TelemetryConfigTest, AcceptsMilitaryAggregateFamilies)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=country.military|monthly|unit_count_candidate,mobilized_candidate|PRU|||",
+        L"-smedley-telemetry-capture=world.military|yearly|ongoing_war_count_candidate||||"}, &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 2u);
+    EXPECT_EQ(config.capture_rules[0].family, "country.military");
+    EXPECT_EQ(config.capture_rules[1].family, "world.military");
+}
+
+TEST(TelemetryConfigTest, AcceptsDiplomacyGroups)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=country.diplomacy|monthly|status,relations|PRU|||"},
+        &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "country.diplomacy");
+    EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"PRU"}));
+}
+
+TEST(TelemetryConfigTest, AcceptsStateFactoryGroups)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=state.factory|daily|identity,employment,production,finance|PRU|||"},
+        &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "state.factory");
+    EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"PRU"}));
+}
+
 TEST(EconomicCaptureTest, DetectsSignedAggregationOverflow)
 {
     uint32_t flags = 0;

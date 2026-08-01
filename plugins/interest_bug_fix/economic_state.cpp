@@ -20,6 +20,7 @@ namespace interest_bug_fix
         constexpr size_t country_creditors_offset = 0xe8c;
         constexpr size_t state_size = 0x290;
         constexpr size_t state_provinces_offset = 0x48;
+        constexpr size_t state_factories_offset = 0x60;
         constexpr size_t state_savings_offset = 0x258;
         constexpr size_t state_interest_offset = 0x260;
         constexpr size_t bank_interest_offset = 0x20;
@@ -49,6 +50,18 @@ namespace interest_bug_fix
         constexpr uint32_t max_destination_provinces = max_sample_destination_provinces;
         constexpr uint32_t max_pop_lists_per_province = 128;
         constexpr uint32_t max_pops = max_sample_pops;
+        constexpr uint32_t max_factories_per_state = 64;
+        constexpr size_t state_building_size = 0x220;
+        constexpr size_t state_building_definition_offset = 0x18;
+        constexpr size_t state_building_level_offset = 0x20;
+        constexpr size_t state_building_output_offset = 0xd8;
+        constexpr size_t state_building_employees_offset = 0x128;
+        constexpr size_t state_building_budget_offset = 0x150;
+        constexpr size_t state_building_market_spending_offset = 0x158;
+        constexpr size_t state_building_sales_income_offset = 0x160;
+        constexpr size_t state_building_paychecks_offset = 0x168;
+        constexpr size_t state_building_investment_offset = 0x170;
+        constexpr size_t building_definition_key_offset = 0x20;
         constexpr int64_t pop_savings_state_scale = 1000;
 
         struct ListNode
@@ -73,6 +86,27 @@ namespace interest_bug_fix
             const void *last;
             int32_t count;
             uint32_t unknown;
+        };
+
+        struct StateBuildingNode
+        {
+            std::array<uint8_t, state_building_size> data;
+            const StateBuildingNode *previous;
+            const StateBuildingNode *next;
+            uint8_t deleted;
+            uint8_t padding[3];
+        };
+
+        struct GameString
+        {
+            union
+            {
+                char inline_value[16];
+                const char *pointer;
+            } value;
+            uint32_t size;
+            uint32_t capacity;
+            uint32_t allocator;
         };
 
         struct TraversalScratch
@@ -203,6 +237,22 @@ namespace interest_bug_fix
             for (size_t index = 0; index < 3; ++index) {
                 const uint8_t value = bytes[index];
                 if (!((value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9'))) return false;
+            }
+            return true;
+        }
+
+        bool ReadFactoryType(const void *definition, char *destination, size_t destination_size)
+        {
+            if (definition == nullptr || destination == nullptr || destination_size == 0) return false;
+            GameString key{};
+            if (!ReadAt(definition, building_definition_key_offset, &key)
+                || key.size == 0 || key.size >= destination_size || key.capacity < key.size) return false;
+            const char *source = key.capacity <= 15 ? key.value.inline_value : key.value.pointer;
+            if (source == nullptr || !CopyReadable(destination, source, key.size + 1)
+                || destination[key.size] != '\0') return false;
+            for (uint32_t index = 0; index < key.size; ++index) {
+                const unsigned char value = static_cast<unsigned char>(destination[index]);
+                if (!((value >= 'a' && value <= 'z') || (value >= '0' && value <= '9') || value == '_')) return false;
             }
             return true;
         }
@@ -732,6 +782,7 @@ namespace interest_bug_fix
             || !ReadPopMoney(pop, &value.economy)) {
             return false;
         }
+
         if (value.province_id_candidate < 0 || value.pop_type_id_candidate < 0
             || value.pop_type_id_candidate > 127 || value.size_candidate < 0
             || value.employed_candidate < 0 || value.employed_candidate > value.size_candidate) {
@@ -739,6 +790,139 @@ namespace interest_bug_fix
         }
         *snapshot = value;
         return true;
+    }
+
+    bool CollectCountryFactories(const void *country, FactorySnapshot *snapshots,
+                                 size_t snapshot_capacity, uint32_t *snapshot_count,
+                                 uint32_t *flags)
+    {
+        if (snapshots == nullptr || snapshot_count == nullptr || flags == nullptr) return false;
+        *snapshot_count = 0;
+        *flags = 0;
+        ResetMemoryRegionCache();
+        if (!IsReadable(country, country_states_offset + 12)) {
+            *flags = FACTORY_COUNTRY_UNREADABLE;
+            return false;
+        }
+
+        const ListNode *state_node = nullptr;
+        const ListNode *state_tail = nullptr;
+        int32_t state_count = 0;
+        if (!ReadAt(country, country_states_offset, &state_node)
+            || !ReadAt(country, country_states_offset + 4, &state_tail)
+            || !ReadAt(country, country_states_offset + 8, &state_count)
+            || state_count < 0 || state_count > static_cast<int32_t>(max_states)
+            || ((state_count == 0) != (state_node == nullptr && state_tail == nullptr))) {
+            *flags = FACTORY_STATE_LIST_INVALID;
+            return false;
+        }
+
+        const ListNode *previous_state_node = nullptr;
+        uint32_t states_walked = 0;
+        while (state_node != nullptr && states_walked < max_states) {
+            ListNode current_state{};
+            if (!CopyReadable(&current_state, state_node, sizeof(current_state))
+                || current_state.previous != previous_state_node) {
+                *flags |= FACTORY_STATE_LIST_INVALID;
+                break;
+            }
+            if (current_state.deleted == 0 && current_state.data != nullptr) {
+                if (!IsReadable(current_state.data, state_size)) {
+                    *flags |= FACTORY_STATE_UNREADABLE;
+                    break;
+                }
+                int32_t anchor_province_id = -1;
+                PointerVector provinces{};
+                uint32_t province_count = 0;
+                if (!ReadAt(current_state.data, state_provinces_offset, &provinces)
+                    || !VectorCount(provinces, sizeof(int32_t), max_provinces_per_state, &province_count)
+                    || province_count == 0 || !ReadAt(provinces.begin, 0, &anchor_province_id)
+                    || anchor_province_id < 0) {
+                    *flags |= FACTORY_STATE_UNREADABLE;
+                    break;
+                }
+
+                const StateBuildingNode *factory_node = nullptr;
+                const StateBuildingNode *factory_tail = nullptr;
+                int32_t factory_count = 0;
+                if (!ReadAt(current_state.data, state_factories_offset, &factory_node)
+                    || !ReadAt(current_state.data, state_factories_offset + 4, &factory_tail)
+                    || !ReadAt(current_state.data, state_factories_offset + 8, &factory_count)
+                    || factory_count < 0 || factory_count > static_cast<int32_t>(max_factories_per_state)
+                    || ((factory_count == 0) != (factory_node == nullptr && factory_tail == nullptr))) {
+                    *flags |= FACTORY_LIST_INVALID;
+                    break;
+                }
+
+                const StateBuildingNode *previous_factory_node = nullptr;
+                uint32_t factories_walked = 0;
+                while (factory_node != nullptr && factories_walked < max_factories_per_state) {
+                    StateBuildingNode current_factory{};
+                    if (!CopyReadable(&current_factory, factory_node, sizeof(current_factory))
+                        || current_factory.previous != previous_factory_node) {
+                        *flags |= FACTORY_LIST_INVALID;
+                        break;
+                    }
+                    if (current_factory.deleted == 0) {
+                        if (*snapshot_count >= snapshot_capacity || *snapshot_count >= max_sample_factories) {
+                            *flags |= FACTORY_LIMIT;
+                            break;
+                        }
+                        FactorySnapshot snapshot{};
+                        snapshot.state_index = states_walked;
+                        snapshot.factory_index = factories_walked;
+                        snapshot.anchor_province_id_candidate = anchor_province_id;
+                        const void *definition = nullptr;
+                        std::memcpy(&definition, current_factory.data.data() + state_building_definition_offset, sizeof(definition));
+                        std::memcpy(&snapshot.level, current_factory.data.data() + state_building_level_offset, sizeof(snapshot.level));
+                        std::memcpy(&snapshot.output_raw, current_factory.data.data() + state_building_output_offset, sizeof(snapshot.output_raw));
+                        std::memcpy(&snapshot.employee_count, current_factory.data.data() + state_building_employees_offset, sizeof(snapshot.employee_count));
+                        std::memcpy(&snapshot.budget_raw, current_factory.data.data() + state_building_budget_offset, sizeof(snapshot.budget_raw));
+                        std::memcpy(&snapshot.market_spending_raw, current_factory.data.data() + state_building_market_spending_offset, sizeof(snapshot.market_spending_raw));
+                        std::memcpy(&snapshot.sales_income_raw, current_factory.data.data() + state_building_sales_income_offset, sizeof(snapshot.sales_income_raw));
+                        std::memcpy(&snapshot.paychecks_raw, current_factory.data.data() + state_building_paychecks_offset, sizeof(snapshot.paychecks_raw));
+                        std::memcpy(&snapshot.investment_raw, current_factory.data.data() + state_building_investment_offset, sizeof(snapshot.investment_raw));
+                        if (!ReadFactoryType(definition, snapshot.factory_type, sizeof(snapshot.factory_type))) {
+                            *flags |= FACTORY_DEFINITION_INVALID;
+                            break;
+                        }
+                        if (snapshot.level < 0 || snapshot.employee_count < 0 || snapshot.output_raw < 0
+                            || snapshot.budget_raw < 0 || snapshot.market_spending_raw < 0
+                            || snapshot.sales_income_raw < 0 || snapshot.paychecks_raw < 0
+                            || snapshot.investment_raw < 0) {
+                            *flags |= FACTORY_UNREADABLE;
+                            break;
+                        }
+                        snapshots[(*snapshot_count)++] = snapshot;
+                    }
+                    ++factories_walked;
+                    previous_factory_node = factory_node;
+                    if (current_factory.next == factory_node) {
+                        *flags |= FACTORY_LIST_INVALID;
+                        break;
+                    }
+                    factory_node = current_factory.next;
+                }
+                if (*flags != 0) break;
+                if (factories_walked != static_cast<uint32_t>(factory_count)
+                    || (factory_count != 0 && previous_factory_node != factory_tail)) {
+                    *flags |= FACTORY_LIST_INVALID;
+                    break;
+                }
+            }
+            ++states_walked;
+            previous_state_node = state_node;
+            if (current_state.next == state_node) {
+                *flags |= FACTORY_STATE_LIST_INVALID;
+                break;
+            }
+            state_node = current_state.next;
+        }
+        if (states_walked != static_cast<uint32_t>(state_count)
+            || (state_count != 0 && previous_state_node != state_tail)) {
+            *flags |= FACTORY_STATE_LIST_INVALID;
+        }
+        return *flags == 0;
     }
 
     bool CanWritePopMoney(const void *pop)

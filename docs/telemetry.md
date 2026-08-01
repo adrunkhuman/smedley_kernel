@@ -52,18 +52,28 @@ province_ids = [549]
 
 Each rule accepts `family`, `cadence`, `fields`, `country_tags`, `province_ids`,
 and optional `start_date_raw` and `end_date_raw`. Empty `fields` selects every
-field in that family. Country filters are valid only for `country.daily`.
-Province filters are valid for `province.daily`, `pop.economy`,
+field in that family. Country filters are valid for all `country.*` families and
+`state.factory`.
+Province filters are valid for `province.daily`, `province.production`, `pop.economy`,
 `pop.demographics`, and `pop.aggregate`. An empty entity filter means every
 entity, including daily all-province or all-POP capture when explicitly
-requested.
+requested. Country families filter the country supplied by each
+`DailyUpdateEvent`; they do not initiate a separate country traversal. Global
+families such as `world.military` have no country entity and ignore country
+filters.
 
 | Family | Selectable fields |
 | --- | --- |
 | `world.daily` | `country_slot_count`, `ai_scheduler_entry_count`, `human_control_present` |
 | `world.economy` | record groups `health`, `capacity`, `holdings`, `credit` |
 | `country.daily` | `treasury_raw`, `treasury` |
+| `country.metrics` | record groups `power`, `politics` |
+| `country.military` | `unit_count_candidate`, `mobilized_candidate`, `scheduled_mobilization_count_candidate`, `leadership_candidate_raw`, `military_ranking_candidate` |
+| `world.military` | `ongoing_war_count_candidate` |
+| `country.diplomacy` | record groups `status`, `relations` |
+| `state.factory` | record groups `identity`, `employment`, `production`, `finance` |
 | `province.daily` | `owner_tag_candidate`, `controller_tag_candidate`, `colonial_level_candidate`, `life_rating_candidate`, `infrastructure_candidate_raw` |
+| `province.production` | `building_slot_count_candidate`, `construction_count_candidate` |
 | `pop.economy` | `money_raw`, `savings_raw`, `interest_cash_flow_raw`, `total_cash_flow_raw` |
 | `pop.demographics` | `size_candidate`, `employed_candidate`, `consciousness_candidate_raw`, `militancy_candidate_raw`, `literacy_candidate_raw` |
 | `pop.aggregate` | `pop_count`, `size_candidate`, `employed_candidate`, `money_raw`, `savings_raw` |
@@ -78,8 +88,9 @@ Date regression resets each rule independently.
 Selecting the `state` category also enables bounded world economic snapshots in
 `telemetry.dll`. Collection follows the same inclusive date bounds and
 `telemetry_sample_days` interval. A complete world POP walk is materially more
-expensive than ordinary treasury sampling. Country filters apply only to
-`country.daily`; they do not suppress global world records.
+expensive than ordinary treasury sampling. Legacy top-level country filters
+apply to `country.daily`; explicit rule filters apply to every `country.*`
+family. Neither suppresses global world records.
 
 If no output path is supplied, a real injected launch derives
 `%LOCALAPPDATA%\Smedley\traces\<run-id>.jsonl`. The launcher creates its run ID
@@ -176,6 +187,69 @@ fixed-point representation is 48.15. It deliberately does not contain
 `treasury_shadow`, pointers, guessed AI intentions, candidates, scores, or
 decision reasoning. This is economy state telemetry, not a decision trace.
 
+`country.metrics` emits provisional `country.metrics.power` and
+`country.metrics.politics` records keyed by country tag. Power contains raw
+prestige and infamy candidates plus overall, military, industrial, and prestige
+ranking candidates. Politics contains raw plurality, war exhaustion, diplomatic
+points, research points, and leadership candidates. All raw fields except
+leadership use the game's 1/1000 scalar representation; leadership uses 48.15
+fixed point and divides by 32,768.
+
+Vanilla run `f1e91e80-a3fc-41f6-9dc4-45fc2577f068` correlated PRU against
+`benchmark.v2`: prestige 50.055, plurality 25.059, diplomatic points 5.000,
+research points 32.603, leadership 8.26196, and zero infamy and war exhaustion.
+Observed rankings were overall 4, military 4, industrial 4, and prestige 5.
+
+`country.military` and `world.military` expose only bounded aggregate candidates.
+`country.military` reports country unit-list count, mobilization state and
+schedule count, leadership, and military ranking. `world.military` has no entity
+and reports only the global ongoing-war list count. They do not
+expose unit, regiment, war, side, or battle identities. Run
+`970c3cf3-f56f-4f10-aed8-5f153534150a` observed PRU with 12 unit-list entries,
+no active or scheduled mobilization, leadership raw 270728, military rank 4,
+and three global ongoing-war entries.
+
+`country.diplomacy` emits provisional status and relation summaries keyed by
+country tag. Status contains substate/vassal flags plus overlord and sphere-
+leader tag candidates. Relations contains sphereling, vassal, ally, guarantee,
+and neighbor counts. Run `70db3477-0e35-4fa6-8ea4-415bc96e7483` observed PRU
+with no overlord or sphere leader, 15 spherelings, five allies, zero vassals or
+guarantees, and 21 neighbors. Influence values and opaque diplomatic actions or
+statuses remain unavailable.
+
+`state.factory` emits one record per selected group and factory from the owning
+country's bounded state list. Entities are country tag, the state's first
+province ID as an explicit identity candidate, and the factory-definition key.
+The anchor province can change when ownership splits a state and is not a
+durable state-region identifier. Identity reports level, employment reports the
+total employee count, and production reports `output_raw`, where displayed
+output is `output_raw / 32768`.
+
+Finance reports nonnegative observed amounts: `budget_raw`,
+`market_spending_expense_raw`, `sales_income_raw`, `paychecks_expense_raw`, and
+`investment_income_raw`. Displayed currency is raw / 32,768,000. Expense fields
+remain positive in telemetry; the UI supplies their minus signs. Vanilla
+`FACTORY_PAYCHECKS_LEFTOVER_FACTOR` is 0.25, but mods can override it (GFM uses
+0.3), so telemetry records the engine result rather than deriving paychecks.
+The wiki documents employment and production formulas but not a paycheck
+cadence; no cadence claim is made.
+
+Vanilla run `40d36695-696f-408e-af64-df266a1cfcc8` emitted identity,
+employment, production, and finance records for all seven PRU factories on
+1836.1.3: four in the state anchored by Berlin 549, one anchored by province
+575, and two anchored by province 682. All 28 records were accepted with zero
+filtered, dropped, or invalid records. Brandenburg's types, levels, employment,
+and Small Arms values exactly matched the independent UI and read-only process
+probe.
+
+Candidate container metadata is validated before emission. Limits are 64
+province-building slots, 4,096 province constructions, 100,000 country units or
+scheduled mobilizations, 512 entries in each country relation vector, and 4,096
+ongoing wars. Factory capture allows 512 states, 64 factories per state, and
+4,096 factories per selected country. Negative list sizes, inconsistent null pointers, reversed or
+misaligned vector pointers, exceeded limits, and non-normalized candidate tags
+suppress only the affected record and increment its family's `invalid` count.
+
 `world.daily` is emitted once per selected sample date before country filtering.
 It reports `country_slot_count`, `ai_scheduler_entry_count`, and
 `human_control_present` with `provisional` quality. Country slots include
@@ -191,6 +265,13 @@ owner, controller, colonial level, and life rating against `benchmark.v2` for
 provinces 1, 425, and 549. Berlin (549) reported infrastructure raw `160` while
 the save contained railroad level 1. That pair is evidence of correlation, not
 yet a supported conversion from raw infrastructure to displayed level.
+
+`province.production` is a provisional inventory of the province-level building
+definition vector and construction list. `building_slot_count_candidate` is not
+an active-building or factory count. Berlin reported three slots while the save
+serialized fort and railroad entries and omitted naval base. Factories are
+state-level objects exposed separately by `state.factory`; the province vector
+remains unrelated to factory count.
 
 The opt-in POP families use a bounded snapshot shared by all POP rules due on
 the same game date. `pop.economy` and `pop.demographics` emit one record per POP,

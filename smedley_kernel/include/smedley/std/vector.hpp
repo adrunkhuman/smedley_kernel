@@ -119,6 +119,23 @@ namespace smedley::sstd
 
         inline size_type capacity() const noexcept { return _end - _first; }
         inline size_type size() const noexcept { return _last - _first; }
+        bool bounded_size(size_type maximum, size_type *result) const noexcept
+        {
+            if (result == nullptr) return false;
+            const uintptr_t first = reinterpret_cast<uintptr_t>(_first);
+            const uintptr_t last = reinterpret_cast<uintptr_t>(_last);
+            const uintptr_t end = reinterpret_cast<uintptr_t>(_end);
+            if (first == 0 || last == 0 || end == 0) {
+                if (first != 0 || last != 0 || end != 0) return false;
+                *result = 0;
+                return true;
+            }
+            if (first > last || last > end || (last - first) % sizeof(T) != 0 || (end - first) % sizeof(T) != 0) return false;
+            const size_type count = (last - first) / sizeof(T);
+            if (count > maximum) return false;
+            *result = count;
+            return true;
+        }
 
         inline iterator begin() { return iterator(_first); }
         inline iterator end() { return iterator(_last); }
