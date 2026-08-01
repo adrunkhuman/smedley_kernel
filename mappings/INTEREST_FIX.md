@@ -416,7 +416,8 @@ Possible statuses are `paid`, `invalid_pair`, `batch_invalid`, `day_incomplete`,
 `day_summary`, `day_partial`, `recipient_identity_invalid`, `collection_failed`,
 `no_eligible_savings`, `allocation_overflow`, `allocation_invalid`,
 `pop_balance_overflow`, `pop_not_writable`, `duplicate_pop`, `pop_identity_limit`,
-`postcondition_failed`, and `conservation_failed`. `allocation_status` preserves
+`postcondition_failed`, `conservation_failed`, and `treasury_mismatch`.
+`allocation_status` preserves
 the allocator's exact result. `dropped_results` is the cumulative bounded
 result-queue drop count. Telemetry result codes
 follow the C ABI: 0 unavailable, 1 filtered, 2 accepted, 3 dropped, and 4

@@ -45,6 +45,7 @@ namespace interest_probe
             pop_identity_limit,
             postcondition_failed,
             conservation_failed,
+            treasury_mismatch,
         };
 
         struct FixResult
@@ -145,6 +146,7 @@ namespace interest_probe
             case FixStatus::pop_identity_limit: return "pop_identity_limit";
             case FixStatus::postcondition_failed: return "postcondition_failed";
             case FixStatus::conservation_failed: return "conservation_failed";
+            case FixStatus::treasury_mismatch: return "treasury_mismatch";
             }
             return "unknown";
         }
@@ -228,9 +230,12 @@ namespace interest_probe
                     Publish(result);
                     batch_.Reset();
                 }
-                if (!batch_.started() && !batch_.Begin(date_raw, static_cast<uint32_t>(game_state->country_count()))) {
-                    disabled_ = true;
-                    logger().Failure("interest fix disabled because the country vector exceeds the daily batch bound");
+                if (!batch_.started()) {
+                    day_flags_ = 0;
+                    if (!batch_.Begin(date_raw, static_cast<uint32_t>(game_state->country_count()))) {
+                        disabled_ = true;
+                        logger().Failure("interest fix disabled because the country vector exceeds the daily batch bound");
+                    }
                 }
             } catch (...) {
                 disabled_ = true;
@@ -264,11 +269,9 @@ namespace interest_probe
             }
 
             int64_t private_sink_raw = 0;
-            if (!ComputeTreasuryResidual(pending_before_.treasury_raw, after.treasury_raw,
-                    after.destination_transfer_raw, &private_sink_raw)) {
-                RejectPair(after, debtor_ordinal, FixStatus::conservation_failed);
-                return;
-            }
+            const bool treasury_matches = ComputeTreasuryResidual(
+                pending_before_.treasury_raw, after.treasury_raw,
+                after.destination_transfer_raw, &private_sink_raw);
 
             std::array<InterestTransfer, max_sample_creditor_destinations> transfers{};
             uint32_t transfer_count = 0;
@@ -285,6 +288,16 @@ namespace interest_probe
             if (add != BatchAddStatus::success) {
                 RejectPair(after, debtor_ordinal, FixStatus::batch_invalid);
                 return;
+            }
+            if (!treasury_matches) {
+                day_flags_ |= SAMPLE_DESTINATION_TRANSFER_INVALID;
+                FixResult warning{};
+                warning.date_raw = after.date_raw;
+                std::memcpy(warning.country_tag, after.country_tag, 4);
+                warning.status = FixStatus::treasury_mismatch;
+                warning.flags = SAMPLE_DESTINATION_TRANSFER_INVALID;
+                warning.transfer_raw = after.destination_transfer_raw;
+                Publish(warning);
             }
             if (batch_.complete()) FinalizeDay(game_state);
         }
@@ -390,6 +403,7 @@ namespace interest_probe
             std::memcpy(summary.country_tag, "---", 4);
             summary.status = rejected_debtors == 0 && recipient_failures == 0
                 ? FixStatus::day_summary : FixStatus::day_partial;
+            summary.flags = day_flags_;
             summary.source_count = summary_source_count_;
             summary.province_count = summary_province_count_;
             summary.pop_count = summary_pop_count_;
@@ -414,6 +428,7 @@ namespace interest_probe
             summary_domestic_transfer_raw_ = 0;
             summary_foreign_transfer_raw_ = 0;
             summary_payout_raw_ = 0;
+            day_flags_ = 0;
         }
 
         void PayRecipient(const smedley::v2::CCurrentGameState *game_state,
@@ -607,6 +622,7 @@ namespace interest_probe
         int64_t summary_domestic_transfer_raw_ = 0;
         int64_t summary_foreign_transfer_raw_ = 0;
         int64_t summary_payout_raw_ = 0;
+        uint32_t day_flags_ = 0;
         DailyPopSet daily_paid_pops_{};
         std::array<PopCandidate, max_sample_pops> candidates_{};
         std::array<AllocationEntry, max_sample_pops> allocations_{};
