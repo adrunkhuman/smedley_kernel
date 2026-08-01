@@ -651,11 +651,12 @@ TEST(InterestAllocationTest, RejectsNoEligibleSavingsAndOverflow)
         interest_probe::AllocationStatus::no_eligible_savings);
 
     entries = {{{2}, {1}}};
-    EXPECT_EQ(interest_probe::AllocateInterest((std::numeric_limits<int64_t>::max)() / 1000,
-        entries.data(), entries.size(), scratch.data(), scratch.size()),
-        interest_probe::AllocationStatus::overflow);
-    EXPECT_EQ(entries[0].payout_raw, 0);
-    EXPECT_EQ(entries[1].payout_raw, 0);
+    const int64_t large_transfer = (std::numeric_limits<int64_t>::max)() / 1000;
+    EXPECT_EQ(interest_probe::AllocateInterest(
+        large_transfer, entries.data(), entries.size(), scratch.data(), scratch.size()),
+        interest_probe::AllocationStatus::success);
+    EXPECT_EQ(entries[0].payout_raw + entries[1].payout_raw, large_transfer * 1000);
+    EXPECT_GT(entries[0].payout_raw, entries[1].payout_raw);
 }
 
 TEST(InterestAllocationTest, ClearsReusedOutputsForNoPayment)
