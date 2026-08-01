@@ -133,8 +133,8 @@ With both `interest_fix` and `telemetry` selected, the fix emits:
 
 | Event | Payload | Contract |
 | --- | --- | --- |
-| `interest.fix.health` | status, flags, source/province/POP counts, verified POP count, callback microseconds | One record for every rejected debtor pair, finalized daily recipient, and daily summary. Recipient tags identify payout records; `---` identifies summaries. |
-| `interest.fix.value` | exact aggregate bank transfer, derived POP payout, domestic and foreign components | Emitted only after a successful recipient-level `paid` result. |
+| `interest.fix.health` | status, flags, source/province/POP counts, verified POP count, callback microseconds | One `---` daily aggregate plus any rejected debtor or recipient result. Complete paid-recipient detail remains in `interest_fix.csv`. |
+| `interest.fix.value` | exact aggregate bank transfer, derived POP payout, domestic and foreign components | Emitted once for a fully successful day; failed or partial days emit no value record. |
 
 Both records use `verified-runtime` quality. The health shape uses the ABI limit
 of eight combined entity/payload fields exactly. They use the reliable bounded

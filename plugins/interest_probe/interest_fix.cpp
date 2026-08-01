@@ -33,6 +33,7 @@ namespace interest_probe
             batch_invalid,
             day_incomplete,
             day_summary,
+            day_partial,
             recipient_identity_invalid,
             collection_failed,
             no_eligible_savings,
@@ -132,6 +133,7 @@ namespace interest_probe
             case FixStatus::batch_invalid: return "batch_invalid";
             case FixStatus::day_incomplete: return "day_incomplete";
             case FixStatus::day_summary: return "day_summary";
+            case FixStatus::day_partial: return "day_partial";
             case FixStatus::recipient_identity_invalid: return "recipient_identity_invalid";
             case FixStatus::collection_failed: return "collection_failed";
             case FixStatus::no_eligible_savings: return "no_eligible_savings";
@@ -306,14 +308,60 @@ namespace interest_probe
         void FinalizeDay(const smedley::v2::CCurrentGameState *game_state)
         {
             daily_paid_pops_.Reset();
-            uint32_t recipient_count = 0;
+            uint32_t recipient_failures = 0;
+            uint64_t callback_us_total = 0;
             const int32_t date_raw = batch_.date_raw();
             const uint32_t rejected_debtors = batch_.rejected_debtors();
             const int64_t private_sink_raw = batch_.private_sink_raw();
+            summary_source_count_ = 0;
+            summary_province_count_ = 0;
+            summary_pop_count_ = 0;
+            summary_paid_pop_count_ = 0;
+            summary_verified_pop_count_ = 0;
+            summary_transfer_raw_ = 0;
+            summary_domestic_transfer_raw_ = 0;
+            summary_foreign_transfer_raw_ = 0;
+            summary_payout_raw_ = 0;
             for (uint32_t ordinal = 1; ordinal < max_batch_countries; ++ordinal) {
                 const DailyRecipient &recipient = batch_.recipient(ordinal);
                 if (!recipient.active) continue;
-                ++recipient_count;
+                if (recipient.source_count > (std::numeric_limits<uint32_t>::max)() - summary_source_count_
+                    || !CanAdd(summary_transfer_raw_, recipient.transfer_raw)
+                    || !CanAdd(summary_domestic_transfer_raw_, recipient.domestic_transfer_raw)
+                    || !CanAdd(summary_foreign_transfer_raw_, recipient.foreign_transfer_raw)) {
+                    FixResult overflow{};
+                    overflow.date_raw = date_raw;
+                    std::memcpy(overflow.country_tag, "---", 4);
+                    overflow.status = FixStatus::conservation_failed;
+                    overflow.flags = SAMPLE_SUM_OVERFLOW;
+                    overflow.rejected_debtors = batch_.rejected_debtors();
+                    callback_started_ = std::chrono::steady_clock::now();
+                    Publish(overflow);
+                    finalized_date_raw_ = date_raw;
+                    batch_.Reset();
+                    return;
+                }
+                summary_source_count_ += recipient.source_count;
+                summary_transfer_raw_ += recipient.transfer_raw;
+                summary_domestic_transfer_raw_ += recipient.domestic_transfer_raw;
+                summary_foreign_transfer_raw_ += recipient.foreign_transfer_raw;
+            }
+            if (summary_transfer_raw_ > (std::numeric_limits<int64_t>::max)() / 1000) {
+                FixResult overflow{};
+                overflow.date_raw = date_raw;
+                std::memcpy(overflow.country_tag, "---", 4);
+                overflow.status = FixStatus::conservation_failed;
+                overflow.flags = SAMPLE_SUM_OVERFLOW;
+                overflow.rejected_debtors = batch_.rejected_debtors();
+                callback_started_ = std::chrono::steady_clock::now();
+                Publish(overflow);
+                finalized_date_raw_ = date_raw;
+                batch_.Reset();
+                return;
+            }
+            for (uint32_t ordinal = 1; ordinal < max_batch_countries; ++ordinal) {
+                const DailyRecipient &recipient = batch_.recipient(ordinal);
+                if (!recipient.active) continue;
                 callback_started_ = std::chrono::steady_clock::now();
                 FixResult result{};
                 result.date_raw = date_raw;
@@ -323,21 +371,49 @@ namespace interest_probe
                 result.domestic_transfer_raw = recipient.domestic_transfer_raw;
                 result.foreign_transfer_raw = recipient.foreign_transfer_raw;
                 PayRecipient(game_state, recipient, &result);
-                Publish(result);
+                Publish(result, result.status != FixStatus::paid);
+                callback_us_total += result.callback_us;
+                if (result.status == FixStatus::paid) {
+                    summary_province_count_ += result.province_count;
+                    summary_pop_count_ += result.pop_count;
+                    summary_paid_pop_count_ += result.paid_pop_count;
+                    summary_verified_pop_count_ += result.verified_pop_count;
+                    summary_payout_raw_ += result.payout_raw;
+                } else {
+                    ++recipient_failures;
+                }
                 if (disabled_) break;
             }
 
-            callback_started_ = std::chrono::steady_clock::now();
             FixResult summary{};
             summary.date_raw = date_raw;
             std::memcpy(summary.country_tag, "---", 4);
-            summary.status = FixStatus::day_summary;
-            summary.source_count = recipient_count;
-            summary.rejected_debtors = rejected_debtors;
+            summary.status = rejected_debtors == 0 && recipient_failures == 0
+                ? FixStatus::day_summary : FixStatus::day_partial;
+            summary.source_count = summary_source_count_;
+            summary.province_count = summary_province_count_;
+            summary.pop_count = summary_pop_count_;
+            summary.paid_pop_count = summary_paid_pop_count_;
+            summary.verified_pop_count = summary_verified_pop_count_;
+            summary.rejected_debtors = rejected_debtors + recipient_failures;
+            summary.transfer_raw = summary_transfer_raw_;
+            summary.domestic_transfer_raw = summary_domestic_transfer_raw_;
+            summary.foreign_transfer_raw = summary_foreign_transfer_raw_;
             summary.private_sink_raw = private_sink_raw;
-            Publish(summary);
+            summary.payout_raw = summary_payout_raw_;
+            summary.callback_us = callback_us_total;
+            Publish(summary, true, true);
             finalized_date_raw_ = date_raw;
             batch_.Reset();
+            summary_source_count_ = 0;
+            summary_province_count_ = 0;
+            summary_pop_count_ = 0;
+            summary_paid_pop_count_ = 0;
+            summary_verified_pop_count_ = 0;
+            summary_transfer_raw_ = 0;
+            summary_domestic_transfer_raw_ = 0;
+            summary_foreign_transfer_raw_ = 0;
+            summary_payout_raw_ = 0;
         }
 
         void PayRecipient(const smedley::v2::CCurrentGameState *game_state,
@@ -453,33 +529,40 @@ namespace interest_probe
             return static_cast<const smedley::v2::CCurrentGameState *>(context)->province(id);
         }
 
-        void Publish(FixResult result)
+        void Publish(FixResult &result, bool emit_telemetry = true, bool preserve_callback_us = false)
         {
-            result.callback_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
-                std::chrono::steady_clock::now() - callback_started_).count());
-            const auto country = TelemetryStringField("country_tag", result.country_tag);
-            const SmedleyTelemetryFieldV1 health[] = {
-                TelemetryStringField("status", StatusName(result.status)),
-                TelemetryIntField("flags", result.flags),
-                TelemetryIntField("source_count", result.source_count),
-                TelemetryIntField("province_count", result.province_count),
-                TelemetryIntField("pop_count", result.pop_count),
-                TelemetryIntField("verified_pop_count", result.verified_pop_count),
-                TelemetryIntField("callback_us", static_cast<int64_t>(result.callback_us)),
-            };
-            static_assert(1 + std::size(health) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
-            result.health_telemetry_result = telemetry_.Emit(
-                "interest.fix.health", "verified-runtime", result.date_raw, &country, 1, health, 7, true);
-            const SmedleyTelemetryFieldV1 value[] = {
-                TelemetryIntField("transfer_raw", result.transfer_raw),
-                TelemetryIntField("payout_raw", result.payout_raw),
-                TelemetryIntField("domestic_transfer_raw", result.domestic_transfer_raw),
-                TelemetryIntField("foreign_transfer_raw", result.foreign_transfer_raw),
-            };
-            static_assert(1 + std::size(value) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
-            if (result.status == FixStatus::paid) {
-                result.value_telemetry_result = telemetry_.Emit(
-                    "interest.fix.value", "verified-runtime", result.date_raw, &country, 1, value, 4, true);
+            if (!preserve_callback_us) {
+                result.callback_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+                    std::chrono::steady_clock::now() - callback_started_).count());
+            }
+            if (emit_telemetry) {
+                const auto country = TelemetryStringField("country_tag", result.country_tag);
+                const SmedleyTelemetryFieldV1 health[] = {
+                    TelemetryStringField("status", StatusName(result.status)),
+                    TelemetryIntField("flags", result.flags),
+                    TelemetryIntField("source_count", result.source_count),
+                    TelemetryIntField("province_count", result.province_count),
+                    TelemetryIntField("pop_count", result.pop_count),
+                    TelemetryIntField("verified_pop_count", result.verified_pop_count),
+                    TelemetryIntField("callback_us", static_cast<int64_t>(result.callback_us)),
+                };
+                static_assert(1 + std::size(health) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
+                result.health_telemetry_result = telemetry_.Emit(
+                    "interest.fix.health", "verified-runtime", result.date_raw, &country, 1, health, 7, true);
+                const SmedleyTelemetryFieldV1 value[] = {
+                    TelemetryIntField("transfer_raw", result.transfer_raw),
+                    TelemetryIntField("payout_raw", result.payout_raw),
+                    TelemetryIntField("domestic_transfer_raw", result.domestic_transfer_raw),
+                    TelemetryIntField("foreign_transfer_raw", result.foreign_transfer_raw),
+                };
+                static_assert(1 + std::size(value) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
+                if (result.status == FixStatus::paid
+                    || (result.status == FixStatus::day_summary && result.rejected_debtors == 0
+                        && result.transfer_raw <= (std::numeric_limits<int64_t>::max)() / 1000
+                        && result.payout_raw == result.transfer_raw * 1000)) {
+                    result.value_telemetry_result = telemetry_.Emit(
+                        "interest.fix.value", "verified-runtime", result.date_raw, &country, 1, value, 4, true);
+                }
             }
             if (!queue_.TryPush(result)) dropped_.fetch_add(1, std::memory_order_relaxed);
         }
@@ -515,6 +598,15 @@ namespace interest_probe
         bool disabled_ = false;
         int32_t finalized_date_raw_ = 0;
         uint32_t candidate_count_ = 0;
+        uint32_t summary_source_count_ = 0;
+        uint32_t summary_province_count_ = 0;
+        uint32_t summary_pop_count_ = 0;
+        uint32_t summary_paid_pop_count_ = 0;
+        uint32_t summary_verified_pop_count_ = 0;
+        int64_t summary_transfer_raw_ = 0;
+        int64_t summary_domestic_transfer_raw_ = 0;
+        int64_t summary_foreign_transfer_raw_ = 0;
+        int64_t summary_payout_raw_ = 0;
         DailyPopSet daily_paid_pops_{};
         std::array<PopCandidate, max_sample_pops> candidates_{};
         std::array<AllocationEntry, max_sample_pops> allocations_{};

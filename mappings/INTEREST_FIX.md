@@ -413,7 +413,7 @@ date_raw,country,status,flags,source_count,pop_count,paid_pop_count,province_cou
 ```
 
 Possible statuses are `paid`, `invalid_pair`, `batch_invalid`, `day_incomplete`,
-`day_summary`, `recipient_identity_invalid`, `collection_failed`,
+`day_summary`, `day_partial`, `recipient_identity_invalid`, `collection_failed`,
 `no_eligible_savings`, `allocation_overflow`, `allocation_invalid`,
 `pop_balance_overflow`, `pop_not_writable`, `duplicate_pop`, `pop_identity_limit`,
 `postcondition_failed`, and `conservation_failed`. `allocation_status` preserves
@@ -421,8 +421,13 @@ the allocator's exact result. `dropped_results` is the cumulative bounded
 result-queue drop count. Telemetry result codes
 follow the C ABI: 0 unavailable, 1 filtered, 2 accepted, 3 dropped, and 4
 invalid. `interest.fix.health` covers rejected debtor pairs, recipient outcomes,
-and daily summaries. `interest.fix.value` is emitted only for `paid`, so a
-failed or partial attempt cannot expose an intended payout as an observed result.
+and one aggregate daily summary. Successful recipient rows remain complete in
+the CSV but are not duplicated into structured telemetry. `interest.fix.value`
+is emitted once only when every recipient for the day paid and the daily payout
+equals the named transfer multiplied by 1,000, so a failed or partial day cannot
+expose an intended payout as an observed result. On `day_partial`, transfer
+fields are attempted named-bank totals while payout and POP fields include only
+successful recipients; the individual failure rows identify every omission.
 
 The runtime evidence below through commit `f057bf5` describes the earlier
 per-debtor implementation. It remains provenance for mappings and exact
