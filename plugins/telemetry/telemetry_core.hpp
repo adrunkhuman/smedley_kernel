@@ -25,6 +25,43 @@ namespace smedley::telemetry
     constexpr int kMinQueueCapacity = 64;
     constexpr int kMaxQueueCapacity = 8192;
     constexpr int kMaxSampleDays = 365;
+    constexpr size_t kMaxCaptureRules = 32;
+
+    enum class CaptureCadence : uint8_t
+    {
+        FixedDays,
+        Daily,
+        Weekly,
+        Monthly,
+        Yearly,
+    };
+
+    struct CaptureRule
+    {
+        std::string family;
+        CaptureCadence cadence = CaptureCadence::Daily;
+        std::vector<std::string> fields;
+        std::vector<std::string> country_tags;
+        std::vector<int> province_ids;
+        std::optional<int> start_date_raw;
+        std::optional<int> end_date_raw;
+        int fixed_days = 1;
+    };
+
+    struct CalendarDate
+    {
+        int year = 0;
+        int month = 0;
+        int day = 0;
+        int hour = 0;
+    };
+
+    struct ScheduleState
+    {
+        std::optional<int> last_observed_date;
+        std::optional<int> last_capture_date;
+        std::optional<int64_t> last_period;
+    };
 
     static_assert(std::is_standard_layout_v<SmedleyTelemetryFieldV1>);
     static_assert(std::is_standard_layout_v<SmedleyTelemetryRecordV1>);
@@ -45,6 +82,7 @@ namespace smedley::telemetry
         int sample_days = 1;
         int queue_capacity = 1024;
         bool overwrite = false;
+        std::vector<CaptureRule> capture_rules;
     };
 
     struct Envelope
@@ -97,6 +135,11 @@ namespace smedley::telemetry
     bool HasCategory(const Config &config, std::string_view category);
     bool HasCountryTag(const Config &config, std::string_view tag);
     bool IsDateInRange(const Config &config, std::optional<int> date);
+    bool IsDateInRange(const CaptureRule &rule, int date);
+    bool ParseCaptureRule(std::wstring_view value, CaptureRule *rule, std::string *error);
+    std::string CaptureCadenceName(CaptureCadence cadence);
+    std::optional<CalendarDate> DecodeClausewitzDate(int raw_date);
+    bool ShouldCaptureDate(int raw_date, const CaptureRule &rule, ScheduleState *state);
     std::string UtcNow();
     uint64_t MonotonicMicroseconds();
     uint64_t QpcToMicroseconds(uint64_t counter, uint64_t frequency);
@@ -109,6 +152,7 @@ namespace smedley::telemetry
         explicit BoundedQueue(size_t capacity);
         bool Push(std::string_view line);
         bool TryPush(std::string_view line);
+        bool TryPush(std::string_view line, size_t reserved_slots);
         bool Pop(std::string *line);
         void MarkWritten();
         void Stop();

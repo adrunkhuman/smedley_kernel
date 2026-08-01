@@ -23,6 +23,58 @@ validation before launch.
 | `telemetry_queue_capacity` | integer | `1024` | 64 through 8192 fixed record slots. |
 | `telemetry_overwrite` | boolean | `false` | Required to replace an existing output. |
 
+Profiles may instead add up to 32 explicit capture rules. A family may appear
+once. Explicit rules replace legacy `state` sampling; lifecycle category
+selection remains global. Capture rules require the `state` category.
+
+```toml
+[[telemetry_captures]]
+family = "world.economy"
+cadence = "monthly"
+fields = ["health", "holdings"]
+country_tags = []
+province_ids = []
+
+[[telemetry_captures]]
+family = "province.daily"
+cadence = "daily"
+fields = ["owner_tag_candidate", "life_rating_candidate", "infrastructure_candidate_raw"]
+country_tags = []
+province_ids = [1, 300, 549]
+
+[[telemetry_captures]]
+family = "pop.aggregate"
+cadence = "monthly"
+fields = ["pop_count", "size_candidate", "money_raw", "savings_raw"]
+country_tags = []
+province_ids = [549]
+```
+
+Each rule accepts `family`, `cadence`, `fields`, `country_tags`, `province_ids`,
+and optional `start_date_raw` and `end_date_raw`. Empty `fields` selects every
+field in that family. Country filters are valid only for `country.daily`.
+Province filters are valid for `province.daily`, `pop.economy`,
+`pop.demographics`, and `pop.aggregate`. An empty entity filter means every
+entity, including daily all-province or all-POP capture when explicitly
+requested.
+
+| Family | Selectable fields |
+| --- | --- |
+| `world.daily` | `country_slot_count`, `ai_scheduler_entry_count`, `human_control_present` |
+| `world.economy` | record groups `health`, `capacity`, `holdings`, `credit` |
+| `country.daily` | `treasury_raw`, `treasury` |
+| `province.daily` | `owner_tag_candidate`, `controller_tag_candidate`, `colonial_level_candidate`, `life_rating_candidate`, `infrastructure_candidate_raw` |
+| `pop.economy` | `money_raw`, `savings_raw`, `interest_cash_flow_raw`, `total_cash_flow_raw` |
+| `pop.demographics` | `size_candidate`, `employed_candidate`, `consciousness_candidate_raw`, `militancy_candidate_raw`, `literacy_candidate_raw` |
+| `pop.aggregate` | `pop_count`, `size_candidate`, `employed_candidate`, `money_raw`, `savings_raw` |
+
+Cadences are `daily`, `weekly`, `monthly`, and `yearly`. Weekly capture is
+anchored to the first eligible observed date and repeats every seven game days.
+Monthly and yearly capture emits on the first observed date in each Victoria II
+calendar period. The game calendar has 24 raw units per day, fixed 365-day
+years, no leap day, and epoch `-5000.1.1`; `1836.1.2` is raw `59883384`.
+Date regression resets each rule independently.
+
 Selecting the `state` category also enables bounded world economic snapshots in
 `telemetry.dll`. Collection follows the same inclusive date bounds and
 `telemetry_sample_days` interval. A complete world POP walk is materially more
@@ -42,7 +94,10 @@ CLI controls are `--telemetry`, `--no-telemetry`, `--telemetry-output PATH`,
 repeatable `--telemetry-category lifecycle|state`,
 `--telemetry-sample-days N`, `--telemetry-queue-capacity N`, and
 `--telemetry-overwrite`, repeatable `--telemetry-country TAG`,
-`--telemetry-start-date-raw N`, and `--telemetry-end-date-raw N`.
+`--telemetry-start-date-raw N`, and `--telemetry-end-date-raw N`. Repeat
+`--telemetry-capture "family|cadence|fields|countries|provinces|start|end"`
+to replace profile rules from the CLI. Comma separates fields and entity IDs;
+empty components are allowed.
 
 Outputs must end in `.jsonl` (case-insensitive). Existing outputs are rejected
 unless overwrite is explicit. Directories, reparse points, and paths colliding
@@ -108,6 +163,11 @@ report these delivery metrics:
 | `callback_count` | Number of callback attempts. |
 | `skipped_unsampleable` | Samples skipped because the mapped game state was unavailable. |
 
+At a coordinated drain, one `telemetry.family.summary` record is attempted per
+configured family. It reports `polls_due`, `collection_attempts`, `accepted`,
+`filtered`, `dropped`, `invalid`, and `collection_us`. These counters describe
+producer results, not records subsequently written by the shared worker.
+
 `country.daily` is a `state` record from `DailyUpdateEvent` with `provisional`
 quality. Its stable entity is the three-character country tag. Its payload
 contains `treasury_raw` and
@@ -122,6 +182,37 @@ It reports `country_slot_count`, `ai_scheduler_entry_count`, and
 non-playable engine entries, and scheduler entries are not asserted to equal a
 count of AI-controlled countries. These names expose the observed containers
 without inventing stronger gameplay semantics.
+
+`province.daily` is an opt-in provisional snapshot keyed by numeric province
+ID. Its candidate fields come from the historical `CProvince` layout and remain
+named as candidates until broader runtime correlation is complete. A one-day
+vanilla probe (`dd4c7396-4fa0-4598-9b76-e1d43874d690`) correlated province ID,
+owner, controller, colonial level, and life rating against `benchmark.v2` for
+provinces 1, 425, and 549. Berlin (549) reported infrastructure raw `160` while
+the save contained railroad level 1. That pair is evidence of correlation, not
+yet a supported conversion from raw infrastructure to displayed level.
+
+The opt-in POP families use a bounded snapshot shared by all POP rules due on
+the same game date. `pop.economy` and `pop.demographics` emit one record per POP,
+identified by candidate province ID, candidate POP-type ID, and a snapshot-local
+index. The index is not durable across dates. `pop.aggregate` emits one lower-
+volume record per province and POP-type pair, summing POP count, size,
+employment, money, and savings. It intentionally aggregates across culture and
+religion because stable identifiers for those dimensions are not yet mapped.
+
+POP money, savings, interest cash flow, and total cash flow reuse fields already
+verified by the interest-fix work. Size, employment, consciousness, militancy,
+literacy, province ID, and POP-type ID remain explicitly named as candidates.
+The three rate fields are raw 48.15 fixed-point values. A one-day vanilla probe
+(`4f40b617-b56a-4478-81b1-9e35b1d90b4e`) emitted 23 Berlin POPs in each detail
+family with no drops or invalid records; its size and displayed rate fields
+correlated with `benchmark.v2`.
+
+A second one-day run (`3ac4d510-7dbe-45af-9701-1902379785df`) enabled all three
+POP families together. It accepted 23 economy records, 23 demographic records,
+and 10 aggregates with no drops or invalid records. Snapshot collection took
+90,224 microseconds once; the later two rules reported zero additional snapshot
+collection time because they reused the same date's bounded copy.
 
 `telemetry` attempts one bounded scan per selected sample date. It
 always attempts to emit `world.economy.health`; it attempts the other `state`
@@ -176,7 +267,11 @@ and JSON formatting. Lifecycle progress remains useful when state records are
 excluded by date or country filters. Callbacks never perform file I/O or flush.
 The queue has fixed-capacity, fixed-size record slots. Ordinary callbacks use a
 non-waiting queue lock; full, contended, stopped, or oversized records are
-explicitly counted as dropped. `telemetry.progress`, `world.daily`,
+explicitly counted as dropped. Ordinary detail writes leave 16 slots, or one
+eighth of smaller queues, reserved for reliable records. Explicit country,
+province, or POP-province allowlists of at most 16 entities use reliable
+in-memory publication;
+unfiltered high-cardinality polling remains nonblocking. `telemetry.progress`, `world.daily`,
 date-regression, economic snapshot, and opt-in interest-fix result records use
 reliable bounded publication so lock contention alone cannot split their
 evidence. The queue remains bounded, and publication still performs no file I/O.

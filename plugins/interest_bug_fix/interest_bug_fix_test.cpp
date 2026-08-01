@@ -678,3 +678,53 @@ TEST(InterestAllocationTest, RejectsSavingsSumAndPayoutScaleOverflow)
     EXPECT_EQ(entries[0].payout_raw, 0);
     EXPECT_EQ(entries[1].payout_raw, 0);
 }
+
+TEST(InterestBugFixTest, ReadsValidatedPopDetailCandidates)
+{
+    std::array<std::byte, 0x280> pop{};
+    std::array<std::byte, 0x60> province{};
+    std::array<std::byte, 0x2c> pop_type{};
+    const int32_t type_id = 4;
+    const int32_t province_id = 549;
+    const int64_t money = 123456;
+    const int32_t size = 4275;
+    const int64_t savings = 789;
+    const int32_t employed = 1000;
+    const int32_t consciousness = 98337;
+    const int32_t militancy = 32768;
+    const int32_t literacy = 22938;
+    const int64_t interest = 31;
+    const int64_t cash_flow = -12;
+    const void *province_pointer = province.data();
+    const void *type_pointer = pop_type.data();
+    Write(&province, 0x58, province_id);
+    Write(&pop_type, 0x28, type_id);
+    Write(&pop, 0x58, size);
+    Write(&pop, 0x60, employed);
+    Write(&pop, 0x64, province_pointer);
+    Write(&pop, 0x68, type_pointer);
+    Write(&pop, 0x118, consciousness);
+    Write(&pop, 0x120, militancy);
+    Write(&pop, 0x128, literacy);
+    Write(&pop, 0x180, money);
+    Write(&pop, 0x210, interest);
+    Write(&pop, 0x218, cash_flow);
+    Write(&pop, 0x250, savings);
+
+    interest_probe::PopDetailSnapshot detail{};
+    ASSERT_TRUE(interest_probe::ReadPopDetailSnapshot(pop.data(), &detail));
+    EXPECT_EQ(detail.pop_type_id_candidate, type_id);
+    EXPECT_EQ(detail.province_id_candidate, province_id);
+    EXPECT_EQ(detail.size_candidate, size);
+    EXPECT_EQ(detail.employed_candidate, employed);
+    EXPECT_EQ(detail.consciousness_candidate_raw, consciousness);
+    EXPECT_EQ(detail.militancy_candidate_raw, militancy);
+    EXPECT_EQ(detail.literacy_candidate_raw, literacy);
+    EXPECT_EQ(detail.economy.money_raw, money);
+    EXPECT_EQ(detail.economy.savings_raw, savings);
+    EXPECT_EQ(detail.economy.interest_cash_flow_raw, interest);
+    EXPECT_EQ(detail.economy.total_cash_flow_raw, cash_flow);
+
+    Write(&pop, 0x60, size + 1);
+    EXPECT_FALSE(interest_probe::ReadPopDetailSnapshot(pop.data(), &detail));
+}

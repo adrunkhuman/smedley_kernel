@@ -590,6 +590,42 @@ namespace smedley::launcher
             });
         }
 
+        bool IsTelemetryCaptureCadence(const std::string &cadence)
+        {
+            return cadence == "daily" || cadence == "weekly" || cadence == "monthly" || cadence == "yearly";
+        }
+
+        bool IsTelemetryCaptureField(const TelemetryCaptureRule &rule, const std::string &field)
+        {
+            if (rule.family == "world.daily") {
+                return field == "country_slot_count" || field == "ai_scheduler_entry_count"
+                    || field == "human_control_present";
+            }
+            if (rule.family == "country.daily") return field == "treasury_raw" || field == "treasury";
+            if (rule.family == "province.daily") {
+                return field == "owner_tag_candidate" || field == "controller_tag_candidate"
+                    || field == "colonial_level_candidate" || field == "life_rating_candidate"
+                    || field == "infrastructure_candidate_raw";
+            }
+            if (rule.family == "pop.economy") {
+                return field == "money_raw" || field == "savings_raw"
+                    || field == "interest_cash_flow_raw" || field == "total_cash_flow_raw";
+            }
+            if (rule.family == "pop.demographics") {
+                return field == "size_candidate" || field == "employed_candidate"
+                    || field == "consciousness_candidate_raw" || field == "militancy_candidate_raw"
+                    || field == "literacy_candidate_raw";
+            }
+            if (rule.family == "pop.aggregate") {
+                return field == "pop_count" || field == "size_candidate"
+                    || field == "employed_candidate" || field == "money_raw" || field == "savings_raw";
+            }
+            if (rule.family == "world.economy") {
+                return field == "health" || field == "capacity" || field == "holdings" || field == "credit";
+            }
+            return false;
+        }
+
         bool ValidateTelemetryProfile(const Profile &profile, std::vector<Diagnostic> *diagnostics, const fs::path &path = {})
         {
             if (profile.telemetry_filter_parse_error) {
@@ -639,6 +675,73 @@ namespace smedley::launcher
             }
             if (profile.telemetry_queue_capacity < telemetry_min_queue_capacity || profile.telemetry_queue_capacity > telemetry_max_queue_capacity) {
                 AddDiagnostic(diagnostics, "telemetry.queue_capacity", "telemetry_queue_capacity must be from 64 through 8192", path);
+                return false;
+            }
+            if (profile.telemetry_captures.size() > 32) {
+                AddDiagnostic(diagnostics, "telemetry.captures", "telemetry_captures supports at most 32 rules", path);
+                return false;
+            }
+            for (size_t rule_index = 0; rule_index < profile.telemetry_captures.size(); ++rule_index) {
+                const auto &rule = profile.telemetry_captures[rule_index];
+                const std::string prefix = "telemetry_captures[" + std::to_string(rule_index) + "] ";
+                if (rule.family != "world.daily" && rule.family != "world.economy" && rule.family != "country.daily"
+                    && rule.family != "province.daily" && rule.family != "pop.economy"
+                    && rule.family != "pop.demographics" && rule.family != "pop.aggregate") {
+                    AddDiagnostic(diagnostics, "telemetry.capture_family", prefix + "contains an unknown family", path);
+                    return false;
+                }
+                if (std::any_of(profile.telemetry_captures.begin(), profile.telemetry_captures.begin() + rule_index,
+                    [&](const TelemetryCaptureRule &earlier) { return earlier.family == rule.family; })) {
+                    AddDiagnostic(diagnostics, "telemetry.capture_family", "telemetry capture families must be unique", path);
+                    return false;
+                }
+                if (!IsTelemetryCaptureCadence(rule.cadence)) {
+                    AddDiagnostic(diagnostics, "telemetry.capture_cadence", prefix + "cadence must be daily, weekly, monthly, or yearly", path);
+                    return false;
+                }
+                for (size_t field_index = 0; field_index < rule.fields.size(); ++field_index) {
+                    if (!IsTelemetryCaptureField(rule, rule.fields[field_index])
+                        || std::find(rule.fields.begin(), rule.fields.begin() + field_index, rule.fields[field_index])
+                            != rule.fields.begin() + field_index) {
+                        AddDiagnostic(diagnostics, "telemetry.capture_fields", prefix + "fields must be known and unique for the family", path);
+                        return false;
+                    }
+                }
+                for (size_t tag_index = 0; tag_index < rule.country_tags.size(); ++tag_index) {
+                    if (!IsTelemetryCountryTag(rule.country_tags[tag_index])
+                        || std::find(rule.country_tags.begin(), rule.country_tags.begin() + tag_index, rule.country_tags[tag_index])
+                            != rule.country_tags.begin() + tag_index) {
+                        AddDiagnostic(diagnostics, "telemetry.capture_country_tags", prefix + "country_tags must be unique normalized tags", path);
+                        return false;
+                    }
+                }
+                if (rule.family != "country.daily" && !rule.country_tags.empty()) {
+                    AddDiagnostic(diagnostics, "telemetry.capture_country_tags", prefix + "country_tags are only supported by country.daily", path);
+                    return false;
+                }
+                for (size_t province_index = 0; province_index < rule.province_ids.size(); ++province_index) {
+                    if (rule.province_ids[province_index] < 0
+                        || std::find(rule.province_ids.begin(), rule.province_ids.begin() + province_index,
+                                     rule.province_ids[province_index]) != rule.province_ids.begin() + province_index) {
+                        AddDiagnostic(diagnostics, "telemetry.capture_province_ids", prefix + "province_ids must be unique nonnegative integers", path);
+                        return false;
+                    }
+                }
+                if (rule.family != "province.daily" && rule.family != "pop.economy"
+                    && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
+                    && !rule.province_ids.empty()) {
+                    AddDiagnostic(diagnostics, "telemetry.capture_province_ids", prefix + "province_ids are only supported by province and POP families", path);
+                    return false;
+                }
+                if (rule.start_date_raw && rule.end_date_raw && *rule.start_date_raw > *rule.end_date_raw) {
+                    AddDiagnostic(diagnostics, "telemetry.capture_date_range", prefix + "start_date_raw must not exceed end_date_raw", path);
+                    return false;
+                }
+            }
+            if (!profile.telemetry_captures.empty()
+                && std::find(profile.telemetry_categories.begin(), profile.telemetry_categories.end(), "state")
+                    == profile.telemetry_categories.end()) {
+                AddDiagnostic(diagnostics, "telemetry.capture", "telemetry capture rules require the state category", path);
                 return false;
             }
             return true;
@@ -714,6 +817,25 @@ namespace smedley::launcher
                 if (!result.empty()) result += L',';
                 result.append(category.begin(), category.end());
             }
+            return result;
+        }
+
+        std::wstring TelemetryCaptureArgument(const TelemetryCaptureRule &rule)
+        {
+            const auto widen = [](const std::string &value) { return std::wstring(value.begin(), value.end()); };
+            std::wstring result = widen(rule.family) + L"|" + widen(rule.cadence) + L"|";
+            result += TelemetryCategoriesArgument(rule.fields);
+            result += L"|";
+            result += TelemetryCategoriesArgument(rule.country_tags);
+            result += L"|";
+            for (size_t index = 0; index < rule.province_ids.size(); ++index) {
+                if (index) result += L',';
+                result += std::to_wstring(rule.province_ids[index]);
+            }
+            result += L"|";
+            if (rule.start_date_raw) result += std::to_wstring(*rule.start_date_raw);
+            result += L"|";
+            if (rule.end_date_raw) result += std::to_wstring(*rule.end_date_raw);
             return result;
         }
 
@@ -1299,6 +1421,71 @@ namespace smedley::launcher
                 }
                 loaded.telemetry_overwrite = *value;
             }
+            if (table.contains("telemetry_captures")) {
+                const auto *captures = table["telemetry_captures"].as_array();
+                if (captures == nullptr) {
+                    AddDiagnostic(diagnostics, "profile.schema", "telemetry_captures must be an array of tables", path);
+                    return false;
+                }
+                for (const auto &node : *captures) {
+                    const auto *capture = node.as_table();
+                    if (capture == nullptr) {
+                        AddDiagnostic(diagnostics, "profile.schema", "telemetry_captures must contain tables", path);
+                        return false;
+                    }
+                    const auto family = (*capture)["family"].value<std::string>();
+                    const auto cadence = (*capture)["cadence"].value<std::string>();
+                    if (!family || family->empty() || !cadence || cadence->empty()) {
+                        AddDiagnostic(diagnostics, "profile.schema", "each telemetry capture requires family and cadence strings", path);
+                        return false;
+                    }
+                    TelemetryCaptureRule rule;
+                    rule.family = *family;
+                    rule.cadence = *cadence;
+                    const auto read_strings = [&](const char *key, std::vector<std::string> *destination) {
+                        if (!capture->contains(key)) return true;
+                        const auto *values = (*capture)[key].as_array();
+                        if (values == nullptr) return false;
+                        for (const auto &value_node : *values) {
+                            const auto value = value_node.value<std::string>();
+                            if (!value || value->empty()) return false;
+                            destination->push_back(*value);
+                        }
+                        return true;
+                    };
+                    if (!read_strings("fields", &rule.fields) || !read_strings("country_tags", &rule.country_tags)) {
+                        AddDiagnostic(diagnostics, "profile.schema", "telemetry capture fields and country_tags must contain non-empty strings", path);
+                        return false;
+                    }
+                    if (capture->contains("province_ids")) {
+                        const auto *values = (*capture)["province_ids"].as_array();
+                        if (values == nullptr) {
+                            AddDiagnostic(diagnostics, "profile.schema", "telemetry capture province_ids must be an integer array", path);
+                            return false;
+                        }
+                        for (const auto &value_node : *values) {
+                            const auto value = value_node.value<int>();
+                            if (!value) {
+                                AddDiagnostic(diagnostics, "profile.schema", "telemetry capture province_ids must contain integers", path);
+                                return false;
+                            }
+                            rule.province_ids.push_back(*value);
+                        }
+                    }
+                    const auto read_date = [&](const char *key, std::optional<int> *destination) {
+                        if (!capture->contains(key)) return true;
+                        const auto value = (*capture)[key].value<int>();
+                        if (!value) return false;
+                        *destination = *value;
+                        return true;
+                    };
+                    if (!read_date("start_date_raw", &rule.start_date_raw) || !read_date("end_date_raw", &rule.end_date_raw)) {
+                        AddDiagnostic(diagnostics, "profile.schema", "telemetry capture date bounds must be integers", path);
+                        return false;
+                    }
+                    loaded.telemetry_captures.push_back(std::move(rule));
+                }
+            }
             auto read_script_integer = [&](const char *key, int *destination) {
                 if (!table.contains(key)) return true;
                 const auto value = table[key].value<int>();
@@ -1399,6 +1586,29 @@ namespace smedley::launcher
         output << "script_instruction_budget = " << profile.script_instruction_budget << "\n";
         output << "script_memory_bytes = " << profile.script_memory_bytes << "\n";
         output << "script_queue_capacity = " << profile.script_queue_capacity << "\n";
+        for (const auto &rule : profile.telemetry_captures) {
+            output << "\n[[telemetry_captures]]\n";
+            output << "family = \"" << EscapeToml(rule.family) << "\"\n";
+            output << "cadence = \"" << EscapeToml(rule.cadence) << "\"\n";
+            const auto write_strings = [&](const char *key, const std::vector<std::string> &values) {
+                output << key << " = [";
+                for (size_t index = 0; index < values.size(); ++index) {
+                    if (index) output << ", ";
+                    output << "\"" << EscapeToml(values[index]) << "\"";
+                }
+                output << "]\n";
+            };
+            write_strings("fields", rule.fields);
+            write_strings("country_tags", rule.country_tags);
+            output << "province_ids = [";
+            for (size_t index = 0; index < rule.province_ids.size(); ++index) {
+                if (index) output << ", ";
+                output << rule.province_ids[index];
+            }
+            output << "]\n";
+            if (rule.start_date_raw) output << "start_date_raw = " << *rule.start_date_raw << "\n";
+            if (rule.end_date_raw) output << "end_date_raw = " << *rule.end_date_raw << "\n";
+        }
         if (!output) {
             AddDiagnostic(diagnostics, "profile.write", "could not write profile", path);
             return false;
@@ -1665,6 +1875,9 @@ namespace smedley::launcher
                     arguments.push_back(L"-smedley-telemetry-sample-days=" + std::to_wstring(plan.profile.telemetry_sample_days));
                     arguments.push_back(L"-smedley-telemetry-queue-capacity=" + std::to_wstring(plan.profile.telemetry_queue_capacity));
                     arguments.push_back(L"-smedley-telemetry-overwrite=" + std::to_wstring(plan.profile.telemetry_overwrite ? 1 : 0));
+                    for (const auto &rule : plan.profile.telemetry_captures) {
+                        arguments.push_back(L"-smedley-telemetry-capture=" + TelemetryCaptureArgument(rule));
+                    }
                 }
                 if (!plan.profile.scripts.empty() && scripting_selected) {
                     for (const auto &script : plan.profile.scripts) {

@@ -1,6 +1,7 @@
 #include <smedley/launcher/launcher.hpp>
 
 #include <iostream>
+#include <array>
 #include <cwctype>
 #include <optional>
 #include <stdexcept>
@@ -35,6 +36,7 @@ struct Options
     std::optional<int> telemetry_sample_days;
     std::optional<int> telemetry_queue_capacity;
     std::optional<bool> telemetry_overwrite;
+    std::vector<launcher::TelemetryCaptureRule> telemetry_captures;
     std::vector<fs::path> scripts;
     std::optional<int> script_instruction_budget;
     std::optional<int> script_memory_bytes;
@@ -73,6 +75,7 @@ void PrintUsage()
         << "  --telemetry-sample-days N  State sample interval from 1 through 365 (default: 1)\n"
         << "  --telemetry-queue-capacity N  Bounded record queue from 64 through 8192 (default: 1024)\n"
         << "  --telemetry-overwrite  Replace an existing telemetry output file\n"
+        << "  --telemetry-capture RULE  family|cadence|fields|countries|provinces|start|end; may be repeated\n"
         << "  --script PATH   Lua source under GAME_DIR/scripts; may be repeated\n"
         << "  --script-instruction-budget N  Per-callback Lua instruction limit (default: 100000)\n"
         << "  --script-memory-bytes N  Memory limit per Lua script (default: 8388608)\n"
@@ -131,6 +134,7 @@ Options ParseArguments(int argc, wchar_t **argv)
         if (argument != L"--profile" && argument != L"--game-dir" && argument != L"--kernel"
             && argument != L"--mod" && argument != L"--plugin" && argument != L"--save" && argument != L"--view-tag"
             && argument != L"--telemetry-output" && argument != L"--telemetry-category" && argument != L"--telemetry-country"
+            && argument != L"--telemetry-capture"
             && argument != L"--script") {
             throw std::runtime_error("unknown argument");
         }
@@ -144,6 +148,63 @@ Options ParseArguments(int argc, wchar_t **argv)
         else if (argument == L"--save") options.save = value;
         else if (argument == L"--telemetry-output") options.telemetry_output = value;
         else if (argument == L"--script") options.scripts.push_back(value);
+        else if (argument == L"--telemetry-capture") {
+            const std::wstring text = value.wstring();
+            std::array<std::wstring, 7> parts;
+            size_t begin = 0;
+            for (size_t part = 0; part < parts.size(); ++part) {
+                const size_t end = text.find(L'|', begin);
+                if (part + 1 < parts.size() && end == std::wstring::npos) {
+                    throw std::runtime_error("--telemetry-capture requires family|cadence|fields|countries|provinces|start|end");
+                }
+                parts[part] = text.substr(begin, end == std::wstring::npos ? end : end - begin);
+                begin = end == std::wstring::npos ? text.size() : end + 1;
+            }
+            if (begin < text.size()) throw std::runtime_error("--telemetry-capture contains too many components");
+            const auto narrow = [](const std::wstring &input) {
+                std::string output;
+                for (const wchar_t character : input) {
+                    if (character > 0x7f) throw std::runtime_error("--telemetry-capture must be ASCII");
+                    output += static_cast<char>(character);
+                }
+                return output;
+            };
+            const auto list = [&](const std::wstring &input) {
+                std::vector<std::string> output;
+                if (input.empty()) return output;
+                size_t item_begin = 0;
+                while (item_begin <= input.size()) {
+                    const size_t item_end = input.find(L',', item_begin);
+                    const auto item = narrow(input.substr(item_begin, item_end == std::wstring::npos ? item_end : item_end - item_begin));
+                    if (item.empty()) throw std::runtime_error("--telemetry-capture lists must not contain empty items");
+                    output.push_back(item);
+                    if (item_end == std::wstring::npos) break;
+                    item_begin = item_end + 1;
+                }
+                return output;
+            };
+            launcher::TelemetryCaptureRule rule;
+            rule.family = narrow(parts[0]);
+            rule.cadence = narrow(parts[1]);
+            rule.fields = list(parts[2]);
+            rule.country_tags = list(parts[3]);
+            const auto date = [](const std::wstring &input) -> std::optional<int> {
+                if (input.empty()) return std::nullopt;
+                size_t parsed = 0;
+                const int result = std::stoi(input, &parsed);
+                if (parsed != input.size()) throw std::runtime_error("--telemetry-capture dates must be integers");
+                return result;
+            };
+            for (const auto &province : list(parts[4])) {
+                size_t parsed = 0;
+                const int id = std::stoi(province, &parsed);
+                if (parsed != province.size()) throw std::runtime_error("--telemetry-capture province IDs must be integers");
+                rule.province_ids.push_back(id);
+            }
+            rule.start_date_raw = date(parts[5]);
+            rule.end_date_raw = date(parts[6]);
+            options.telemetry_captures.push_back(std::move(rule));
+        }
         else if (argument == L"--telemetry-category") {
             const auto category = value.wstring();
             std::string narrow_category;
@@ -187,6 +248,9 @@ void PrintPlan(const launcher::LaunchPlan &plan)
                << L"inject:  " << (plan.profile.inject ? L"enabled" : L"disabled") << L"\n";
     if (plan.profile.inject) std::wcout << L"kernel:  " << plan.kernel << L"\n";
     if (plan.profile.telemetry_enabled) std::wcout << L"telemetry: enabled\n";
+    for (const auto &rule : plan.profile.telemetry_captures) {
+        std::cout << "capture: " << rule.family << " " << rule.cadence << '\n';
+    }
     for (const auto &script : plan.profile.scripts) std::wcout << L"script:  " << script << L"\n";
     for (const auto &mod : plan.mods) std::wcout << L"mod:     " << mod.descriptor_path << L"\n";
     for (const auto &plugin : plan.plugins) std::wcout << L"plugin:  " << plugin.manifest_path << L"\n";
@@ -244,6 +308,7 @@ int wmain(int argc, wchar_t **argv)
         if (options.telemetry_sample_days) profile.telemetry_sample_days = *options.telemetry_sample_days;
         if (options.telemetry_queue_capacity) profile.telemetry_queue_capacity = *options.telemetry_queue_capacity;
         if (options.telemetry_overwrite) profile.telemetry_overwrite = *options.telemetry_overwrite;
+        if (!options.telemetry_captures.empty()) profile.telemetry_captures = options.telemetry_captures;
         if (options.script_instruction_budget) profile.script_instruction_budget = *options.script_instruction_budget;
         if (options.script_memory_bytes) profile.script_memory_bytes = *options.script_memory_bytes;
         if (options.script_queue_capacity) profile.script_queue_capacity = *options.script_queue_capacity;

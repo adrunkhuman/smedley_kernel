@@ -228,6 +228,17 @@ TEST(TelemetryQueueTest, IsBoundedAndAccountsForDrops)
     EXPECT_EQ(reliable_queue.stats().dropped, 1u);
 }
 
+TEST(TelemetryQueueTest, ReservesCapacityForReliableRecords)
+{
+    telemetry::BoundedQueue queue(4);
+    EXPECT_TRUE(queue.TryPush("one", 2));
+    EXPECT_TRUE(queue.TryPush("two", 2));
+    EXPECT_FALSE(queue.TryPush("detail", 2));
+    EXPECT_TRUE(queue.Push("lifecycle-one"));
+    EXPECT_TRUE(queue.Push("lifecycle-two"));
+    EXPECT_FALSE(queue.Push("overflow"));
+}
+
 TEST(TelemetryWriterTest, WritesCompleteNewlineDelimitedRecords)
 {
     const fs::path path = fs::temp_directory_path() / (L"smedley telemetry " + std::to_wstring(GetTickCount64()) + L".jsonl");
@@ -303,6 +314,100 @@ TEST(TelemetrySamplingTest, ObservesDateRegressionOncePerObservedTransition)
     EXPECT_TRUE(telemetry::ObserveDateRegression(minimum, &previous, &delta));
     EXPECT_EQ(delta, static_cast<int64_t>(minimum) - static_cast<int64_t>(124));
     EXPECT_FALSE(telemetry::ObserveDateRegression(minimum, &previous, &delta));
+}
+
+TEST(TelemetrySamplingTest, DecodesVictoriaFixedCalendar)
+{
+    const auto start = telemetry::DecodeClausewitzDate(59'883'384);
+    ASSERT_TRUE(start);
+    EXPECT_EQ(start->year, 1836);
+    EXPECT_EQ(start->month, 1);
+    EXPECT_EQ(start->day, 2);
+    EXPECT_EQ(start->hour, 0);
+
+    const auto no_leap_day = telemetry::DecodeClausewitzDate(59'884'752);
+    ASSERT_TRUE(no_leap_day);
+    EXPECT_EQ(no_leap_day->year, 1836);
+    EXPECT_EQ(no_leap_day->month, 2);
+    EXPECT_EQ(no_leap_day->day, 28);
+    const auto march = telemetry::DecodeClausewitzDate(59'884'776);
+    ASSERT_TRUE(march);
+    EXPECT_EQ(march->month, 3);
+    EXPECT_EQ(march->day, 1);
+}
+
+TEST(TelemetrySamplingTest, AppliesIndependentCalendarCadences)
+{
+    telemetry::CaptureRule daily{"country.daily", telemetry::CaptureCadence::Daily};
+    telemetry::ScheduleState daily_state;
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'384, daily, &daily_state));
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'384, daily, &daily_state));
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'408, daily, &daily_state));
+
+    telemetry::CaptureRule weekly{"country.daily", telemetry::CaptureCadence::Weekly};
+    telemetry::ScheduleState weekly_state;
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'384, weekly, &weekly_state));
+    EXPECT_FALSE(telemetry::ShouldCaptureDate(59'883'528, weekly, &weekly_state));
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'552, weekly, &weekly_state));
+
+    telemetry::CaptureRule monthly{"world.daily", telemetry::CaptureCadence::Monthly};
+    telemetry::ScheduleState monthly_state;
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'384, monthly, &monthly_state));
+    EXPECT_FALSE(telemetry::ShouldCaptureDate(59'884'080, monthly, &monthly_state));
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'884'104, monthly, &monthly_state));
+
+    telemetry::CaptureRule yearly{"world.economy", telemetry::CaptureCadence::Yearly};
+    telemetry::ScheduleState yearly_state;
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'384, yearly, &yearly_state));
+    EXPECT_FALSE(telemetry::ShouldCaptureDate(59'892'096, yearly, &yearly_state));
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'892'120, yearly, &yearly_state));
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'384, yearly, &yearly_state));
+}
+
+TEST(TelemetryConfigTest, ParsesExplicitCaptureRules)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=lifecycle,state", L"-smedley-telemetry-sample-days=3",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=country.daily|daily|treasury_raw|ENG,D01||59883384|"}, &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "country.daily");
+    EXPECT_EQ(config.capture_rules[0].cadence, telemetry::CaptureCadence::Daily);
+    EXPECT_EQ(config.capture_rules[0].fields, (std::vector<std::string>{"treasury_raw"}));
+    EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"ENG", "D01"}));
+    EXPECT_EQ(config.capture_rules[0].start_date_raw, 59'883'384);
+}
+
+TEST(TelemetryConfigTest, AcceptsAggregatePopCapture)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=lifecycle,state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=pop.aggregate|monthly|pop_count,size_candidate,money_raw||549|59883360|60759216"},
+        &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "pop.aggregate");
+    EXPECT_EQ(config.capture_rules[0].cadence, telemetry::CaptureCadence::Monthly);
+    EXPECT_EQ(config.capture_rules[0].fields.size(), 3u);
+    ASSERT_EQ(config.capture_rules[0].province_ids.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].province_ids[0], 549);
+}
+
+TEST(TelemetryConfigTest, RejectsCaptureRulesWithoutStateCategory)
+{
+    telemetry::Config config;
+    std::string error;
+    EXPECT_FALSE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=lifecycle", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=pop.aggregate|daily|||||"}, &config, &error));
+    EXPECT_EQ(error, "telemetry capture rules require the state category");
 }
 
 TEST(EconomicCaptureTest, DetectsSignedAggregationOverflow)

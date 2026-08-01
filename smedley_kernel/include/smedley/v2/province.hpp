@@ -121,6 +121,13 @@ namespace smedley::v2
         uint32_t _uk_0x380;
         sstd::vector<CEvent *> _event_queue; // 384
         uint32_t _uk_0x394;
+    public:
+        int id_candidate() const { return _id; }
+        const CCountryTag &owner_candidate() const { return _owner; }
+        const CCountryTag &controller_candidate() const { return _controller; }
+        int colonial_level_candidate() const { return _colonial_level; }
+        int life_rating_candidate() const { return _life_rating; }
+        int infrastructure_candidate() const { return _infrastructure; }
     };
 
     static_assert(sizeof(CProvince) == 0x398);

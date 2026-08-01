@@ -231,6 +231,10 @@ TEST_F(LauncherCoreTest, SavesLoadsAndRejectsMalformedTelemetryProfileFields)
     original.telemetry_sample_days = 7;
     original.telemetry_queue_capacity = 512;
     original.telemetry_overwrite = true;
+    original.telemetry_captures = {
+        {"world.economy", "monthly", {"health", "holdings"}, {}, {}, -7, 12},
+        {"country.daily", "daily", {"treasury_raw"}, {"ENG", "D01"}, {}, std::nullopt, std::nullopt},
+    };
     std::vector<launcher::Diagnostic> diagnostics;
 
     ASSERT_TRUE(launcher::SaveProfile(root / L"telemetry.toml", original, &diagnostics));
@@ -245,6 +249,11 @@ TEST_F(LauncherCoreTest, SavesLoadsAndRejectsMalformedTelemetryProfileFields)
     EXPECT_EQ(loaded.telemetry_sample_days, 7);
     EXPECT_EQ(loaded.telemetry_queue_capacity, 512);
     EXPECT_TRUE(loaded.telemetry_overwrite);
+    ASSERT_EQ(loaded.telemetry_captures.size(), 2u);
+    EXPECT_EQ(loaded.telemetry_captures[0].family, "world.economy");
+    EXPECT_EQ(loaded.telemetry_captures[0].cadence, "monthly");
+    EXPECT_EQ(loaded.telemetry_captures[0].fields, (std::vector<std::string>{"health", "holdings"}));
+    EXPECT_EQ(loaded.telemetry_captures[1].country_tags, (std::vector<std::string>{"ENG", "D01"}));
 
     Write(root / L"bad-telemetry.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\ntelemetry_enabled = \"true\"\n");
     diagnostics.clear();
@@ -478,6 +487,10 @@ TEST_F(LauncherCoreTest, ValidatesTelemetryPluginAndBuildsPerRunTraceCommand)
     profile.telemetry_country_tags = {"ENG"};
     profile.telemetry_start_date_raw = 3;
     profile.telemetry_end_date_raw = 9;
+    profile.telemetry_captures = {
+        {"world.daily", "yearly", {"country_slot_count"}, {}, {}, std::nullopt, std::nullopt},
+        {"country.daily", "daily", {"treasury_raw"}, {"ENG"}, {}, 3, 9},
+    };
     const auto plan = launcher::BuildLaunchPlan(profile);
 
     EXPECT_FALSE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
@@ -488,6 +501,15 @@ TEST_F(LauncherCoreTest, ValidatesTelemetryPluginAndBuildsPerRunTraceCommand)
     EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-queue-capacity=256"), std::wstring::npos);
     EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-country-tags=ENG"), std::wstring::npos);
     EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-start-date-raw=3"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=world.daily|yearly|country_slot_count||||"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=country.daily|daily|treasury_raw|ENG||3|9"), std::wstring::npos);
+
+    auto lifecycle_only = profile;
+    lifecycle_only.telemetry_categories = {"lifecycle"};
+    const auto lifecycle_only_plan = launcher::BuildLaunchPlan(lifecycle_only);
+    EXPECT_TRUE(std::any_of(lifecycle_only_plan.diagnostics.begin(), lifecycle_only_plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "telemetry.capture" && diagnostic.severity == launcher::Severity::Error;
+    }));
 
     profile.telemetry_output = root / L"trace.txt";
     const auto bad_extension_plan = launcher::BuildLaunchPlan(profile);

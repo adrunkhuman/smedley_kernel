@@ -168,6 +168,7 @@ namespace smedley::v2
         }
         size_t country_ai_count() const { return _country_ais.size(); }
         size_t country_count() const { return _countries.size(); }
+        size_t province_count() const { return _provinces.size(); }
         bool is_scheduled_ai(const CCountryAI *ai) const
         {
             for (size_t index = 0; index < _country_ais.size(); ++index) {

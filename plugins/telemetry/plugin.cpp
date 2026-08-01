@@ -5,10 +5,12 @@
 #include <smedley/plugin.hpp>
 #include <smedley/v2/country.hpp>
 #include <smedley/v2/gamestate.hpp>
+#include <smedley/v2/province.hpp>
 
 #include <shellapi.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstring>
 #include <limits>
@@ -146,6 +148,7 @@ namespace telemetry_plugin
                     RemoveEventHandler<smedley::events::DailyUpdateEvent>("telemetry.daily");
                     handler_registered_ = false;
                 }
+                EmitFamilySummaries();
                 drain_started_ = true;
                 try {
                     drain_thread_ = std::thread([this] {
@@ -185,9 +188,60 @@ namespace telemetry_plugin
         }
 
     private:
+        struct FamilyStats
+        {
+            uint64_t polls_due = 0;
+            uint64_t collection_attempts = 0;
+            uint64_t accepted = 0;
+            uint64_t filtered = 0;
+            uint64_t dropped = 0;
+            uint64_t invalid = 0;
+            uint64_t collection_us = 0;
+        };
+
+        struct PopAggregate
+        {
+            int32_t province_id = -1;
+            int32_t pop_type_id = -1;
+            int64_t pop_count = 0;
+            int64_t size = 0;
+            int64_t employed = 0;
+            int64_t money_raw = 0;
+            int64_t savings_raw = 0;
+        };
+
+        void AccountResult(size_t rule_index, SmedleyTelemetryResult result)
+        {
+            auto &stats = family_stats_[rule_index];
+            if (result == SMEDLEY_TELEMETRY_ACCEPTED) ++stats.accepted;
+            else if (result == SMEDLEY_TELEMETRY_FILTERED) ++stats.filtered;
+            else if (result == SMEDLEY_TELEMETRY_INVALID) ++stats.invalid;
+            else ++stats.dropped;
+        }
+
+        void EmitFamilySummaries()
+        {
+            if (!smedley::telemetry::HasCategory(config_, "lifecycle")) return;
+            for (size_t index = 0; index < config_.capture_rules.size(); ++index) {
+                const auto family = StringField("family", config_.capture_rules[index].family.c_str());
+                const auto &stats = family_stats_[index];
+                const SmedleyTelemetryFieldV1 payload[] = {
+                    IntField("polls_due", static_cast<int64_t>(stats.polls_due)),
+                    IntField("collection_attempts", static_cast<int64_t>(stats.collection_attempts)),
+                    IntField("accepted", static_cast<int64_t>(stats.accepted)),
+                    IntField("filtered", static_cast<int64_t>(stats.filtered)),
+                    IntField("dropped", static_cast<int64_t>(stats.dropped)),
+                    IntField("invalid", static_cast<int64_t>(stats.invalid)),
+                    IntField("collection_us", static_cast<int64_t>(stats.collection_us)),
+                };
+                (void)EmitTyped("telemetry.family.summary", "lifecycle", std::nullopt,
+                                &family, 1, payload, 7, true, true);
+            }
+        }
+
         SmedleyTelemetryResult EmitRecord(const SmedleyTelemetryRecordV1 *record, bool initial, bool reliable = false)
         {
-            if (draining_.load(std::memory_order_acquire)) return SMEDLEY_TELEMETRY_UNAVAILABLE;
+            if (draining_.load(std::memory_order_acquire) && !initial) return SMEDLEY_TELEMETRY_UNAVAILABLE;
             if (!writer_) return SMEDLEY_TELEMETRY_UNAVAILABLE;
             std::string error;
             if (!smedley::telemetry::ValidateRecordV1(record, &error)) return SMEDLEY_TELEMETRY_INVALID;
@@ -222,6 +276,34 @@ namespace telemetry_plugin
             return EmitRecord(&record, initial, reliable);
         }
 
+        static bool HasField(const smedley::telemetry::CaptureRule &rule, std::string_view field)
+        {
+            return rule.fields.empty() || std::find(rule.fields.begin(), rule.fields.end(), field) != rule.fields.end();
+        }
+
+        static bool HasCountryTag(const smedley::telemetry::CaptureRule &rule, std::string_view tag)
+        {
+            return rule.country_tags.empty()
+                || std::find(rule.country_tags.begin(), rule.country_tags.end(), tag) != rule.country_tags.end();
+        }
+
+        static bool HasProvinceId(const smedley::telemetry::CaptureRule &rule, int id)
+        {
+            return rule.province_ids.empty()
+                || std::find(rule.province_ids.begin(), rule.province_ids.end(), id) != rule.province_ids.end();
+        }
+
+        const smedley::telemetry::CaptureRule *FindRule(std::string_view family, size_t *index = nullptr) const
+        {
+            for (size_t current = 0; current < config_.capture_rules.size(); ++current) {
+                if (config_.capture_rules[current].family == family) {
+                    if (index != nullptr) *index = current;
+                    return &config_.capture_rules[current];
+                }
+            }
+            return nullptr;
+        }
+
         void OnDailyUpdate(smedley::events::DailyUpdateEvent &event)
         {
             std::shared_lock<std::shared_timed_mutex> producer_lock(producer_mutex_);
@@ -237,7 +319,8 @@ namespace telemetry_plugin
                 logger().Failure("telemetry output failed; subsequent records are being dropped");
             }
             const bool lifecycle_enabled = smedley::telemetry::HasCategory(config_, "lifecycle");
-            const bool state_enabled = smedley::telemetry::HasCategory(config_, "state");
+            const bool state_enabled = smedley::telemetry::HasCategory(config_, "state")
+                && !config_.capture_rules.empty();
             const auto *game_state = smedley::v2::CCurrentGameState::instance();
             const std::optional<int> raw_date = game_state ? std::optional<int>(game_state->current_date_raw()) : std::nullopt;
             if (!raw_date) { if (state_enabled) skipped_unsampleable_.fetch_add(1, std::memory_order_relaxed); finish(); return; }
@@ -250,33 +333,99 @@ namespace telemetry_plugin
                 EmitTyped("date.regressed", "lifecycle", raw_date, nullptr, 0, payload, 3, false, true);
             }
             const bool progress = lifecycle_enabled && (!last_progress_date_ || *raw_date != *last_progress_date_);
-            const bool sampled = state_enabled && smedley::telemetry::IsDateInRange(config_, raw_date)
-                && smedley::telemetry::ShouldSampleDate(raw_date, config_.sample_days, &sampled_date_);
-            if (sampled) {
-                if (last_world_date_ != raw_date) {
-                    last_world_date_ = raw_date;
-                    const SmedleyTelemetryFieldV1 payload[] = {
-                        IntField("country_slot_count", static_cast<int64_t>(game_state->country_count())),
-                        IntField("ai_scheduler_entry_count", static_cast<int64_t>(game_state->country_ai_count())),
-                        BoolField("human_control_present", game_state->has_human_controlled_country())};
-                    EmitTyped("world.daily", "state", raw_date, nullptr, 0, payload, 3, false, true);
+            if (state_enabled && last_global_date_ != raw_date) {
+                last_global_date_ = raw_date;
+                size_t rule_index = 0;
+                if (const auto *rule = FindRule("world.daily", &rule_index);
+                    rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
+                    ++family_stats_[rule_index].polls_due;
+                    ++family_stats_[rule_index].collection_attempts;
+                    std::array<SmedleyTelemetryFieldV1, 3> payload;
+                    uint32_t count = 0;
+                    if (HasField(*rule, "country_slot_count")) payload[count++] = IntField("country_slot_count", static_cast<int64_t>(game_state->country_count()));
+                    if (HasField(*rule, "ai_scheduler_entry_count")) payload[count++] = IntField("ai_scheduler_entry_count", static_cast<int64_t>(game_state->country_ai_count()));
+                    if (HasField(*rule, "human_control_present")) payload[count++] = BoolField("human_control_present", game_state->has_human_controlled_country());
+                    AccountResult(rule_index,
+                        EmitTyped("world.daily", "state", raw_date, nullptr, 0, payload.data(), count, false, true));
+                }
+                if (const auto *rule = FindRule("world.economy", &rule_index);
+                    rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
+                    ++family_stats_[rule_index].polls_due;
+                    ++family_stats_[rule_index].collection_attempts;
                     try {
                         const EconomicSnapshot snapshot = economic_capture_.Collect(game_state, *raw_date);
-                        collection_us = snapshot.collection_us;
-                        EmitEconomicSnapshot(snapshot);
+                        collection_us += snapshot.collection_us;
+                        family_stats_[rule_index].collection_us += snapshot.collection_us;
+                        EmitEconomicSnapshot(snapshot, *rule, rule_index);
                     } catch (const std::exception &error) {
                         logger().Failure(std::string("world economic telemetry failed: ") + error.what());
                     } catch (...) {
                         logger().Failure("world economic telemetry failed with an unknown exception");
                     }
                 }
+                if (const auto *rule = FindRule("province.daily", &rule_index);
+                    rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
+                    ++family_stats_[rule_index].polls_due;
+                    for (size_t id = 0; id < game_state->province_count(); ++id) {
+                        if (!HasProvinceId(*rule, static_cast<int>(id))) continue;
+                        const auto *province = game_state->province(static_cast<int>(id));
+                        if (province == nullptr || province->id_candidate() != static_cast<int>(id)) {
+                            ++family_stats_[rule_index].invalid;
+                            continue;
+                        }
+                        ++family_stats_[rule_index].collection_attempts;
+                        const auto province_id = IntField("province_id", static_cast<int64_t>(id));
+                        std::array<SmedleyTelemetryFieldV1, 5> payload;
+                        uint32_t count = 0;
+                        if (HasField(*rule, "owner_tag_candidate")) {
+                            payload[count++] = StringField("owner_tag_candidate", province->owner_candidate().str());
+                        }
+                        if (HasField(*rule, "controller_tag_candidate")) {
+                            payload[count++] = StringField("controller_tag_candidate", province->controller_candidate().str());
+                        }
+                        if (HasField(*rule, "colonial_level_candidate")) {
+                            payload[count++] = IntField("colonial_level_candidate", province->colonial_level_candidate());
+                        }
+                        if (HasField(*rule, "life_rating_candidate")) {
+                            payload[count++] = IntField("life_rating_candidate", province->life_rating_candidate());
+                        }
+                        if (HasField(*rule, "infrastructure_candidate_raw")) {
+                            payload[count++] = IntField("infrastructure_candidate_raw", province->infrastructure_candidate());
+                        }
+                        const bool reliable = !rule->province_ids.empty() && rule->province_ids.size() <= 16;
+                        AccountResult(rule_index, EmitTyped("province.daily", "state", raw_date,
+                            &province_id, 1, payload.data(), count, false, reliable));
+                    }
+                }
+                constexpr std::array<std::string_view, 3> pop_families = {
+                    "pop.economy", "pop.demographics", "pop.aggregate"};
+                economic_capture_.InvalidatePopulationCache();
+                for (const auto family : pop_families) {
+                    if (const auto *rule = FindRule(family, &rule_index);
+                        rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
+                        const uint64_t pop_collection_us = family == "pop.aggregate"
+                            ? EmitPopulationAggregate(game_state, *raw_date, *rule, rule_index)
+                            : EmitPopulationSnapshot(game_state, *raw_date, *rule, rule_index);
+                        collection_us += pop_collection_us;
+                    }
+                }
+            }
+            size_t country_rule_index = 0;
+            if (const auto *rule = FindRule("country.daily", &country_rule_index);
+                rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[country_rule_index])) {
+                ++family_stats_[country_rule_index].polls_due;
                 const auto *country = event.GetCountry();
-                if (country != nullptr && smedley::telemetry::HasCountryTag(config_, country->tag().str())) {
+                if (country != nullptr && HasCountryTag(*rule, country->tag().str())) {
+                    ++family_stats_[country_rule_index].collection_attempts;
                     const auto country_tag = StringField("country_tag", country->tag().str());
                     const int64_t treasury_raw = country->treasury_raw();
-                    const SmedleyTelemetryFieldV1 payload[] = {
-                        IntField("treasury_raw", treasury_raw), DoubleField("treasury", static_cast<double>(treasury_raw) / 32768.0)};
-                    EmitTyped("country.daily", "state", raw_date, &country_tag, 1, payload, 2, false);
+                    std::array<SmedleyTelemetryFieldV1, 2> payload;
+                    uint32_t count = 0;
+                    if (HasField(*rule, "treasury_raw")) payload[count++] = IntField("treasury_raw", treasury_raw);
+                    if (HasField(*rule, "treasury")) payload[count++] = DoubleField("treasury", static_cast<double>(treasury_raw) / 32768.0);
+                    const bool reliable = !rule->country_tags.empty() && rule->country_tags.size() <= 16;
+                    AccountResult(country_rule_index,
+                        EmitTyped("country.daily", "state", raw_date, &country_tag, 1, payload.data(), count, false, reliable));
                 }
             }
             smedley::telemetry::PreparedRecordV1 progress_record;
@@ -338,12 +487,15 @@ namespace telemetry_plugin
         bool drain_started_ = false;
         bool drain_complete_ = false;
         SmedleyTelemetryDrainResult drain_result_ = SMEDLEY_TELEMETRY_DRAIN_FAILED;
-        std::optional<int> sampled_date_;
-        std::optional<int> last_world_date_;
+        std::array<smedley::telemetry::ScheduleState, smedley::telemetry::kMaxCaptureRules> schedule_states_;
+        std::array<FamilyStats, smedley::telemetry::kMaxCaptureRules> family_stats_;
+        std::array<PopAggregate, interest_bug_fix::max_sample_pops> pop_aggregates_;
+        std::optional<int> last_global_date_;
         std::optional<int> last_progress_date_;
         std::optional<int> last_observed_date_;
 
-        void EmitEconomicSnapshot(const EconomicSnapshot &snapshot)
+        void EmitEconomicSnapshot(const EconomicSnapshot &snapshot, const smedley::telemetry::CaptureRule &rule,
+                                  size_t rule_index)
         {
             using namespace interest_bug_fix;
             const SmedleyTelemetryFieldV1 health[] = {
@@ -356,7 +508,10 @@ namespace telemetry_plugin
                 IntField("province_count", snapshot.province_count),
                 IntField("pop_count", snapshot.pop_count),
             };
-            EmitTyped("world.economy.health", "state", snapshot.date_raw, nullptr, 0, health, 8, false, true);
+            if (HasField(rule, "health") || !snapshot.complete()) {
+                AccountResult(rule_index,
+                    EmitTyped("world.economy.health", "state", snapshot.date_raw, nullptr, 0, health, 8, false, true));
+            }
             if (!snapshot.complete()) return;
 
             const SmedleyTelemetryFieldV1 capacity[] = {
@@ -368,7 +523,10 @@ namespace telemetry_plugin
                 IntField("pop_utilization_bp", UtilizationBasisPoints(snapshot.pop_count, max_sample_pops)),
                 IntField("collection_us", static_cast<int64_t>(snapshot.collection_us)),
             };
-            EmitTyped("world.economy.capacity", "state", snapshot.date_raw, nullptr, 0, capacity, 7, false, true);
+            if (HasField(rule, "capacity")) {
+                AccountResult(rule_index,
+                    EmitTyped("world.economy.capacity", "state", snapshot.date_raw, nullptr, 0, capacity, 7, false, true));
+            }
 
             const SmedleyTelemetryFieldV1 holdings[] = {
                 IntField("treasury_observed_raw", snapshot.treasury_observed_raw),
@@ -379,7 +537,10 @@ namespace telemetry_plugin
                 IntField("positive_savings_pops", snapshot.positive_savings_pops),
                 IntField("negative_treasury_countries", snapshot.countries_with_negative_treasury),
             };
-            EmitTyped("world.economy.holdings", "state", snapshot.date_raw, nullptr, 0, holdings, 7, false, true);
+            if (HasField(rule, "holdings")) {
+                AccountResult(rule_index,
+                    EmitTyped("world.economy.holdings", "state", snapshot.date_raw, nullptr, 0, holdings, 7, false, true));
+            }
             if (snapshot.credit_flags != 0) return;
 
             const SmedleyTelemetryFieldV1 credit[] = {
@@ -391,7 +552,127 @@ namespace telemetry_plugin
                 IntField("state_savings_candidate_raw", snapshot.state_savings_candidate_raw),
                 IntField("state_interest_candidate_raw", snapshot.state_interest_candidate_raw),
             };
-            EmitTyped("world.economy.credit", "state", snapshot.date_raw, nullptr, 0, credit, 7, false, true);
+            if (HasField(rule, "credit")) {
+                AccountResult(rule_index,
+                    EmitTyped("world.economy.credit", "state", snapshot.date_raw, nullptr, 0, credit, 7, false, true));
+            }
+        }
+
+        uint64_t EmitPopulationSnapshot(const smedley::v2::CCurrentGameState *game_state, int32_t date_raw,
+                                        const smedley::telemetry::CaptureRule &rule, size_t rule_index)
+        {
+            ++family_stats_[rule_index].polls_due;
+            const PopulationCapture capture = economic_capture_.CollectPopulation(game_state, date_raw);
+            family_stats_[rule_index].collection_us += capture.collection_us;
+            if (!capture.complete()) {
+                ++family_stats_[rule_index].invalid;
+                return capture.collection_us;
+            }
+            for (uint32_t index = 0; index < capture.pop_count; ++index) {
+                const auto &detail = economic_capture_.population_detail(index);
+                if (!HasProvinceId(rule, detail.province_id_candidate)) continue;
+                ++family_stats_[rule_index].collection_attempts;
+                const SmedleyTelemetryFieldV1 entities[] = {
+                    IntField("province_id_candidate", detail.province_id_candidate),
+                    IntField("pop_type_id_candidate", detail.pop_type_id_candidate),
+                    IntField("snapshot_index", index),
+                };
+                std::array<SmedleyTelemetryFieldV1, 5> payload;
+                uint32_t count = 0;
+                if (rule.family == "pop.economy") {
+                    if (HasField(rule, "money_raw")) payload[count++] = IntField("money_raw", detail.economy.money_raw);
+                    if (HasField(rule, "savings_raw")) payload[count++] = IntField("savings_raw", detail.economy.savings_raw);
+                    if (HasField(rule, "interest_cash_flow_raw")) {
+                        payload[count++] = IntField("interest_cash_flow_raw", detail.economy.interest_cash_flow_raw);
+                    }
+                    if (HasField(rule, "total_cash_flow_raw")) {
+                        payload[count++] = IntField("total_cash_flow_raw", detail.economy.total_cash_flow_raw);
+                    }
+                } else {
+                    if (HasField(rule, "size_candidate")) payload[count++] = IntField("size_candidate", detail.size_candidate);
+                    if (HasField(rule, "employed_candidate")) payload[count++] = IntField("employed_candidate", detail.employed_candidate);
+                    if (HasField(rule, "consciousness_candidate_raw")) {
+                        payload[count++] = IntField("consciousness_candidate_raw", detail.consciousness_candidate_raw);
+                    }
+                    if (HasField(rule, "militancy_candidate_raw")) {
+                        payload[count++] = IntField("militancy_candidate_raw", detail.militancy_candidate_raw);
+                    }
+                    if (HasField(rule, "literacy_candidate_raw")) {
+                        payload[count++] = IntField("literacy_candidate_raw", detail.literacy_candidate_raw);
+                    }
+                }
+                const bool reliable = !rule.province_ids.empty() && rule.province_ids.size() <= 16;
+                AccountResult(rule_index, EmitTyped(rule.family.c_str(), "state", date_raw,
+                    entities, 3, payload.data(), count, false, reliable));
+            }
+            return capture.collection_us;
+        }
+
+        uint64_t EmitPopulationAggregate(const smedley::v2::CCurrentGameState *game_state, int32_t date_raw,
+                                         const smedley::telemetry::CaptureRule &rule, size_t rule_index)
+        {
+            ++family_stats_[rule_index].polls_due;
+            const PopulationCapture capture = economic_capture_.CollectPopulation(game_state, date_raw);
+            family_stats_[rule_index].collection_us += capture.collection_us;
+            if (!capture.complete()) {
+                ++family_stats_[rule_index].invalid;
+                return capture.collection_us;
+            }
+            size_t aggregate_count = 0;
+            for (uint32_t index = 0; index < capture.pop_count; ++index) {
+                const auto &detail = economic_capture_.population_detail(index);
+                if (!HasProvinceId(rule, detail.province_id_candidate)) continue;
+                pop_aggregates_[aggregate_count++] = {
+                    detail.province_id_candidate, detail.pop_type_id_candidate, 1,
+                    detail.size_candidate, detail.employed_candidate,
+                    detail.economy.money_raw, detail.economy.savings_raw};
+            }
+            std::sort(pop_aggregates_.begin(), pop_aggregates_.begin() + aggregate_count,
+                [](const PopAggregate &left, const PopAggregate &right) {
+                    return left.province_id < right.province_id
+                        || (left.province_id == right.province_id && left.pop_type_id < right.pop_type_id);
+                });
+            size_t merged_count = 0;
+            const auto add = [&](int64_t value, int64_t *sum) {
+                if ((value > 0 && *sum > (std::numeric_limits<int64_t>::max)() - value)
+                    || (value < 0 && *sum < (std::numeric_limits<int64_t>::min)() - value)) return false;
+                *sum += value;
+                return true;
+            };
+            for (size_t index = 0; index < aggregate_count; ++index) {
+                const auto &next = pop_aggregates_[index];
+                if (merged_count == 0 || pop_aggregates_[merged_count - 1].province_id != next.province_id
+                    || pop_aggregates_[merged_count - 1].pop_type_id != next.pop_type_id) {
+                    pop_aggregates_[merged_count++] = next;
+                    continue;
+                }
+                auto &current = pop_aggregates_[merged_count - 1];
+                if (!add(next.pop_count, &current.pop_count) || !add(next.size, &current.size)
+                    || !add(next.employed, &current.employed) || !add(next.money_raw, &current.money_raw)
+                    || !add(next.savings_raw, &current.savings_raw)) {
+                    ++family_stats_[rule_index].invalid;
+                    return capture.collection_us;
+                }
+            }
+            for (size_t index = 0; index < merged_count; ++index) {
+                const auto &aggregate = pop_aggregates_[index];
+                ++family_stats_[rule_index].collection_attempts;
+                const SmedleyTelemetryFieldV1 entities[] = {
+                    IntField("province_id_candidate", aggregate.province_id),
+                    IntField("pop_type_id_candidate", aggregate.pop_type_id),
+                };
+                std::array<SmedleyTelemetryFieldV1, 5> payload;
+                uint32_t count = 0;
+                if (HasField(rule, "pop_count")) payload[count++] = IntField("pop_count", aggregate.pop_count);
+                if (HasField(rule, "size_candidate")) payload[count++] = IntField("size_candidate", aggregate.size);
+                if (HasField(rule, "employed_candidate")) payload[count++] = IntField("employed_candidate", aggregate.employed);
+                if (HasField(rule, "money_raw")) payload[count++] = IntField("money_raw", aggregate.money_raw);
+                if (HasField(rule, "savings_raw")) payload[count++] = IntField("savings_raw", aggregate.savings_raw);
+                const bool reliable = !rule.province_ids.empty() && rule.province_ids.size() <= 16;
+                AccountResult(rule_index, EmitTyped("pop.aggregate", "state", date_raw,
+                    entities, 2, payload.data(), count, false, reliable));
+            }
+            return capture.collection_us;
         }
 
         std::string StatsPayload(const smedley::telemetry::QueueStats &stats) const

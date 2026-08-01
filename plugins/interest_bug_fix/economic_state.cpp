@@ -24,6 +24,15 @@ namespace interest_bug_fix
         constexpr size_t state_interest_offset = 0x260;
         constexpr size_t bank_interest_offset = 0x20;
         constexpr size_t province_pop_lists_offset = 0x194;
+        constexpr size_t province_id_offset = 0x58;
+        constexpr size_t pop_size_offset = 0x58;
+        constexpr size_t pop_employed_offset = 0x60;
+        constexpr size_t pop_province_offset = 0x64;
+        constexpr size_t pop_type_offset = 0x68;
+        constexpr size_t pop_type_id_offset = 0x28;
+        constexpr size_t pop_consciousness_offset = 0x118;
+        constexpr size_t pop_militancy_offset = 0x120;
+        constexpr size_t pop_literacy_offset = 0x128;
         constexpr size_t pop_money_offset = 0x180;
         constexpr size_t pop_interest_cash_flow_offset = 0x210;
         constexpr size_t pop_total_cash_flow_offset = 0x218;
@@ -701,6 +710,33 @@ namespace interest_bug_fix
         if (snapshot == nullptr) return false;
         PopMoneySnapshot value{};
         if (!ReadPopMoney(pop, &value)) return false;
+        *snapshot = value;
+        return true;
+    }
+
+    bool ReadPopDetailSnapshot(const void *pop, PopDetailSnapshot *snapshot)
+    {
+        if (snapshot == nullptr) return false;
+        PopDetailSnapshot value{};
+        const void *province = nullptr;
+        const void *pop_type = nullptr;
+        if (!ReadAt(pop, pop_size_offset, &value.size_candidate)
+            || !ReadAt(pop, pop_employed_offset, &value.employed_candidate)
+            || !ReadAt(pop, pop_province_offset, &province)
+            || !ReadAt(pop, pop_type_offset, &pop_type)
+            || !ReadAt(province, province_id_offset, &value.province_id_candidate)
+            || !ReadAt(pop_type, pop_type_id_offset, &value.pop_type_id_candidate)
+            || !ReadAt(pop, pop_consciousness_offset, &value.consciousness_candidate_raw)
+            || !ReadAt(pop, pop_militancy_offset, &value.militancy_candidate_raw)
+            || !ReadAt(pop, pop_literacy_offset, &value.literacy_candidate_raw)
+            || !ReadPopMoney(pop, &value.economy)) {
+            return false;
+        }
+        if (value.province_id_candidate < 0 || value.pop_type_id_candidate < 0
+            || value.pop_type_id_candidate > 127 || value.size_candidate < 0
+            || value.employed_candidate < 0 || value.employed_candidate > value.size_candidate) {
+            return false;
+        }
         *snapshot = value;
         return true;
     }

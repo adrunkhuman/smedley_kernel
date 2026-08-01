@@ -90,6 +90,18 @@ namespace interest_bug_fix
         int64_t savings_raw = 0;
     };
 
+    struct PopDetailSnapshot
+    {
+        int32_t province_id_candidate = -1;
+        int32_t pop_type_id_candidate = -1;
+        int32_t size_candidate = 0;
+        int32_t employed_candidate = 0;
+        int64_t consciousness_candidate_raw = 0;
+        int64_t militancy_candidate_raw = 0;
+        int64_t literacy_candidate_raw = 0;
+        PopMoneySnapshot economy;
+    };
+
     using CountryResolver = const void *(*)(const void *context, int32_t ordinal);
     using ProvinceResolver = const void *(*)(const void *context, int32_t id);
 
@@ -110,5 +122,6 @@ namespace interest_bug_fix
                             uint32_t province_attempt_capacity, uint32_t *candidate_count,
                             Sample *quality);
     bool ReadPopMoneySnapshot(const void *pop, PopMoneySnapshot *snapshot);
+    bool ReadPopDetailSnapshot(const void *pop, PopDetailSnapshot *snapshot);
     bool CanWritePopMoney(const void *pop);
 }

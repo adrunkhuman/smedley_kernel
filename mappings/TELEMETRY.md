@@ -14,6 +14,13 @@ This observation establishes the unit conversion and repeated live behavior;
 it does not upgrade the surrounding `CGameState` layout or field semantics
 beyond the quality carried by each telemetry record.
 
+The complete Victoria II encoding is a fixed, non-leap calendar:
+`raw = 24 * (365 * (year + 5000) + zero_based_day_of_year)`. The local
+`benchmark.v2` date `1836.1.2` and runtime raw value `59883384` provide the
+executable-specific anchor. Monthly and yearly telemetry use this conversion;
+weekly telemetry remains a seven-day interval anchored to the first eligible
+observation.
+
 ## World Snapshot Containers
 
 `world.daily` reads the existing `CGameState` country-slot vector at `+0x0adc`,
@@ -142,6 +149,53 @@ or a causal estimate:
 Both final samples reported zero negative-treasury countries and a zero bank
 interest accumulator. Bankruptcy and comprehensive world-money supply remain
 unmapped, so this benchmark does not make claims about either.
+
+## Province candidate snapshots
+
+`province.daily` reads the historical `CProvince` candidate fields ID `+0x58`,
+owner `+0x128`, controller `+0x130`, colonial level `+0x190`, life rating
+`+0x1a4`, and infrastructure `+0x2b8`. These fields remain provisional and are
+named `_candidate` or `_candidate_raw` in telemetry.
+
+Vanilla one-day run `dd4c7396-4fa0-4598-9b76-e1d43874d690` loaded the unchanged
+`benchmark.v2`. Province 1 matched RUS/RUS, colonial level 2, and life rating
+20; province 425 matched FRA/FRA and life rating 40; province 549 matched
+PRU/PRU and reported infrastructure raw 160 while the save recorded railroad
+level 1. Three records were accepted and one contended record was dropped; the
+new `telemetry.family.summary` reported four attempts, three accepted, and one
+drop. This validates accounting and several correlations, but does not yet
+establish a general infrastructure-to-building-level conversion.
+
+## POP candidate snapshots
+
+`pop.economy` reuses the runtime-verified POP money `+0x180`, savings `+0x250`,
+interest cash flow `+0x210`, and total cash flow `+0x218` fields. The bounded POP
+walk also reads provisional size `+0x58`, employed count `+0x60`, province pointer
+`+0x64`, type pointer `+0x68`, consciousness `+0x118`, militancy `+0x120`, and
+literacy `+0x128`. Candidate IDs come from province `+0x58` and POP type `+0x28`.
+The three rate candidates use the same 48.15 fixed-point scale as other mapped
+game values.
+
+Vanilla one-day run `4f40b617-b56a-4478-81b1-9e35b1d90b4e` loaded the unchanged
+`benchmark.v2` and selected province 549. Each of `pop.economy` and
+`pop.demographics` emitted 23 records with zero filtered, dropped, or invalid
+records. The first Berlin POP reported size 4,275, consciousness raw 98,337,
+literacy raw 22,938, and militancy zero. These correlate with the save's size
+4,275, consciousness 3.00101, literacy 0.70001, and militancy zero after dividing
+the rate candidates by 32,768. Candidate POP-type IDs 1 and 2 correlated with
+the save's aristocrat and artisan groups in this probe, but names and durable
+per-POP identities remain unmapped.
+
+`pop.aggregate` groups the same bounded snapshot by candidate province and
+POP-type IDs. Its sums are observational and deliberately omit culture and
+religion until stable identifiers for those dimensions are mapped.
+
+Run `3ac4d510-7dbe-45af-9701-1902379785df` enabled all three POP families for
+Berlin on the same date. It accepted 23 economy records, 23 demographic records,
+and 10 province/type aggregates with no drops or invalid records. The initial
+bounded copy took 90,224 microseconds; the other two rules reused it and reported
+zero additional snapshot collection time. Type 2 grouped nine POPs with total
+size 60,020; types 7 and 8 grouped four and three POPs respectively.
 
 ## Final batched paired ten-year observer benchmark
 

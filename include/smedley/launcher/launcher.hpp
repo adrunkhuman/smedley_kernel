@@ -47,6 +47,17 @@ namespace smedley::launcher
         fs::path content_path;
     };
 
+    struct TelemetryCaptureRule
+    {
+        std::string family;
+        std::string cadence = "daily";
+        std::vector<std::string> fields;
+        std::vector<std::string> country_tags;
+        std::vector<int> province_ids;
+        std::optional<int> start_date_raw;
+        std::optional<int> end_date_raw;
+    };
+
     struct Profile
     {
         std::string name;
@@ -76,6 +87,7 @@ namespace smedley::launcher
         int telemetry_sample_days = 1;
         int telemetry_queue_capacity = 1024;
         bool telemetry_overwrite = false;
+        std::vector<TelemetryCaptureRule> telemetry_captures;
         std::vector<fs::path> scripts;
         int script_instruction_budget = 100000;
         int script_memory_bytes = 8388608;
