@@ -31,11 +31,12 @@ The host and plugin follow this sequence:
 5. After `destroy`, the host frees its storage. It does not unload the DLL
    because the injector, not the plugin loader, owns the module reference.
 
-The current game integration has no verified orderly shutdown boundary. It
-therefore guarantees these callbacks during initialization rollback, but not on
-normal process exit. Do not depend on `unload` for final telemetry flushes,
-persistent writes, or other session-completion work. Adding a loader-lock-free
-shutdown call remains blocked on a verified native game exit path; plugin
+The current game integration has a verified native exit request but no generic
+pre-exit plugin lifecycle boundary. It therefore guarantees these callbacks
+during initialization rollback and explicit loader shutdown, but not on normal
+process exit. Do not depend on `unload` for persistent writes or other
+session-completion work. The bundled telemetry plugin additionally drains during
+explicit unload and through its telemetry-specific pre-exit API. Generic plugin
 callbacks will not be run from `DllMain`.
 
 `create` must either succeed with a destroyable instance or fail after cleaning

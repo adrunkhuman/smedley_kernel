@@ -19,7 +19,8 @@
 namespace telemetry_plugin
 {
     class Plugin;
-    std::shared_mutex active_sink_mutex;
+    std::shared_timed_mutex active_sink_mutex;
+    std::mutex drain_call_mutex;
     Plugin *active_sink = nullptr;
 
     namespace
@@ -102,7 +103,8 @@ namespace telemetry_plugin
                 handler_registered = true;
                 AddEventHandler<smedley::events::DailyUpdateEvent>(
                     "telemetry.daily", [this](smedley::events::DailyUpdateEvent &event) { OnDailyUpdate(event); });
-                std::unique_lock<std::shared_mutex> lock(active_sink_mutex);
+                handler_registered_ = true;
+                std::unique_lock<std::shared_timed_mutex> lock(active_sink_mutex);
                 active_sink = this;
             } catch (...) {
                 if (handler_registered) RemoveEventHandler<smedley::events::DailyUpdateEvent>("telemetry.daily");
@@ -115,15 +117,10 @@ namespace telemetry_plugin
         void OnUnload() override
         {
             {
-                std::unique_lock<std::shared_mutex> lock(active_sink_mutex);
+                std::unique_lock<std::shared_timed_mutex> lock(active_sink_mutex);
                 if (active_sink == this) active_sink = nullptr;
             }
-            RemoveEventHandler<smedley::events::DailyUpdateEvent>("telemetry.daily");
-            if (!writer_) return;
-            const bool lifecycle = smedley::telemetry::HasCategory(config_, "lifecycle");
-            writer_->Stop([this, lifecycle](const smedley::telemetry::QueueStats &stats) {
-                return lifecycle ? MakeSummaryEnvelope(stats) : std::string{};
-            });
+            (void)DrainUntil((std::chrono::steady_clock::time_point::max)());
             writer_.reset();
         }
 
@@ -132,9 +129,65 @@ namespace telemetry_plugin
             return EmitRecord(record, false, reliable);
         }
 
+        SmedleyTelemetryDrainResult DrainUntil(std::chrono::steady_clock::time_point deadline)
+        {
+            std::unique_lock<std::timed_mutex> lock(drain_mutex_, std::defer_lock);
+            const bool state_ready = deadline == (std::chrono::steady_clock::time_point::max)()
+                ? (lock.lock(), true) : lock.try_lock_until(deadline);
+            if (!state_ready) return SMEDLEY_TELEMETRY_DRAIN_TIMEOUT;
+            if (!writer_) return SMEDLEY_TELEMETRY_DRAIN_UNAVAILABLE;
+            if (!drain_started_) {
+                draining_.store(true, std::memory_order_release);
+                std::unique_lock<std::shared_timed_mutex> producer_lock(producer_mutex_, std::defer_lock);
+                const bool producer_ready = deadline == (std::chrono::steady_clock::time_point::max)()
+                    ? (producer_lock.lock(), true) : producer_lock.try_lock_until(deadline);
+                if (!producer_ready) return SMEDLEY_TELEMETRY_DRAIN_TIMEOUT;
+                if (handler_registered_) {
+                    RemoveEventHandler<smedley::events::DailyUpdateEvent>("telemetry.daily");
+                    handler_registered_ = false;
+                }
+                drain_started_ = true;
+                try {
+                    drain_thread_ = std::thread([this] {
+                        SmedleyTelemetryDrainResult result = SMEDLEY_TELEMETRY_DRAIN_FAILED;
+                        try {
+                            const bool lifecycle = smedley::telemetry::HasCategory(config_, "lifecycle");
+                            const bool stopped = writer_->Stop([this, lifecycle](const smedley::telemetry::QueueStats &stats) {
+                                return lifecycle ? MakeSummaryEnvelope(stats) : std::string{};
+                            });
+                            result = stopped ? SMEDLEY_TELEMETRY_DRAIN_COMPLETED : SMEDLEY_TELEMETRY_DRAIN_FAILED;
+                        } catch (...) {
+                            result = SMEDLEY_TELEMETRY_DRAIN_FAILED;
+                        }
+                        {
+                            std::lock_guard<std::timed_mutex> result_lock(drain_mutex_);
+                            drain_result_ = result;
+                            drain_complete_ = true;
+                        }
+                        drain_complete_cv_.notify_all();
+                    });
+                } catch (...) {
+                    drain_started_ = false;
+                    return SMEDLEY_TELEMETRY_DRAIN_FAILED;
+                }
+            }
+            bool complete = false;
+            if (deadline == (std::chrono::steady_clock::time_point::max)()) {
+                drain_complete_cv_.wait(lock, [this] { return drain_complete_; });
+                complete = true;
+            } else {
+                complete = drain_complete_cv_.wait_until(lock, deadline, [this] { return drain_complete_; });
+            }
+            if (!complete) return SMEDLEY_TELEMETRY_DRAIN_TIMEOUT;
+            const auto result = drain_result_;
+            if (drain_thread_.joinable()) drain_thread_.join();
+            return result;
+        }
+
     private:
         SmedleyTelemetryResult EmitRecord(const SmedleyTelemetryRecordV1 *record, bool initial, bool reliable = false)
         {
+            if (draining_.load(std::memory_order_acquire)) return SMEDLEY_TELEMETRY_UNAVAILABLE;
             if (!writer_) return SMEDLEY_TELEMETRY_UNAVAILABLE;
             std::string error;
             if (!smedley::telemetry::ValidateRecordV1(record, &error)) return SMEDLEY_TELEMETRY_INVALID;
@@ -171,6 +224,7 @@ namespace telemetry_plugin
 
         void OnDailyUpdate(smedley::events::DailyUpdateEvent &event)
         {
+            std::shared_lock<std::shared_timed_mutex> producer_lock(producer_mutex_);
             const uint64_t started = smedley::telemetry::MonotonicMicroseconds();
             uint64_t collection_us = 0;
             auto finish = [&] {
@@ -178,7 +232,7 @@ namespace telemetry_plugin
                 callback_overhead_us_.fetch_add(elapsed > collection_us ? elapsed - collection_us : 0, std::memory_order_relaxed);
                 callback_count_.fetch_add(1, std::memory_order_relaxed);
             };
-            if (!writer_) { finish(); return; }
+            if (draining_.load(std::memory_order_acquire) || !writer_) { finish(); return; }
             if (writer_->stats().write_failed && !write_failure_logged_.exchange(true, std::memory_order_relaxed)) {
                 logger().Failure("telemetry output failed; subsequent records are being dropped");
             }
@@ -275,6 +329,15 @@ namespace telemetry_plugin
         std::atomic<uint64_t> callback_overhead_us_{0};
         std::atomic<uint64_t> skipped_unsampleable_{0};
         std::atomic<bool> write_failure_logged_{false};
+        std::atomic<bool> draining_{false};
+        bool handler_registered_ = false;
+        std::shared_timed_mutex producer_mutex_;
+        std::timed_mutex drain_mutex_;
+        std::condition_variable_any drain_complete_cv_;
+        std::thread drain_thread_;
+        bool drain_started_ = false;
+        bool drain_complete_ = false;
+        SmedleyTelemetryDrainResult drain_result_ = SMEDLEY_TELEMETRY_DRAIN_FAILED;
         std::optional<int> sampled_date_;
         std::optional<int> last_world_date_;
         std::optional<int> last_progress_date_;
@@ -350,7 +413,7 @@ extern "C" SMEDLEY_TELEMETRY_EXPORT SmedleyTelemetryResult SMEDLEY_TELEMETRY_CAL
 SmedleyTelemetryEmitV1(const SmedleyTelemetryRecordV1 *record)
 {
     try {
-        std::shared_lock<std::shared_mutex> lock(telemetry_plugin::active_sink_mutex, std::try_to_lock);
+        std::shared_lock<std::shared_timed_mutex> lock(telemetry_plugin::active_sink_mutex, std::try_to_lock);
         if (!lock.owns_lock()) return SMEDLEY_TELEMETRY_DROPPED;
         return telemetry_plugin::active_sink == nullptr ? SMEDLEY_TELEMETRY_UNAVAILABLE
             : telemetry_plugin::active_sink->EmitExternal(record, false);
@@ -363,11 +426,30 @@ extern "C" SMEDLEY_TELEMETRY_EXPORT SmedleyTelemetryResult SMEDLEY_TELEMETRY_CAL
 SmedleyTelemetryEmitReliableV1(const SmedleyTelemetryRecordV1 *record)
 {
     try {
-        std::shared_lock<std::shared_mutex> lock(telemetry_plugin::active_sink_mutex);
+        std::shared_lock<std::shared_timed_mutex> lock(telemetry_plugin::active_sink_mutex);
         return telemetry_plugin::active_sink == nullptr ? SMEDLEY_TELEMETRY_UNAVAILABLE
             : telemetry_plugin::active_sink->EmitExternal(record, true);
     } catch (...) {
         return SMEDLEY_TELEMETRY_DROPPED;
+    }
+}
+
+extern "C" SMEDLEY_TELEMETRY_EXPORT SmedleyTelemetryDrainResult SMEDLEY_TELEMETRY_CALL
+SmedleyTelemetryDrainV1(uint32_t timeout_ms)
+{
+    try {
+        std::unique_lock<std::mutex> call_lock(telemetry_plugin::drain_call_mutex, std::try_to_lock);
+        if (!call_lock.owns_lock()) return SMEDLEY_TELEMETRY_DRAIN_BUSY;
+        const auto deadline = timeout_ms == UINT32_MAX ? (std::chrono::steady_clock::time_point::max)()
+            : std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+        std::unique_lock<std::shared_timed_mutex> sink_lock(telemetry_plugin::active_sink_mutex, std::defer_lock);
+        const bool sink_ready = deadline == (std::chrono::steady_clock::time_point::max)()
+            ? (sink_lock.lock(), true) : sink_lock.try_lock_until(deadline);
+        if (!sink_ready) return SMEDLEY_TELEMETRY_DRAIN_TIMEOUT;
+        return telemetry_plugin::active_sink == nullptr ? SMEDLEY_TELEMETRY_DRAIN_UNAVAILABLE
+            : telemetry_plugin::active_sink->DrainUntil(deadline);
+    } catch (...) {
+        return SMEDLEY_TELEMETRY_DRAIN_FAILED;
     }
 }
 

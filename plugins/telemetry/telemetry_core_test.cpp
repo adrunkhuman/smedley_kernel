@@ -238,16 +238,17 @@ TEST(TelemetryWriterTest, WritesCompleteNewlineDelimitedRecords)
     ASSERT_TRUE(writer.TryWrite("{\"line\":1}"));
     ASSERT_TRUE(writer.WriteReliable("{\"line\":2}"));
     telemetry::QueueStats final_stats;
-    writer.Stop([&](const telemetry::QueueStats &stats) {
+    EXPECT_TRUE(writer.Stop([&](const telemetry::QueueStats &stats) {
         final_stats = stats;
         return "{\"summary\":true}";
-    });
+    }));
     EXPECT_EQ(final_stats.accepted, 2u);
     EXPECT_EQ(final_stats.written, 2u);
 
     std::ifstream input(path, std::ios::binary);
     std::string contents((std::istreambuf_iterator<char>(input)), {});
     EXPECT_EQ(contents, "{\"line\":1}\n{\"line\":2}\n{\"summary\":true}\n");
+    EXPECT_FALSE(writer.TryWrite("{\"late\":true}"));
     std::error_code ignored;
     fs::remove(path, ignored);
 }

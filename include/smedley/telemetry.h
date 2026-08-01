@@ -28,6 +28,7 @@ extern "C" {
 #define SMEDLEY_TELEMETRY_RECORD_HAS_GAME_DATE UINT32_C(1)
 #define SMEDLEY_TELEMETRY_EMIT_V1_SYMBOL "SmedleyTelemetryEmitV1"
 #define SMEDLEY_TELEMETRY_EMIT_RELIABLE_V1_SYMBOL "SmedleyTelemetryEmitReliableV1"
+#define SMEDLEY_TELEMETRY_DRAIN_V1_SYMBOL "SmedleyTelemetryDrainV1"
 
 typedef uint32_t SmedleyTelemetryResult;
 enum {
@@ -36,6 +37,17 @@ enum {
     SMEDLEY_TELEMETRY_ACCEPTED = 2,
     SMEDLEY_TELEMETRY_DROPPED = 3,
     SMEDLEY_TELEMETRY_INVALID = 4
+};
+
+typedef uint32_t SmedleyTelemetryDrainResult;
+/* Unavailable means no active drain-capable sink; busy rejects a concurrent
+ * call immediately. Timeout and failed do not permit a coordinated quit. */
+enum {
+    SMEDLEY_TELEMETRY_DRAIN_UNAVAILABLE = 0,
+    SMEDLEY_TELEMETRY_DRAIN_COMPLETED = 1,
+    SMEDLEY_TELEMETRY_DRAIN_BUSY = 2,
+    SMEDLEY_TELEMETRY_DRAIN_TIMEOUT = 3,
+    SMEDLEY_TELEMETRY_DRAIN_FAILED = 4
 };
 
 typedef uint32_t SmedleyTelemetryScalarType;
@@ -96,6 +108,7 @@ typedef struct SmedleyTelemetryRecordV1 {
  * but callers must not infer or require a particular execution thread. */
 typedef SmedleyTelemetryResult (SMEDLEY_TELEMETRY_CALL *SmedleyTelemetryEmitV1Fn)(
     const SmedleyTelemetryRecordV1 *record);
+typedef SmedleyTelemetryDrainResult (SMEDLEY_TELEMETRY_CALL *SmedleyTelemetryDrainV1Fn)(uint32_t timeout_ms);
 
 SMEDLEY_TELEMETRY_EXPORT SmedleyTelemetryResult SMEDLEY_TELEMETRY_CALL
 SmedleyTelemetryEmitV1(const SmedleyTelemetryRecordV1 *record);
@@ -105,6 +118,14 @@ SmedleyTelemetryEmitV1(const SmedleyTelemetryRecordV1 *record);
  * dropped when the queue is full or stopped. Do not use it from hot hooks. */
 SMEDLEY_TELEMETRY_EXPORT SmedleyTelemetryResult SMEDLEY_TELEMETRY_CALL
 SmedleyTelemetryEmitReliableV1(const SmedleyTelemetryRecordV1 *record);
+
+/* timeout_ms is milliseconds; UINT32_MAX waits indefinitely. One monotonic
+ * deadline covers sink ownership, producer quiescence, queue drain, worker
+ * join, telemetry.summary, final flush, and close. Once shutdown begins,
+ * ingress remains stopped; timeout never detaches the worker. A later call
+ * retries coordination or waits for the same in-progress drain. */
+SMEDLEY_TELEMETRY_EXPORT SmedleyTelemetryDrainResult SMEDLEY_TELEMETRY_CALL
+SmedleyTelemetryDrainV1(uint32_t timeout_ms);
 
 #ifdef __cplusplus
 }

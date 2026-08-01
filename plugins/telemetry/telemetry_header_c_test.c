@@ -1,7 +1,9 @@
 #include <smedley/telemetry.h>
 
 static SmedleyTelemetryEmitV1Fn sink;
+static SmedleyTelemetryDrainV1Fn drain;
 typedef char smedley_telemetry_result_is_u32[(sizeof(SmedleyTelemetryResult) == sizeof(uint32_t)) ? 1 : -1];
+typedef char smedley_telemetry_drain_result_is_u32[(sizeof(SmedleyTelemetryDrainResult) == sizeof(uint32_t)) ? 1 : -1];
 typedef char smedley_telemetry_scalar_is_u32[(sizeof(SmedleyTelemetryScalarType) == sizeof(uint32_t)) ? 1 : -1];
 #define SMEDLEY_ASSERT_LAYOUT(type, member, offset) typedef char type##_##member##_offset[(offsetof(type, member) == offset) ? 1 : -1]
 typedef char smedley_utf8_size[(sizeof(SmedleyTelemetryUtf8V1) == 12) ? 1 : -1];
@@ -48,5 +50,5 @@ int smedley_telemetry_header_c_test(void)
     SmedleyTelemetryRecordV1 record = {0};
     record.struct_size = sizeof(record);
     record.version = SMEDLEY_TELEMETRY_ABI_VERSION_V1;
-    return sink == 0 ? (int)record.version : (int)sink(&record);
+    return sink == 0 ? (drain == 0 ? (int)record.version : (int)drain(1)) : (int)sink(&record);
 }

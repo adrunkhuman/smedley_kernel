@@ -1150,7 +1150,7 @@ namespace campaign_runner
             ReportTelemetryResult(telemetry_.BenchmarkCompleted(benchmark_.start_date_raw(), benchmark_.target_date_raw(),
                 actual_date_raw.value_or(benchmark_.target_date_raw()), benchmark_.requested_days(), elapsed));
             if (quit_after_run_ && actual_date_raw && *actual_date_raw == benchmark_.target_date_raw()) {
-                RequestQuitAfterRun();
+                QuitAfterRun();
             } else {
                 logger_.Info("benchmark completed; campaign remains paused and open");
             }
@@ -1161,7 +1161,23 @@ namespace campaign_runner
         }
     }
 
-    void CampaignLauncher::RequestQuitAfterRun()
+    bool CampaignLauncher::DrainTelemetryBeforeQuit()
+    {
+        constexpr uint32_t drain_timeout_ms = 5000;
+        const auto result = telemetry_.Drain(drain_timeout_ms);
+        if (TelemetryDrainAllowsQuit(result)) {
+            logger_.Info(result == SMEDLEY_TELEMETRY_DRAIN_COMPLETED
+                ? "telemetry drained before native game exit"
+                : "telemetry drain is unavailable; continuing native game exit");
+            return true;
+        }
+        const char *reason = result == SMEDLEY_TELEMETRY_DRAIN_BUSY ? "busy"
+            : result == SMEDLEY_TELEMETRY_DRAIN_TIMEOUT ? "timeout" : "failure";
+        logger_.Failure(std::string("telemetry pre-exit drain ended with ") + reason + "; campaign remains paused and open");
+        return false;
+    }
+
+    void CampaignLauncher::QuitAfterRun()
     {
         const auto *game_state = smedley::v2::CCurrentGameState::instance();
         auto *idler = game_state == nullptr ? nullptr : game_state->idler();
@@ -1175,6 +1191,8 @@ namespace campaign_runner
             logger_.Failure("native quit virtual method mismatch; campaign remains paused and open");
             return;
         }
+        // The paused UI-thread call cannot transition away from this validated idler while the synchronous drain waits.
+        if (!DrainTelemetryBeforeQuit()) return;
         using RequestQuit = void (__thiscall *)(void *);
         reinterpret_cast<RequestQuit>(request_quit)(idler);
         if (*(reinterpret_cast<const unsigned char *>(idler) + 0x1d20) != 1) {

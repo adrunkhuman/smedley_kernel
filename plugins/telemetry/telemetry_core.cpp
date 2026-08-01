@@ -821,9 +821,9 @@ namespace smedley::telemetry
         return true;
     }
 
-    void Writer::Stop(const std::function<std::string(const QueueStats &)> &summary_builder)
+    bool Writer::Stop(const std::function<std::string(const QueueStats &)> &summary_builder)
     {
-        if (!started_) return;
+        if (!started_) return !write_failed_.load(std::memory_order_relaxed);
         queue_.Stop();
         wake_.notify_one();
         if (thread_.joinable()) thread_.join();
@@ -832,9 +832,10 @@ namespace smedley::telemetry
             if (!summary.empty()) WriteLine(summary);
         }
         if (!write_failed_.load(std::memory_order_relaxed)) Flush();
-        CloseHandle(output_);
+        if (!CloseHandle(output_)) FailWrite();
         output_ = INVALID_HANDLE_VALUE;
         started_ = false;
+        return !write_failed_.load(std::memory_order_relaxed);
     }
 
     QueueStats Writer::stats() const

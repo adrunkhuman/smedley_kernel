@@ -53,7 +53,8 @@ namespace campaign_runner
         bool TickBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler);
         void FinishBenchmark(const char *reason, std::optional<int> actual_date_raw, std::optional<bool> paused);
         void FinishInvalidBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler);
-        void RequestQuitAfterRun();
+        bool DrainTelemetryBeforeQuit();
+        void QuitAfterRun();
         void ReportTelemetryResult(SmedleyTelemetryResult result);
         bool ObserverInvariantsValid(smedley::v2::CCurrentGameState *game_state) const;
         bool EmitObserverConfiguredIfReady(smedley::v2::CCurrentGameState *game_state);

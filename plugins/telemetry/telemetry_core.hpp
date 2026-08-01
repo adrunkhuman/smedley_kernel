@@ -142,7 +142,7 @@ namespace smedley::telemetry
         bool WriteReliable(std::string_view line);
         bool TryWrite(std::string_view line);
         void MarkDropped();
-        void Stop(const std::function<std::string(const QueueStats &)> &summary_builder = {});
+        bool Stop(const std::function<std::string(const QueueStats &)> &summary_builder = {});
         QueueStats stats() const;
 
     private:

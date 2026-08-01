@@ -60,6 +60,11 @@ namespace campaign_runner
         return SamePath(expected, std::filesystem::path(candidate_path).lexically_normal());
     }
 
+    bool TelemetryDrainAllowsQuit(SmedleyTelemetryDrainResult result)
+    {
+        return result == SMEDLEY_TELEMETRY_DRAIN_COMPLETED || result == SMEDLEY_TELEMETRY_DRAIN_UNAVAILABLE;
+    }
+
     SmedleyTelemetryEmitV1Fn CampaignTelemetry::Resolve()
     {
         if (reliable_emit_ != nullptr) return reliable_emit_;
@@ -86,9 +91,20 @@ namespace campaign_runner
             emit_ = reinterpret_cast<SmedleyTelemetryEmitV1Fn>(GetProcAddress(module, SMEDLEY_TELEMETRY_EMIT_V1_SYMBOL));
             reliable_emit_ = reinterpret_cast<SmedleyTelemetryEmitV1Fn>(
                 GetProcAddress(module, SMEDLEY_TELEMETRY_EMIT_RELIABLE_V1_SYMBOL));
+            drain_ = reinterpret_cast<SmedleyTelemetryDrainV1Fn>(GetProcAddress(module, SMEDLEY_TELEMETRY_DRAIN_V1_SYMBOL));
             return reliable_emit_ != nullptr ? reliable_emit_ : emit_;
         }
         return emit_;
+    }
+
+    SmedleyTelemetryDrainResult CampaignTelemetry::Drain(uint32_t timeout_ms)
+    {
+        try {
+            (void)Resolve();
+            return drain_ == nullptr ? SMEDLEY_TELEMETRY_DRAIN_UNAVAILABLE : drain_(timeout_ms);
+        } catch (...) {
+            return SMEDLEY_TELEMETRY_DRAIN_FAILED;
+        }
     }
 
     SmedleyTelemetryResult CampaignTelemetry::Emit(const char *event_type, const SmedleyTelemetryFieldV1 *entities,

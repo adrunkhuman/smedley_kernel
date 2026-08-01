@@ -25,6 +25,8 @@ namespace
     std::deque<SmedleyTelemetryResult> results;
     int calls = 0;
     int fallback_calls = 0;
+    SmedleyTelemetryDrainResult drain_result = SMEDLEY_TELEMETRY_DRAIN_UNAVAILABLE;
+    uint32_t drain_timeout_ms = 0;
 
     CapturedField CopyField(const SmedleyTelemetryFieldV1 &field)
     {
@@ -58,6 +60,12 @@ namespace
         return SMEDLEY_TELEMETRY_DROPPED;
     }
 
+    SmedleyTelemetryDrainResult SMEDLEY_TELEMETRY_CALL CaptureDrain(uint32_t timeout_ms)
+    {
+        drain_timeout_ms = timeout_ms;
+        return drain_result;
+    }
+
     class CampaignTelemetryTest : public testing::Test
     {
     protected:
@@ -69,6 +77,8 @@ namespace
             results.clear();
             calls = 0;
             fallback_calls = 0;
+            drain_result = SMEDLEY_TELEMETRY_DRAIN_UNAVAILABLE;
+            drain_timeout_ms = 0;
         }
     };
 }
@@ -167,6 +177,23 @@ TEST_F(CampaignTelemetryTest, PrefersReliableEmitterAndRetainsFallbackCompatibil
     campaign_runner::CampaignTelemetry fallback(&CaptureFallback, nullptr);
     EXPECT_EQ(fallback.SaveSelectionRequested(), SMEDLEY_TELEMETRY_DROPPED);
     EXPECT_EQ(fallback_calls, 1);
+}
+
+TEST_F(CampaignTelemetryTest, DrainsThroughOptionalBoundedApiAndDefinesQuitPolicy)
+{
+    campaign_runner::CampaignTelemetry telemetry(&CaptureFallback, &Capture, &CaptureDrain);
+    drain_result = SMEDLEY_TELEMETRY_DRAIN_COMPLETED;
+    EXPECT_EQ(telemetry.Drain(5000), SMEDLEY_TELEMETRY_DRAIN_COMPLETED);
+    EXPECT_EQ(drain_timeout_ms, 5000u);
+
+    EXPECT_TRUE(campaign_runner::TelemetryDrainAllowsQuit(SMEDLEY_TELEMETRY_DRAIN_COMPLETED));
+    EXPECT_TRUE(campaign_runner::TelemetryDrainAllowsQuit(SMEDLEY_TELEMETRY_DRAIN_UNAVAILABLE));
+    EXPECT_FALSE(campaign_runner::TelemetryDrainAllowsQuit(SMEDLEY_TELEMETRY_DRAIN_BUSY));
+    EXPECT_FALSE(campaign_runner::TelemetryDrainAllowsQuit(SMEDLEY_TELEMETRY_DRAIN_TIMEOUT));
+    EXPECT_FALSE(campaign_runner::TelemetryDrainAllowsQuit(SMEDLEY_TELEMETRY_DRAIN_FAILED));
+
+    campaign_runner::CampaignTelemetry legacy(&CaptureFallback, &Capture);
+    EXPECT_EQ(legacy.Drain(5000), SMEDLEY_TELEMETRY_DRAIN_UNAVAILABLE);
 }
 
 TEST(BenchmarkControllerTest, CompletesOnlyAtTheExactTargetOnce)

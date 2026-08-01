@@ -177,7 +177,7 @@ watchdog instead of reporting `unexpected_pause` first.
 | --- | --- |
 | Non-default run controls | Require a save and the `campaign_runner` plugin. |
 | `run_days` or `run_until_date_raw` | Request a bounded benchmark interval. Require injection, a selected save, `campaign_runner`, `start_paused = false`, and `detach = true`. Safe mode warns that stale targets are ignored. |
-| `quit_after_run` | Requires a bounded run target. After exact-target completion, attempts to queue `benchmark.completed` when telemetry is available, then requests Victoria II's verified native quit operation. The request does not flush or drain plugins; queued records and `telemetry.summary` may be lost at process exit. A failed native-request validation or readback leaves the campaign paused and open. It never applies to failed runs. |
+| `quit_after_run` | Requires a bounded run target. After exact-target completion, attempts to queue `benchmark.completed`, then invokes the optional telemetry drain with one five-second deadline. Completed telemetry permits Victoria II's verified native quit. Unavailable telemetry also permits quit for absent or legacy sinks, without a final-summary or durability guarantee. Busy, timeout, drain failure, native-request validation failure, or request-state readback failure leaves the campaign paused and open. It never applies to failed runs. See [telemetry lifecycle](telemetry.md#native-extension-abi-and-lifecycle). |
 | `view_tag` with a run target | Rejected because the view switch is asynchronous after simulation resumes. Observer mode itself remains optional. |
 | Custom timeout without a target | Inert and produces a preflight warning. It neither requires campaign automation nor reaches the plugin. |
 
@@ -192,8 +192,10 @@ the game will use.
 By default the process is intentionally left paused and open on completion.
 Every safe failure also remains open. An explicitly enabled `quit_after_run`
 requests the verified native game exit only after exact-target success. No
-checkpoint save, benchmark save, final plugin drain, or final game-state
-assertion is implemented or claimed.
+checkpoint save, generic plugin drain, or final game-state assertion is
+implemented or claimed. The telemetry plugin has its own bounded pre-exit drain.
+That guarantee requires the bundled drain-capable plugin; unavailable legacy or
+absent telemetry does not block native exit.
 
 ## Current limits
 

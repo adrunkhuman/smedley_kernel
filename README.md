@@ -84,7 +84,11 @@ a configured campaign, pauses it at the exact target date, and reports typed
 telemetry when available. The default leaves the game open and paused.
 `--quit-after-run` instead requests Victoria II's verified native exit after a
 successful exact-target run; failures remain paused and open. It does not save
-or provide a final plugin-drain or state-assertion workflow.
+or provide a generic plugin-drain or state-assertion workflow. With the bundled
+drain-capable telemetry plugin, `campaign_runner` first drains accepted records
+and joins the writer, then writes the final summary, flushes, and closes the
+trace. If telemetry is absent or lacks the drain symbol, quit still proceeds
+without a final-summary or telemetry-durability guarantee.
 
 `telemetry` provides versioned JSON Lines records, including sampled country
 treasury state and bounded world economic snapshots when `state` is selected.
@@ -141,7 +145,7 @@ The current release supports Windows, MSVC x86, and the executable identified
 above. The native C ABI currently covers lifecycle, not game services. Plugin
 dependency versions, general third-party plugin settings, broad AI decision
 telemetry, profiling, and profiler-backed engine optimizations are still in
-active development. Pre-exit plugin callbacks and coordinated telemetry drain
-remain unimplemented despite the verified native game-exit request. See
+active development. A generic pre-exit callback for plugins other than telemetry
+remains unimplemented. See
 [`mappings/ROADMAP.md`](mappings/ROADMAP.md) for the current roadmap and
 [`mappings/`](mappings/) for reverse-engineering evidence.

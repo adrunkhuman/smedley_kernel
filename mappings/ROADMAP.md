@@ -51,9 +51,10 @@
 
 Campaign entry, observer setup, native speed 5, generic message-popup
 suppression, exact-date pause, and opt-in native exit work. The remaining
-automation blocker is a verified save/checkpoint plus a coordinated pre-exit
-plugin lifecycle boundary for final telemetry drain. Runs without the exit
-option, and every failed run, deliberately remain paused and open.
+automation blocker is a verified save/checkpoint. The telemetry plugin now has a
+bounded pre-exit drain for campaign-runner exits; a generic lifecycle boundary
+for other plugins remains open. Runs without the exit option, and every failed
+run, deliberately remain paused and open.
 
 ## Additional policy gap
 
@@ -62,8 +63,8 @@ fixture.
 
 ## Next mapping sequence
 
-1. Find a verified save/checkpoint boundary and add pre-exit plugin notification
-   with final telemetry drain semantics.
+1. Find a verified save/checkpoint boundary and decide whether another concrete
+   plugin requires a generic pre-exit lifecycle notification.
 2. Reproduce non-generic modal event interruptions and define an explicit
    benchmark policy.
 3. Find `CGuiTypes::LookupString` by following references to known names such

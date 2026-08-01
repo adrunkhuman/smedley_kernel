@@ -9,14 +9,16 @@
 namespace campaign_runner
 {
     bool IsSiblingTelemetryPath(const std::wstring &campaign_runner_path, const std::wstring &candidate_path);
+    bool TelemetryDrainAllowsQuit(SmedleyTelemetryDrainResult result);
 
     class CampaignTelemetry
     {
     public:
         CampaignTelemetry() = default;
         explicit CampaignTelemetry(SmedleyTelemetryEmitV1Fn emit) : emit_(emit), reliable_emit_(emit) {}
-        CampaignTelemetry(SmedleyTelemetryEmitV1Fn emit, SmedleyTelemetryEmitV1Fn reliable_emit)
-            : emit_(emit), reliable_emit_(reliable_emit) {}
+        CampaignTelemetry(SmedleyTelemetryEmitV1Fn emit, SmedleyTelemetryEmitV1Fn reliable_emit,
+                          SmedleyTelemetryDrainV1Fn drain = nullptr)
+            : emit_(emit), reliable_emit_(reliable_emit), drain_(drain) {}
 
         SmedleyTelemetryResult SaveSelectionRequested();
         SmedleyTelemetryResult SaveLoadCompleted();
@@ -36,6 +38,7 @@ namespace campaign_runner
                                                   int game_days, int64_t elapsed_us);
         SmedleyTelemetryResult BenchmarkFailed(int start_date_raw, int target_date_raw, std::optional<int> actual_date_raw,
                                                int64_t elapsed_us, std::string_view reason, std::optional<bool> paused);
+        SmedleyTelemetryDrainResult Drain(uint32_t timeout_ms);
 
     private:
         SmedleyTelemetryResult Emit(const char *event_type, const SmedleyTelemetryFieldV1 *entities, uint32_t entity_count,
@@ -45,6 +48,7 @@ namespace campaign_runner
 
         SmedleyTelemetryEmitV1Fn emit_ = nullptr;
         SmedleyTelemetryEmitV1Fn reliable_emit_ = nullptr;
+        SmedleyTelemetryDrainV1Fn drain_ = nullptr;
         bool resolution_attempted_ = false;
         bool save_selection_emitted_ = false;
         bool save_load_emitted_ = false;

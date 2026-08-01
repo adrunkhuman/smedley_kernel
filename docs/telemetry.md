@@ -98,8 +98,8 @@ report these delivery metrics:
 
 | Field | Meaning |
 | --- | --- |
-| `accepted` | Records accepted by the queue. |
-| `written` | Records written when the payload is sampled, before the summary itself is written. |
+| `accepted` | Payload records accepted by the queue; excludes `telemetry.summary`. |
+| `written` | Accepted payload records written by the worker; excludes `telemetry.summary`. |
 | `dropped` | Records rejected by bounded delivery. |
 | `high_water` | Highest observed queue occupancy. |
 | `write_failed` | Whether the writer has failed. |
@@ -180,17 +180,33 @@ explicitly counted as dropped. `telemetry.progress`, `world.daily`,
 date-regression, economic snapshot, and opt-in interest-fix result records use
 reliable bounded publication so lock contention alone cannot split their
 evidence. The queue remains bounded, and publication still performs no file I/O.
-The sole worker writes
-complete JSON Lines incrementally and flushes at least once per second. An
-explicit future unload drains accepted records, appends a best-effort final
-summary using post-drain statistics, and flushes. `campaign_runner` can now
-request Victoria II's verified native game exit after a successful bounded run,
-but the kernel has no pre-exit plugin callback and does not unload plugins from
-`DllMain`; native process exit therefore does not emit `telemetry.summary` or
-join the writer. `telemetry.progress` is emitted at least once per observed game
-date when `lifecycle` is selected. Up to the latest userspace queue and the
-one-second flush interval can be lost at real process exit. Completed prior
-lines remain independently parseable and no callbacks interleave output.
+The sole worker writes complete JSON Lines incrementally and flushes at least
+once per second. Explicit plugin unload drains accepted records and waits for
+the worker to empty the queue and join. It then appends a best-effort final
+summary using post-drain statistics, performs the final flush, and closes the
+file.
+
+Before an opt-in native exit, `campaign_runner` resolves
+`SmedleyTelemetryDrainV1` from the already loaded sibling telemetry module and
+uses one five-second monotonic deadline. The API obtains exclusive sink
+ownership, which waits for entered external calls and blocks new ones. It then
+marks telemetry as draining, removes the daily handler, and waits for any
+entered daily callback before fixing and draining the accepted queue boundary. The
+worker empties that queue and joins; `telemetry.summary` is then appended when
+lifecycle capture is enabled, followed by the final flush and file close.
+
+Native exit follows a completed drain. It also follows an unavailable result for
+compatibility when telemetry is absent, inactive, or lacks the drain symbol, but
+that path has no final-summary or telemetry-durability guarantee. Busy, timeout,
+or failure leaves the campaign paused and open. Timeout is not cancellation: if
+shutdown has begun, ingress remains disabled; an already-started worker drain
+continues. A later non-recursive call retries incomplete coordination or waits
+for and joins the same drain rather than reopening ingress or starting a second
+worker. If the deadline expires before exclusive sink ownership, no shutdown
+transition occurred. The kernel still has no generic pre-exit plugin callback
+and does not unload plugins from `DllMain`. Abrupt or non-Smedley exits can lose
+up to the latest userspace queue and the one-second flush interval. Completed
+prior lines remain independently parseable and no callbacks interleave output.
 
 The economic producer performs its bounded world traversal on the game thread
 only at selected dates. It allocates its fixed storage at plugin construction,
@@ -265,6 +281,29 @@ lifetime guard and can coexist with reliable calls; unload takes exclusive
 ownership only after in-flight calls finish. `campaign_runner` prefers the
 reliable symbol and falls back to the original symbol when paired with an older
 telemetry plugin.
+
+`SmedleyTelemetryDrainV1(timeout_ms)` is the optional process-exit coordination
+boundary. Results are `unavailable`, `completed`, `busy`, `timeout`, and
+`failed`. `timeout_ms` is milliseconds and `UINT32_MAX` means no deadline. A
+finite call computes one monotonic deadline for sink ownership, drain-state
+ownership, producer quiescence, queue consumption, worker join, final summary,
+flush, and close. Completed means extension and daily ingress are stopped,
+entered producers returned, every accepted payload record was consumed, the
+worker joined, any enabled final summary was written, and the file was flushed
+and closed. The summary is excluded from its own `accepted` and `written`
+counters. Busy rejects a concurrent drain immediately. Timeout never detaches a
+worker; once shutdown starts it does not reopen ingress, and a later call resumes
+or joins the same drain. Callers must not invoke drain recursively or from a
+telemetry producer. This is a telemetry-specific capability, not a generic
+kernel plugin-lifecycle callback.
+
+Runtime run `4d3d4e44-b4e5-4d7f-b10a-b50bd5b96cfb` exercised the bundled drain
+before native quit. Its valid lifecycle trace ended with `benchmark.completed`
+at sequence 10 and `telemetry.summary` at sequence 11; the summary reported 10
+accepted, 10 written, zero dropped, and no write failure. The process exited and
+the source save was unchanged.
+This acceptance covers the bundled completed-drain path only; it does not
+exercise timeout retry or legacy-plugin compatibility.
 
 The ABI contains only fixed-width C values and bounded UTF-8 pointer/length
 pairs. Records and fields include `struct_size`, `version`, and zero reserved

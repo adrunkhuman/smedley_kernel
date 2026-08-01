@@ -99,8 +99,13 @@ terminal path writes a save.
 The benchmark is terminally paused before the exit request. The runner validates
 the idler RTTI, exact vtable target, and post-call request flag. A failed
 validation or readback logs a failure and leaves the campaign paused and open.
-Successful dispatch requests game exit; it does not guarantee telemetry
-durability.
+Before dispatch, the runner waits up to five seconds for the optional sibling
+telemetry drain. Completed or unavailable telemetry permits exit. Busy, timeout,
+or failure leaves the campaign paused and open. A completed drain has stopped
+telemetry ingress, consumed accepted payload records, and joined its writer; it
+then writes any enabled final summary, flushes, and closes the file. Unavailable
+means telemetry is absent, inactive, or lacks the drain symbol, so that
+compatibility path permits exit without a final-summary or durability guarantee.
 
 An invalid runtime target or unavailable benchmark timer is terminal. The runner
 first attempts and reads back pause; its failure record reports whether that
@@ -131,8 +136,21 @@ completed an exact one-day target, read back that native quit-request state, and
 exited without `ExitProcess`, `TerminateProcess`, `WM_CLOSE`, or synthetic
 input. The source save retained SHA-256
 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
-This verifies process exit only, not durable terminal telemetry; the kernel still
-has no pre-exit plugin lifecycle notification or final telemetry drain.
+This verifies process exit only. The telemetry drain was added afterward and has
+separate acceptance evidence below; the kernel still has no generic pre-exit
+plugin lifecycle notification.
+
+Runtime drain acceptance on August 1, 2026 used detached run
+`4d3d4e44-b4e5-4d7f-b10a-b50bd5b96cfb` with the bundled `campaign_runner` and
+`telemetry` plugins, lifecycle capture, and an exact one-day target. The runner
+logged drain completion before the native quit request and the process exited.
+The validated 11-record trace placed `benchmark.completed` at sequence 10 and
+`telemetry.summary` as the final newline-terminated sequence 11. Summary counters
+reported accepted 10, written 10, dropped 0, and no write failure. The source
+save retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+This acceptance covers the bundled completed-drain path, not timeout retry or
+legacy-plugin compatibility.
 
 Additional final-DLL acceptance covered three non-happy-path boundaries. Run
 `31a41204-121e-4e11-be5d-6ae3fb47f771` used no observer mode and an absolute
