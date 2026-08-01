@@ -362,10 +362,11 @@ namespace smedley::v2
         const uintptr_t _addr = memory::Map::base_addr + 0x113c80;
         __asm mov edi, this __asm mov eax, unit __asm call _addr
         }
-        void Annex(const CCountryTag & arg_0,const CCountryTag & target)
+        //Verified x86 stack: this, unresolved tag reference, target key, target ordinal; ret 0x10.
+        void Annex(const CCountryTag & arg_0,uint32_t target_key,int target_ordinal)
         {
         const uintptr_t _addr = memory::Map::base_addr + 0x118620;
-        __asm push target __asm push arg_0 __asm push this __asm call _addr
+        __asm push target_ordinal __asm push target_key __asm push arg_0 __asm push this __asm call _addr
         }
         static void AnnexProvinces(const sstd::vector<int> & provinces,const CCountryTag & target,CEU3Date * arg_2,bool arg_3,const CCountryTag & remove_core)
         {

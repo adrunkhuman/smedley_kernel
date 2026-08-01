@@ -133,6 +133,9 @@ namespace smedley::v2
     public:
         inline const sstd::vector<CCountry *> countries() const { return _countries; }
         inline sstd::vector<CCountry *> countries() { return _countries; }
+        // Camera-only mutation for the verified pre-game-over observer boundary;
+        // callers preserve player ownership and AI scheduler invariants.
+        void set_observer_view_tag(const CCountryTag &tag) { _player_tag = tag; }
 
         /*[[[cog
         from codegen import print_class_model_fns

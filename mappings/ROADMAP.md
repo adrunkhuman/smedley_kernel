@@ -4,7 +4,7 @@
 
 - The CLI can start the exact cataloged `v2game.exe`, inject the kernel and a
   plugin, initialize both, and reach a responsive main window.
-- The executable identity and 57 signatures are machine-checked.
+- The executable identity and 58 signatures are machine-checked.
 - Current country, province, and game-state layouts plus removed historical
   POP, bank, and GUI evidence are recorded without presenting hypotheses as
   verified facts.
@@ -18,9 +18,10 @@
 - Optional full-AI observer mode uses the native return-to-AI transition and
   verifies that no player-control entry remains before unpausing; runtime
   acceptance passed with `benchmark.v2` and `JAN`.
-- The observer watchdog has a statically checked annexation-failover attempt,
-  but runtime testing proves it is not yet reliable: annexing the viewed
-  country leaves `CInGameIdler` before the timer can switch views.
+- Observer mode now switches its camera tag at the verified `CCountry::Annex`
+  entry boundary before Victoria II evaluates game over. A deterministic JAN
+  annexation moved the view to ENG, preserved full AI scheduling, and continued
+  simulation beyond April 1837.
 - Native speed selection, generic message-popup suppression, and bounded
   run-for-days targets are implemented. Two identical 365-day observer runs
   paused at the exact target with a 0.50 percent throughput difference and no

@@ -136,6 +136,9 @@ namespace smedley::v2
         CInGameIdler *idler() const { return _idler; }
         int speed_index() const { return _speed_index; }
         const CCountryTag &player_tag() const { return _player_tag; }
+        // Camera-only mutation for the verified pre-game-over observer boundary;
+        // callers preserve player ownership and AI scheduler invariants.
+        void set_observer_view_tag(const CCountryTag &tag) { _player_tag = tag; }
         CCountry *country(int ordinal) const
         {
             return ordinal >= 0 && static_cast<size_t>(ordinal) < _countries.size()

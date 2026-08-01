@@ -57,6 +57,14 @@ signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
 source = "paired runtime observations verified current-country treasury reductions and exact conservation into resolved destination-bank +0x20 values on all 12 calls with creditor entries; the sole direct caller at RVA 0x00108d3e and ret 4 cleanup are statically established"
 
 [[symbols]]
+name = "CCountry::Annex pre-game-over observer handoff"
+rva = 0x00118620
+kind = "hook"
+status = "verified-runtime"
+signature = "55 8b ec 83 e4 f8"
+source = "entry disassembly identifies this at +0x4, a referenced tag at +0x8, the annexed tag key at +0xc, and its ordinal at +0x10 before CGameState::_player_tag is captured; ret 0x10 at RVA 0x11928e confirms the four-dword stack contract; a deterministic ENG inherit=JAN fixture moved the observer view from JAN to ENG at this boundary, preserved full AI ownership and scheduler count, avoided the game-over transition, and continued simulation beyond April 1837"
+
+[[symbols]]
 name = "CState constructor"
 rva = 0x000cdc60
 kind = "function"

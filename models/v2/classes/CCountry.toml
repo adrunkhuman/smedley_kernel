@@ -114,13 +114,18 @@ name = "Annex"
 ret = "void"
 callconv = "__stdcall"
 offset = 0x00118620
+doc = "Verified x86 stack: this, unresolved tag reference, target key, target ordinal; ret 0x10."
 
     [[fns.args]]
     argtype = "const CCountryTag &"
 
     [[fns.args]]
-    argtype = "const CCountryTag &"
-    name = "target"
+    argtype = "uint32_t"
+    name = "target_key"
+
+    [[fns.args]]
+    argtype = "int"
+    name = "target_ordinal"
 
 [[fns]]
 name = "AnnexProvinces"

@@ -152,7 +152,16 @@ not yet provide a script list editor.
 The current profile API supports unattended save loading, observer mode, an
 optional observer view tag, an initial speed from 1 through 5, and a
 start-paused checkbox. Observer mode cannot start paused because its watchdog
-must observe simulation advancement.
+must observe simulation advancement. If the viewed country is annexed, the
+campaign runner selects the first living scheduled-AI country at the verified
+native Annex entry boundary and changes only the camera tag; player ownership
+and the AI scheduler remain unchanged. Other country disappearances use the
+timer-driven safe-switch fallback.
+
+Observer monitoring also resumes an unexpected native pause after verifying
+the pause toggle. It stops monitoring if the game cannot resume or reports an
+invalid pause state; bounded benchmark runs defer this recovery to the observer
+watchdog instead of reporting `unexpected_pause` first.
 
 | Control | Requirements and behavior |
 | --- | --- |
@@ -181,6 +190,8 @@ settings beyond the built-in telemetry and scripting contracts, or validate
 game/mod runtime behavior.
 It only accepts the one verified executable identity and x86 PE kernel/plugin
 DLLs. No-injection and injected launches still require the same verified game.
+The pre-annexation observer handoff is mapped only for that supported
+executable; it is not a version-independent Victoria II facility.
 Run history records launcher outcomes, not game health: `started` does not
 prove injection, plugin initialization, campaign loading, save integrity, or
 later process exit for detached runs.

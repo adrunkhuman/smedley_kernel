@@ -34,6 +34,9 @@ namespace campaign_runner
         void CaptureConsoleCommandManager(smedley::v2::CConsoleCmdManager *manager);
         void CaptureFrontendController(void *controller);
         void CaptureMainMenuController(void *controller);
+        // Called before native Annex captures the player tag. Observer mode
+        // changes only the view and logs failure if no healthy AI target exists.
+        void PrepareObserverForAnnexation(int annexed_ordinal);
 
         static smedley::v2::CConsoleCmd::SResult HandleObserverSwitch(
             const smedley::sstd::vector<smedley::sstd::string> &arguments);

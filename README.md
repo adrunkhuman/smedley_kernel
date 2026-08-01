@@ -74,7 +74,10 @@ not exited, because the launcher does not watch them after it returns.
 operations. It can choose speed 1 through 5, preserve a paused start, or enter
 observer mode. Observer mode returns every country to AI control, enables full
 map visibility, suppresses modal message pauses, safely changes the viewing
-country, and verifies each transition against live game state.
+country, and verifies each transition against live game state. If that country
+is annexed, the supported 3.04 executable moves the camera to another living AI
+country before game-over evaluation without changing country ownership or AI
+scheduling. A timer-driven fallback handles other country disappearances.
 
 It also has bounded fixed-date benchmark runs: `--run-days 365 --detach` resumes
 a configured campaign, pauses it at the exact target date, and reports typed

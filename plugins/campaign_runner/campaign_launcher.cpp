@@ -27,6 +27,7 @@ namespace campaign_runner
         CampaignLauncher *launcher_instance = nullptr;
         uintptr_t frontend_constructor_return_address = 0;
         uintptr_t main_menu_return_address = 0;
+        uintptr_t country_annex_return_address = 0;
         uintptr_t message_dispatch_return_address = 0;
         uintptr_t message_dispatch_popup_address = 0;
         uintptr_t message_dispatch_suppressed_address = 0;
@@ -128,6 +129,13 @@ namespace campaign_runner
             }
         }
 
+        void __stdcall PrepareObserverForAnnexation(int annexed_ordinal)
+        {
+            if (launcher_instance != nullptr) {
+                launcher_instance->PrepareObserverForAnnexation(annexed_ordinal);
+            }
+        }
+
         __declspec(naked) void FrontendConstructorTrampoline()
         {
             __asm {
@@ -161,6 +169,24 @@ namespace campaign_runner
                 mov ebp, esp
                 push 0xffffffff
                 jmp main_menu_return_address
+            }
+        }
+
+        __declspec(naked) void CountryAnnexTrampoline()
+        {
+            __asm {
+                pushfd
+                pushad
+                mov eax, dword ptr [esp + 0x34]
+                push eax
+                call PrepareObserverForAnnexation
+                popad
+                popfd
+
+                push ebp
+                mov ebp, esp
+                and esp, 0xfffffff8
+                jmp country_annex_return_address
             }
         }
 
@@ -515,6 +541,39 @@ namespace campaign_runner
         logger_.Info("registered observer-safe switch command and disabled native tag");
     }
 
+    void CampaignLauncher::PrepareObserverForAnnexation(int annexed_ordinal)
+    {
+        auto *game_state = smedley::v2::CCurrentGameState::instance();
+        if (!observer_enabled_ || !observer_monitoring_ || observer_view_switch_pending_
+            || game_state == nullptr || annexed_ordinal != game_state->player_tag().ordinal()) return;
+
+        smedley::v2::CCountry *target = nullptr;
+        for (size_t ordinal = 1; ordinal < game_state->country_count(); ++ordinal) {
+            auto *candidate = game_state->country(static_cast<int>(ordinal));
+            if (static_cast<int>(ordinal) != annexed_ordinal && candidate != nullptr && candidate->exists()
+                && game_state->player_control_state(static_cast<int>(ordinal)) == 0 && candidate->ai() != nullptr
+                && game_state->is_scheduled_ai(candidate->ai())) {
+                target = candidate;
+                break;
+            }
+        }
+        if (target == nullptr) {
+            logger_.Failure("observer could not select a safe view before country annexation");
+            return;
+        }
+
+        const int target_ordinal = target->tag().ordinal();
+        const size_t ai_count_before = game_state->country_ai_count();
+        game_state->set_observer_view_tag(target->tag());
+        if (game_state->player_tag().ordinal() != target_ordinal || game_state->has_human_controlled_country()
+            || game_state->player_control_state(target_ordinal) != 0 || target->ai() == nullptr
+            || !game_state->is_scheduled_ai(target->ai()) || game_state->country_ai_count() != ai_count_before) {
+            logger_.Failure("observer pre-annexation view handoff violated AI ownership state");
+            return;
+        }
+        logger_.Info(std::string("observer view moved to ") + target->tag().str() + " before annexation");
+    }
+
     smedley::v2::CConsoleCmd::SResult CampaignLauncher::RejectNativeTag(
         const smedley::sstd::vector<smedley::sstd::string> &)
     {
@@ -791,6 +850,8 @@ namespace campaign_runner
         constexpr unsigned char frontend_expected[] = {0x55, 0x8b, 0xec, 0x6a, 0xff};
         const auto main_menu_constructor = smedley::memory::Map::base_addr + 0x354a00;
         constexpr unsigned char main_menu_expected[] = {0x55, 0x8b, 0xec, 0x6a, 0xff};
+        const auto country_annex = smedley::memory::Map::base_addr + 0x118620;
+        constexpr unsigned char country_annex_expected[] = {0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8};
         const auto message_dispatch = smedley::memory::Map::base_addr + 0x2bc68;
         constexpr unsigned char message_dispatch_expected[] = {0x80, 0x7f, 0x0e, 0x00, 0x75, 0x23};
         constexpr unsigned char message_dispatch_ebx_expected[] = {0x80, 0x7b, 0x0e, 0x00, 0x75, 0x23};
@@ -894,12 +955,17 @@ namespace campaign_runner
                 reinterpret_cast<const void *>(main_menu_constructor),
                 main_menu_expected,
                 sizeof(main_menu_expected)) != 0
+            || std::memcmp(
+                reinterpret_cast<const void *>(country_annex),
+                country_annex_expected,
+                sizeof(country_annex_expected)) != 0
             || !message_dispatches_match) {
             logger_.Failure("frontend constructor signature mismatch; save loading disabled");
             return false;
         }
         frontend_constructor_return_address = frontend_constructor + sizeof(frontend_expected);
         main_menu_return_address = main_menu_constructor + sizeof(main_menu_expected);
+        country_annex_return_address = country_annex + sizeof(country_annex_expected);
         message_dispatch_return_address = message_dispatch + sizeof(message_dispatch_expected);
         message_dispatch_popup_address = smedley::memory::Map::base_addr + 0x2bc91;
         message_dispatch_suppressed_address = message_suppressed_1;
@@ -936,6 +1002,11 @@ namespace campaign_runner
             main_menu_constructor,
             reinterpret_cast<void *>(&MainMenuTrampoline),
             sizeof(main_menu_expected),
+            nullptr);
+        smedley::memory::Hook(
+            country_annex,
+            reinterpret_cast<void *>(&CountryAnnexTrampoline),
+            sizeof(country_annex_expected),
             nullptr);
         smedley::memory::Hook(
             message_dispatch,
@@ -1136,7 +1207,9 @@ namespace campaign_runner
             if (!launcher->pause_before_configuration_) launcher->pause_before_configuration_ = pause_state == 1;
             launcher->ReportTelemetryResult(launcher->telemetry_.Entered(
                 launcher->observer_enabled_, launcher->target_speed_, launcher->start_paused_));
-            if (launcher->benchmark_.active() && launcher->TickBenchmark(game_state, idler)) return;
+            const bool observer_recovery_pending = launcher->observer_monitoring_ && pause_state == 1;
+            if (launcher->benchmark_.active() && !observer_recovery_pending
+                && launcher->TickBenchmark(game_state, idler)) return;
             if (launcher->observer_monitoring_) {
                 if (launcher->benchmark_.active()) {
                     const uint64_t now = MonotonicMicroseconds();
@@ -1295,8 +1368,15 @@ namespace campaign_runner
                     }
                     return;
                 }
-                if (pause_state != 0) {
-                    stop_monitoring("observer simulation paused outside generic message dispatch", false);
+                if (pause_state == 1) {
+                    idler->TogglePause();
+                    if (idler->pause_state() != 0) {
+                        stop_monitoring("observer simulation could not recover from an unexpected pause", false);
+                        return;
+                    }
+                    launcher->logger_.Warn("observer simulation recovered from an unexpected pause");
+                } else if (pause_state != 0) {
+                    stop_monitoring("observer simulation has an invalid pause state", false);
                     return;
                 }
                 if (launcher->EmitObserverConfiguredIfReady(game_state) && !launcher->benchmark_started_) {
