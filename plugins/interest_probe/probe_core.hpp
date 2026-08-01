@@ -70,6 +70,7 @@ namespace interest_probe
         int64_t destination_state_interest_raw = 0;
         int64_t destination_pop_savings_raw = 0;
         int64_t destination_pop_savings_state_scale_raw = 0;
+        std::array<uint32_t, max_sample_creditor_destinations> destination_keys{};
         std::array<int32_t, max_sample_creditor_destinations> destination_ordinals{};
         std::array<int64_t, max_sample_creditor_destinations> destination_bank_interests_raw{};
         std::array<int64_t, max_sample_creditor_destinations> destination_transfers_raw{};
@@ -105,8 +106,12 @@ namespace interest_probe
     Sample CollectSample(const void *country, int32_t date_raw,
                          CountryResolver country_resolver = nullptr, ProvinceResolver province_resolver = nullptr,
                          const void *resolver_context = nullptr, const void **immediate_pop = nullptr);
+    Sample CollectInterestSample(const void *country, int32_t date_raw,
+                                 CountryResolver country_resolver, const void *resolver_context);
     bool ComputeDestinationTransfers(const Sample &before, Sample *after);
     bool TreasuryLossCoversTransfer(int64_t before_treasury, int64_t after_treasury, int64_t transfer);
+    bool ComputeTreasuryResidual(int64_t before_treasury, int64_t after_treasury,
+                                 int64_t transfer, int64_t *residual);
     bool CollectCountryPops(const void *country, int32_t date_raw,
                             ProvinceResolver province_resolver, const void *resolver_context,
                             PopCandidate *candidates, size_t candidate_capacity,

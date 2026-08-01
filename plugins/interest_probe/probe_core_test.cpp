@@ -1,6 +1,7 @@
 #include "probe_core.hpp"
 #include "pair_queue.hpp"
 #include "interest_allocation.hpp"
+#include "interest_batch.hpp"
 #include "economic_telemetry_core.hpp"
 
 #include <gtest/gtest.h>
@@ -219,12 +220,16 @@ TEST(InterestProbeTest, AggregatesOpaqueCreditorsWithoutPollutingPopTraversal)
 
     const uint8_t invalid_paid = 2;
     Write(&creditor, 0x20, invalid_paid);
+    const void *malformed_creditor_begin = creditors.data() + creditors.size();
+    const void *malformed_creditor_end = creditors.data();
+    Write(&country, 0xe8c, malformed_creditor_begin);
+    Write(&country, 0xe90, malformed_creditor_end);
     uint32_t candidate_count = 0;
     interest_probe::Sample quality{};
     EXPECT_TRUE(interest_probe::CollectCountryPops(country.data(), 1234, ResolveProvince, &lookup,
         nullptr, 0, interest_probe::max_sample_destination_provinces, &candidate_count, &quality));
     EXPECT_EQ(candidate_count, 0u);
-    EXPECT_EQ(quality.creditor_count, 1u);
+    EXPECT_EQ(quality.creditor_count, 0u);
     EXPECT_EQ(quality.flags, 0u);
 }
 
@@ -459,6 +464,20 @@ TEST(InterestProbeTest, RejectsChangedDestinationOrder)
     EXPECT_NE(after.flags & interest_probe::SAMPLE_DESTINATION_TRANSFER_INVALID, 0u);
 }
 
+TEST(InterestProbeTest, RejectsChangedDestinationIdentity)
+{
+    interest_probe::Sample before{};
+    before.creditor_destinations = 1;
+    before.destination_keys[0] = 0x00474e45;
+    before.destination_ordinals[0] = 7;
+
+    interest_probe::Sample after = before;
+    after.destination_keys[0] = 0x00415246;
+
+    EXPECT_FALSE(interest_probe::ComputeDestinationTransfers(before, &after));
+    EXPECT_NE(after.flags & interest_probe::SAMPLE_DESTINATION_TRANSFER_INVALID, 0u);
+}
+
 TEST(InterestProbeTest, AcceptsResidualTreasurySinkBeyondDestinationTransfer)
 {
     EXPECT_TRUE(interest_probe::TreasuryLossCoversTransfer(100, 75, 25));
@@ -468,6 +487,58 @@ TEST(InterestProbeTest, AcceptsResidualTreasurySinkBeyondDestinationTransfer)
     EXPECT_FALSE(interest_probe::TreasuryLossCoversTransfer(100, 75, -1));
     EXPECT_FALSE(interest_probe::TreasuryLossCoversTransfer(
         (std::numeric_limits<int64_t>::min)(), (std::numeric_limits<int64_t>::min)(), 1));
+    int64_t residual = -1;
+    EXPECT_TRUE(interest_probe::ComputeTreasuryResidual(100, 70, 25, &residual));
+    EXPECT_EQ(residual, 5);
+    EXPECT_FALSE(interest_probe::ComputeTreasuryResidual(100, 80, 25, &residual));
+    EXPECT_FALSE(interest_probe::ComputeTreasuryResidual(
+        (std::numeric_limits<int64_t>::max)(), (std::numeric_limits<int64_t>::min)(), 0, &residual));
+}
+
+TEST(InterestBatchTest, AggregatesDomesticForeignAndPrivateAmounts)
+{
+    interest_probe::DailyInterestBatch batch;
+    ASSERT_TRUE(batch.Begin(2400, 4));
+
+    std::array<interest_probe::InterestTransfer, 2> first{{
+        {1, {'A', 'A', 'A', '\0'}, 10},
+        {2, {'B', 'B', 'B', '\0'}, 20},
+    }};
+    std::array<interest_probe::InterestTransfer, 1> second{{
+        {2, {'B', 'B', 'B', '\0'}, 5},
+    }};
+    EXPECT_EQ(batch.AddDebtor(1, first.data(), first.size(), 3),
+        interest_probe::BatchAddStatus::success);
+    EXPECT_EQ(batch.AddDebtor(2, second.data(), second.size(), 0),
+        interest_probe::BatchAddStatus::success);
+    EXPECT_EQ(batch.AddDebtor(3, nullptr, 0, 7), interest_probe::BatchAddStatus::success);
+
+    EXPECT_TRUE(batch.complete());
+    EXPECT_EQ(batch.private_sink_raw(), 10);
+    EXPECT_EQ(batch.recipient(1).transfer_raw, 10);
+    EXPECT_EQ(batch.recipient(1).domestic_transfer_raw, 10);
+    EXPECT_EQ(batch.recipient(1).foreign_transfer_raw, 0);
+    EXPECT_EQ(batch.recipient(2).transfer_raw, 25);
+    EXPECT_EQ(batch.recipient(2).domestic_transfer_raw, 5);
+    EXPECT_EQ(batch.recipient(2).foreign_transfer_raw, 20);
+    EXPECT_EQ(batch.recipient(2).source_count, 2u);
+}
+
+TEST(InterestBatchTest, RejectsInvalidDebtorsAtomically)
+{
+    interest_probe::DailyInterestBatch batch;
+    ASSERT_TRUE(batch.Begin(2400, 3));
+    const interest_probe::InterestTransfer maximum{2, {'B', 'B', 'B', '\0'},
+        (std::numeric_limits<int64_t>::max)()};
+    const interest_probe::InterestTransfer overflow{2, {'B', 'B', 'B', '\0'}, 1};
+
+    EXPECT_EQ(batch.AddDebtor(1, &maximum, 1, 0), interest_probe::BatchAddStatus::success);
+    EXPECT_EQ(batch.AddDebtor(1, nullptr, 0, 0), interest_probe::BatchAddStatus::duplicate_debtor);
+    EXPECT_EQ(batch.AddDebtor(2, &overflow, 1, 0), interest_probe::BatchAddStatus::overflow);
+    EXPECT_TRUE(batch.RejectDebtor(2));
+    EXPECT_TRUE(batch.complete());
+    EXPECT_EQ(batch.rejected_debtors(), 1u);
+    EXPECT_EQ(batch.recipient(2).transfer_raw, (std::numeric_limits<int64_t>::max)());
 }
 
 TEST(InterestProbeTest, RejectsFlaggedBeforeSample)

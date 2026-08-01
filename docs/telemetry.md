@@ -133,15 +133,17 @@ With both `interest_fix` and `telemetry` selected, the fix emits:
 
 | Event | Payload | Contract |
 | --- | --- | --- |
-| `interest.fix.health` | status, flags, destination/province/POP counts, verified POP count, callback microseconds | One record for every finalized creditor-bearing fix attempt. The debtor tag is the entity. |
-| `interest.fix.value` | exact bank transfer, derived POP payout, paid and verified POP counts | Emitted only after a successful `paid` result. |
+| `interest.fix.health` | status, flags, source/province/POP counts, verified POP count, callback microseconds | One record for every rejected debtor pair, finalized daily recipient, and daily summary. Recipient tags identify payout records; `---` identifies summaries. |
+| `interest.fix.value` | exact aggregate bank transfer, derived POP payout, domestic and foreign components | Emitted only after a successful recipient-level `paid` result. |
 
 Both records use `verified-runtime` quality. The health shape uses the ABI limit
 of eight combined entity/payload fields exactly. They use the reliable bounded
 emitter so lock contention alone cannot hide a fix result; unavailable,
 filtered, full-queue, or invalid telemetry remains independent of mutation and
 never changes whether the fix pays POPs. `interest_fix.csv` records the two
-telemetry result codes for independent diagnosis.
+telemetry result codes for independent diagnosis. This guarantee requires the
+bundled `SmedleyTelemetryEmitReliableV1`; an older compatible telemetry plugin
+without that symbol receives best-effort nonblocking publication.
 
 The project mapping inventory has historical status spellings, but telemetry
 uses only canonical project evidence levels. A daily record depends on weaker
@@ -161,9 +163,9 @@ and JSON formatting. Lifecycle progress remains useful when
 state records are excluded by date or country filters;
 they never perform file I/O or flush. The queue has fixed-capacity, fixed-size
 record slots. Ordinary callbacks use a non-waiting queue lock; full, contended,
-stopped, or oversized records are explicitly counted as dropped. The four
-global progress/world samples, low-frequency economic records, and opt-in
-interest-fix result records use reliable bounded publication so lock contention
+stopped, or oversized records are explicitly counted as dropped.
+`telemetry.progress`, `world.daily`, date-regression, economic snapshot, and
+opt-in interest-fix result records use reliable bounded publication so lock contention
 alone cannot split their evidence; the queue remains bounded and publication
 still performs no file I/O. The sole worker writes
 complete JSON Lines incrementally and flushes at least once per second. An

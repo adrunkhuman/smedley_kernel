@@ -1,4 +1,4 @@
-add_library(interest_probe_core STATIC probe_core.cpp interest_allocation.cpp economic_telemetry_core.cpp)
+add_library(interest_probe_core STATIC probe_core.cpp interest_allocation.cpp interest_batch.cpp economic_telemetry_core.cpp)
 target_include_directories(interest_probe_core PUBLIC ".")
 
 add_library(interest_probe MODULE plugin.cpp)

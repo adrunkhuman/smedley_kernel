@@ -43,7 +43,7 @@ SHA-256 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 ## Economic Snapshot Inventory
 
 `economic_telemetry` reuses the bounded state/province/POP traversal documented
-in `INTEREST_FIX.md`. It scans country ordinals 1 through the current slot count
+in `INTEREST_FIX.md`. It scans country ordinals 1 through `country_count - 1`
 at the first daily callback selected by telemetry sampling, retaining no raw
 pointers afterward. Complete snapshots require zero traversal flags and unique
 POP identities across every country.
@@ -63,12 +63,74 @@ claims, state aggregates, and the bank interest accumulator can represent
 different sides or phases of the same economic value.
 
 Hard limits are 512 scanned countries, 4,096 resolved provinces, and 100,000
-POP records per snapshot. An incomplete scan emits only
+POP records per snapshot. Structural incompleteness emits only
 `world.economy.health`; apparently plausible partial holdings, credit, or
-capacity values are suppressed.
+capacity values are suppressed. Credit-specific flags suppress only the credit
+record because they do not invalidate independently complete holdings and
+capacity traversal.
 
 Observer smoke run `adfe8a43-413c-448a-b68b-3fd58f001723` completed two exact
 days with two complete snapshots: 271 countries, 597 states, 2,311 provinces,
 and 19,996 then 20,030 POP records. Collection cost was 92,611 and 90,725
 microseconds. All eight economic records were accepted with zero sequence gaps,
 drops, or writer failure, and the source save remained unchanged.
+
+## Pre-batching paired ten-year observer benchmark
+
+Consecutive runs on 2026-08-01 used pre-batching commit `f057bf5`, the same unmodified
+`benchmark.v2`, observer mode, speed 5, 3,650 days, a 7,200-second safety
+timeout, 30-day state sampling, queue capacity 8,192, and country filter `ZZZ`.
+The filter suppresses unrelated high-volume country records; world and economic
+records remain global. Both runs advanced from raw date `59883384` to exact
+target `59970984`, remained paused and responsive, and preserved source-save
+SHA-256 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
+| Variant | Run ID | Trace SHA-256 | Records | Gaps/drops/write failure |
+| --- | --- | --- | ---: | --- |
+| Baseline | `a267ac0b-5fd9-4efa-973e-ac3129155474` | `7686a63561de070660356fefcda2c496c97e0971fc823f80fa207bf40bdb2054` | 4,270 | `0 / 0 / false` |
+| `interest_fix` | `c6193149-f6b2-4a88-9366-32484389d40a` | `43098eae4a75efdd48eab0c4cf74b887968d69b57684ff1bb93377695d7499d1` | 235,918 | `0 / 0 / false` |
+
+Each trace contains 122 health, capacity, holdings, and credit snapshots. All
+244 health records have `complete=true` and zero snapshot, probe, and credit
+flags. Capacity remained below every fixed bound:
+
+| Peak or cost | Baseline | `interest_fix` | Limit |
+| --- | ---: | ---: | ---: |
+| Countries | 271 (52.92%) | 271 (52.92%) | 512 |
+| Provinces | 2,359 (57.59%) | 2,359 (57.59%) | 4,096 |
+| POPs | 22,963 (22.96%) | 23,044 (23.04%) | 100,000 |
+| Snapshot collection, median | 103,560 us | 103,693 us | n/a |
+| Snapshot collection, maximum | 111,399 us | 124,363 us | n/a |
+
+The benchmark's own process counters produced this paired performance result:
+
+| Measure | Baseline | `interest_fix` | Observed ratio/delta |
+| --- | ---: | ---: | ---: |
+| Benchmark elapsed | 246.917 s | 2,074.719 s | 8.40x |
+| Game days/second | 14.7823 | 1.75927 | 0.119x |
+| Process CPU | 325.781 s | 2,184.234 s | 6.70x |
+| Peak working set | 1,471,287,296 | 1,489,620,992 | +18,333,696 bytes |
+| End private bytes | 1,593,921,536 | 1,565,233,152 | -28,688,384 bytes |
+
+The fix trace reports 1,629.137 seconds inside its post-original callbacks,
+78.5% of fix-run elapsed time and 87.7% of the process-CPU increase over this
+baseline. This identifies destination POP traversal, allocation, mutation, and
+postcondition checking as the measured cost in this scenario; it is not a claim
+about performance on other machines, saves, or mods.
+
+Final sampled economic observations differed as follows. These are separate raw
+categories from one pair of simulations, not an additive money-supply identity
+or a causal estimate:
+
+| Final field | Baseline | `interest_fix` | Difference |
+| --- | ---: | ---: | ---: |
+| `treasury_observed_raw` | 99,950,580,341 | 114,708,632,203 | +14,758,051,862 |
+| `pop_money_observed_raw` | 29,809,689,504,634 | 23,300,428,465,520 | -6,509,261,039,114 |
+| `pop_savings_observed_raw` | 128,776,949,934,488 | 127,667,712,827,126 | -1,109,237,107,362 |
+| `creditor_count` | 455 | 576 | +121 |
+| `creditor_debt_candidate_raw` | 4,019,948,489 | 2,864,622,699 | -1,155,325,790 |
+| `state_interest_candidate_raw` | 1,924,693,371 | 1,179,563,725 | -745,129,646 |
+
+Both final samples reported zero negative-treasury countries and a zero bank
+interest accumulator. Bankruptcy and comprehensive world-money supply remain
+unmapped, so this benchmark does not make claims about either.

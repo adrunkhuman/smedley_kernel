@@ -1,14 +1,16 @@
 #include "interest_allocation.hpp"
+#include "interest_batch.hpp"
 #include "probe_core.hpp"
 #include "telemetry_bridge.hpp"
 
 #include <smedley/events/dailyinterest.hpp>
+#include <smedley/events/dailyupdate.hpp>
 #include <smedley/memory.hpp>
 #include <smedley/plugin.hpp>
 #include <smedley/v2/gamestate.hpp>
 
-#include <array>
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -27,10 +29,15 @@ namespace interest_probe
         enum class FixStatus : uint32_t
         {
             paid,
-            no_transfer,
             invalid_pair,
+            batch_invalid,
+            day_incomplete,
+            day_summary,
+            recipient_identity_invalid,
             collection_failed,
-            allocation_failed,
+            no_eligible_savings,
+            allocation_overflow,
+            allocation_invalid,
             pop_balance_overflow,
             pop_not_writable,
             duplicate_pop,
@@ -44,15 +51,17 @@ namespace interest_probe
             char country_tag[4]{};
             FixStatus status = FixStatus::invalid_pair;
             uint32_t flags = 0;
-            uint32_t destination_count = 0;
+            uint32_t source_count = 0;
             uint32_t province_count = 0;
             uint32_t pop_count = 0;
             uint32_t paid_pop_count = 0;
             uint32_t verified_pop_count = 0;
-            uint32_t invalid_creditor_key = 0;
-            int32_t invalid_creditor_ordinal = 0;
-            uint8_t invalid_creditor_was_paid = 0;
+            uint32_t rejected_debtors = 0;
+            AllocationStatus allocation_status = AllocationStatus::success;
             int64_t transfer_raw = 0;
+            int64_t domestic_transfer_raw = 0;
+            int64_t foreign_transfer_raw = 0;
+            int64_t private_sink_raw = 0;
             int64_t payout_raw = 0;
             uint64_t callback_us = 0;
             SmedleyTelemetryResult health_telemetry_result = SMEDLEY_TELEMETRY_UNAVAILABLE;
@@ -118,10 +127,15 @@ namespace interest_probe
         {
             switch (status) {
             case FixStatus::paid: return "paid";
-            case FixStatus::no_transfer: return "no_transfer";
             case FixStatus::invalid_pair: return "invalid_pair";
+            case FixStatus::batch_invalid: return "batch_invalid";
+            case FixStatus::day_incomplete: return "day_incomplete";
+            case FixStatus::day_summary: return "day_summary";
+            case FixStatus::recipient_identity_invalid: return "recipient_identity_invalid";
             case FixStatus::collection_failed: return "collection_failed";
-            case FixStatus::allocation_failed: return "allocation_failed";
+            case FixStatus::no_eligible_savings: return "no_eligible_savings";
+            case FixStatus::allocation_overflow: return "allocation_overflow";
+            case FixStatus::allocation_invalid: return "allocation_invalid";
             case FixStatus::pop_balance_overflow: return "pop_balance_overflow";
             case FixStatus::pop_not_writable: return "pop_not_writable";
             case FixStatus::duplicate_pop: return "duplicate_pop";
@@ -129,6 +143,26 @@ namespace interest_probe
             case FixStatus::conservation_failed: return "conservation_failed";
             }
             return "unknown";
+        }
+
+        const char *AllocationStatusName(AllocationStatus status)
+        {
+            switch (status) {
+            case AllocationStatus::success: return "success";
+            case AllocationStatus::no_payment: return "no_payment";
+            case AllocationStatus::no_eligible_savings: return "no_eligible_savings";
+            case AllocationStatus::invalid_input: return "invalid_input";
+            case AllocationStatus::overflow: return "overflow";
+            case AllocationStatus::scratch_too_small: return "scratch_too_small";
+            }
+            return "unknown";
+        }
+
+        FixStatus AllocationFixStatus(AllocationStatus status)
+        {
+            if (status == AllocationStatus::no_eligible_savings) return FixStatus::no_eligible_savings;
+            if (status == AllocationStatus::overflow) return FixStatus::allocation_overflow;
+            return FixStatus::allocation_invalid;
         }
     }
 
@@ -139,204 +173,270 @@ namespace interest_probe
         {
             output_.open("interest_fix.csv", std::ios::trunc);
             if (!output_) throw std::runtime_error("cannot open interest_fix.csv in the game directory");
-            output_ << "date_raw,country,status,flags,destination_count,pop_count,paid_pop_count,"
-                       "province_count,verified_pop_count,transfer_raw,payout_raw,callback_us,"
-                       "health_telemetry_result,value_telemetry_result,invalid_creditor_key,"
-                       "invalid_creditor_ordinal,invalid_creditor_was_paid,dropped_results\n";
+            output_ << "date_raw,country,status,flags,source_count,pop_count,paid_pop_count,"
+                       "province_count,verified_pop_count,transfer_raw,domestic_transfer_raw,"
+                       "foreign_transfer_raw,private_sink_raw,payout_raw,allocation_status,callback_us,"
+                       "rejected_debtors,health_telemetry_result,value_telemetry_result,dropped_results\n";
             output_.flush();
             if (!output_) throw std::runtime_error("cannot initialize interest_fix.csv in the game directory");
             worker_ = std::thread([this] { WriteResults(); });
             try {
+                AddEventHandler<smedley::events::DailyUpdateEvent>(
+                    "interest_fix.day", [this](smedley::events::DailyUpdateEvent &event) { OnDailyUpdate(event); });
                 AddEventHandler<smedley::events::DailyInterestEvent>(
                     "interest_fix.boundary", [this](smedley::events::DailyInterestEvent &event) { OnDailyInterest(event); });
             } catch (...) {
+                RemoveEventHandler<smedley::events::DailyUpdateEvent>("interest_fix.day");
                 stop_.store(true, std::memory_order_release);
                 worker_.join();
                 throw;
             }
-            logger().Info("enabled opt-in exact creditor POP interest distribution");
+            logger().Info("enabled opt-in batched creditor POP interest distribution");
         }
 
         void OnUnload() override
         {
             RemoveEventHandler<smedley::events::DailyInterestEvent>("interest_fix.boundary");
+            RemoveEventHandler<smedley::events::DailyUpdateEvent>("interest_fix.day");
             stop_.store(true, std::memory_order_release);
             if (worker_.joinable()) worker_.join();
             output_.flush();
         }
 
     private:
+        void OnDailyUpdate(smedley::events::DailyUpdateEvent &)
+        {
+            if (disabled_) return;
+            try {
+                const auto *game_state = smedley::v2::CCurrentGameState::instance();
+                if (game_state == nullptr) return;
+                const int32_t date_raw = game_state->current_date_raw();
+                if (date_raw == finalized_date_raw_) return;
+                if (batch_.started() && batch_.date_raw() != date_raw) {
+                    FixResult result{};
+                    result.date_raw = batch_.date_raw();
+                    std::memcpy(result.country_tag, "---", 4);
+                    result.status = FixStatus::day_incomplete;
+                    result.source_count = batch_.seen_count();
+                    result.rejected_debtors = batch_.expected_debtors() - batch_.seen_count();
+                    result.private_sink_raw = batch_.private_sink_raw();
+                    callback_started_ = std::chrono::steady_clock::now();
+                    Publish(result);
+                    batch_.Reset();
+                }
+                if (!batch_.started() && !batch_.Begin(date_raw, static_cast<uint32_t>(game_state->country_count()))) {
+                    disabled_ = true;
+                    logger().Failure("interest fix disabled because the country vector exceeds the daily batch bound");
+                }
+            } catch (...) {
+                disabled_ = true;
+                logger().Failure("interest fix disabled after a daily batch exception");
+            }
+        }
+
         void OnDailyInterest(smedley::events::DailyInterestEvent &event)
         {
             if (disabled_) return;
             const auto *game_state = smedley::v2::CCurrentGameState::instance();
-            if (game_state == nullptr) return;
+            if (game_state == nullptr || !batch_.started()) return;
             if (event.GetPhase() == smedley::events::DailyInterestPhase::BEFORE) {
-                pending_before_ = CollectSample(event.GetCountry(), game_state->current_date_raw(),
-                    ResolveCountry, nullptr, game_state);
+                pending_before_ = CollectInterestSample(event.GetCountry(), game_state->current_date_raw(),
+                    ResolveCountry, game_state);
                 has_pending_before_ = true;
                 return;
             }
             if (!has_pending_before_) return;
             callback_started_ = std::chrono::steady_clock::now();
 
-            Sample after = CollectSample(event.GetCountry(), game_state->current_date_raw(),
-                ResolveCountry, nullptr, game_state);
-            FixResult result{};
-            result.date_raw = after.date_raw;
-            std::memcpy(result.country_tag, after.country_tag, sizeof(result.country_tag));
-            result.flags = pending_before_.flags | after.flags;
-            const Sample &diagnostic = after.invalid_creditor_key != 0
-                || after.invalid_creditor_ordinal != 0 || after.invalid_creditor_was_paid != 0
-                ? after : pending_before_;
-            result.invalid_creditor_key = diagnostic.invalid_creditor_key;
-            result.invalid_creditor_ordinal = diagnostic.invalid_creditor_ordinal;
-            result.invalid_creditor_was_paid = diagnostic.invalid_creditor_was_paid;
-            if (pending_before_.date_raw != after.date_raw
-                || std::memcmp(pending_before_.country_tag, after.country_tag, sizeof(after.country_tag)) != 0
+            Sample after = CollectInterestSample(event.GetCountry(), game_state->current_date_raw(),
+                ResolveCountry, game_state);
+            const int32_t debtor_ordinal = after.country_ordinal > 0
+                ? after.country_ordinal : pending_before_.country_ordinal;
+            if (pending_before_.date_raw != after.date_raw || after.date_raw != batch_.date_raw()
+                || std::memcmp(pending_before_.country_tag, after.country_tag, 4) != 0
                 || !ComputeDestinationTransfers(pending_before_, &after)) {
-                result.status = FixStatus::invalid_pair;
-                result.flags |= after.flags;
-                has_pending_before_ = false;
-                if (pending_before_.creditor_count != 0 || after.creditor_count != 0) Publish(result);
+                RejectPair(after, debtor_ordinal, FixStatus::invalid_pair);
                 return;
             }
+
+            int64_t private_sink_raw = 0;
+            if (!ComputeTreasuryResidual(pending_before_.treasury_raw, after.treasury_raw,
+                    after.destination_transfer_raw, &private_sink_raw)) {
+                RejectPair(after, debtor_ordinal, FixStatus::conservation_failed);
+                return;
+            }
+
+            std::array<InterestTransfer, max_sample_creditor_destinations> transfers{};
+            uint32_t transfer_count = 0;
+            for (uint32_t index = 0; index < after.creditor_destinations; ++index) {
+                if (after.destination_transfers_raw[index] <= 0) continue;
+                InterestTransfer &transfer = transfers[transfer_count++];
+                transfer.recipient_ordinal = after.destination_ordinals[index];
+                std::memcpy(transfer.recipient_tag, &after.destination_keys[index], 4);
+                transfer.transfer_raw = after.destination_transfers_raw[index];
+            }
+            const BatchAddStatus add = batch_.AddDebtor(
+                debtor_ordinal, transfers.data(), transfer_count, private_sink_raw);
             has_pending_before_ = false;
-            result.destination_count = after.destination_transfer_count;
-            result.transfer_raw = after.destination_transfer_raw;
-            if (after.destination_transfer_count == 0) {
-                if (after.creditor_count != 0) {
-                    result.status = FixStatus::no_transfer;
-                    Publish(result);
-                }
+            if (add != BatchAddStatus::success) {
+                RejectPair(after, debtor_ordinal, FixStatus::batch_invalid);
                 return;
             }
-            if (!TreasuryLossCoversTransfer(
-                    pending_before_.treasury_raw, after.treasury_raw, after.destination_transfer_raw)) {
-                result.status = FixStatus::conservation_failed;
+            if (batch_.complete()) FinalizeDay(game_state);
+        }
+
+        void RejectPair(const Sample &sample, int32_t debtor_ordinal, FixStatus status)
+        {
+            has_pending_before_ = false;
+            batch_.RejectDebtor(debtor_ordinal);
+            FixResult result{};
+            result.date_raw = sample.date_raw;
+            std::memcpy(result.country_tag, sample.country_tag, 4);
+            result.status = status;
+            result.flags = sample.flags | SAMPLE_DESTINATION_TRANSFER_INVALID;
+            Publish(result);
+            if (batch_.complete()) {
+                const auto *game_state = smedley::v2::CCurrentGameState::instance();
+                if (game_state != nullptr) FinalizeDay(game_state);
+            }
+        }
+
+        void FinalizeDay(const smedley::v2::CCurrentGameState *game_state)
+        {
+            daily_paid_pop_count_ = 0;
+            uint32_t recipient_count = 0;
+            const int32_t date_raw = batch_.date_raw();
+            const uint32_t rejected_debtors = batch_.rejected_debtors();
+            const int64_t private_sink_raw = batch_.private_sink_raw();
+            for (uint32_t ordinal = 1; ordinal < max_batch_countries; ++ordinal) {
+                const DailyRecipient &recipient = batch_.recipient(ordinal);
+                if (!recipient.active) continue;
+                ++recipient_count;
+                callback_started_ = std::chrono::steady_clock::now();
+                FixResult result{};
+                result.date_raw = date_raw;
+                std::memcpy(result.country_tag, recipient.tag, 4);
+                result.source_count = recipient.source_count;
+                result.transfer_raw = recipient.transfer_raw;
+                result.domestic_transfer_raw = recipient.domestic_transfer_raw;
+                result.foreign_transfer_raw = recipient.foreign_transfer_raw;
+                PayRecipient(game_state, recipient, &result);
                 Publish(result);
+                if (disabled_) break;
+            }
+
+            callback_started_ = std::chrono::steady_clock::now();
+            FixResult summary{};
+            summary.date_raw = date_raw;
+            std::memcpy(summary.country_tag, "---", 4);
+            summary.status = FixStatus::day_summary;
+            summary.source_count = recipient_count;
+            summary.rejected_debtors = rejected_debtors;
+            summary.private_sink_raw = private_sink_raw;
+            Publish(summary);
+            finalized_date_raw_ = date_raw;
+            batch_.Reset();
+        }
+
+        void PayRecipient(const smedley::v2::CCurrentGameState *game_state,
+                          const DailyRecipient &recipient, FixResult *result)
+        {
+            const void *country = game_state->country(recipient.ordinal);
+            uint32_t collected = 0;
+            Sample quality{};
+            if (!CollectCountryPops(country, result->date_raw, ResolveProvince, game_state,
+                    candidates_.data(), candidates_.size(), max_sample_destination_provinces,
+                    &collected, &quality)) {
+                result->status = FixStatus::collection_failed;
+                result->flags = quality.flags;
+                result->province_count = quality.destination_province_attempts;
+                result->pop_count = quality.destination_pop_attempts;
                 return;
             }
-            if (!PreparePayouts(game_state, after, &result)) {
-                Publish(result);
+            if (quality.country_ordinal != recipient.ordinal
+                || std::memcmp(quality.country_tag, recipient.tag, 4) != 0) {
+                result->status = FixStatus::recipient_identity_invalid;
                 return;
             }
-            if (!ValidateUniquePayoutPops()) {
-                result.status = FixStatus::duplicate_pop;
-                Publish(result);
+            result->province_count = quality.destination_province_attempts;
+            result->pop_count = collected;
+            candidate_count_ = collected;
+            for (uint32_t index = 0; index < collected; ++index) {
+                allocations_[index].savings_raw = candidates_[index].savings_raw;
+            }
+            result->allocation_status = AllocateInterest(result->transfer_raw,
+                allocations_.data(), collected, order_scratch_.data(), order_scratch_.size());
+            if (result->allocation_status != AllocationStatus::success) {
+                result->status = AllocationFixStatus(result->allocation_status);
                 return;
             }
-            for (uint32_t index = 0; index < candidate_count_; ++index) {
-                if (allocations_[index].payout_raw != 0 && !CanWritePopMoney(candidates_[index].address)) {
-                    result.status = FixStatus::pop_not_writable;
-                    Publish(result);
+            if (result->transfer_raw > (std::numeric_limits<int64_t>::max)() / 1000) {
+                result->status = FixStatus::conservation_failed;
+                return;
+            }
+
+            int64_t payout_total = 0;
+            for (uint32_t index = 0; index < collected; ++index) {
+                const int64_t payout = allocations_[index].payout_raw;
+                if (payout == 0) continue;
+                if (!RegisterDailyPop(candidates_[index].address)) {
+                    result->status = FixStatus::duplicate_pop;
                     return;
                 }
+                PopMoneySnapshot snapshot{};
+                if (!ReadPopMoneySnapshot(candidates_[index].address, &snapshot)
+                    || !CanAdd(snapshot.money_raw, payout)
+                    || !CanAdd(snapshot.interest_cash_flow_raw, payout)
+                    || !CanAdd(snapshot.total_cash_flow_raw, payout)) {
+                    result->status = FixStatus::pop_balance_overflow;
+                    return;
+                }
+                if (!CanWritePopMoney(candidates_[index].address)) {
+                    result->status = FixStatus::pop_not_writable;
+                    return;
+                }
+                before_snapshots_[index] = snapshot;
+                if (!CanAdd(payout_total, payout)) {
+                    result->status = FixStatus::conservation_failed;
+                    return;
+                }
+                payout_total += payout;
+                ++result->paid_pop_count;
             }
-            for (uint32_t index = 0; index < candidate_count_; ++index) {
+            if (payout_total != result->transfer_raw * 1000) {
+                result->status = FixStatus::conservation_failed;
+                return;
+            }
+            result->payout_raw = payout_total;
+
+            for (uint32_t index = 0; index < collected; ++index) {
                 const int64_t payout = allocations_[index].payout_raw;
                 if (payout == 0) continue;
                 GiveMoney(candidates_[index].address, payout);
-                PopMoneySnapshot after_snapshot{};
-                const PopMoneySnapshot &before_snapshot = before_snapshots_[index];
-                if (!ReadPopMoneySnapshot(candidates_[index].address, &after_snapshot)
-                    || after_snapshot.money_raw != before_snapshot.money_raw + payout
-                    || after_snapshot.interest_cash_flow_raw != before_snapshot.interest_cash_flow_raw + payout
-                    || after_snapshot.total_cash_flow_raw != before_snapshot.total_cash_flow_raw + payout
-                    || after_snapshot.savings_raw != before_snapshot.savings_raw) {
-                    result.status = FixStatus::postcondition_failed;
+                PopMoneySnapshot after{};
+                const PopMoneySnapshot &before = before_snapshots_[index];
+                if (!ReadPopMoneySnapshot(candidates_[index].address, &after)
+                    || after.money_raw != before.money_raw + payout
+                    || after.interest_cash_flow_raw != before.interest_cash_flow_raw + payout
+                    || after.total_cash_flow_raw != before.total_cash_flow_raw + payout
+                    || after.savings_raw != before.savings_raw) {
+                    result->status = FixStatus::postcondition_failed;
                     disabled_ = true;
-                    Publish(result);
                     return;
                 }
-                ++result.verified_pop_count;
+                ++result->verified_pop_count;
             }
-            result.status = FixStatus::paid;
-            Publish(result);
+            result->status = FixStatus::paid;
         }
 
-        bool PreparePayouts(const smedley::v2::CCurrentGameState *game_state,
-                            const Sample &after, FixResult *result)
+        bool RegisterDailyPop(const void *pop)
         {
-            candidate_count_ = 0;
-            uint32_t province_attempt_count = 0;
-            int64_t payout_total = 0;
-            for (uint32_t destination = 0; destination < after.creditor_destinations; ++destination) {
-                const int64_t transfer = after.destination_transfers_raw[destination];
-                if (transfer == 0) continue;
-                const int32_t ordinal = after.destination_ordinals[destination];
-                uint32_t collected = 0;
-                Sample quality{};
-                if (!CollectCountryPops(game_state->country(ordinal), after.date_raw,
-                        ResolveProvince, game_state, candidates_.data() + candidate_count_,
-                        candidates_.size() - candidate_count_,
-                        max_sample_destination_provinces - province_attempt_count,
-                        &collected, &quality)) {
-                    result->province_count = province_attempt_count + quality.destination_province_attempts;
-                    result->pop_count = candidate_count_ + quality.destination_pop_attempts;
-                    result->status = FixStatus::collection_failed;
-                    result->flags |= quality.flags;
-                    return false;
-                }
-                province_attempt_count += quality.destination_province_attempts;
-                result->province_count = province_attempt_count;
-                for (uint32_t index = 0; index < collected; ++index) {
-                    allocations_[candidate_count_ + index].savings_raw = candidates_[candidate_count_ + index].savings_raw;
-                }
-                const AllocationStatus allocation = AllocateInterest(transfer,
-                    allocations_.data() + candidate_count_, collected, order_scratch_.data(), order_scratch_.size());
-                if (allocation != AllocationStatus::success) {
-                    result->status = FixStatus::allocation_failed;
-                    return false;
-                }
-                for (uint32_t index = 0; index < collected; ++index) {
-                    const int64_t payout = allocations_[candidate_count_ + index].payout_raw;
-                    if (payout == 0) continue;
-                    PopMoneySnapshot snapshot{};
-                    if (!ReadPopMoneySnapshot(candidates_[candidate_count_ + index].address, &snapshot)
-                        || !CanWritePopMoney(candidates_[candidate_count_ + index].address)
-                        || !CanAdd(snapshot.money_raw, payout)
-                        || !CanAdd(snapshot.interest_cash_flow_raw, payout)
-                        || !CanAdd(snapshot.total_cash_flow_raw, payout)) {
-                        result->status = FixStatus::pop_balance_overflow;
-                        return false;
-                    }
-                    before_snapshots_[candidate_count_ + index] = snapshot;
-                    if (payout_total > (std::numeric_limits<int64_t>::max)() - payout) {
-                        result->status = FixStatus::conservation_failed;
-                        return false;
-                    }
-                    payout_total += payout;
-                    ++result->paid_pop_count;
-                }
-                candidate_count_ += collected;
+            const uintptr_t address = reinterpret_cast<uintptr_t>(pop);
+            for (uint32_t index = 0; index < daily_paid_pop_count_; ++index) {
+                if (daily_paid_pops_[index] == address) return false;
             }
-            if (after.destination_transfer_raw > (std::numeric_limits<int64_t>::max)() / 1000
-                || payout_total != after.destination_transfer_raw * 1000) {
-                result->status = FixStatus::conservation_failed;
-                return false;
-            }
-            result->pop_count = candidate_count_;
-            result->payout_raw = payout_total;
-            return true;
-        }
-
-        bool ValidateUniquePayoutPops()
-        {
-            uint32_t payout_count = 0;
-            for (uint32_t index = 0; index < candidate_count_; ++index) {
-                order_scratch_[payout_count++] = index;
-            }
-            std::sort(order_scratch_.begin(), order_scratch_.begin() + payout_count,
-                [this](uint32_t left, uint32_t right) {
-                    return reinterpret_cast<uintptr_t>(candidates_[left].address)
-                        < reinterpret_cast<uintptr_t>(candidates_[right].address);
-                });
-            for (uint32_t index = 1; index < payout_count; ++index) {
-                if (candidates_[order_scratch_[index - 1]].address == candidates_[order_scratch_[index]].address) {
-                    return false;
-                }
-            }
+            if (daily_paid_pop_count_ >= daily_paid_pops_.size()) return false;
+            daily_paid_pops_[daily_paid_pop_count_++] = address;
             return true;
         }
 
@@ -358,7 +458,7 @@ namespace interest_probe
             const SmedleyTelemetryFieldV1 health[] = {
                 TelemetryStringField("status", StatusName(result.status)),
                 TelemetryIntField("flags", result.flags),
-                TelemetryIntField("destination_count", result.destination_count),
+                TelemetryIntField("source_count", result.source_count),
                 TelemetryIntField("province_count", result.province_count),
                 TelemetryIntField("pop_count", result.pop_count),
                 TelemetryIntField("verified_pop_count", result.verified_pop_count),
@@ -370,8 +470,8 @@ namespace interest_probe
             const SmedleyTelemetryFieldV1 value[] = {
                 TelemetryIntField("transfer_raw", result.transfer_raw),
                 TelemetryIntField("payout_raw", result.payout_raw),
-                TelemetryIntField("paid_pop_count", result.paid_pop_count),
-                TelemetryIntField("verified_pop_count", result.verified_pop_count),
+                TelemetryIntField("domestic_transfer_raw", result.domestic_transfer_raw),
+                TelemetryIntField("foreign_transfer_raw", result.foreign_transfer_raw),
             };
             static_assert(1 + std::size(value) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
             if (result.status == FixStatus::paid) {
@@ -388,13 +488,14 @@ namespace interest_probe
                 FixResult result{};
                 while (queue_.TryPop(&result)) {
                     output_ << result.date_raw << ',' << result.country_tag << ',' << StatusName(result.status)
-                            << ",0x" << std::hex << result.flags << std::dec << ',' << result.destination_count << ','
+                            << ",0x" << std::hex << result.flags << std::dec << ',' << result.source_count << ','
                             << result.pop_count << ',' << result.paid_pop_count << ',' << result.province_count << ','
-                            << result.verified_pop_count << ',' << result.transfer_raw << ',' << result.payout_raw << ','
-                            << result.callback_us << ',' << result.health_telemetry_result << ','
-                            << result.value_telemetry_result << ",0x" << std::hex << result.invalid_creditor_key
-                            << std::dec << ',' << result.invalid_creditor_ordinal << ','
-                            << static_cast<uint32_t>(result.invalid_creditor_was_paid) << ','
+                            << result.verified_pop_count << ',' << result.transfer_raw << ','
+                            << result.domestic_transfer_raw << ',' << result.foreign_transfer_raw << ','
+                            << result.private_sink_raw << ',' << result.payout_raw << ','
+                            << AllocationStatusName(result.allocation_status) << ',' << result.callback_us << ','
+                            << result.rejected_debtors << ',' << result.health_telemetry_result << ','
+                            << result.value_telemetry_result << ','
                             << dropped_.load(std::memory_order_relaxed) << '\n';
                     wrote = true;
                 }
@@ -405,10 +506,14 @@ namespace interest_probe
 
         std::ofstream output_;
         ResultQueue<result_queue_capacity> queue_{};
+        DailyInterestBatch batch_{};
         Sample pending_before_{};
         bool has_pending_before_ = false;
         bool disabled_ = false;
+        int32_t finalized_date_raw_ = 0;
         uint32_t candidate_count_ = 0;
+        uint32_t daily_paid_pop_count_ = 0;
+        std::array<uintptr_t, max_sample_pops> daily_paid_pops_{};
         std::array<PopCandidate, max_sample_pops> candidates_{};
         std::array<AllocationEntry, max_sample_pops> allocations_{};
         std::array<PopMoneySnapshot, max_sample_pops> before_snapshots_{};

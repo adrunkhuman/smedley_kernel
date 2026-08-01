@@ -34,10 +34,12 @@ the gameplay model, while runtime evidence remains authoritative for storage,
 scale, ordering, and safe mutation. The feature must remain opt-in because
 restoring the payment changes the vanilla money supply.
 
-The executable's ordinal-zero creditor form charges the debtor without a
-destination-bank credit. The fix leaves that residual vanilla sink unchanged.
-It distributes only observed nonzero-ordinal destination-bank gains and requires
-the current-country treasury loss to be at least their exact sum.
+Loan creation passes the debtor's own tag and nonzero ordinal for domestic-bank
+debt, another country's tag/ordinal for foreign debt, and literal `---` with
+ordinal zero for the Shadowy Financiers fallback. The first two forms credit the
+identified country bank and are paid to that country's savers. The ordinal-zero
+form has no lender POPs or destination-bank credit, so its exact treasury
+residual remains a measured vanilla sink.
 
 ## Current static evidence
 
@@ -48,6 +50,8 @@ All addresses below are RVAs in the cataloged Victoria II 3.04 executable.
 | `CCountry::DailyUpdate` `0x00108590` | `verified-current` | Its only direct call to `PayDailyInterest` is at `0x00108d3e`, with the country pointer already on the stack. The checked kernel trampoline invoked the original call and emitted 1,897 ordered runtime boundary pairs. |
 | `CCountry::PayDailyInterest` `0x00123c30` | `verified-runtime` | The paired boundary run observed current-country treasury reductions on all 12 calls with creditor entries. Its sole direct caller and `ret 4` cleanup are statically established. |
 | Creditor destination bank path | `verified-runtime` | `PayDailyInterest` reads the current country creditor vector at `+0xe8c`. A nonzero ordinal at creditor `+0x0c` resolves a destination country and credits bank `+0x20`; the branch at VA `0x00524022` skips that credit when the ordinal is zero. All 12 creditor-bearing seven-day fixture calls contained only country destinations and conserved the exact debtor treasury loss in the summed destination-bank gain. A later diagnostic captured 22 rejected rows with the same no-country key `0x2d2d2d` (`---`), ordinal zero, and paid byte one. Ordinal-zero entries are retained in aggregate telemetry but excluded from destination conservation and POP payout. |
+| Domestic creditor creation | `verified-static-callsites` | `CCountry::TakeLoan` at RVA `0x00122910` passes the debtor's own tag/ordinal from `CCountry+0x1c/+0x20` through `CanTakeLoanFrom` and `TakeLoanFrom`. Domestic debt is therefore an explicit self-tagged creditor and follows the same verified nonzero-ordinal bank-credit path. |
+| Shadowy Financiers creation | `verified-static-callsites` | The fallback path writes literal `---`, zeroes the ordinal at VA `0x00522c24`-`0x00522c27`, and calls `TakeLoanFrom` at `0x00522c6a`. Localisation maps `SHADOWY_INVESTOR` to “Private Investors,” and `SHADOWY_FINANCIERS_MAX_LOAN_AMOUNT` is 1500 in vanilla. |
 | Creditor `+0x8/+0x10/+0x18/+0x20` | `verified-runtime` | Static code reads the tag/ordinal at `+0x8`, multiplies the 64-bit `+0x18` value by the 64-bit `+0x10` value in its payment calculation, and updates the byte at `+0x20` on payment. The destination run validated every tag/ordinal and observed `+0x20 == 1` for every paid entry; the economic names on the two 64-bit fields remain candidates. |
 | Destination bank `+0x20` | `verified-runtime` | The static add target and repeated exact before/after runs agree. The individual-destination run observed 40 positive transfers across 12 calls; every child sum exactly matched its aggregate bank delta and negated the corresponding debtor treasury loss. Other historical `CBank` fields remain unverified. |
 | `PayDailyInterest` boundary `0x00108d3e` | `verified-runtime` | The kernel replaces the sole direct call with a register/flags-preserving trampoline, emits `before`, invokes the original callee, emits `after`, and resumes at `0x00108d43`. Both subscribed and unsubscribed runtime fixtures reached exact targets. |
@@ -371,16 +375,19 @@ the allocator unless the separate `interest_fix` manifest is selected.
 
 `interest_fix` subscribes to the exact `PayDailyInterest` boundary and is
 disabled unless explicitly selected. It conflicts with historical `v2up`.
-For each creditor-bearing call it:
+The hot boundary copies only country, creditor, treasury, and destination-bank
+state. It accumulates exact positive destination deltas by recipient ordinal and
+classifies self-tagged amounts as domestic and other named amounts as foreign.
+After every expected country pair for the date has completed, it processes each
+recipient once in ascending ordinal order:
 
-1. captures bounded destination-bank balances before and after the original
-   game function;
-2. requires the individual nonzero-ordinal bank deltas to sum exactly and not
-   exceed the debtor's treasury loss; the ordinal-zero residual remains a
-   vanilla sink;
-3. traverses at most 4,096 destination provinces and 100,000 POPs across the
-   complete callback, rejecting duplicate POP identities across all
-   destinations;
+1. requires each debtor's individual nonzero-ordinal bank deltas to sum exactly
+   and not exceed its treasury loss, recording the remainder as the Private
+   Investor sink;
+2. sums transfers with checked arithmetic and retains no game pointers across
+   callbacks;
+3. traverses at most 4,096 recipient provinces and 100,000 POPs, rejecting
+   duplicate POP identities across the completed day;
 4. computes every payout in preallocated storage and requires their sum to equal
    the bank transfer multiplied by 1,000;
 5. verifies all known `CPop::GiveMoney` write ranges are writable and all money
@@ -390,20 +397,31 @@ For each creditor-bearing call it:
    savings postconditions.
 
 Any structural, identity, budget, overflow, conservation, or writable-memory
-failure skips the complete debtor payout before mutation. A postcondition
-failure disables later payouts and is reported. The callback performs no file
-I/O; a bounded worker writes `interest_fix.csv`.
+failure skips that debtor pair or recipient before mutation. A postcondition
+failure disables later payouts and is reported. Callbacks perform no file I/O;
+a bounded worker writes `interest_fix.csv`.
 
-The CSV columns after `paid_pop_count` now include `province_count`,
-`verified_pop_count`, `transfer_raw`, `payout_raw`, `callback_us`, both
-structured telemetry result codes, the first invalid creditor key/ordinal/paid
-byte when applicable, and `dropped_results`. `no_transfer` records
-a valid creditor-bearing boundary with no positive destination-bank delta.
-Telemetry result codes
+The exact batched CSV header is:
+
+```text
+date_raw,country,status,flags,source_count,pop_count,paid_pop_count,province_count,verified_pop_count,transfer_raw,domestic_transfer_raw,foreign_transfer_raw,private_sink_raw,payout_raw,allocation_status,callback_us,rejected_debtors,health_telemetry_result,value_telemetry_result,dropped_results
+```
+
+Possible statuses are `paid`, `invalid_pair`, `batch_invalid`, `day_incomplete`,
+`day_summary`, `recipient_identity_invalid`, `collection_failed`,
+`no_eligible_savings`, `allocation_overflow`, `allocation_invalid`,
+`pop_balance_overflow`, `pop_not_writable`, `duplicate_pop`,
+`postcondition_failed`, and `conservation_failed`. `allocation_status` preserves
+the allocator's exact result. `dropped_results` is the cumulative bounded
+result-queue drop count. Telemetry result codes
 follow the C ABI: 0 unavailable, 1 filtered, 2 accepted, 3 dropped, and 4
-invalid. `interest.fix.health` is emitted for every finalized creditor-bearing
-attempt; `interest.fix.value` is emitted only for `paid`, so a failed or partial
-attempt cannot expose an intended payout as an observed result.
+invalid. `interest.fix.health` covers rejected debtor pairs, recipient outcomes,
+and daily summaries. `interest.fix.value` is emitted only for `paid`, so a
+failed or partial attempt cannot expose an intended payout as an observed result.
+
+The runtime evidence below through commit `f057bf5` describes the earlier
+per-debtor implementation. It remains provenance for mappings and exact
+mutation checks, not acceptance evidence for the batched implementation.
 
 Sixty-day regression run `b88ce485-ed56-4634-9bb0-0927b0a83117` exercised the
 ordinal-zero form after the diagnostic correction. It reached the exact target
@@ -449,6 +467,37 @@ the probe CSV SHA-256 was
 `6cae03ed4636c80c26766e7c805d401f755c9a6ec25effed51e463aac8261cac`.
 The process reached the exact target and remained paused and responsive.
 
+## Pre-batching ten-year fix result
+
+Observer run `c6193149-f6b2-4a88-9366-32484389d40a` used commit
+`f057bf5` and completed 3,650 exact days from the unchanged supplied save. Its
+235,918-record trace had zero gaps, telemetry drops, or writer failures. The
+closed `interest_fix.csv` SHA-256 was
+`74bbde807d8dc60763a446429d442497d9378e2ba37b636f72cbe3e6bc8aaf5e`;
+its 136,852 rows had zero result-queue drops, and every health/value telemetry
+publication returned `accepted`.
+
+| Status | Count | Flags | Mutation contract |
+| --- | ---: | --- | --- |
+| `paid` | 94,796 | zero | Complete payout and all postconditions passed. |
+| `no_transfer` | 34,243 | zero | Valid creditor-bearing boundary with no positive destination-bank delta. |
+| `allocation_failed` | 2,921 | zero | No complete eligible allocation; rejected before mutation. |
+| `invalid_pair` | 4,892 | `0x01000000` | Destination topology/delta pair changed; rejected before mutation. |
+
+No collection, overflow, writable-memory, duplicate-POP, conservation, or
+postcondition failure occurred. Every `paid` health record had exactly one value
+record. Their aggregate destination-bank transfer was `801,282,450` raw units;
+the POP payout was exactly `801,282,450,000` units. All 33,246,154 nonzero POP
+payout instances passed the immediate money, interest-flow, total-flow, and
+unchanged-savings postconditions. No failed/no-transfer record emitted a value
+event.
+
+Callback time totaled 1,629,137,122 microseconds. Paid callbacks had a 13,817 us
+median and 67,653 us maximum; allocation failures had a 9,166 us median;
+invalid pairs had a 1,492 us median; and no-transfer callbacks had a 21 us
+median. The paired baseline and full economic outcome comparison are recorded
+in `TELEMETRY.md`.
+
 Opt-out run `1759f606-f8b6-4588-aad0-31025e74fd60` repeated two days without
 selecting `interest_fix`; the prior fix CSV retained the same hash, timestamp,
 and length, proving the plugin did not load. Every run preserved the source-save
@@ -456,7 +505,7 @@ SHA-256.
 
 ## Remaining validation
 
-1. Repeat paired baseline/fix scenarios over a materially longer interval and
-   compare world money, late-game liquidity, bankruptcy, and throughput.
+1. Map bankruptcy and the missing bank-cash/world-money categories before
+   claiming effects on bankruptcy or total money supply.
 2. Add genuine HFM and GFM save fixtures before claiming those mods as tested.
 3. Validate multiplayer compatibility before enabling the fix in multiplayer.
