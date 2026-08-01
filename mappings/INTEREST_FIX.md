@@ -396,6 +396,11 @@ recipient once in ascending ordinal order:
    order, then verifies each POP's exact money, slot 7, total-flow, and unchanged
    savings postconditions.
 
+The post-call sample re-resolves the pre-call destination identities and reads
+their current bank values directly. A creditor entry repaid and removed by the
+original function therefore remains measurable without retaining its pointer or
+requiring the mutable creditor vector to keep the same order.
+
 Any structural, identity, budget, overflow, conservation, or writable-memory
 failure skips that debtor pair or recipient before mutation. A postcondition
 failure disables later payouts and is reported. Callbacks perform no file I/O;

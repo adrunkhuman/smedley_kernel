@@ -108,6 +108,8 @@ namespace interest_probe
                          const void *resolver_context = nullptr, const void **immediate_pop = nullptr);
     Sample CollectInterestSample(const void *country, int32_t date_raw,
                                  CountryResolver country_resolver, const void *resolver_context);
+    Sample CollectInterestAfter(const Sample &before, const void *country, int32_t date_raw,
+                                CountryResolver country_resolver, const void *resolver_context);
     bool ComputeDestinationTransfers(const Sample &before, Sample *after);
     bool TreasuryLossCoversTransfer(int64_t before_treasury, int64_t after_treasury, int64_t transfer);
     bool ComputeTreasuryResidual(int64_t before_treasury, int64_t after_treasury,

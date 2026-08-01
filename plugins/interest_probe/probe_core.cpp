@@ -549,6 +549,42 @@ namespace interest_probe
             false, false, &traversal_scratch, nullptr, 0, 0, true);
     }
 
+    Sample CollectInterestAfter(const Sample &before, const void *country, int32_t date_raw,
+                                CountryResolver country_resolver, const void *resolver_context)
+    {
+        ResetMemoryRegionCache();
+        Sample after = CollectSampleImpl(country, date_raw, nullptr, nullptr, resolver_context,
+            false, false, &traversal_scratch, nullptr, 0, 0, false);
+        after.creditor_count = before.creditor_count;
+        if (country_resolver == nullptr || before.creditor_destinations > max_creditor_destinations) {
+            after.flags |= SAMPLE_CREDITOR_DESTINATION_INVALID;
+            return after;
+        }
+        for (uint32_t index = 0; index < before.creditor_destinations; ++index) {
+            const int32_t ordinal = before.destination_ordinals[index];
+            const uint32_t key = before.destination_keys[index];
+            const void *destination = country_resolver(resolver_context, ordinal);
+            uint32_t destination_key = 0;
+            int32_t destination_ordinal = -1;
+            const void *bank = nullptr;
+            int64_t bank_interest = 0;
+            if (!ReadAt(destination, country_tag_offset, &destination_key)
+                || !ReadAt(destination, country_tag_offset + sizeof(destination_key), &destination_ordinal)
+                || destination_key != key || destination_ordinal != ordinal
+                || !ReadAt(destination, country_bank_offset, &bank) || bank == nullptr
+                || !ReadAt(bank, bank_interest_offset, &bank_interest)) {
+                after.flags |= SAMPLE_CREDITOR_DESTINATION_INVALID;
+                continue;
+            }
+            after.destination_keys[after.creditor_destinations] = key;
+            after.destination_ordinals[after.creditor_destinations] = ordinal;
+            after.destination_bank_interests_raw[after.creditor_destinations] = bank_interest;
+            ++after.creditor_destinations;
+            AddChecked(bank_interest, &after.destination_bank_interest_raw, &after.flags);
+        }
+        return after;
+    }
+
     bool ComputeDestinationTransfers(const Sample &before, Sample *after)
     {
         if (after == nullptr || before.flags != 0 || after->flags != 0

@@ -250,8 +250,8 @@ namespace interest_probe
             if (!has_pending_before_) return;
             callback_started_ = std::chrono::steady_clock::now();
 
-            Sample after = CollectInterestSample(event.GetCountry(), game_state->current_date_raw(),
-                ResolveCountry, game_state);
+            Sample after = CollectInterestAfter(pending_before_, event.GetCountry(),
+                game_state->current_date_raw(), ResolveCountry, game_state);
             const int32_t debtor_ordinal = after.country_ordinal > 0
                 ? after.country_ordinal : pending_before_.country_ordinal;
             if (pending_before_.date_raw != after.date_raw || after.date_raw != batch_.date_raw()

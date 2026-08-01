@@ -478,6 +478,46 @@ TEST(InterestProbeTest, RejectsChangedDestinationIdentity)
     EXPECT_NE(after.flags & interest_probe::SAMPLE_DESTINATION_TRANSFER_INVALID, 0u);
 }
 
+TEST(InterestProbeTest, CompletesTransferAfterCreditorEntryDisappears)
+{
+    std::array<std::byte, 0x1608> debtor{};
+    std::array<std::byte, 0x1608> destination{};
+    std::array<std::byte, 0x28> debtor_bank{};
+    std::array<std::byte, 0x28> destination_bank{};
+    const char debtor_tag[4] = {'S', 'W', 'E', '\0'};
+    const char destination_tag[4] = {'E', 'N', 'G', '\0'};
+    const int32_t debtor_ordinal = 2;
+    const int32_t destination_ordinal = 7;
+    const int64_t treasury_after = 975;
+    const int64_t bank_after = 125;
+    const void *debtor_bank_pointer = debtor_bank.data();
+    const void *destination_bank_pointer = destination_bank.data();
+    Write(&debtor, 0x1c, debtor_tag);
+    Write(&debtor, 0x20, debtor_ordinal);
+    Write(&debtor, 0xe78, treasury_after);
+    Write(&debtor, 0xe88, debtor_bank_pointer);
+    Write(&destination, 0x1c, destination_tag);
+    Write(&destination, 0x20, destination_ordinal);
+    Write(&destination, 0xe88, destination_bank_pointer);
+    Write(&destination_bank, 0x20, bank_after);
+    const CountryLookup lookup{destination_ordinal, destination.data()};
+
+    interest_probe::Sample before{};
+    before.creditor_count = 1;
+    before.creditor_destinations = 1;
+    std::memcpy(&before.destination_keys[0], destination_tag, 4);
+    before.destination_ordinals[0] = destination_ordinal;
+    before.destination_bank_interests_raw[0] = 100;
+    before.destination_bank_interest_raw = 100;
+
+    auto after = interest_probe::CollectInterestAfter(
+        before, debtor.data(), 1234, ResolveCountry, &lookup);
+    ASSERT_EQ(after.flags, 0u);
+    ASSERT_EQ(after.creditor_destinations, 1u);
+    EXPECT_TRUE(interest_probe::ComputeDestinationTransfers(before, &after));
+    EXPECT_EQ(after.destination_transfer_raw, 25);
+}
+
 TEST(InterestProbeTest, AcceptsResidualTreasurySinkBeyondDestinationTransfer)
 {
     EXPECT_TRUE(interest_probe::TreasuryLossCoversTransfer(100, 75, 25));
