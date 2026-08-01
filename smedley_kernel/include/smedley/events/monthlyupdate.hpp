@@ -9,7 +9,7 @@ namespace smedley::events
 {
 
     /**
-    When the monthly update is executed for a country, this event is notified
+     * Raised when the monthly update runs for a country.
      */
     class MonthlyUpdateEvent : public Event
     {
@@ -19,11 +19,11 @@ namespace smedley::events
         inline static uintptr_t hook_ret_addr = NULL;
     public:
         MonthlyUpdateEvent(v2::CCountry* country);
-        // @brief returns the country being updated
+        /// @brief Returns the country being updated.
         v2::CCountry* GetCountry();
 
 
-        /// @brief installs the hook needed to trigger the event
+        /// @brief Installs the hook that raises the event.
         static void InstallHook();
     };
 }

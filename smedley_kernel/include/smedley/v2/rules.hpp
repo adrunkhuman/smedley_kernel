@@ -16,7 +16,7 @@ namespace smedley::v2
         int _ordinal;
         bool _allowed;
     public:
-        virtual bool Unk0(); // always returns true. IsValid?
+        virtual bool Unk0(); // Always returns true; candidate IsValid method, name unverified.
     };
 
     static_assert(sizeof(CRuleDefinition) == 0x2c);

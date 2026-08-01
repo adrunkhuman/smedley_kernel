@@ -22,21 +22,21 @@ namespace smedley::events
     void __declspec(naked) WesternizeEvent::HookTrampoline()
     {
         __asm {
-            // save context
+            // Save registers needed by the displaced code.
             push eax
             push fs
 
-            // use free register to push the "this" country ptr as variable to func
+            // Pass the country pointer from the stack frame to the event hook.
             mov ecx, [ebp+0x8]
             push ecx
 
             call WesternizeEventHook
-            // restore context
+            // Discard the callback argument and restore FS and EAX.
             pop ecx
             pop fs
             pop eax
 
-            // patched instructions
+            // Replay the displaced instructions.
             push eax
             mov eax, WESTERNIZE_FLAG_ADDR
             cmp DWORD PTR[eax], 0x0

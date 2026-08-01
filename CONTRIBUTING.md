@@ -1,23 +1,41 @@
 # Contributing
 
-Hello, and welcome to the smedley project! If you haven't already, please feel free to join our discord server: https://discord.gg/4SbmmDzNyy
+Contributions to Smedley are welcome. For project discussion, join the
+[Discord server](https://discord.gg/4SbmmDzNyy).
+
+## Before contributing
+
+Read the repository guidance in [`AGENTS.md`](AGENTS.md), the build instructions
+in [`BUILDING.md`](BUILDING.md), and the [styling guide](STYLING.md). Work that
+depends on reverse-engineered behavior must also follow the evidence rules in
+[`mappings/`](mappings/).
 
 ## Resources
 
-* [Smedley Documentation](https://shenso.github.io/smedley_kernel/)
+- [Smedley documentation](https://shenso.github.io/smedley_kernel/)
 
-## Reporting bugs & issues
+## Reporting bugs and issues
 
-To be added.
+Use the repository issue templates. Include the supported executable identity,
+the exact command or profile, enabled plugins and mods, reproduction steps,
+expected and observed behavior, and relevant logs or trace IDs. Preserve exact
+paths, values, and error messages where they help reproduce the problem.
 
 ## Testing
 
-Smedley uses GoogleTest as a unit testing framework. CTest can be used to run tests.
+Smedley uses GoogleTest and CTest. After building, run:
 
-## Submitting Changes
+```powershell
+ctest --test-dir build -C Release --output-on-failure
+```
 
-When submitting pull requests, please first test your changes and ensure all unit tests pass. Ensure your code is conformant to the project styling guide. You are encouraged to first submit an issue regarding the proposed change to allow for coordination/communication.
+## Submitting changes
+
+Keep pull requests focused. State the changed behavior and why it changed,
+include targeted validation evidence, and identify compatibility effects,
+migrations, untested paths, and remaining limitations. Follow the project style
+guide. Open an issue first when a proposed change needs coordination.
 
 ## Styling
 
-See the [styling guide.](STYLING.md)
+See the [styling guide](STYLING.md).

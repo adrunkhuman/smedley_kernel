@@ -10,7 +10,7 @@ namespace smedley::events
 {
 
     /**
-    When the daily update is executed for a country, this event is notified
+     * Raised when the daily update runs for a country.
      */
     class DailyUpdateEvent : public Event
     {
@@ -20,10 +20,10 @@ namespace smedley::events
         static void HookTrampoline();
         
     public:
-        /// @brief returns the country being updated
+        /// @brief Returns the country being updated.
         v2::CCountry* GetCountry();
         DailyUpdateEvent(v2::CCountry* country);
-        /// @brief installs the hook needed to trigger the event
+        /// @brief Installs the hook that raises the event.
         static void InstallHook();
 
     };

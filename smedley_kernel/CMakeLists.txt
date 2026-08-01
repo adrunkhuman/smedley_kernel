@@ -1,21 +1,15 @@
-﻿# CMakeList.txt : CMake project for smedley_kernel, include source and define
-# project specific logic here.
-#
-cmake_minimum_required(VERSION 3.20)
+﻿cmake_minimum_required(VERSION 3.20)
 
 FILE(GLOB_RECURSE kernel_sources src/*.cpp)
 FILE(GLOB_RECURSE test_sources tests/*.cpp)
 
-# include directories
 include_directories("include/smedley")
 
-# add sources
 add_library (smedley_kernel SHARED ${kernel_sources})
 target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL SMEDLEY_EVENT_BUILD LUA_BUILD_AS_DLL LUA_LIB)
 target_link_libraries(smedley_kernel PRIVATE shell32)
 target_include_directories(smedley_kernel PUBLIC "${PROJECT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
-# setup testing
 add_executable(smedley_run_tests ${test_sources})
 target_link_libraries(smedley_run_tests GTest::gtest_main smedley_kernel)
 
@@ -44,20 +38,18 @@ if(EXISTS ${V2_GAME_DIR})
 endif()
 
 
-# generate docs if doxygen is installed
+# Build Doxygen documentation only when Doxygen is available and BUILD_DOC is enabled.
 option(BUILD_DOC "Build documentation" OFF)
 find_package(Doxygen)
 if (DOXYGEN_FOUND)
   if (BUILD_DOC)
-    # set input and output files
     set(DOXYGEN_IN ${CMAKE_CURRENT_SOURCE_DIR}/docs/Doxyfile.in)
     set(DOXYGEN_OUT ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile)
 
-    # request to configure the file
     configure_file(${DOXYGEN_IN} ${DOXYGEN_OUT} @ONLY)
     message("Doxygen build started")
 
-    # note the option ALL which allows to build the docs together with the application
+    # Include documentation generation in the default build.
     add_custom_target( doc_doxygen ALL
         COMMAND ${DOXYGEN_EXECUTABLE} ${DOXYGEN_OUT}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}

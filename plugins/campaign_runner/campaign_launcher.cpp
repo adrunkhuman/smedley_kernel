@@ -480,8 +480,9 @@ namespace campaign_runner
             return;
         }
         if (observer_command_manager_ != nullptr && observer_command_manager_ != manager) {
-            // The old manager is no longer active; its command metadata remains
-            // process-lifetime storage so a late callback cannot dangle.
+            // The old manager is no longer active. Keep its command metadata in
+            // process-lifetime storage so late callbacks cannot reference
+            // destroyed data.
             native_tag_command_ = nullptr;
             native_tag_handler_ = nullptr;
             observer_switch_command_ = nullptr;
@@ -681,7 +682,8 @@ namespace campaign_runner
         const auto console_command_handler = smedley::memory::Map::base_addr + 0x20eb0;
         constexpr unsigned char console_command_handler_expected[] = {
             0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8, 0x6a, 0xff};
-        // The leading global pointer is relocated by ASLR; validate the invariant handler body.
+        // ASLR relocates the leading global pointer, so validate the invariant
+        // handler body instead.
         const auto speed_up_handler_body = smedley::memory::Map::base_addr + 0x32ee96;
         constexpr unsigned char speed_up_handler_body_expected[] = {
             0x8b, 0x81, 0x28, 0x0b, 0x00, 0x00, 0x40, 0x83, 0xf8, 0x04};

@@ -42,13 +42,17 @@
   `479a31ac-6fd4-4ae2-b170-865c63b70d66` exercised the cross-DLL callback while
   advancing an exact one-day campaign target in a responsive process.
 
-## Immediate blocker
+## Current blocker
 
 Campaign entry, observer setup, native speed 5, generic message-popup
 suppression, and exact-date pause work. The immediate automation blocker is a
 verified save/checkpoint and clean native exit boundary; until then benchmark
-runs deliberately remain paused and open. Non-generic modal interruptions also
-need an explicit policy and reproducible runtime fixture.
+runs deliberately remain paused and open.
+
+## Additional policy gap
+
+Non-generic modal interruptions need an explicit policy and reproducible runtime
+fixture.
 
 ## Next mapping sequence
 

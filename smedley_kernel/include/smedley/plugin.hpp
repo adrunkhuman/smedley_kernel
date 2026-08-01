@@ -15,7 +15,7 @@ namespace smedley
 {
 
     /**
-     * Plugin metadata structure
+     * Plugin metadata.
      */
     struct PluginDefinition
     {
@@ -55,10 +55,9 @@ namespace smedley
     };
 
     /**
-     * The basic interface for Smedley plugins. All smedley plugins MUST have
-     * a Plugin subclass in their module. The Plugin base class provides a set of
-     * helper methods and properties needed to provide basic functionality to a plugin,
-     * as well as an interface for interaction with the PluginLoader.
+     * Base interface for Smedley plugins. Each legacy plugin module must define
+     * a Plugin subclass. The base class provides plugin helpers and the interface
+     * used by PluginLoader.
      */
     class Plugin
     {
@@ -69,15 +68,15 @@ namespace smedley
 
         std::unique_ptr<Logger> _logger;
     public:
-        /// The plugin constructor MUST only contain initialization logic. Uses of
-        /// object properties will lead to undefined behavior as they are initialized
-        /// immediately after instantiation by the plugin loader.
+        /// The constructor must only initialize the object. The loader populates
+        /// its properties immediately after construction, so accessing them in
+        /// the constructor is undefined behavior.
         Plugin();
         virtual ~Plugin() {};
 
-        /// @brief Called after the plugin is loaded by the plugin loader.
+        /// @brief Called after the loader initializes the plugin.
         virtual void OnLoad() {};
-        /// @brief Called when the loader makes a request to unload.
+        /// @brief Called when the loader requests plugin unloading.
         virtual void OnUnload() {};
 
         const PluginDefinition &definition() const noexcept { return _definition; }
@@ -87,7 +86,7 @@ namespace smedley
         friend class PluginLoader;
     protected:
         /**
-         * Helper function for registering plugin event handlers to an event registry.
+         * Registers a plugin event handler with an event registry.
          */
         template <class Ev>
         inline void AddEventHandler(const std::string &id, std::function<void(Ev &)> handler, EventHandlerPriority priority = EventHandlerPriority::LOWEST)
@@ -96,7 +95,7 @@ namespace smedley
         }
 
         /**
-         * Helper function for unregistering plugin event handlers
+         * Unregisters a plugin event handler.
          */
         template <class Ev>
         inline void RemoveEventHandler(const std::string &id)

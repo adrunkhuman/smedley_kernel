@@ -21,14 +21,14 @@ namespace smedley::memory
     void InstallHeapHook()
     {
         constexpr uint8_t trampoline_template[] = {
-            0x50, // push eax
-            0x50, // push eax
-            0xe8, 0x90, 0x90, 0x90, 0x90, // call <addr>
-            0x58, // pop eax
+            0x50, // Push EAX.
+            0x50, // Push EAX.
+            0xe8, 0x90, 0x90, 0x90, 0x90, // Call the heap hook.
+            0x58, // Pop EAX.
 
-            0xa3, 0xe8, 0x02, 0xb2, 0x00, // mov [HEAP_HANDLE], eax
-            0x8b, 0xc1, // mov eax, ecx
-            0xc3, // ret
+            0xa3, 0xe8, 0x02, 0xb2, 0x00, // Store EAX in the heap-handle global.
+            0x8b, 0xc1, // Move ECX to EAX.
+            0xc3, // Return.
         };
 
         auto *trampoline = static_cast<uint8_t *>(VirtualAlloc(
@@ -91,7 +91,7 @@ namespace smedley::memory
             *old_instr = original;
         }
 
-        std::memset(bytes_addr + 1, 0x90, n - 1); // fill the dest with noops for padding
+        std::memset(bytes_addr + 1, 0x90, n - 1); // Fill the remaining bytes with NOPs.
         *bytes_addr = 0xe9;
         *reinterpret_cast<DWORD *>(bytes_addr + 1) = offset;
 

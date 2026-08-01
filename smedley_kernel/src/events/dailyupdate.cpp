@@ -22,25 +22,25 @@ namespace smedley::events
     void __declspec(naked) DailyUpdateEvent::HookTrampoline()
     {
         __asm {
-            // save register context
+            // Save registers needed by the displaced code.
             push eax
             push fs
             push ebx
 
-            // push "this"ptr variable to func
+            // Pass the country pointer from the stack frame to the event hook.
             mov ebx, [ebp+0x8]
             push ebx
 
             call DailyUpdateEventHook
 
-            //clean up context and restore registers
+            // Discard the callback argument and restore the saved registers.
             pop ebx
             pop ebx
             pop fs
             pop eax
 
 
-            //patched instructions
+            // Replay the displaced instructions.
             push ebx
             mov ebx, DWORD PTR[ebp + 0x8]
             mov al, BYTE PTR[ebx + 0x15bc]

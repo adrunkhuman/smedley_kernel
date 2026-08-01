@@ -1,4 +1,8 @@
-# Table of Contents
+# Styling guide
+
+Follow these styling rules when contributing to the project.
+
+## Table of contents
 
 1. [Indentation](#indentation)
     1. [Brace Placement](#brace-placement)
@@ -10,19 +14,17 @@
     3. [Class Methods](#class-methods)
     4. [Class Members](#class-members)
 
-# Styling Guide
-
-When contributing to the project, please be sure to follow the following styling rules.
-
 ## Indentation
 
-Indentations are 4 characters long, using spaces, not tabs.
+Use four spaces for indentation; do not use tabs.
 
 ### Brace Placement
 
-Smedley follows a brace placement style similar to [K&R](https://en.wikipedia.org/wiki/Indentation_style#K&R_style) of brace placement. Functions, classes and structs have their braces placed on the next line. Control flow statements have their brace placed on the same line.
+Smedley uses a [K&R-like brace style](https://en.wikipedia.org/wiki/Indentation_style#K&R_style).
+Put function, class, and struct braces on the next line. Put control-flow braces
+on the same line as the statement.
 
-```C++
+```cpp
 class ExamplePlugin : public smedley::Plugin
 {
 public:
@@ -37,9 +39,9 @@ public:
 
 ### Switch Statements
 
-Case clauses within a switch should not be indented. Case fallthrough should be avoided whenever possible.
+Do not indent case clauses within a switch. Avoid fallthrough whenever possible.
 
-```C++
+```cpp
 switch (ch) {
 case 'a':
     // ...
@@ -53,15 +55,15 @@ default:
 
 ## Header Files
 
-Begin all header files with `#pragma once`
+Begin all header files with `#pragma once`.
 
 ## Naming
 
-### Function, Class, and Struct names
+### Function, class, and struct names
 
 Use PascalCase for function, class, and struct names:
 
-```C++
+```cpp
 void ThisIsAFunction()
 {
     // ...
@@ -75,27 +77,30 @@ class ExampleClass
 
 ### Variables
 
-Variables should be allow lowercase and snake_case.
+Variable names may use lowercase letters and `snake_case`.
 
-### Class Methods
+### Class methods
 
-Class methods should typically use PascalCase like functions. Property-like methods - that is getters with no arguments and setters with a single argument should remain lowercase and snake_case akin to a variable name.
+Class methods typically use PascalCase. Property-like methods, meaning getters
+with no arguments and setters with one argument, use lowercase `snake_case` like
+variable names.
 
-```C++
+```cpp
 class HelloWorld
 {
     int _foo;
 public:
     inline int foo() { return _foo; }
     inline void foo(int val) { _foo = val; }
-}
+};
 ```
 
 ### Class members
 
-Private and protected member variables should be prefixed with an underscore. Public members should by styled as normal variable names.
+Prefix private and protected member variables with an underscore. Style public
+members as normal variable names.
 
-```C++
+```cpp
 class HelloWorld
 {
 protected:
@@ -103,5 +108,5 @@ protected:
     char *_b;
 public:
     long long c;
-}
+};
 ```

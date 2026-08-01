@@ -10,42 +10,13 @@ void ConsoleCmdManagerInitHook(v2::CConsoleCmdManager *mgr)
     smedley::EventRegistry<events::ConsoleCmdManagerInitEvent>::Notify(events::ConsoleCmdManagerInitEvent(mgr));
 }
 
-//static void __declspec(naked) HookTrampoline()
-//{
-//    __asm {
-//         // save the current register context
-//        push eax
-//        push ecx
-//        push edx
-//        push esi
-//
-//        push esi
-//        call ConsoleCmdManagerInitHook
-//        pop esi
-//
-//        // restore the context
-//        pop esi
-//        pop edx
-//        pop ecx
-//        pop eax
-//
-//        // patched instructions
-//        pop edi
-//        pop esi
-//        pop ebx
-//        mov esp, ebp
-//
-//        jmp hook_ret_addr
-//    }
-//}
-
 namespace smedley::events
 {
 
     void __declspec(naked) ConsoleCmdManagerInitEvent::HookTrampoline()
     {
         __asm {
-            // save the current register context
+            // Save registers needed by the displaced code.
             push eax
             push ecx
             push edx
@@ -55,13 +26,13 @@ namespace smedley::events
             call ConsoleCmdManagerInitHook
             pop esi
 
-            // restore the context
+            // Restore the saved registers.
             pop esi
             pop edx
             pop ecx
             pop eax
 
-            // patched instructions
+            // Replay the displaced instructions.
             pop edi
             pop esi
             pop ebx

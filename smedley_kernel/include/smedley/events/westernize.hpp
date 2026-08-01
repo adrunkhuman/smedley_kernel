@@ -11,7 +11,7 @@ namespace smedley::events
 {
 
     /**
-    When a country westernizes, this event is notified
+     * Raised when a country westernizes.
      */
     class WesternizeEvent : public Event
     {
@@ -22,10 +22,10 @@ namespace smedley::events
     public:
         WesternizeEvent(v2::CCountry* country);
 
-        /// @brief returns the westernizing country
+        /// @brief Returns the country that is westernizing.
         v2::CCountry* GetCountry();
 
-        /// @brief installs the hook needed to trigger the event
+        /// @brief Installs the hook that raises the event.
         static void InstallHook();
     };
 

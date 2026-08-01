@@ -12,11 +12,13 @@ the Lua `io`, `os`, `package`, or `debug` libraries. This is a constrained
 interpreter, not a security sandbox: inspect scripts before selecting them.
 
 Host instruction errors must not be catchable, moved to an unhooked Lua thread,
-or deferred into teardown, so `pcall`, `xpcall`, `coroutine`, and `newproxy` are unavailable. The native Lua
-pattern and bytecode functions `string.find`, `string.match`, `string.gmatch`,
-`string.gsub`, and `string.dump` are also unavailable because their C work is
-not bounded by the VM instruction hook. Basic table, math, and bounded string
-formatting/manipulation remain available.
+or deferred into teardown. Therefore, `pcall`, `xpcall`, `coroutine`, and
+`newproxy` are unavailable.
+
+The native Lua pattern and bytecode functions `string.find`, `string.match`,
+`string.gmatch`, `string.gsub`, and `string.dump` are also unavailable because
+the VM instruction hook does not bound their C work. Basic table and math
+operations and bounded string formatting and manipulation remain available.
 
 ## Configure
 
@@ -128,8 +130,8 @@ invented API fails normally in Lua rather than falling through to game memory.
 The game callback copies a fixed-size snapshot and uses a nonblocking queue
 attempt. Full or contended queues drop the snapshot; accepted, processed,
 dropped, error, disabled-script, and high-water counters are logged on orderly
-unload together with a terminal worker-failure flag. Lua parsing, allocation, garbage collection, user logging, and callback
-execution remain on the worker.
+unload together with a terminal worker-failure flag. Lua parsing, allocation,
+garbage collection, user logging, and callback execution remain on the worker.
 
 Every chunk and callback runs under `lua_pcall` and an instruction-count hook.
 Allocator exhaustion or runtime errors count against that script. Three

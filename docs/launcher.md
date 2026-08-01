@@ -75,11 +75,17 @@ diagnostics without starting a process. `--discover` enumerates valid
 stable order. `--no-inject` starts the verified game with ordinary selected mods
 but does not load the kernel or native plugins.
 
-`--telemetry` enables the profile telemetry settings. `--telemetry-output`,
-`--telemetry-category`, `--telemetry-sample-days`,
-`--telemetry-queue-capacity`, and `--telemetry-overwrite` override their corresponding profile fields. The
-shared preflight requires selected plugin ID `telemetry` when telemetry is
-enabled, accepts only `lifecycle` and `state` categories, and validates the
+`--telemetry` enables the profile telemetry settings. These options override
+their corresponding profile fields:
+
+- `--telemetry-output`
+- `--telemetry-category`
+- `--telemetry-sample-days`
+- `--telemetry-queue-capacity`
+- `--telemetry-overwrite`
+
+Shared preflight requires selected plugin ID `telemetry` when telemetry is
+enabled. It accepts only `lifecycle` and `state` categories and validates the
 documented numeric ranges. Safe mode warns and ignores every telemetry control.
 
 `--script` may be repeated. The three `--script-*` limit options override the
@@ -87,7 +93,7 @@ profile defaults. Shared preflight contains scripts under `GAME_DIR/scripts`,
 requires plugin ID `scripting`, and warns that all script controls are ignored
 in safe mode.
 
-## Run History
+## Run history
 
 Every `Launch()` attempt writes one atomic, human-readable TOML record under
 `%LOCALAPPDATA%\Smedley\runs`. Records use schema version 1 and contain a
@@ -95,8 +101,8 @@ stable run ID, UTC start timestamp, outcome, known PID/exit code, profile and
 launch settings, resolved executable/command line, selected mod descriptors,
 and selected plugin IDs and manifests. They also contain paths to the Smedley
 and Victoria II logs, user directory, `economy_trace.csv`, telemetry JSON Lines
-trace, and source save when
-those paths can be derived. History records only reference game content; they
+trace, and source save when those paths can be derived. History records only
+reference game content; they
 never copy saves, logs, mods, plugins, or game files.
 
 `--history` lists the newest 20 records concisely. A normal CLI launch prints
@@ -136,27 +142,27 @@ separate GUI-only list.
 
 The GUI includes telemetry enablement, an optional JSON Lines output browse
 field, a compact category selector (`Lifecycle + state`, `Lifecycle only`, or
-`State only`), sample-days input, queue-capacity input, and overwrite checkbox. These controls build
-the same profile and use the same preflight as the CLI.
+`State only`), sample-days input, queue-capacity input, and overwrite checkbox.
+These controls build the same profile and use the same preflight as the CLI.
 
 The GUI preserves and launches script paths and limits loaded from a profile.
 Adding or removing scripts currently uses the profile file or CLI; the GUI does
 not yet provide a script list editor.
 
-The current profile API supports unattended save loading, observer mode, and an
-optional observer view tag. It also supports an initial speed from 1 through 5
-and a start-paused checkbox. Non-default run controls require both a save and
-the `campaign_runner` plugin. Observer mode cannot start paused because its
-watchdog must observe simulation advancement.
+The current profile API supports unattended save loading, observer mode, an
+optional observer view tag, an initial speed from 1 through 5, and a
+start-paused checkbox. Observer mode cannot start paused because its watchdog
+must observe simulation advancement.
 
-`run_days` and `run_until_date_raw` request a bounded benchmark interval. They
-require injection, a selected save, `campaign_runner`, `start_paused = false`,
-and `detach = true`; safe mode warns that stale targets are ignored. `view_tag`
-is rejected with a target because its switch is asynchronous after simulation
-resumes. Observer itself remains optional. The GUI exposes compact Run days,
-Run target raw, and Timeout seconds fields through this same preflight.
-An otherwise custom timeout without a target is inert and produces a preflight
-warning; it neither requires campaign automation nor reaches the plugin.
+| Control | Requirements and behavior |
+| --- | --- |
+| Non-default run controls | Require a save and the `campaign_runner` plugin. |
+| `run_days` or `run_until_date_raw` | Request a bounded benchmark interval. Require injection, a selected save, `campaign_runner`, `start_paused = false`, and `detach = true`. Safe mode warns that stale targets are ignored. |
+| `view_tag` with a run target | Rejected because the view switch is asynchronous after simulation resumes. Observer mode itself remains optional. |
+| Custom timeout without a target | Inert and produces a preflight warning. It neither requires campaign automation nor reaches the plugin. |
+
+The GUI exposes Run days, Run target raw, and Timeout seconds fields through the
+same preflight.
 
 When one selected mod declares a safe `user_dir`, save preflight and run-record
 links use that mod-specific `save games` and log directory. Multiple distinct

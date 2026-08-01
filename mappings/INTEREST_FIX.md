@@ -114,7 +114,7 @@ kernel counter and sets a callback-failure flag on subsequent probe rows.
 
 ## Initial structure run
 
-On 2026-07-31, Release artifacts were run from the unmodified supplied
+On July 31, 2026, Release artifacts were run from the unmodified supplied
 `benchmark.v2` for seven game days at speed 5 with only `campaign_runner` and
 `interest_probe`. The campaign advanced from raw date `59883384` to the exact
 target `59883552`, then remained paused and responsive. The source-save SHA-256
@@ -349,7 +349,7 @@ loan formula or depending on state `+0x260`.
 `AllocateInterest` is a deterministic preparation step that does not touch game
 state. It writes payout/remainder fields and ordering scratch supplied by its
 caller, clearing payout/remainder output before every valid-buffer result. Its
-contract is:
+contract defines the production allocator behavior:
 
 1. The payout total is the verified individual destination-bank delta multiplied
    by the verified `1000:1` state-to-POP money scale.
@@ -359,10 +359,16 @@ contract is:
    positive POP savings`.
 4. Remaining single raw POP-money units go to the largest fractional remainders.
    Equal remainders use stable province/list/POP traversal order.
-5. A nonpositive transfer, no eligible savings, insufficient bounded scratch,
-   savings-sum overflow, payout-scale overflow, or multiplication overflow
-   produces no mutation. The implementation deliberately rejects an extreme
-   value instead of introducing floating-point or platform-dependent arithmetic.
+5. These conditions produce no mutation:
+   - a nonpositive transfer;
+   - no eligible savings;
+   - insufficient bounded scratch space;
+   - savings-sum overflow;
+   - payout-scale overflow; or
+   - multiplication overflow.
+
+   The implementation deliberately rejects an extreme value instead of
+   introducing floating-point or platform-dependent arithmetic.
 6. Every payout is computed before the first `CPop::GiveMoney` call. A
    production plugin must verify that their exact sum equals `transfer * 1000`
    before applying any entry.
@@ -378,6 +384,9 @@ the allocator unless the separate `interest_fix` manifest is selected.
 
 `interest_fix` subscribes to the exact `PayDailyInterest` boundary and is
 disabled unless explicitly selected. It conflicts with historical `v2up`.
+
+### Production mutation contract
+
 The hot boundary copies only country, creditor, treasury, and destination-bank
 state. It accumulates exact positive destination deltas by recipient ordinal and
 classifies self-tagged amounts as domestic and other named amounts as foreign.
@@ -406,11 +415,12 @@ original function therefore remains measurable without retaining its pointer or
 requiring the mutable creditor vector to keep the same order.
 
 Any structural, identity, budget, overflow, destination-transfer, or
-writable-memory failure skips that debtor pair or recipient before mutation. A
-treasury mismatch suppresses only the uncertain Private Investor residual; it
-does not invalidate exact named destination-bank gains. A postcondition failure
-disables later payouts and is reported. Callbacks perform no file I/O; a bounded
-worker writes `interest_fix.csv`.
+writable-memory failure skips that debtor pair or recipient before mutation.
+A treasury mismatch suppresses only the uncertain Private Investor residual; it
+does not invalidate exact named destination-bank gains.
+
+A postcondition failure disables later payouts and is reported. Callbacks
+perform no file I/O; a bounded worker writes `interest_fix.csv`.
 
 The exact batched CSV header is:
 

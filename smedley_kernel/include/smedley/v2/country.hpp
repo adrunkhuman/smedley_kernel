@@ -46,15 +46,15 @@ namespace smedley::v2
     class CState;
 
     /**
-     * CCountry corresponds a playable country in Victoria 2. It also includes
-     * entities not commonly though of as countries, such as the Rebel Country (owner
-     * of the rebel units and placeholder for rebel controlled territory), as well as 
-     * the NULL country (owner of the "unowned" uncolonized territory in-game).
+     * CCountry represents a playable country in Victoria II. It also includes
+     * entities not commonly considered countries, such as Rebel Country, which
+     * owns rebel units and represents rebel-controlled territory, and the null
+     * country, which owns unowned, uncolonized territory.
      */
     class CCountry : public clausewitz::CPersistent
     {
     protected:
-        sstd::vector<CEvent *> _events; // 8 fired events?
+        sstd::vector<CEvent *> _events; // 0x08; candidate fired-events field, purpose unverified.
         uint32_t _unk_0x18;
         CCountryTag _tag; // 1c
         uint32_t _unk_0x24[3];
@@ -62,7 +62,7 @@ namespace smedley::v2
         bool _is_great_power; // 31
         sstd::vector<void *> _unk_0x34;
         uint32_t _unk_0x44[4];
-        clausewitz::CList<sstd::pair<sstd::string, sstd::string>> _unk_0x54; // type may be incorrect. localisation keys?
+        clausewitz::CList<sstd::pair<sstd::string, sstd::string>> _unk_0x54; // Element type unverified; candidate localization keys.
         uint32_t _unk_0x64;
         sstd::vector<CEvent *> _event_queue; // 68
         CEU3Date _next_quarterly_pulse; // 78

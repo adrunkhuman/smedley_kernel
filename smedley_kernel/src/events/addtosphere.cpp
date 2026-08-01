@@ -23,19 +23,19 @@ namespace smedley::events
     void __declspec(naked) AddToSphereEvent::HookTrampoline()
     {
         __asm {
-            // save context
+            // Save registers needed by the displaced code.
             push esi
 
-            // use free register to push the "this" country ptr as variable to func
+            // Pass the country pointer from the stack frame to the event hook.
             mov edx, [ebp + 0x8]
             push edx
 
             call AddToSphereEventHook
-            // restore context
+            // Discard the callback argument and restore ESI.
             pop edx
             pop esi
 
-            // patched instructions
+            // Replay the displaced instructions.
             mov eax, DWORD PTR[esi]
             mov ecx, ADD_TO_SPHERE_COUNTRY_DB_ADDR
             mov ecx, DWORD PTR[ecx]

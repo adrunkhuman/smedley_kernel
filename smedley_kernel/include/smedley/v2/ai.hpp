@@ -16,7 +16,7 @@ namespace smedley::v2
     {
     protected:
         CCountryTag _tag; // 8
-        CEU3Date _last_recalc; // 10 not 100% on this name
+        CEU3Date _last_recalc; // 0x10; candidate recalculation-date field, name unverified.
         uint32_t _unk_0x14;
         bool _initalized; // 18
         bool _is_static; // 19

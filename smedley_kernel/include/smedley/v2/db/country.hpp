@@ -27,7 +27,7 @@ namespace smedley::v2
         }
         // [[[end]]]
 
-        /// @returns the tag matching str if found. the NULL tag (---) otherwise
+        /// @return The tag matching str, or the null tag (---) if none exists.
         CCountryTag FindTag(const char *str) const
         {
             unsigned int hash = str[2] + str[1] + str[0] & 0x3f;
@@ -41,14 +41,14 @@ namespace smedley::v2
             return CCountryTag();
         }
 
-        /// @returns the tag matching str if found. the NULL tag (---) otherwise
+        /// @return The tag matching str, or the null tag (---) if none exists.
         inline CCountryTag FindTag(const std::string &str) const { return FindTag(str.c_str()); }
-        /// @returns the tag matching str if found. the NULL tag (---) otherwise
+        /// @return The tag matching str, or the null tag (---) if none exists.
         inline CCountryTag FindTag(const sstd::string &str) const { return FindTag(str.c_str()); }
 
-        /// @returns the country with a tag matching str if found. the NULL country otherwise
+        /// @return The country matching str, or the null country if none exists.
         inline CCountry *Find(const std::string &str) const { return Get(FindTag(str)); }
-        /// @returns the country with a tag matching str if found. the NULL country otherwise
+        /// @return The country matching str, or the null country if none exists.
         inline CCountry *Find(const sstd::string &str) const { return Get(FindTag(str)); }
 
         inline CCountry *Get(int ordinal) const { return _countries[ordinal]; }

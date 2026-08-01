@@ -1,38 +1,36 @@
 ---
 name: Bug report
-about: Create a report to help us improve
+about: Report a reproducible Smedley problem
 title: ''
 labels: ''
 assignees: ''
 
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+## Observed problem
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+Describe what happened. Include exact errors and incorrect output.
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+## Steps to reproduce
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
+1. Provide the exact command or profile.
+2. List the actions needed to reproduce the problem.
+3. State whether the problem occurs consistently.
 
-**Desktop (please complete the following information):**
- - OS: [e.g. iOS]
- - Browser [e.g. chrome, safari]
- - Version [e.g. 22]
+## Expected behavior
 
-**Smartphone (please complete the following information):**
- - Device: [e.g. iPhone6]
- - OS: [e.g. iOS8.1]
- - Browser [e.g. stock browser, safari]
- - Version [e.g. 22]
+Describe the result you expected.
 
-**Additional context**
-Add any other context about the problem here.
+## Environment
+
+- Smedley version or commit:
+- `v2game.exe` version, size, and SHA-256:
+- Windows version and architecture:
+- Build configuration:
+- Enabled mods and plugins:
+
+## Logs and context
+
+Attach relevant Smedley, launcher, game, trace, or crash output. Include the save
+or profile context and screenshots when useful. Do not include secrets or
+unrelated personal data.

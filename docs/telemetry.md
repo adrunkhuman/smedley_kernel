@@ -51,7 +51,7 @@ descriptors are rejected. The plugin repeats output validation immediately
 before opening with `CREATE_NEW` by default, or `CREATE_ALWAYS` only when the
 explicit overwrite argument is present.
 
-## JSONL Envelope V1
+## JSONL envelope v1
 
 Each physical line is one UTF-8 JSON object with schema name
 `smedley.telemetry` and `schema_version` `1`. The built-in encoder escapes JSON
@@ -90,18 +90,27 @@ Example:
 {"schema":"smedley.telemetry","schema_version":1,"run_id":"9f0...","sequence":8,"wall_time_utc":"2026-07-31T12:34:56.789Z","monotonic_us":912345,"game_date_raw":12345,"event_type":"country.daily","category":"state","mapping_id":"v2game-3.04","quality":"provisional","entities":{"country_tag":"ENG"},"payload":{"treasury_raw":32768,"treasury":1.000000}}
 ```
 
-## Current Events And Evidence
+## Current events and evidence
 
 `session.started`, `telemetry.progress`, and best-effort `telemetry.summary` are
-lifecycle records with `verified-current` quality. The progress and summary
-payloads report `accepted`, `written`,
-`dropped`, `high_water`, total and mean callback enqueue/format microseconds,
-and callback count. `written` is a snapshot before the summary itself is
-written.
+lifecycle records with `verified-current` quality. Progress and summary payloads
+report these delivery metrics:
+
+| Field | Meaning |
+| --- | --- |
+| `accepted` | Records accepted by the queue. |
+| `written` | Records written when the payload is sampled, before the summary itself is written. |
+| `dropped` | Records rejected by bounded delivery. |
+| `high_water` | Highest observed queue occupancy. |
+| `write_failed` | Whether the writer has failed. |
+| `callback_enqueue_format_us_total` | Total callback enqueue and formatting time in microseconds. |
+| `callback_enqueue_format_us_mean` | Mean callback enqueue and formatting time in microseconds. |
+| `callback_count` | Number of callback attempts. |
+| `skipped_unsampleable` | Samples skipped because the mapped game state was unavailable. |
 
 `country.daily` is a `state` record from `DailyUpdateEvent` with `provisional`
-quality. Its stable entity
-is the three-character country tag. Its payload contains `treasury_raw` and
+quality. Its stable entity is the three-character country tag. Its payload
+contains `treasury_raw` and
 `treasury`, where `treasury = treasury_raw / 32768.0` because the exposed
 fixed-point representation is 48.15. It deliberately does not contain
 `treasury_shadow`, pointers, guessed AI intentions, candidates, scores, or
@@ -148,28 +157,31 @@ bundled `SmedleyTelemetryEmitReliableV1`; an older compatible telemetry plugin
 without that symbol receives best-effort nonblocking publication.
 
 The project mapping inventory has historical status spellings, but telemetry
-uses only canonical project evidence levels. A daily record depends on weaker
-field/date evidence, so it is always `provisional`; a non-null date never
-upgrades it. If the game-state pointer is unavailable, no country record is
-emitted and `skipped_unsampleable` increases. Westernize and AddToSphere hooks are `verified-current`, but their
-exposed inputs are pointers and the available mapping evidence does not safely
-establish both durable tags at the hook boundary. They are intentionally omitted
-from v1 rather than logging pointers or inferred relationships.
+uses only canonical project evidence levels.
 
-## Bounded Delivery
+A daily record depends on weaker field and date evidence, so it is always
+`provisional`; a non-null date never upgrades it. If the game-state pointer is
+unavailable, no country record is emitted and `skipped_unsampleable` increases.
+
+Westernize and AddToSphere hooks are `verified-current`, but their exposed
+inputs are pointers. Available mapping evidence does not safely establish both
+durable tags at the hook boundary. V1 intentionally omits these events instead
+of logging pointers or inferred relationships.
+
+## Bounded delivery
 
 The selected plugin starts a worker after opening the output. State callbacks
 first check category, date range, and sampling. A selected date emits one global
 snapshot; country records then check the country tag before treasury extraction
-and JSON formatting. Lifecycle progress remains useful when
-state records are excluded by date or country filters;
-they never perform file I/O or flush. The queue has fixed-capacity, fixed-size
-record slots. Ordinary callbacks use a non-waiting queue lock; full, contended,
-stopped, or oversized records are explicitly counted as dropped.
-`telemetry.progress`, `world.daily`, date-regression, economic snapshot, and
-opt-in interest-fix result records use reliable bounded publication so lock contention
-alone cannot split their evidence; the queue remains bounded and publication
-still performs no file I/O. The sole worker writes
+and JSON formatting. Lifecycle progress remains useful when state records are
+excluded by date or country filters. Callbacks never perform file I/O or flush.
+The queue has fixed-capacity, fixed-size record slots. Ordinary callbacks use a
+non-waiting queue lock; full, contended, stopped, or oversized records are
+explicitly counted as dropped. `telemetry.progress`, `world.daily`,
+date-regression, economic snapshot, and opt-in interest-fix result records use
+reliable bounded publication so lock contention alone cannot split their
+evidence. The queue remains bounded, and publication still performs no file I/O.
+The sole worker writes
 complete JSON Lines incrementally and flushes at least once per second. An
 explicit future unload drains accepted records, appends a best-effort final
 summary using post-drain statistics, and flushes. The current kernel has no
@@ -188,7 +200,7 @@ post-original sampling through validation and allocation/mutation postconditions
 immediately before telemetry publication. The fix's CSV worker remains
 independently bounded at 1,024 result slots.
 
-## Trace Tool
+## Trace tool
 
 `smedley_trace.exe` is installed beside the launcher and CLI. It streams JSONL
 without external dependencies:
@@ -232,7 +244,7 @@ exactly once in causal order. These are telemetry observation intervals, so
 they include any scheduling or ingress delay at the boundaries; no new game
 timing hook or engine semantic is inferred.
 
-## Native Extension ABI And Lifecycle
+## Native extension ABI and lifecycle
 
 `include/smedley/telemetry.h` defines stable C ABI v1. Extensions do not link
 against `telemetry.dll`; they may resolve exactly `SmedleyTelemetryEmitV1` from
@@ -256,12 +268,18 @@ telemetry plugin.
 
 The ABI contains only fixed-width C values and bounded UTF-8 pointer/length
 pairs. Records and fields include `struct_size`, `version`, and zero reserved
-fields. Input is consumed synchronously and copied before return. The sink is
-thread-safe but provides no caller-thread guarantee. It owns run ID, sequence,
-wall time, and monotonic time. Identifiers cap at 48 bytes, strings at 128,
-at most eight entity and payload fields combined, and the encoder rejects final records over 1024
-bytes. Scalars are null, bool, int64, double, or UTF-8 string; raw JSON is not
-accepted.
+fields.
+
+| Constraint | Contract |
+| --- | --- |
+| Input lifetime | Consumed synchronously and copied before return. |
+| Threading | Thread-safe, with no caller-thread guarantee. |
+| Sink-owned fields | Run ID, sequence, wall time, and monotonic time. |
+| Identifier length | At most 48 bytes. |
+| String length | At most 128 bytes. |
+| Field count | At most eight entity and payload fields combined. |
+| Encoded record size | At most 1,024 bytes. |
+| Scalar types | Null, bool, int64, double, or UTF-8 string; raw JSON is not accepted. |
 
 V1 array elements must have exactly the published V1 `struct_size`; a larger
 element has no stride in this ABI and is rejected. Future layouts therefore use

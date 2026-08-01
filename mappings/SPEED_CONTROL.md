@@ -1,4 +1,4 @@
-# Speed Control
+# Speed control
 
 These findings target the executable identified in `v2game-3.04.toml`.
 

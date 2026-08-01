@@ -3,9 +3,11 @@
 Smedley is an instrumentation, automation, and native extension framework for
 Victoria II: Heart of Darkness 3.04. It includes a graphical launcher, a
 scriptable CLI, plugin preflight, unattended campaign loading, safe observer
-mode, economy tracing, and bounded structured telemetry. Ordinary players and modders use profiles and the
-launcher; constrained Lua scripts can extend supported behavior without C++.
-C++ is only needed to build Smedley or write native plugins.
+mode, economy tracing, and bounded structured telemetry.
+
+Players and modders use profiles and the launcher. Constrained Lua scripts can
+extend supported behavior without C++. C++ is required only to build Smedley or
+write native plugins.
 
 New native plugins can use the narrow versioned C lifecycle ABI documented in
 [`docs/native-plugins.md`](docs/native-plugins.md); existing plugins retain a
@@ -26,7 +28,7 @@ This fork currently supports one exact English x86 `v2game.exe`:
 
 The launcher rejects any other executable before injection.
 
-## Install And Launch
+## Install and launch
 
 Build and install the x86 Release configuration by following
 [`BUILDING.md`](BUILDING.md). Installed files are placed in the configured game
@@ -57,7 +59,7 @@ smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.to
 Paths may contain spaces and Unicode characters. `--dry-run` performs the same
 shared preflight as a real launch without creating a process.
 
-## Recent Runs
+## Recent runs
 
 Each real launcher attempt writes a small TOML metadata record in
 `%LOCALAPPDATA%\Smedley\runs`; no game content is copied. The CLI command
@@ -66,7 +68,7 @@ button opens them and any linked logs, user directory, economy trace, or source
 save that still exists. Detached GUI and CLI launches are recorded as started,
 not exited, because the launcher does not watch them after it returns.
 
-## Built-In Tools
+## Built-in tools
 
 `campaign_runner` loads a selected save through Victoria II's native frontend
 operations. It can choose speed 1 through 5, preserve a paused start, or enter
@@ -135,7 +137,7 @@ explicit non-sandbox trust boundary.
 `v2up` and `dailyupdate_example` are inherited native plugin examples. Gameplay
 changes remain opt-in.
 
-## Trust And Limits
+## Trust and limits
 
 Smedley plugins are native DLLs. They are not sandboxed and have the same access
 as the user running Victoria II. Install only open, trusted plugins. Ordinary
@@ -143,8 +145,8 @@ Victoria II data mods do not cross this native-code trust boundary.
 
 The current release supports Windows, MSVC x86, and the executable identified
 above. The native C ABI currently covers lifecycle, not game services. Plugin
-dependency versions, general third-party plugin settings, broad
-AI decision telemetry, profiling, and profiler-backed engine optimizations remain in active
-development. Normal-exit plugin callbacks also await a verified game shutdown
-boundary. See the repository's GitHub issues for the current roadmap and
-[`mappings/`](mappings/) for reverse-engineering evidence.
+dependency versions, general third-party plugin settings, broad AI decision
+telemetry, profiling, and profiler-backed engine optimizations are still in
+active development. Normal-exit plugin callbacks also await a verified game
+shutdown boundary. See the repository's GitHub issues for the current roadmap
+and [`mappings/`](mappings/) for reverse-engineering evidence.

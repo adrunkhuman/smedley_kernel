@@ -1,8 +1,8 @@
 /**
- * Linking directly to the Lua 5.1.4 DLL has proven problematic.
- * Using the 2010 compiler might help but would make Smedley even less portable than it already is.
- * This file implements the Lua header file by calling the functions in the DLL text segment by dereferencing the 
- * process's import table.
+ * Direct linking to the Lua 5.1.4 DLL is unreliable. Building with the 2010
+ * compiler might help, but would further reduce Smedley's portability. This
+ * file implements the Lua API by resolving function pointers through the
+ * process import table.
  */
 #pragma once
 
@@ -19,15 +19,13 @@ namespace smedley::lua::addresses {
     constexpr uintptr_t luaL_loadstring = 0x0088a478;
 }
 
-// normally would use a macro for these but they require dereferencing the import table first.
-// will likely use configurations here as I intend to do to replace this macro hell I'm in
 extern "C" {
 
 const char *lua_tolstring(lua_State *L, int index, size_t *len)
 {
     const uintptr_t _addr = memory::Map::base_addr + lua::addresses::lua_tolstring;
     typedef const char *_lua_tolstring_type(lua_State * L, int index, size_t *len);
-    // macro wasn't used here because this is a pointer to a pointer
+    // The import-table entry points to the function pointer.
     _lua_tolstring_type **fn = (_lua_tolstring_type **)_addr;
     return (*fn)(L, index, len);
 }

@@ -9,8 +9,7 @@ namespace smedley
 {
 
     /**
-     * Basic Logger interface. Allows for logging at different
-     * log levels.
+     * Logger interface for writing messages at different levels.
      */
     class Logger
     {
@@ -41,7 +40,7 @@ namespace smedley
     };
 
     /**
-     * The FileLogger is a Logger which outputs to a file stream.
+     * Logger implementation that writes to a file stream.
      */
     class FileLogger : public Logger
     {

@@ -75,7 +75,7 @@ namespace smedley::v2
         uint8_t _uk_0xb8[0x20];
         clausewitz::CList<CConstruction *> _constructions; // d8
         COwnerArea *_owner_area; // e8
-        clausewitz::CList<void *> _leaders; // ec (not 100% sure on this one)
+        clausewitz::CList<void *> _leaders; // 0xEC; element type and purpose unverified.
         clausewitz::CList<void *> _units; // fc
         uint32_t _uk_0x10c;
         uint32_t _uk_0x110;
@@ -92,7 +92,7 @@ namespace smedley::v2
         clausewitz::CList<void *> _regions; // 15c
         CContinent *_continent;
         uint32_t _uk_0x170;
-        sstd::vector<int> _fow_setting; // 174 TODO: enum type
+        sstd::vector<int> _fow_setting; // 0x174; TODO: verify whether this field uses an enum type.
         uint32_t _uk_0x184;
         CState *_state; // 188
         uint32_t _uk_0x18c;

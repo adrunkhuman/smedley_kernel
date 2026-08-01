@@ -8,8 +8,8 @@ namespace smedley::clausewitz
 {
 
     /**
-     * Represents a fixed point number with a scaling factor of 1000.
-     * i.e., 25000 = 25.000, 15637 = 15.637, and so on
+     * Represents a fixed-point number scaled by 1,000. For example, 25,000
+     * represents 25.000 and 15,637 represents 15.637.
      */
     class CFixedPoint
     {
@@ -22,9 +22,9 @@ namespace smedley::clausewitz
     static_assert(sizeof(CFixedPoint) == 0x4);
 
     /**
-     * Template class for fixed point numbers, typically used for 64-bit fixed points. I bits
-     * are dedicated to the integer, and F bits to the fractional part. Below is an illustration
-     * of the fixed point's memory layout:
+     * Template for fixed-point numbers, typically 64-bit values. I bits
+     * represent the integer part, and F bits represent the fractional part.
+     * The layout is:
      * 
      *      --------------------
      *      | sign |  I  |  F  |

@@ -1,7 +1,4 @@
-﻿# CMakeList.txt : Top-level CMake project file, do global configuration
-# and include sub-projects here.
-#
-cmake_minimum_required(VERSION 3.20)
+﻿cmake_minimum_required(VERSION 3.20)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,7 +9,6 @@ if(NOT V2_GAME_DIR)
 endif()
 
 set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY TRUE)
-#set(BUILD_DOC ON)
 
 project("smedley")
 
@@ -39,7 +35,6 @@ FetchContent_MakeAvailable(googletest)
 
 include_directories("include/lua" "include/toml")
 
-# Include sub-projects.
 add_subdirectory ("smedley_kernel")
 add_subdirectory ("plugins")
 add_subdirectory ("tools/launcher_core")

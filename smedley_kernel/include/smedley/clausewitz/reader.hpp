@@ -8,16 +8,15 @@ namespace smedley::clausewitz
 {
 
     /**
-     * The base lexer class. Responsible for turning some input stream into
-     * a stream of tokens. Also manages dynamic tokens.
+     * Base lexer that converts an input stream into tokens and manages dynamic
+     * tokens.
      */
     class CLexer
     {
     };
 
     /**
-     * The reader provides facilities for parsing data from a stream of
-     * tokens provided by its lexer.
+     * Parses data from the token stream produced by its lexer.
      */
     class CReader
     {

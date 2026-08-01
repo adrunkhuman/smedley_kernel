@@ -967,7 +967,8 @@ namespace
         {
             operation_diagnostics_.clear();
             auto profile = BuildProfile();
-            // The GUI always detaches; retain the loaded value only when saving the profile again.
+            // The GUI always launches detached; retain the profile value only
+            // when saving it again.
             profile.detach = true;
             plan_ = launcher::BuildLaunchPlan(profile);
             DisplayDiagnostics(plan_.diagnostics);
@@ -1037,7 +1038,8 @@ namespace
             retained_script_instruction_budget_ = profile.script_instruction_budget;
             retained_script_memory_bytes_ = profile.script_memory_bytes;
             retained_script_queue_capacity_ = profile.script_queue_capacity;
-            // A loaded profile intentionally replaces, rather than merges with, old selections.
+            // Loading a profile replaces the current selections; it does not
+            // merge them.
             discovered_mods_.clear();
             discovered_plugins_.clear();
             retained_mods_.clear();

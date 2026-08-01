@@ -21,7 +21,7 @@ namespace smedley::v2
         {
             using Handler = SResult (*)(const sstd::vector<sstd::string> &argv);
 
-            bool is_allowed; /// command is only accessible in the dev environment when false
+            bool is_allowed; ///< When false, the command is available only in the development environment.
             const char *name;
             int num_aliases;
             const char *aliases[3];

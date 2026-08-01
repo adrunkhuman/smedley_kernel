@@ -20,17 +20,17 @@ namespace smedley::events
     void __declspec(naked) MonthlyUpdateEvent::HookTrampoline()
     {
         __asm {
-            // use a unused register to push the "this" country ptr to the func as param
+            // Pass the country pointer from the stack frame to the event hook.
             push eax
             mov eax, [ebp+0x8]
             push eax
 
             call MonthlyUpdateEventHook
-            // cleanup register
+            // Discard the callback argument and restore EAX.
             pop eax
             pop eax
 
-            //patched instructions
+            // Replay the displaced instructions.
             push ebx
             mov ebx, DWORD PTR[ebp + 0x8]
             mov eax, DWORD PTR[ebx + 0x9dc]

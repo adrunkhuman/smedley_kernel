@@ -562,8 +562,8 @@ ret = "bool"
 callconv = "__stdcall"
 offset = 0x00122910
 doc = """
-@param arg_1 show dialogue?
-@returns if the loan was taken successfully?
+@param arg_0 Whether to show a dialog; semantics unverified.
+@return Whether the loan was taken successfully; semantics unverified.
 """
 
     [[fns.args]]
@@ -646,9 +646,7 @@ this = "eax"
     argtype = "clausewitz::fixed_point<int64_t,48,15>"
     name = "amount"
 
-#####################################
-#               GETTERS             #
-#####################################
+# Getter functions
 [[fns]]
 name = "daily_research_points"
 ret = "clausewitz::CFixedPoint"

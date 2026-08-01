@@ -96,7 +96,7 @@ namespace smedley::v2
         uint32_t _uk_0xbc4;
         uint32_t _uk_0xbc8;
         CWorldMarket *_world_market; // bcc
-        sstd::vector<CCountry *> _country_vec; // bd0 TODO: differentiate from _countries field. believe this one is sorted, the other may not be
+        sstd::vector<CCountry *> _country_vec; // 0xBD0; TODO: verify how this differs from _countries and whether it is sorted.
         sstd::vector<CCountry *> _great_powers; // be0
         uint32_t _uk_0xbf0;
         uint32_t _uk_0xbf4;

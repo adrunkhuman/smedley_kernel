@@ -231,7 +231,8 @@ namespace smedley::scripting
             RegisterFunction("request_pause", &RequestPause);
             RegisterFunction("after_days", &AfterDays);
             lua_setglobal(state, "smedley");
-            // Reserve luaL_ref's free-list slot before user code can approach the allocator cap.
+            // Reserve the free-list slot used by luaL_ref before user code
+            // approaches the allocator limit.
             lua_pushinteger(state, 0);
             lua_rawseti(state, LUA_REGISTRYINDEX, 0);
             lua_pushlightuserdata(state, this);

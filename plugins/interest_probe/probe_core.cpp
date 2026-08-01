@@ -78,8 +78,9 @@ namespace interest_probe
             uint32_t pop_pointer_count = 0;
         };
 
-        // The event is synchronous on the game thread; static storage keeps the
-        // bounded identity set off that thread's stack without hot-path allocation.
+        // The event runs synchronously on the game thread. Static storage keeps
+        // this bounded identity set off the thread's stack without allocating
+        // on the hot path.
         TraversalScratch traversal_scratch;
 
         struct MemoryRegionCache

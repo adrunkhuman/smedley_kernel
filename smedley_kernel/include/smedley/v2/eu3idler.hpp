@@ -12,7 +12,7 @@ namespace smedley::v2
     {
     };
 
-    /// @brief main in game ui handler
+    /// @brief Main in-game UI handler.
     class CInGameIdler : public CEU3Idler
     {
     public:

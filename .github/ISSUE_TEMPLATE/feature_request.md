@@ -1,20 +1,34 @@
 ---
 name: Feature request
-about: Suggest an idea for this project
+about: Propose a Smedley capability or behavior change
 title: ''
 labels: ''
 assignees: ''
 
 ---
 
-**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+## Problem or required outcome
 
-**Describe the solution you'd like**
-A clear and concise description of what you want to happen.
+Describe the current limitation or the observable outcome that is needed.
 
-**Describe alternatives you've considered**
-A clear and concise description of any alternative solutions or features you've considered.
+## Proposed behavior
 
-**Additional context**
-Add any other context or screenshots about the feature request here.
+Describe the requested behavior. Preserve exact compatibility requirements,
+values, paths, and commands.
+
+## Scope and compatibility
+
+State explicit exclusions, affected plugins or mappings, compatibility effects,
+and known runtime risks.
+
+## Acceptance criteria
+
+- [ ] Describe an observable result that would establish completion.
+
+## Alternatives and limitations
+
+Describe alternatives considered, remaining limitations, and later work.
+
+## Additional context
+
+Add relevant links, evidence, examples, or screenshots.

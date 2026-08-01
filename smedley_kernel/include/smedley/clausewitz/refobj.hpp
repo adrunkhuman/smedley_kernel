@@ -7,7 +7,7 @@ namespace smedley::clausewitz
 {
 
     /**
-     * The ID of a CReferenceObject object.
+     * Identifies a CReferenceObject instance.
      */
     class CID
     {
@@ -15,9 +15,9 @@ namespace smedley::clausewitz
         unsigned int _type; 
         unsigned int _id;
     public:
-        /// @return the type id of the CReferenceObject subclass
+        /// @return The type ID of the CReferenceObject subclass.
         int type() const { return _type; }
-        /// @return the id of the instance
+        /// @return The instance ID.
         int id() const { return _id; }
     };
 

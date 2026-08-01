@@ -7,11 +7,9 @@ namespace smedley::events
 {
 
     /**
-     * When the player starts a new campaign the game initalizes the
-     * console command manager so it is available to the console if the
-     * player opens it. This event occurs when the command manager is 
-     * initialized. At this point all the base game commands have been added
-     * to the manager.
+     * Raised when the game initializes the console command manager after the
+     * player starts a new campaign. At this point, all base-game commands have
+     * been added.
      */
     class ConsoleCmdManagerInitEvent : public Event
     {
@@ -21,10 +19,10 @@ namespace smedley::events
         static void HookTrampoline();
     public:
         ConsoleCmdManagerInitEvent(v2::CConsoleCmdManager *cmd_mgr);
-        /// @brief returns the console command manager being initalized
+        /// @brief Returns the console command manager being initialized.
         v2::CConsoleCmdManager *cmd_mgr() { return _cmd_mgr; }
 
-        /// @brief installs the hook needed to trigger the event
+        /// @brief Installs the hook that raises the event.
         static void InstallHook();
     };
 

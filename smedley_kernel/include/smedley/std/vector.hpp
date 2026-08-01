@@ -64,7 +64,7 @@ namespace smedley::sstd
         {
         }
 
-        /// @param n the new capacity (size of the internal array).
+        /// @param n New capacity of the internal array.
         void reserve(size_t n)
         {
             if (n > capacity()) {

@@ -164,7 +164,8 @@ namespace scripting_plugin
         }
 
         std::unique_ptr<smedley::scripting::Runtime> runtime_;
-        // 0 accepts, 1 is pending, 2 is closed, and 3 awaits worker-side result consumption.
+        // Pause-request states: 0 = accepted, 1 = pending, 2 = closed, and
+        // 3 = awaiting worker-side result consumption.
         std::atomic<int> pause_request_state_{2};
         std::mutex log_mutex_;
     };

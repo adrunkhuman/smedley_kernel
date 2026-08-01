@@ -4,8 +4,8 @@ namespace smedley
 {
 
     /**
-     * Represents a snapshot of some in-game event/action/change in
-     * state. Some events are cancellable.
+     * Represents a snapshot of an in-game event or state change. Some events
+     * can be canceled.
      */
     class Event
     {
@@ -17,9 +17,9 @@ namespace smedley
 
         /// @brief Cancels the event if possible.
         void Cancel();
-        /// @brief Returns if the event is cancellable.
+        /// @brief Returns whether the event can be canceled.
         inline bool can_cancel() { return _cancelable; }
-        /// @brief Returns if the event has been cancelled.
+        /// @brief Returns whether the event has been canceled.
         inline bool is_cancelled() { return _is_cancelled; }
     };
 

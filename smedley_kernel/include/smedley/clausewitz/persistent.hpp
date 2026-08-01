@@ -7,9 +7,8 @@ namespace smedley::clausewitz
 {
 
     /**
-     * The base class for most persistent data in the program. This includes virtually all
-     * data which is stored in the game files. Definition files in the common dir, decisions,
-     * events, history, etc.
+     * Base class for data persisted by the game, including definition files in
+     * the common directory, decisions, events, and history.
      */
     class CPersistent
     {
@@ -17,16 +16,16 @@ namespace smedley::clausewitz
         int _type_token;
     public:
         virtual ~CPersistent();
-        /// @brief Write the entire object to the provided CWriter object
+        /// @brief Writes the complete object to the specified CWriter.
         virtual void Write(CWriter &);
         virtual void WriteMembers(CWriter &);
-        /// @brief Deserialize the object from the provided CReader.
+        /// @brief Deserializes the object from the specified CReader.
         virtual void Read(CReader &);
-        /// @brief Deserialize the specified member
-        /// @param reader the reader to read from
-        /// @param type the type token of the member to be deserialized
+        /// @brief Deserializes the specified member.
+        /// @param reader Reader from which to deserialize.
+        /// @param type Type token of the member to deserialize.
         virtual void ReadMember(CReader &reader, int type);
-        /// @brief Initializes the object after deserialization. Called at the end of CPersistent::Read
+        /// @brief Initializes the object after deserialization; called at the end of CPersistent::Read.
         virtual void InitPostRead();
     };
 

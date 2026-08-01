@@ -26,7 +26,7 @@ namespace smedley
     };
 
     /**
-     * A static container for of all listeners of a given event.
+     * Stores all listeners for a specific event type.
      */
     template <class Ev>
     class EventRegistry
@@ -48,16 +48,16 @@ namespace smedley
         } _handler_compare_lt{};
         SMEDLEY_API static uint32_t _notification_depth;
 
-        // should be defined for each event by template specialization
+        // Defined for each event by template specialization.
         SMEDLEY_API static Handlers _handlers;
     public:
         /**
-         * Adds the given event handler to the registry.
+         * Adds an event handler to the registry.
          * 
-         * @param plugin The registering plugin.
-         * @param id The id of the event handler (namespaced within the plugin).
-         * @param fn The event handler.
-         * @param priority The priority on the handler queue on callback.
+         * @param plugin Plugin that registers the handler.
+         * @param id Handler ID, namespaced within the plugin.
+         * @param fn Event callback.
+         * @param priority Handler callback priority.
          */
         static void Register(Plugin *plugin, const std::string &id, std::function<void(Ev &)> fn, EventHandlerPriority priority = EventHandlerPriority::LOWEST)
         {
@@ -71,10 +71,10 @@ namespace smedley
         }
 
         /**
-         * Removes the given event handler from the registry.
+         * Removes an event handler from the registry.
          * 
-         * @param plugin The plugin which registered the handler.
-         * @param id The id of the event handler.
+         * @param plugin Plugin that registered the handler.
+         * @param id Handler ID.
          */
         static void Unregister(Plugin *plugin, const std::string &id)
         {
@@ -87,7 +87,7 @@ namespace smedley
         }
 
         /**
-         * Notifies event handlers of the given event.
+         * Notifies handlers until the event is canceled.
          */
         static void Notify(Ev &e)
         {

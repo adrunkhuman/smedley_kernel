@@ -407,8 +407,9 @@ namespace smedley::launcher
             DWORD remote_module = 0;
             if (completed) GetExitCodeThread(thread, &remote_module);
             CloseHandle(thread);
-            // A timed-out thread may still be reading this allocation. The failed
-            // launch path terminates the suspended child and lets Windows reclaim it.
+            // A timed-out thread may still read this allocation. The failed
+            // launch path terminates the suspended child, allowing Windows to
+            // reclaim the allocation safely.
             if (completed) VirtualFreeEx(process, remote_path, 0, MEM_RELEASE);
             if (completed && remote_module == 0) {
                 AddDiagnostic(diagnostics, "inject.load", "target could not load library", library);

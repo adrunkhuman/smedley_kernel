@@ -41,9 +41,7 @@ namespace smedley
         return result;
     }
 
-    // a PLUGIN_API export required by all smedley plugins. for most plugins this
-    // should just be simple boilerplate allocating and instantiating the plugin
-    // subclass.
+    // Function pointer for the factory exported by legacy Smedley plugins.
     typedef Plugin *(*PluginCreator)();
 
     struct PluginModule
@@ -85,15 +83,14 @@ namespace smedley
         wchar_t cwd_buf[MAX_PATH];
         wchar_t *documents_path_ws;
 
-        // currently victoria 2 always assumes its launched within the game directory.
-        // if it isn't it will crash failing to find some map file. we may want to
-        // fix this in the future, but for now we can ride on this assumption.
+        // Victoria II assumes it was launched from the game directory and may
+        // crash if it cannot find map files there.
         if (!_wgetcwd(cwd_buf, MAX_PATH)) {
             auto err_no = errno;
             throw std::runtime_error("failed to get current working directory: " + err_no);
         }
 
-        // keep smedley logs near game logs
+        // Keep Smedley logs beside the game's logs.
         if (SHGetKnownFolderPath(FOLDERID_Documents, 0, NULL, &documents_path_ws) == E_FAIL) {
             throw std::runtime_error("failed to find documents folder");
         }

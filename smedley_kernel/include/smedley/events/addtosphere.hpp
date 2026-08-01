@@ -10,8 +10,8 @@ namespace smedley::events
 {
 
     /**
-    When one country spheres another, this event is notified.
-    This event is also notified during save load (as it appears the game calls it on every sphere pair on save load). Should probably be changed later
+     * Raised when one country spheres another. The game also appears to raise
+     * it for every sphere pair while loading a save.
      */
     class AddToSphereEvent : public Event
     {
@@ -23,14 +23,14 @@ namespace smedley::events
     public:
         AddToSphereEvent(v2::CCountry* source, v2::CCountryTag* target);
 
-        /// @brief returns country which sphered the target
+        /// @brief Returns the country that sphered the target.
         v2::CCountry* GetSource();
 
 
-        /// @brief returns country tag which got sphered
+        /// @brief Returns the tag of the country that was sphered.
         v2::CCountryTag* GetTarget();
 
-        /// @brief installs the hook needed to trigger the event
+        /// @brief Installs the hook that raises the event.
         static void InstallHook();
     };
 

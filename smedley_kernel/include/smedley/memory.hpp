@@ -14,45 +14,43 @@ namespace smedley::memory
 {
 
     /**
-     * container of all global/static info regarding the games memory,
-     * such as addresses of the memory segments. Should be unchanging
-     * after initialization.
+     * Stores process-wide memory state, including the game-module base address
+     * and heap handle. These values should not change after initialization.
      */
     struct SMEDLEY_API Map
     {
-        /// @brief the base memory address of v2game.exe
+        /// @brief Base address of v2game.exe.
         static uintptr_t base_addr;
-        /// @brief the heap used by the v2game.exe module for dynamic allocations
+        /// @brief Heap used by v2game.exe for dynamic allocation.
         static HANDLE game_heap;
 
         static void Init();
     };
 
     /**
-     * Patches the instructions at addr.
-     * @param addr the address of the instructions to be patched.
-     * @param instr byte sequence of the instructions to patch
-     * @param n the number of bytes to be written
+     * Patches instructions at the specified address.
+     * @param addr Address of the instructions to patch.
+     * @param instr Replacement byte sequence.
+     * @param n Number of bytes to write.
      */
     void Patch(uintptr_t addr, uint8_t *instr, int n);
     void InstallHeapHook();
 
     /**
-     * Hooks a function by patching a jump at the instructions at addr.
-     * @param addr where to install the hook
-     * @param jmp the jump address (a naked function)
-     * @param n the number of bytes to be written. instructions after the jump are made noops.
-     * @returns if n is valid
+     * Hooks a function by writing a jump at the specified address.
+     * @param addr Address at which to install the hook.
+     * @param jmp Address of the naked jump function.
+     * @param n Number of bytes to write. Bytes after the jump become NOPs.
+     * @return Whether the requested patch length is valid.
      */
     bool Hook(uintptr_t addr, void *jmp, int n, std::vector<uint8_t> *old_instr);
     bool RestoreHook(uintptr_t addr, const std::vector<uint8_t> &instructions) noexcept;
 
     /**
-     * Hooks a function at its prologue. Automatically generates the trampoline to
-     * call the argument fn.
-     * @param addr location of the prologue
-     * @param fn the hook callback
-     * @param n the number of bytes to be written
+     * Hooks a function at its prologue and generates a trampoline that calls fn.
+     * @param addr Location of the prologue.
+     * @param fn Hook callback.
+     * @param n Number of bytes to write.
      */
     template <typename... Types>
     bool HookPrologue(uintptr_t addr, void(__stdcall *fn)(Types... args), int n)
@@ -75,9 +73,9 @@ namespace smedley::memory
         }
 
         /*
-         * n: copied from source
-         * i * 4: number of instructions per arg
-         * 10: call and jump instructions
+         * n: bytes copied from the source.
+         * i * 4: bytes emitted for each argument.
+         * 10: bytes required for the call and jump.
          */
         trampoline_size = n + (sizeof...(args) * 4) + 10;
         trampoline = new uint8_t[trampoline_size];
@@ -99,9 +97,8 @@ namespace smedley::memory
             // push esi
             trampoline[pos + 3] = 0x56;
         }
-        // call fn
         trampoline[pos++] = 0xe8;
-        // little endian
+        // Encode the relative call displacement in little-endian order.
         trampoline[pos++] = call_addr & 0xff;
         trampoline[pos++] = (call_addr >> 0x8) & 0xff;
         trampoline[pos++] = (call_addr >> 0x10) & 0xff;
@@ -112,7 +109,6 @@ namespace smedley::memory
         }
         delete[] buf;
 
-        // jmp ret_addr
         trampoline[pos++] = 0xe9;
         trampoline[pos++] = ret_addr & 0xff;
         trampoline[pos++] = (ret_addr >> 0x8) & 0xff;
@@ -125,12 +121,11 @@ namespace smedley::memory
     }
 
     /**
-     * Hooks a function at its epilogue. Automatically generates the trampoline to call
-     * fn.
-     * @param addr the location of the epilogue
-     * @param fn the hook callback
-     * @param n the number of bytes to write
-     * @param preserve registers which should be preserved after returning from fn
+     * Hooks a function at its epilogue and generates a trampoline that calls fn.
+     * @param addr Location of the epilogue.
+     * @param fn Hook callback.
+     * @param n Number of bytes to write.
+     * @param preserve Registers to restore after fn returns.
      */
     template <typename... Types>
     bool HookEpilogue(uintptr_t addr, void(__stdcall *fn)(Types... args), int n, const std::vector<int> &preserve = std::vector<int>())
@@ -171,7 +166,7 @@ namespace smedley::memory
             trampoline[pos] = buf[i];
         }
 
-        // push registers onto the stack
+        // Preserve registers across the callback.
         for (int reg : preserve) {
             trampoline[pos++] = 0x50 + reg;
         }
@@ -185,7 +180,6 @@ namespace smedley::memory
             // push esi
             trampoline[pos + 3] = 0x56;
         }
-        // call fn
         trampoline[pos++] = 0xe8;
         trampoline[pos++] = call_addr & 0xff;
         trampoline[pos++] = (call_addr >> 0x8) & 0xff;
@@ -197,7 +191,7 @@ namespace smedley::memory
         }
         delete[] buf;
 
-        // restore registers
+        // Restore the preserved registers.
         for (int reg : preserve) {
             trampoline[pos++] = 0x58 + reg;
         }
