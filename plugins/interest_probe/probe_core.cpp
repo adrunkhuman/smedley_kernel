@@ -185,11 +185,22 @@ namespace interest_probe
 
         bool ReadPopMoney(const void *pop, PopMoneySnapshot *snapshot)
         {
-            return snapshot != nullptr
-                && ReadAt(pop, pop_money_offset, &snapshot->money_raw)
-                && ReadAt(pop, pop_interest_cash_flow_offset, &snapshot->interest_cash_flow_raw)
-                && ReadAt(pop, pop_total_cash_flow_offset, &snapshot->total_cash_flow_raw)
-                && ReadAt(pop, pop_savings_offset, &snapshot->savings_raw);
+            if (snapshot == nullptr) return false;
+            constexpr size_t span = pop_savings_offset + sizeof(int64_t) - pop_money_offset;
+            std::array<uint8_t, span> bytes{};
+            const auto *begin = reinterpret_cast<const uint8_t *>(pop) + pop_money_offset;
+            if (!CopyReadable(bytes.data(), begin, bytes.size())) return false;
+            std::memcpy(&snapshot->money_raw, bytes.data(), sizeof(snapshot->money_raw));
+            std::memcpy(&snapshot->interest_cash_flow_raw,
+                bytes.data() + pop_interest_cash_flow_offset - pop_money_offset,
+                sizeof(snapshot->interest_cash_flow_raw));
+            std::memcpy(&snapshot->total_cash_flow_raw,
+                bytes.data() + pop_total_cash_flow_offset - pop_money_offset,
+                sizeof(snapshot->total_cash_flow_raw));
+            std::memcpy(&snapshot->savings_raw,
+                bytes.data() + pop_savings_offset - pop_money_offset,
+                sizeof(snapshot->savings_raw));
+            return true;
         }
 
         void CollectPops(const PointerVector &provinces, ProvinceResolver resolver,
@@ -251,12 +262,17 @@ namespace interest_probe
                             return;
                         }
                         ++scratch->pop_attempts;
-                        int64_t savings = 0;
-                        const void *next = nullptr;
-                        if (!ReadAt(pop, pop_savings_offset, &savings) || !ReadAt(pop, pop_next_offset, &next)) {
+                        constexpr size_t pop_link_span = pop_next_offset + sizeof(void *) - pop_savings_offset;
+                        std::array<uint8_t, pop_link_span> pop_fields{};
+                        const auto *pop_field_begin = reinterpret_cast<const uint8_t *>(pop) + pop_savings_offset;
+                        if (!CopyReadable(pop_fields.data(), pop_field_begin, pop_fields.size())) {
                             sample->flags |= SAMPLE_POP_UNREADABLE;
                             break;
                         }
+                        int64_t savings = 0;
+                        const void *next = nullptr;
+                        std::memcpy(&savings, pop_fields.data(), sizeof(savings));
+                        std::memcpy(&next, pop_fields.data() + pop_next_offset - pop_savings_offset, sizeof(next));
                         scratch->pop_pointers[scratch->pop_pointer_count] = reinterpret_cast<uintptr_t>(pop);
                         scratch->pop_identity_pointers[scratch->pop_pointer_count] = reinterpret_cast<uintptr_t>(pop);
                         scratch->pop_savings[scratch->pop_pointer_count] = savings;
@@ -639,8 +655,7 @@ namespace interest_probe
     bool CanWritePopMoney(const void *pop)
     {
         if (pop == nullptr) return false;
-        return IsWritable(reinterpret_cast<const uint8_t *>(pop) + pop_money_offset, sizeof(int64_t))
-            && IsWritable(reinterpret_cast<const uint8_t *>(pop) + pop_interest_cash_flow_offset, sizeof(int64_t))
-            && IsWritable(reinterpret_cast<const uint8_t *>(pop) + pop_total_cash_flow_offset, sizeof(int64_t));
+        constexpr size_t span = pop_total_cash_flow_offset + sizeof(int64_t) - pop_money_offset;
+        return IsWritable(reinterpret_cast<const uint8_t *>(pop) + pop_money_offset, span);
     }
 }
