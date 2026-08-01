@@ -41,14 +41,6 @@ signature = "e8 ed ae 01 00"
 source = "sole direct call from CCountry::DailyUpdate to RVA 0x00123c30; a seven-day run produced 1,897 complete before/after country pairs and an unsubscribed smoke run preserved exact date advancement"
 
 [[symbols]]
-name = "CCountry::MonthlyUpdate event hook"
-rva = 0x0010c2a6
-kind = "hook"
-status = "verified-current"
-signature = "53 8b 5d 08 8b 83 dc 09 00 00"
-source = "smedley_kernel/include/smedley/events/monthlyupdate.hpp"
-
-[[symbols]]
 name = "CCountry::PayDailyInterest"
 rva = 0x00123c30
 kind = "function"
@@ -271,22 +263,6 @@ kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
 source = "runtime --observe test cleared JAN human control, attached AI 0x7133c528, and grew scheduler count 271->272; static caller is queued transition handler RVA 0x32c220"
-
-[[symbols]]
-name = "AddToSphereEvent hook"
-rva = 0x00133e59
-kind = "hook"
-status = "verified-current"
-signature = "8b 06 8b 0d e4 87 25 01"
-source = "smedley_kernel/include/smedley/events/addtosphere.hpp"
-
-[[symbols]]
-name = "WesternizeEvent hook"
-rva = 0x0014238e
-kind = "hook"
-status = "verified-current"
-signature = "83 3d dc ea 25 01 00"
-source = "smedley_kernel/include/smedley/events/westernize.hpp"
 
 [[symbols]]
 name = "CPop constructor candidate 1"

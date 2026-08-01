@@ -1,6 +1,6 @@
 #include "interest_allocation.hpp"
 #include "interest_batch.hpp"
-#include "probe_core.hpp"
+#include "economic_state.hpp"
 #include "telemetry_bridge.hpp"
 
 #include <smedley/events/dailyinterest.hpp>
@@ -19,7 +19,7 @@
 #include <limits>
 #include <thread>
 
-namespace interest_probe
+namespace interest_bug_fix
 {
     namespace
     {
@@ -177,22 +177,22 @@ namespace interest_probe
     public:
         void OnLoad() override
         {
-            output_.open("interest_fix.csv", std::ios::trunc);
-            if (!output_) throw std::runtime_error("cannot open interest_fix.csv in the game directory");
+            output_.open("interest_bug_fix.csv", std::ios::trunc);
+            if (!output_) throw std::runtime_error("cannot open interest_bug_fix.csv in the game directory");
             output_ << "date_raw,country,status,flags,source_count,pop_count,paid_pop_count,"
                        "province_count,verified_pop_count,transfer_raw,domestic_transfer_raw,"
                        "foreign_transfer_raw,private_sink_raw,payout_raw,allocation_status,callback_us,"
                        "rejected_debtors,health_telemetry_result,value_telemetry_result,dropped_results\n";
             output_.flush();
-            if (!output_) throw std::runtime_error("cannot initialize interest_fix.csv in the game directory");
+            if (!output_) throw std::runtime_error("cannot initialize interest_bug_fix.csv in the game directory");
             worker_ = std::thread([this] { WriteResults(); });
             try {
                 AddEventHandler<smedley::events::DailyUpdateEvent>(
-                    "interest_fix.day", [this](smedley::events::DailyUpdateEvent &event) { OnDailyUpdate(event); });
+                    "interest_bug_fix.day", [this](smedley::events::DailyUpdateEvent &event) { OnDailyUpdate(event); });
                 AddEventHandler<smedley::events::DailyInterestEvent>(
-                    "interest_fix.boundary", [this](smedley::events::DailyInterestEvent &event) { OnDailyInterest(event); });
+                    "interest_bug_fix.boundary", [this](smedley::events::DailyInterestEvent &event) { OnDailyInterest(event); });
             } catch (...) {
-                RemoveEventHandler<smedley::events::DailyUpdateEvent>("interest_fix.day");
+                RemoveEventHandler<smedley::events::DailyUpdateEvent>("interest_bug_fix.day");
                 stop_.store(true, std::memory_order_release);
                 worker_.join();
                 throw;
@@ -202,8 +202,8 @@ namespace interest_probe
 
         void OnUnload() override
         {
-            RemoveEventHandler<smedley::events::DailyInterestEvent>("interest_fix.boundary");
-            RemoveEventHandler<smedley::events::DailyUpdateEvent>("interest_fix.day");
+            RemoveEventHandler<smedley::events::DailyInterestEvent>("interest_bug_fix.boundary");
+            RemoveEventHandler<smedley::events::DailyUpdateEvent>("interest_bug_fix.day");
             stop_.store(true, std::memory_order_release);
             if (worker_.joinable()) worker_.join();
             output_.flush();
@@ -640,5 +640,5 @@ namespace interest_probe
 
 PLUGIN_API smedley::Plugin *CreatePlugin()
 {
-    return new interest_probe::InterestFix();
+    return new interest_bug_fix::InterestFix();
 }

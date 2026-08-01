@@ -124,7 +124,6 @@ namespace smedley::launcher
         std::optional<fs::path> smedley_log;
         std::optional<fs::path> victoria_system_log;
         std::optional<fs::path> victoria_user_dir;
-        std::optional<fs::path> economy_trace;
         std::optional<fs::path> telemetry_trace;
         std::optional<fs::path> source_save;
     };

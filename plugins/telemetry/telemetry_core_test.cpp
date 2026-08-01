@@ -1,4 +1,5 @@
 #include "telemetry_core.hpp"
+#include "economic_capture_core.hpp"
 
 #include <gtest/gtest.h>
 
@@ -301,4 +302,20 @@ TEST(TelemetrySamplingTest, ObservesDateRegressionOncePerObservedTransition)
     EXPECT_TRUE(telemetry::ObserveDateRegression(minimum, &previous, &delta));
     EXPECT_EQ(delta, static_cast<int64_t>(minimum) - static_cast<int64_t>(124));
     EXPECT_FALSE(telemetry::ObserveDateRegression(minimum, &previous, &delta));
+}
+
+TEST(EconomicCaptureTest, DetectsSignedAggregationOverflow)
+{
+    uint32_t flags = 0;
+    int64_t total = (std::numeric_limits<int64_t>::max)();
+    telemetry_plugin::AddEconomicValue(1, &total, &flags);
+    EXPECT_EQ(total, (std::numeric_limits<int64_t>::max)());
+    EXPECT_NE(flags & telemetry_plugin::SNAPSHOT_SUM_OVERFLOW, 0u);
+
+    flags = 0;
+    total = (std::numeric_limits<int64_t>::min)();
+    telemetry_plugin::AddEconomicValue(-1, &total, &flags);
+    EXPECT_EQ(total, (std::numeric_limits<int64_t>::min)());
+    EXPECT_NE(flags & telemetry_plugin::SNAPSHOT_SUM_OVERFLOW, 0u);
+    EXPECT_EQ(telemetry_plugin::UtilizationBasisPoints(20000, 100000), 2000);
 }

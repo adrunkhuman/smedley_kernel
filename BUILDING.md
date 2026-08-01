@@ -53,3 +53,9 @@ uv run --with cogapp --with toml --with "pydantic<2" python -m cogapp -r -I code
 The paths in `generatedfiles.txt` are the generated outputs. Review their diff
 against the model files before committing. The generator and generated wrappers
 preserve an x86 MSVC ABI and are not portable bindings.
+
+Model entries describe reverse-engineering candidates and generated call
+wrappers; they do not imply an installed Smedley hook or current runtime
+evidence. In particular, the retained `CCountry` models for `AddToSphere`,
+`MonthlyUpdate`, and `Westernize` are unhooked search leads. Active hooks and
+their evidence are defined by `mappings/v2game-3.04.toml`.

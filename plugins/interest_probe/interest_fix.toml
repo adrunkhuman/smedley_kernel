@@ -1,5 +1,0 @@
-id = "interest_fix"
-name = "Exact creditor POP interest distribution"
-version = "0.1"
-module = "interest_fix.dll"
-conflicts = ["v2up"]

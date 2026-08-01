@@ -1,4 +1,4 @@
-#include "probe_core.hpp"
+#include "economic_state.hpp"
 
 #include <windows.h>
 
@@ -8,7 +8,7 @@
 #include <cstring>
 #include <limits>
 
-namespace interest_probe
+namespace interest_bug_fix
 {
     namespace
     {

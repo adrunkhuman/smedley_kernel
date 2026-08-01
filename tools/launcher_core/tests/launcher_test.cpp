@@ -652,7 +652,7 @@ TEST_F(LauncherCoreTest, SavesAndLoadsCompleteRunRecordInConfiguredDirectory)
     original.executable = root / L"Victoria \u03a9" / L"v2game.exe";
     original.command_line = L"\"C:\\Victoria \u03a9\\v2game.exe\" \"-mod=quoted \\\"mod\\\"\"";
     original.mod_descriptors = {root / L"mod" / L"\u03a9.mod"};
-    original.plugins = {{"economy_trace", root / L"plugins" / L"economy_trace.toml"}};
+    original.plugins = {{"telemetry", root / L"plugins" / L"telemetry.toml"}};
     original.scripts = {root / L"scripts" / L"observer.lua"};
     original.save = root / L"save games" / L"source \u03a9.v2";
     original.observer = true;
@@ -683,7 +683,7 @@ TEST_F(LauncherCoreTest, SavesAndLoadsCompleteRunRecordInConfiguredDirectory)
     EXPECT_EQ(loaded.mod_descriptors, original.mod_descriptors);
     EXPECT_EQ(loaded.scripts, original.scripts);
     ASSERT_EQ(loaded.plugins.size(), 1u);
-    EXPECT_EQ(loaded.plugins[0].id, "economy_trace");
+    EXPECT_EQ(loaded.plugins[0].id, "telemetry");
     EXPECT_EQ(loaded.plugins[0].manifest_path, original.plugins[0].manifest_path);
     EXPECT_EQ(loaded.links.source_save, original.links.source_save);
     EXPECT_EQ(loaded.metadata_path, run_directory / fs::u8path(original.run_id + ".toml"));
@@ -816,7 +816,7 @@ TEST_F(LauncherCoreTest, RejectsSemanticallyInvalidTimestampAndNonDirectoryHisto
     }));
 }
 
-TEST_F(LauncherCoreTest, DerivesModUserDirectoryAndEconomyTraceOnlyWhenUnambiguous)
+TEST_F(LauncherCoreTest, DerivesModUserDirectoryOnlyWhenUnambiguous)
 {
     launcher::LaunchPlan plan;
     plan.profile.game_dir = root;
@@ -831,17 +831,12 @@ TEST_F(LauncherCoreTest, DerivesModUserDirectoryAndEconomyTraceOnlyWhenUnambiguo
     ASSERT_TRUE(record.links.smedley_log.has_value());
     ASSERT_TRUE(record.links.victoria_user_dir.has_value());
     ASSERT_TRUE(record.links.victoria_system_log.has_value());
-    EXPECT_FALSE(record.links.economy_trace.has_value());
-
     plan.mods.push_back({"Other", "mod/Other", "Other User", {}, root / L"mod" / L"Other.mod", root / L"mod" / L"Other Content"});
-    plan.plugins.push_back({"economy_trace", "Economy", "economy_trace.dll", "1", {}, {}, root / L"plugins" / L"economy_trace.toml", root / L"plugins" / L"economy_trace.dll"});
     record = launcher::CreateRunRecord(plan);
 
     EXPECT_TRUE(record.links.smedley_log.has_value());
     EXPECT_FALSE(record.links.victoria_user_dir.has_value());
     EXPECT_FALSE(record.links.victoria_system_log.has_value());
-    EXPECT_EQ(record.links.economy_trace, root / L"economy_trace.csv");
-
     plan.mods = {{"Unsafe", "mod/Unsafe", "\\Windows", {}, root / L"mod" / L"Unsafe.mod", root / L"mod" / L"Unsafe"}};
     record = launcher::CreateRunRecord(plan);
     EXPECT_FALSE(record.links.victoria_user_dir.has_value());

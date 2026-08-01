@@ -64,7 +64,7 @@ shared preflight as a real launch without creating a process.
 Each real launcher attempt writes a small TOML metadata record in
 `%LOCALAPPDATA%\Smedley\runs`; no game content is copied. The CLI command
 `smedley_cli --history` lists recent records, and the GUI's **Recent runs**
-button opens them and any linked logs, user directory, economy trace, or source
+button opens them and any linked logs, user directory, telemetry trace, or source
 save that still exists. Detached GUI and CLI launches are recorded as started,
 not exited, because the launcher does not watch them after it returns.
 
@@ -84,38 +84,30 @@ a configured campaign, pauses it at the exact target date, and reports typed
 telemetry when available. It deliberately leaves the game open and paused; this
 is not a verified clean exit, save, or state-assertion workflow.
 
-`economy_trace` is the legacy CSV tool for daily country treasury snapshots.
-Use `telemetry` for versioned JSON Lines records and add `economic_telemetry`
-for bounded world economic snapshots.
+`telemetry` provides versioned JSON Lines records, including sampled country
+treasury state and bounded world economic snapshots when `state` is selected.
 
-`interest_probe` is a read-only reverse-engineering tool for the creditor-POP
-interest investigation. It writes bounded creditor, destination-bank, and
-destination POP-savings observations to `interest_probe.csv` and individual
-bank deltas to `interest_probe_transfers.csv` without applying the historical
-fix. Its fields and limits are documented in
-[`mappings/INTEREST_FIX.md`](mappings/INTEREST_FIX.md).
-
-`interest_fix` is the independently selectable gameplay fix. It restores each
+`interest_bug_fix` is the independently selectable gameplay fix. It restores each
 verified creditor-bank interest transfer to that bank's positive-savings POPs
 with exact deterministic integer conservation and records outcomes in
-`interest_fix.csv` plus structured health/value telemetry when `telemetry` is
-also selected. It is disabled unless its manifest is selected, conflicts with
-the historical `v2up` plugin, and intentionally returns interest omitted by
-vanilla to depositor POP balances. Comprehensive world-money supply remains
-unmapped, so no total-money effect is claimed. See the mapping document before
-enabling it.
+`<GAME_DIR>/interest_bug_fix.csv` plus structured health/value telemetry when
+`telemetry` is also selected. Each launch truncates this fixed CSV output. The
+fix is disabled unless its manifest is selected and intentionally returns
+interest omitted by vanilla to depositor POP balances. Comprehensive world-money
+supply remains unmapped, so no total-money effect is claimed. See the mapping
+document before enabling it.
 
-`economic_telemetry` is a separately selected, read-only producer for bounded
-world economic snapshots. It depends on `telemetry`, follows its state sampling
-interval and date bounds, and reports traversal health, capacity utilization,
-observed treasuries and POP balances, savings, and explicitly provisional
-credit/state candidates. It keeps liquid holdings and financial claims separate
-instead of inventing a double-counted world-money total.
+The telemetry plugin's world scan follows the state sampling interval and date
+bounds and reports traversal health, capacity utilization, observed treasuries
+and POP balances, savings, and explicitly provisional credit/state candidates.
+It keeps liquid holdings and financial claims separate instead of inventing a
+double-counted world-money total. Installation removes obsolete bundled plugin
+artifacts automatically.
 
 Native contributors can separately build the non-installed
 `pop_money_fixture` target. Explicitly selecting its manifest performs one
 reversible `+1000/-1000` POP money ABI check; ordinary players should use the
-read-only probe instead.
+read-only telemetry plugin instead.
 
 `telemetry` is the opt-in JSON Lines telemetry plugin. Enable it in a profile,
 the CLI, or the native launcher and select its trusted manifest like any other
@@ -136,9 +128,6 @@ transaction. Independent memory limits, instruction limits, a nonblocking
 bounded event queue, and per-script error disablement contain failures. See
 [`docs/scripting.md`](docs/scripting.md) for profile settings, examples, and the
 explicit non-sandbox trust boundary.
-
-`v2up` and `dailyupdate_example` are inherited native plugin examples. Gameplay
-changes remain opt-in.
 
 ## Trust and limits
 

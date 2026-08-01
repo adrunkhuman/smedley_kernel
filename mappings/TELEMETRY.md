@@ -42,7 +42,7 @@ SHA-256 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 
 ## Economic Snapshot Inventory
 
-`economic_telemetry` reuses the bounded state/province/POP traversal documented
+`telemetry.dll` reuses the bounded state/province/POP traversal documented
 in `INTEREST_FIX.md`. It scans country ordinals 1 through `country_count - 1`
 once on the first daily callback for each telemetry-selected sample date,
 retaining no raw pointers afterward. Complete snapshots require zero traversal
@@ -75,6 +75,13 @@ and 19,996 then 20,030 POP records. Collection took 92,611 microseconds for the
 first snapshot and 90,725 microseconds for the second. All eight economic records
 were accepted with zero sequence gaps, drops, or writer failure, and the source
 save remained unchanged.
+
+Integrated smoke run `28dc5e32-ec54-4682-b383-11bbee695803` removed the
+standalone producer and exercised the same scan from `telemetry.dll`'s single
+daily handler for seven exact days. The trace contained exactly seven each of
+`world.economy.health`, capacity, holdings, and credit, with no duplicates,
+sequence gaps, drops, or writer failures. All seven scans were complete with
+zero snapshot, collection, and credit flags.
 
 ## Historical pre-batching paired ten-year observer benchmark
 
@@ -137,6 +144,9 @@ interest accumulator. Bankruptcy and comprehensive world-money supply remain
 unmapped, so this benchmark does not make claims about either.
 
 ## Final batched paired ten-year observer benchmark
+
+The run IDs and `interest_fix` labels below predate the plugin's rename to
+`interest_bug_fix` and are retained as historical artifact identities.
 
 Consecutive runs on 2026-08-01 used final commit `d8458bd`, the same unmodified
 `benchmark.v2`, observer mode, speed 5, 3,650 days, a 1,800-second safety

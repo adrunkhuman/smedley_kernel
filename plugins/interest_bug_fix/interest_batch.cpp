@@ -3,7 +3,7 @@
 #include <cstring>
 #include <limits>
 
-namespace interest_probe
+namespace interest_bug_fix
 {
     namespace
     {

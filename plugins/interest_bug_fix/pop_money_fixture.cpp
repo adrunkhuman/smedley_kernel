@@ -1,4 +1,4 @@
-#include "probe_core.hpp"
+#include "economic_state.hpp"
 
 #include <smedley/events/dailyinterest.hpp>
 #include <smedley/memory.hpp>
@@ -13,7 +13,7 @@
 #include <limits>
 #include <thread>
 
-namespace interest_probe
+namespace interest_bug_fix
 {
     namespace
     {
@@ -174,5 +174,5 @@ namespace interest_probe
 
 PLUGIN_API smedley::Plugin *CreatePlugin()
 {
-    return new interest_probe::PopMoneyFixture();
+    return new interest_bug_fix::PopMoneyFixture();
 }

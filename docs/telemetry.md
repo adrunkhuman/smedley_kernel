@@ -23,11 +23,11 @@ validation before launch.
 | `telemetry_queue_capacity` | integer | `1024` | 64 through 8192 fixed record slots. |
 | `telemetry_overwrite` | boolean | `false` | Required to replace an existing output. |
 
-Selecting `plugins/economic_telemetry.toml` adds bounded world economic
-snapshots. Its manifest depends on `telemetry`; collection is active only when
-the `state` category is selected and follows the same inclusive date bounds and
-`telemetry_sample_days` interval. It is separate because a complete world POP
-walk is materially more expensive than ordinary treasury sampling.
+Selecting the `state` category also enables bounded world economic snapshots in
+`telemetry.dll`. Collection follows the same inclusive date bounds and
+`telemetry_sample_days` interval. A complete world POP walk is materially more
+expensive than ordinary treasury sampling. Country filters apply only to
+`country.daily`; they do not suppress global world records.
 
 If no output path is supplied, a real injected launch derives
 `%LOCALAPPDATA%\Smedley\traces\<run-id>.jsonl`. The launcher creates its run ID
@@ -123,13 +123,13 @@ non-playable engine entries, and scheduler entries are not asserted to equal a
 count of AI-controlled countries. These names expose the observed containers
 without inventing stronger gameplay semantics.
 
-`economic_telemetry` attempts one bounded scan per selected sample date. It
+`telemetry` attempts one bounded scan per selected sample date. It
 always attempts to emit `world.economy.health`; it attempts the other `state`
 records only when their stated completeness and flag conditions pass:
 
 | Event | Payload | Contract |
 | --- | --- | --- |
-| `world.economy.health` | structural completeness, snapshot/probe/credit flags, country/state/province/POP counts | Emission is attempted after every scan; counts are traversal observations. Credit flags do not invalidate independently complete holdings and capacity records. |
+| `world.economy.health` | structural completeness, snapshot/collection/credit flags, country/state/province/POP counts | Emission is attempted after every scan; counts are traversal observations. Credit flags do not invalidate independently complete holdings and capacity records. |
 | `world.economy.capacity` | fixed limits, basis-point utilization, and collection microseconds | Emitted only for a structurally complete zero-flag scan. Limits are 512 countries, 4,096 provinces, and 100,000 POP records. |
 | `world.economy.holdings` | observed treasury, POP money, POP savings, bank interest accumulator, positive-balance counts, negative-treasury country count | Emitted only for a complete scan with `provisional` quality. Components remain separate and are not a claimed money-supply identity. |
 | `world.economy.credit` | creditor counts, paid-entry counts, and creditor/state candidate aggregates | Emitted only when structural and credit-specific flags are clear, with `provisional` quality. Every `_candidate_raw` field retains its mapping uncertainty. |
@@ -140,21 +140,25 @@ them to liquid balances can double-count value. `bank_interest_accumulator_raw`
 is the verified temporary destination of charged interest, not a national-bank
 cash balance. The plugin deliberately does not emit `world_money_supply`.
 
-With both `interest_fix` and `telemetry` selected, the fix emits:
+With both `interest_bug_fix` and `telemetry` selected, the fix emits:
 
 | Event | Payload | Contract |
 | --- | --- | --- |
-| `interest.fix.health` | status, flags, source/province/POP counts, verified POP count, callback microseconds | One `---` daily aggregate plus any rejected debtor, recipient result, or treasury-mismatch warning. Complete paid-recipient detail remains in `interest_fix.csv`. |
+| `interest.fix.health` | status, flags, source/province/POP counts, verified POP count, callback microseconds | One `---` daily aggregate plus any rejected debtor, recipient result, or treasury-mismatch warning. Complete paid-recipient detail remains in `interest_bug_fix.csv`. |
 | `interest.fix.value` | exact aggregate bank transfer, derived POP payout, domestic and foreign components | Emitted once for a fully successful day; failed or partial days emit no value record. |
 
 Both records use `verified-runtime` quality. The health shape uses the ABI limit
 of eight combined entity/payload fields exactly. They use the reliable bounded
 emitter so lock contention alone cannot hide a fix result; unavailable,
 filtered, full-queue, or invalid telemetry remains independent of mutation and
-never changes whether the fix pays POPs. `interest_fix.csv` records the two
+never changes whether the fix pays POPs. `interest_bug_fix.csv` records the two
 telemetry result codes for independent diagnosis. This guarantee requires the
 bundled `SmedleyTelemetryEmitReliableV1`; an older compatible telemetry plugin
 without that symbol receives best-effort nonblocking publication.
+
+The fix CSV is separate from JSONL telemetry configuration. Selecting the fix
+opens and truncates `<GAME_DIR>/interest_bug_fix.csv`; telemetry output paths and
+overwrite policy do not change that fixed diagnostic file.
 
 The project mapping inventory has historical status spellings, but telemetry
 uses only canonical project evidence levels.
@@ -162,11 +166,6 @@ uses only canonical project evidence levels.
 A daily record depends on weaker field and date evidence, so it is always
 `provisional`; a non-null date never upgrades it. If the game-state pointer is
 unavailable, no country record is emitted and `skipped_unsampleable` increases.
-
-Westernize and AddToSphere hooks are `verified-current`, but their exposed
-inputs are pointers. Available mapping evidence does not safely establish both
-durable tags at the hook boundary. V1 intentionally omits these events instead
-of logging pointers or inferred relationships.
 
 ## Bounded delivery
 
@@ -307,7 +306,7 @@ best effort if telemetry becomes active only after the action.
 
 Campaign lifecycle records exist only with `campaign_runner` selected and an
 active telemetry sink. They obey only the `lifecycle` category, never state
-country/date filters. This slice makes no Westernize, sphere, AI-reasoning, or
+country/date filters. This slice makes no political-event, AI-reasoning, or
 reload claim. A queue drop can create gaps; unavailable and filtered results
 are intentionally quiet.
 

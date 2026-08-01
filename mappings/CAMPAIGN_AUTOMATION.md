@@ -157,8 +157,7 @@ Campaign entry, full-AI observer mode, and native unpause are verified. A
 runtime test using the `benchmark.v2` save returned `JAN` to AI control, changed
 the scheduler count from 271 to 272, and found no remaining nonzero
 player-control entries. The corrected `debug fow` invocation produced
-zero-valued visibility readback
-and continued advancing `economy_trace` rows at speed 5.
+zero-valued visibility readback and continued advancing at speed 5.
 
 Observer mode hooks `CCountry::Annex` at RVA `0x118620`, before the function
 captures `CGameState::_player_tag` or removes provinces. If the annexed ordinal
@@ -190,8 +189,8 @@ restored ENG's AI and exact scheduler count one second later, and resumed the
 simulation. A subsequent native `tag FRA` command was rejected by the
 observer-only replacement handler.
 
-A subsequent observer test bypassed six generic message dispatches while
-`economy_trace` advanced about 3,085 days without a watchdog-detected pause.
+A subsequent observer test bypassed six generic message dispatches while the
+campaign advanced about 3,085 days without a watchdog-detected pause.
 After expanding coverage to all nine dispatchers, a smoke run suppressed six
 policy-marked popups while advancing 385,895 country rows without pausing.
 
@@ -200,9 +199,9 @@ marker for AI scheduling. Human ownership is represented by the
 `player_nations` map, and AI participation by `CCountry::_ai` plus the global AI
 scheduler list.
 
-`economy_trace` is a separate observer and can be loaded alongside
-`campaign_runner` when CSV output is needed. Do not call pause or speed
-functions based on a non-null pointer alone; verify the idler phase first.
+Structured telemetry can be loaded alongside `campaign_runner` when state
+output is needed. Do not call pause or speed functions based on a non-null
+pointer alone; verify the idler phase first.
 
 ## Lifecycle Telemetry
 

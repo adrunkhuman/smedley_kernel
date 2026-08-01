@@ -1,4 +1,5 @@
 #include "telemetry_core.hpp"
+#include "economic_capture.hpp"
 
 #include <smedley/events/dailyupdate.hpp>
 #include <smedley/plugin.hpp>
@@ -171,8 +172,10 @@ namespace telemetry_plugin
         void OnDailyUpdate(smedley::events::DailyUpdateEvent &event)
         {
             const uint64_t started = smedley::telemetry::MonotonicMicroseconds();
+            uint64_t collection_us = 0;
             auto finish = [&] {
-                callback_overhead_us_.fetch_add(smedley::telemetry::MonotonicMicroseconds() - started, std::memory_order_relaxed);
+                const uint64_t elapsed = smedley::telemetry::MonotonicMicroseconds() - started;
+                callback_overhead_us_.fetch_add(elapsed > collection_us ? elapsed - collection_us : 0, std::memory_order_relaxed);
                 callback_count_.fetch_add(1, std::memory_order_relaxed);
             };
             if (!writer_) { finish(); return; }
@@ -203,6 +206,15 @@ namespace telemetry_plugin
                         IntField("ai_scheduler_entry_count", static_cast<int64_t>(game_state->country_ai_count())),
                         BoolField("human_control_present", game_state->has_human_controlled_country())};
                     EmitTyped("world.daily", "state", raw_date, nullptr, 0, payload, 3, false, true);
+                    try {
+                        const EconomicSnapshot snapshot = economic_capture_.Collect(game_state, *raw_date);
+                        collection_us = snapshot.collection_us;
+                        EmitEconomicSnapshot(snapshot);
+                    } catch (const std::exception &error) {
+                        logger().Failure(std::string("world economic telemetry failed: ") + error.what());
+                    } catch (...) {
+                        logger().Failure("world economic telemetry failed with an unknown exception");
+                    }
                 }
                 const auto *country = event.GetCountry();
                 if (country != nullptr && smedley::telemetry::HasCountryTag(config_, country->tag().str())) {
@@ -255,6 +267,7 @@ namespace telemetry_plugin
         }
 
         smedley::telemetry::Config config_;
+        EconomicCapture economic_capture_;
         std::unique_ptr<smedley::telemetry::Writer> writer_;
         std::atomic<uint64_t> sequence_{0};
         std::mutex emission_mutex_;
@@ -266,6 +279,57 @@ namespace telemetry_plugin
         std::optional<int> last_world_date_;
         std::optional<int> last_progress_date_;
         std::optional<int> last_observed_date_;
+
+        void EmitEconomicSnapshot(const EconomicSnapshot &snapshot)
+        {
+            using namespace interest_bug_fix;
+            const SmedleyTelemetryFieldV1 health[] = {
+                BoolField("complete", snapshot.complete()),
+                IntField("snapshot_flags", snapshot.snapshot_flags),
+                IntField("collection_flags", snapshot.collection_flags),
+                IntField("credit_flags", snapshot.credit_flags),
+                IntField("country_count", snapshot.country_count),
+                IntField("state_count", snapshot.state_count),
+                IntField("province_count", snapshot.province_count),
+                IntField("pop_count", snapshot.pop_count),
+            };
+            EmitTyped("world.economy.health", "state", snapshot.date_raw, nullptr, 0, health, 8, false, true);
+            if (!snapshot.complete()) return;
+
+            const SmedleyTelemetryFieldV1 capacity[] = {
+                IntField("country_limit", max_world_countries),
+                IntField("province_limit", max_sample_destination_provinces),
+                IntField("pop_limit", max_sample_pops),
+                IntField("country_utilization_bp", UtilizationBasisPoints(snapshot.country_count, max_world_countries)),
+                IntField("province_utilization_bp", UtilizationBasisPoints(snapshot.province_count, max_sample_destination_provinces)),
+                IntField("pop_utilization_bp", UtilizationBasisPoints(snapshot.pop_count, max_sample_pops)),
+                IntField("collection_us", static_cast<int64_t>(snapshot.collection_us)),
+            };
+            EmitTyped("world.economy.capacity", "state", snapshot.date_raw, nullptr, 0, capacity, 7, false, true);
+
+            const SmedleyTelemetryFieldV1 holdings[] = {
+                IntField("treasury_observed_raw", snapshot.treasury_observed_raw),
+                IntField("pop_money_observed_raw", snapshot.pop_money_observed_raw),
+                IntField("pop_savings_observed_raw", snapshot.pop_savings_observed_raw),
+                IntField("bank_interest_accumulator_raw", snapshot.bank_interest_accumulator_raw),
+                IntField("positive_money_pops", snapshot.positive_money_pops),
+                IntField("positive_savings_pops", snapshot.positive_savings_pops),
+                IntField("negative_treasury_countries", snapshot.countries_with_negative_treasury),
+            };
+            EmitTyped("world.economy.holdings", "state", snapshot.date_raw, nullptr, 0, holdings, 7, false, true);
+            if (snapshot.credit_flags != 0) return;
+
+            const SmedleyTelemetryFieldV1 credit[] = {
+                IntField("creditor_count", snapshot.creditor_count),
+                IntField("creditors_was_paid", snapshot.creditors_was_paid),
+                IntField("countries_with_creditors", snapshot.countries_with_creditors),
+                IntField("creditor_interest_candidate_raw", snapshot.creditor_interest_candidate_raw),
+                IntField("creditor_debt_candidate_raw", snapshot.creditor_debt_candidate_raw),
+                IntField("state_savings_candidate_raw", snapshot.state_savings_candidate_raw),
+                IntField("state_interest_candidate_raw", snapshot.state_interest_candidate_raw),
+            };
+            EmitTyped("world.economy.credit", "state", snapshot.date_raw, nullptr, 0, credit, 7, false, true);
+        }
 
         std::string StatsPayload(const smedley::telemetry::QueueStats &stats) const
         {

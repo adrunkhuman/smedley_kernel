@@ -69,13 +69,13 @@ namespace smedley::v2
 namespace smedley::clausewitz
 {
     template<>
-    const sstd::string &ClassicHashKeyTraits<sstd::string, v2::CCulture>::GetKey(const v2::CCulture &culture)
+    inline const sstd::string &ClassicHashKeyTraits<sstd::string, v2::CCulture>::GetKey(const v2::CCulture &culture)
     {
         return culture._tag;
     }
 
     template<>
-    unsigned int ClassicHashKeyTraits<sstd::string, v2::CCulture>::GetHashValue(const sstd::string &key)
+    inline unsigned int ClassicHashKeyTraits<sstd::string, v2::CCulture>::GetHashValue(const sstd::string &key)
     {
         unsigned int hash = 0;
         size_t n = key.size();

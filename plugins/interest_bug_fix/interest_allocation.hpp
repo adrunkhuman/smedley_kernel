@@ -3,7 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace interest_probe
+namespace interest_bug_fix
 {
     enum class AllocationStatus
     {

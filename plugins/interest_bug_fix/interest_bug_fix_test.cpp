@@ -1,9 +1,6 @@
-#include "probe_core.hpp"
-#include "pair_queue.hpp"
+#include "economic_state.hpp"
 #include "interest_allocation.hpp"
 #include "interest_batch.hpp"
-#include "economic_telemetry_core.hpp"
-
 #include <gtest/gtest.h>
 
 #include <array>
@@ -11,6 +8,8 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+
+namespace interest_probe = interest_bug_fix;
 
 namespace
 {
@@ -58,8 +57,7 @@ namespace
         return id == lookup->province_id ? lookup->province : nullptr;
     }
 }
-
-TEST(InterestProbeTest, CollectsBoundedStateAndBankCandidates)
+TEST(InterestBugFixTest, CollectsBoundedStateAndBankCandidates)
 {
     std::array<std::byte, 0x1608> country{};
     std::array<std::byte, 0x290> state{};
@@ -139,7 +137,7 @@ TEST(InterestProbeTest, CollectsBoundedStateAndBankCandidates)
     EXPECT_EQ(sample.flags, 0u);
 }
 
-TEST(InterestProbeTest, RejectsSelfReferentialStateList)
+TEST(InterestBugFixTest, RejectsSelfReferentialStateList)
 {
     std::array<std::byte, 0x1608> country{};
     std::array<std::byte, 0x290> state{};
@@ -157,7 +155,7 @@ TEST(InterestProbeTest, RejectsSelfReferentialStateList)
     EXPECT_NE(sample.flags & interest_probe::SAMPLE_STATE_COUNT_MISMATCH, 0u);
 }
 
-TEST(InterestProbeTest, RejectsMalformedProvinceVector)
+TEST(InterestBugFixTest, RejectsMalformedProvinceVector)
 {
     std::array<std::byte, 0x1608> country{};
     std::array<std::byte, 0x290> state{};
@@ -178,7 +176,7 @@ TEST(InterestProbeTest, RejectsMalformedProvinceVector)
     EXPECT_NE(sample.flags & interest_probe::SAMPLE_STATE_VECTOR_INVALID, 0u);
 }
 
-TEST(InterestProbeTest, AggregatesOpaqueCreditorsWithoutPollutingPopTraversal)
+TEST(InterestBugFixTest, AggregatesOpaqueCreditorsWithoutPollutingPopTraversal)
 {
     std::array<std::byte, 0x1608> country{};
     std::array<std::byte, 0x28> bank{};
@@ -233,7 +231,7 @@ TEST(InterestProbeTest, AggregatesOpaqueCreditorsWithoutPollutingPopTraversal)
     EXPECT_EQ(quality.flags, 0u);
 }
 
-TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
+TEST(InterestBugFixTest, CollectsCreditorAndDestinationCandidates)
 {
     std::array<std::byte, 0x1608> debtor{};
     std::array<std::byte, 0x1608> destination{};
@@ -375,7 +373,7 @@ TEST(InterestProbeTest, CollectsCreditorAndDestinationCandidates)
     EXPECT_NE(duplicate.flags & interest_probe::SAMPLE_DUPLICATE_POP, 0u);
 }
 
-TEST(InterestProbeTest, RejectsMismatchedCreditorDestination)
+TEST(InterestBugFixTest, RejectsMismatchedCreditorDestination)
 {
     std::array<std::byte, 0x1608> debtor{};
     std::array<std::byte, 0x1608> destination{};
@@ -406,29 +404,7 @@ TEST(InterestProbeTest, RejectsMismatchedCreditorDestination)
     EXPECT_NE(sample.flags & interest_probe::SAMPLE_CREDITOR_DESTINATION_INVALID, 0u);
 }
 
-TEST(InterestProbeTest, PairQueueRejectsOnlyCompletePairsAtCapacity)
-{
-    interest_probe::PairQueue<4> queue;
-    for (int date = 1; date <= 3; ++date) {
-        interest_probe::SamplePair pair{};
-        pair.before.date_raw = date;
-        pair.after.date_raw = date;
-        ASSERT_TRUE(queue.TryPush(pair));
-    }
-    interest_probe::SamplePair rejected{};
-    EXPECT_FALSE(queue.TryPush(rejected));
-
-    for (int date = 1; date <= 3; ++date) {
-        interest_probe::SamplePair pair{};
-        ASSERT_TRUE(queue.TryPop(&pair));
-        EXPECT_EQ(pair.before.date_raw, date);
-        EXPECT_EQ(pair.after.date_raw, date);
-    }
-    interest_probe::SamplePair empty{};
-    EXPECT_FALSE(queue.TryPop(&empty));
-}
-
-TEST(InterestProbeTest, ComputesExactPerDestinationTransfers)
+TEST(InterestBugFixTest, ComputesExactPerDestinationTransfers)
 {
     interest_probe::Sample before{};
     before.creditor_destinations = 2;
@@ -451,7 +427,7 @@ TEST(InterestProbeTest, ComputesExactPerDestinationTransfers)
     EXPECT_EQ(after.flags, 0u);
 }
 
-TEST(InterestProbeTest, RejectsChangedDestinationOrder)
+TEST(InterestBugFixTest, RejectsChangedDestinationOrder)
 {
     interest_probe::Sample before{};
     before.creditor_destinations = 1;
@@ -464,7 +440,7 @@ TEST(InterestProbeTest, RejectsChangedDestinationOrder)
     EXPECT_NE(after.flags & interest_probe::SAMPLE_DESTINATION_TRANSFER_INVALID, 0u);
 }
 
-TEST(InterestProbeTest, RejectsChangedDestinationIdentity)
+TEST(InterestBugFixTest, RejectsChangedDestinationIdentity)
 {
     interest_probe::Sample before{};
     before.creditor_destinations = 1;
@@ -478,7 +454,7 @@ TEST(InterestProbeTest, RejectsChangedDestinationIdentity)
     EXPECT_NE(after.flags & interest_probe::SAMPLE_DESTINATION_TRANSFER_INVALID, 0u);
 }
 
-TEST(InterestProbeTest, CompletesTransferAfterCreditorEntryDisappears)
+TEST(InterestBugFixTest, CompletesTransferAfterCreditorEntryDisappears)
 {
     std::array<std::byte, 0x1608> debtor{};
     std::array<std::byte, 0x1608> destination{};
@@ -518,7 +494,7 @@ TEST(InterestProbeTest, CompletesTransferAfterCreditorEntryDisappears)
     EXPECT_EQ(after.destination_transfer_raw, 25);
 }
 
-TEST(InterestProbeTest, AcceptsResidualTreasurySinkBeyondDestinationTransfer)
+TEST(InterestBugFixTest, AcceptsResidualTreasurySinkBeyondDestinationTransfer)
 {
     EXPECT_TRUE(interest_probe::TreasuryLossCoversTransfer(100, 75, 25));
     EXPECT_TRUE(interest_probe::TreasuryLossCoversTransfer(100, 70, 25));
@@ -597,7 +573,7 @@ TEST(InterestBatchTest, TracksDailyPopIdentitiesWithoutAllocation)
     EXPECT_EQ(pops.Insert(0x1000), interest_probe::PointerInsertStatus::inserted);
 }
 
-TEST(InterestProbeTest, RejectsFlaggedBeforeSample)
+TEST(InterestBugFixTest, RejectsFlaggedBeforeSample)
 {
     interest_probe::Sample before{};
     before.flags = interest_probe::SAMPLE_BANK_UNREADABLE;
@@ -701,66 +677,4 @@ TEST(InterestAllocationTest, RejectsSavingsSumAndPayoutScaleOverflow)
         interest_probe::AllocationStatus::overflow);
     EXPECT_EQ(entries[0].payout_raw, 0);
     EXPECT_EQ(entries[1].payout_raw, 0);
-}
-
-TEST(EconomicTelemetryTest, ParsesExactStateCategoryAndBounds)
-{
-    const auto config = interest_probe::ParseEconomicTelemetryArguments({
-        L"-smedley-telemetry-categories=lifecycle,state",
-        L"-smedley-telemetry-sample-days=30",
-        L"-smedley-telemetry-start-date-raw=-2147483648",
-        L"-smedley-telemetry-end-date-raw=2147483647"});
-    EXPECT_TRUE(config.enabled);
-    EXPECT_EQ(config.sample_days, 30);
-    EXPECT_EQ(config.start_date_raw, (std::numeric_limits<int32_t>::min)());
-    EXPECT_EQ(config.end_date_raw, (std::numeric_limits<int32_t>::max)());
-
-    const auto disabled = interest_probe::ParseEconomicTelemetryArguments({
-        L"-smedley-telemetry-categories=lifecycle,estate",
-        L"-smedley-telemetry-sample-days=366",
-        L"-smedley-telemetry-start-date-raw=1x"});
-    EXPECT_FALSE(disabled.enabled);
-    EXPECT_EQ(disabled.sample_days, 1);
-    EXPECT_FALSE(disabled.start_date_raw.has_value());
-}
-
-TEST(EconomicTelemetryTest, SamplesExactIntervalsAndResetsOnRegression)
-{
-    interest_probe::CaptureConfig config{};
-    config.enabled = true;
-    config.sample_days = 30;
-    config.start_date_raw = 100;
-    config.end_date_raw = 2000;
-    std::optional<int32_t> observed;
-    std::optional<int32_t> sampled;
-
-    EXPECT_FALSE(interest_probe::ShouldCaptureEconomicDate(99, config, &observed, &sampled));
-    EXPECT_TRUE(interest_probe::ShouldCaptureEconomicDate(100, config, &observed, &sampled));
-    EXPECT_FALSE(interest_probe::ShouldCaptureEconomicDate(100, config, &observed, &sampled));
-    EXPECT_FALSE(interest_probe::ShouldCaptureEconomicDate(819, config, &observed, &sampled));
-    EXPECT_TRUE(interest_probe::ShouldCaptureEconomicDate(820, config, &observed, &sampled));
-    EXPECT_TRUE(interest_probe::ShouldCaptureEconomicDate(200, config, &observed, &sampled));
-    EXPECT_FALSE(interest_probe::ShouldCaptureEconomicDate(2001, config, &observed, &sampled));
-}
-
-TEST(EconomicTelemetryTest, DetectsSignedAggregationOverflow)
-{
-    uint32_t flags = 0;
-    int64_t total = (std::numeric_limits<int64_t>::max)();
-    interest_probe::AddEconomicValue(1, &total, &flags);
-    EXPECT_EQ(total, (std::numeric_limits<int64_t>::max)());
-    EXPECT_NE(flags & interest_probe::SNAPSHOT_SUM_OVERFLOW, 0u);
-
-    flags = 0;
-    total = (std::numeric_limits<int64_t>::min)();
-    interest_probe::AddEconomicValue(-1, &total, &flags);
-    EXPECT_EQ(total, (std::numeric_limits<int64_t>::min)());
-    EXPECT_NE(flags & interest_probe::SNAPSHOT_SUM_OVERFLOW, 0u);
-
-    flags = 0;
-    total = (std::numeric_limits<int64_t>::max)();
-    interest_probe::AddEconomicValue(1, &total, &flags, interest_probe::SAMPLE_SUM_OVERFLOW);
-    EXPECT_NE(flags & interest_probe::SAMPLE_SUM_OVERFLOW, 0u);
-    EXPECT_EQ(flags & interest_probe::SNAPSHOT_SUM_OVERFLOW, 0u);
-    EXPECT_EQ(interest_probe::UtilizationBasisPoints(20000, 100000), 2000);
 }

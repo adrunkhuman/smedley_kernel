@@ -4,7 +4,7 @@
 
 #include <cstdint>
 
-namespace interest_probe
+namespace interest_bug_fix
 {
     SmedleyTelemetryFieldV1 TelemetryIntField(const char *key, int64_t value);
     SmedleyTelemetryFieldV1 TelemetryBoolField(const char *key, bool value);

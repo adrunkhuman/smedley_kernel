@@ -1,4 +1,0 @@
-id = "interest_probe"
-name = "Interest mapping probe"
-version = "0.1"
-module = "interest_probe.dll"

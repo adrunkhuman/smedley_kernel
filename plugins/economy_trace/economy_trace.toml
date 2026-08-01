@@ -1,4 +1,0 @@
-id = "economy_trace"
-name = "Economy trace"
-version = "0.1"
-module = "economy_trace.dll"

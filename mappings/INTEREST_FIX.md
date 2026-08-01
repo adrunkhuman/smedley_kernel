@@ -73,12 +73,14 @@ The state constructor is VA `0x004cdc60`, hence RVA `0x000cdc60` for the
 preferred image base `0x00400000`. Earlier notes that treated `0x004cdc60` as
 an RVA were incorrect.
 
-## Read-only runtime probe
+## Historical read-only runtime probe
 
-The opt-in `interest_probe` plugin writes `interest_probe.csv` in the game
-directory. It does not patch the historical post-update site and never mutates
-game state. The kernel signature-checks the sole `PayDailyInterest` call and
-emits `before` and `after` observations around the original callee. Each phase:
+The retired `interest_probe` plugin wrote `interest_probe.csv` in the game
+directory. It did not patch the historical post-update site or mutate game
+state. Its bounded traversal and allocation logic now belong directly to the
+production `interest_bug_fix` core and tests. The probe signature-checked the sole
+`PayDailyInterest` call and emitted `before` and `after` observations around the
+original callee. Each phase:
 
 - validates readable pages before copying provisional structures;
 - caps traversal at 512 states and 1,024 four-byte vector elements per state;
@@ -95,7 +97,7 @@ emits `before` and `after` observations around the original callee. Each phase:
   one fixed-size pair in a 1,024-slot single-producer queue; and
 - reports dropped pairs and collection time while a worker performs all CSV I/O.
 
-The current investigation build also snapshots the same country at the existing
+The final investigation build also snapshotted the same country at the existing
 `DailyUpdateEvent` entry and copies its bank `+0x20` and aggregate state `+0x260`
 values into the later boundary pair when country and date match. This read-only
 correlation tests whether the country update clears the bank accumulator into
@@ -378,11 +380,11 @@ money units, and does not depend on the drifting state `+0x258` aggregate or the
 nonconserved state `+0x260` candidate. Win32 Release unit tests cover exact
 conservation, remainder ordering and ties, nonpositive savings, an empty
 eligible set, and conservative overflow rejection. No production mutation uses
-the allocator unless the separate `interest_fix` manifest is selected.
+the allocator unless the separate `interest_bug_fix` manifest is selected.
 
 ## Optional production fix
 
-`interest_fix` subscribes to the exact `PayDailyInterest` boundary and is
+`interest_bug_fix` subscribes to the exact `PayDailyInterest` boundary and is
 disabled unless explicitly selected. It conflicts with historical `v2up`.
 
 ### Production mutation contract
@@ -420,7 +422,7 @@ A treasury mismatch suppresses only the uncertain Private Investor residual; it
 does not invalidate exact named destination-bank gains.
 
 A postcondition failure disables later payouts and is reported. Callbacks
-perform no file I/O; a bounded worker writes `interest_fix.csv`.
+perform no file I/O; a bounded worker writes `interest_bug_fix.csv`.
 
 The exact batched CSV header is:
 
@@ -534,6 +536,9 @@ SHA-256.
 
 ## Batched ten-year fix result
 
+This run predates the production plugin and output rename from `interest_fix`
+to `interest_bug_fix`; the old artifact name below identifies the measured file.
+
 Final run `c99a16f5-41e3-40ef-8f75-f6cc835f3aee` used commit `d8458bd`, the
 unchanged supplied save, observer mode, speed 5, and 3,650 exact days. The
 11,571-record trace had SHA-256
@@ -573,9 +578,23 @@ inventing a recipient would violate the documented allocation model.
 The matched no-fix baseline and full performance/economic comparison are
 recorded in `TELEMETRY.md`.
 
+## Historical renamed-plugin smoke test
+
+This run predates removal of three unused hooks from the active mapping catalog.
+Run `b4673a6f-11b5-4714-bf00-5fbcfc7e449b` exercised the installed
+`interest_bug_fix` plugin with observer mode, speed 5, and a seven-day exact
+benchmark. The supported executable matched all 58 then-active signatures; the
+current catalog contains 55. The run
+advanced from raw date `59883384` to `59883552`, paused with zero overshoot, and
+produced a gap-free 45-record trace with zero drops or writer failures.
+
+All seven `interest.fix.health` daily summaries had zero flags and rejected
+debtors. The final day distributed raw transfer `20,468` as exact POP payout
+`20,468,000` across 1,034 verified POPs, with no dropped fix results. The source
+save retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
 ## Remaining validation
 
 1. Map bankruptcy and the missing bank-cash/world-money categories before
    claiming effects on bankruptcy or total money supply.
-2. Add genuine HFM and GFM save fixtures before claiming those mods as tested.
-3. Validate multiplayer compatibility before enabling the fix in multiplayer.

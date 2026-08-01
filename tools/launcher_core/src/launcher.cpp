@@ -737,9 +737,6 @@ namespace smedley::launcher
                     record.links.victoria_system_log = *user_dir / L"logs" / L"system.log";
                 }
             }
-            if (std::any_of(plan.plugins.begin(), plan.plugins.end(), [](const PluginManifest &plugin) { return plugin.id == "economy_trace"; })) {
-                record.links.economy_trace = plan.profile.game_dir / L"economy_trace.csv";
-            }
             if (plan.profile.inject && plan.profile.telemetry_enabled) {
                 record.links.telemetry_trace = plan.profile.telemetry_output
                     ? *plan.profile.telemetry_output
@@ -871,7 +868,6 @@ namespace smedley::launcher
                     read_link("smedley_log", &loaded.links.smedley_log);
                     read_link("victoria_system_log", &loaded.links.victoria_system_log);
                     read_link("victoria_user_dir", &loaded.links.victoria_user_dir);
-                    read_link("economy_trace", &loaded.links.economy_trace);
                     read_link("telemetry_trace", &loaded.links.telemetry_trace);
                     read_link("source_save", &loaded.links.source_save);
                 }
@@ -1003,7 +999,6 @@ namespace smedley::launcher
             WriteOptionalRunPath(output, "smedley_log", record.links.smedley_log);
             WriteOptionalRunPath(output, "victoria_system_log", record.links.victoria_system_log);
             WriteOptionalRunPath(output, "victoria_user_dir", record.links.victoria_user_dir);
-            WriteOptionalRunPath(output, "economy_trace", record.links.economy_trace);
             WriteOptionalRunPath(output, "telemetry_trace", record.links.telemetry_trace);
             WriteOptionalRunPath(output, "source_save", record.links.source_save);
             output.flush();

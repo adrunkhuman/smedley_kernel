@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace interest_probe
+namespace interest_bug_fix
 {
     constexpr uint32_t max_batch_countries = 512;
     constexpr size_t daily_pop_set_capacity = 262144;

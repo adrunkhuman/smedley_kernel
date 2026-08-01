@@ -1,5 +1,0 @@
-id = "economic_telemetry"
-name = "Bounded world economic telemetry"
-version = "0.1"
-module = "economic_telemetry.dll"
-dependencies = ["telemetry"]

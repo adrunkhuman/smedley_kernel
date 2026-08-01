@@ -7,7 +7,7 @@
 #include <windows.h>
 #include <psapi.h>
 
-namespace interest_probe
+namespace interest_bug_fix
 {
     namespace
     {

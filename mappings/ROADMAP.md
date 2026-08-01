@@ -4,14 +4,14 @@
 
 - The CLI can start the exact cataloged `v2game.exe`, inject the kernel and a
   plugin, initialize both, and reach a responsive main window.
-- The executable identity and 58 signatures are machine-checked.
+- The executable identity and 55 signatures are machine-checked.
 - Current country, province, and game-state layouts plus removed historical
   POP, bank, and GUI evidence are recorded without presenting hypotheses as
   verified facts.
 - `campaign_runner` uses `--save` to enter Single Player, select the save through
   the normal handler, and enter campaign mode without mouse or keyboard input.
-- The independent `economy_trace` plugin provides a CSV output path once a
-  campaign is running.
+- Structured telemetry provides sampled country treasury and bounded world
+  economy observations once a campaign is running.
 - `campaign_runner` verifies RTTI `CInGameIdler`, invokes the native pause
   toggle, and verifies the resulting pause byte. Bounded benchmark runs now
   enforce an exact target date or emit a typed terminal failure.
@@ -63,13 +63,11 @@ fixture.
    benchmark policy.
 3. Find `CGuiTypes::LookupString` by following references to known names such
    as `tax_0_slider` and `take_loan`.
-4. Add genuine HFM/GFM interest-fix fixtures and multiplayer validation; the
-   paired ten-year vanilla baseline/fix analysis is complete.
 
 ## Runtime acceptance tests
 
 - Load `autosave.v2` without mouse or keyboard input.
-- Confirm the date advances and `economy_trace.csv` contains every country.
+- Confirm the date advances and telemetry contains the requested country state.
 - Compare raw treasury values with the visible budget screen for one country.
 - Verify a fixed RNG seed or define aggregate, tolerance-based assertions.
 - Run vanilla and patched scenarios from the same fixture and compare world

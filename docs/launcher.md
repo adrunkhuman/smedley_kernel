@@ -100,8 +100,8 @@ Every `Launch()` attempt writes one atomic, human-readable TOML record under
 stable run ID, UTC start timestamp, outcome, known PID/exit code, profile and
 launch settings, resolved executable/command line, selected mod descriptors,
 and selected plugin IDs and manifests. They also contain paths to the Smedley
-and Victoria II logs, user directory, `economy_trace.csv`, telemetry JSON Lines
-trace, and source save when those paths can be derived. History records only
+and Victoria II logs, user directory, telemetry JSON Lines trace, and source
+save when those paths can be derived. History records only
 reference game content; they
 never copy saves, logs, mods, plugins, or game files.
 
@@ -126,6 +126,11 @@ and a checkable list of discovered native plugins. `Refresh` rediscovers mods
 and plugins while preserving valid selections. The diagnostics panel contains
 both discovery and preflight messages, and Launch remains disabled while the
 shared preflight reports an error.
+
+Installation provides four bundled plugin manifests: `campaign_runner`,
+`interest_bug_fix`, `telemetry`, and `scripting`. It removes retired bundled
+plugin DLLs and manifests rather than leaving them discoverable. The native
+`pop_money_fixture` validation target is build-only and is not installed.
 
 The profile schema and CLI can represent multiple mods, but the current GUI
 offers one mod selector. Loading a multi-mod profile preserves every path and

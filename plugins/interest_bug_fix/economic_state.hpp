@@ -3,7 +3,7 @@
 #include <array>
 #include <cstdint>
 
-namespace interest_probe
+namespace interest_bug_fix
 {
     constexpr uint32_t max_sample_creditor_destinations = 64;
     constexpr uint32_t max_sample_destination_provinces = 4096;
@@ -20,8 +20,6 @@ namespace interest_probe
         SAMPLE_SUM_OVERFLOW = 1u << 6,
         SAMPLE_BANK_UNREADABLE = 1u << 7,
         SAMPLE_CREDITOR_VECTOR_INVALID = 1u << 8,
-        SAMPLE_DATE_UNAVAILABLE = 1u << 9,
-        SAMPLE_EVENT_CALLBACK_FAILURE = 1u << 10,
         SAMPLE_CREDITOR_UNREADABLE = 1u << 11,
         SAMPLE_CREDITOR_TAG_INVALID = 1u << 12,
         SAMPLE_CREDITOR_DESTINATION_INVALID = 1u << 13,
@@ -34,7 +32,6 @@ namespace interest_probe
         SAMPLE_POP_LIMIT = 1u << 20,
         SAMPLE_DUPLICATE_PROVINCE = 1u << 21,
         SAMPLE_DUPLICATE_POP = 1u << 22,
-        SAMPLE_DAILY_START_UNAVAILABLE = 1u << 23,
         SAMPLE_DESTINATION_TRANSFER_INVALID = 1u << 24,
     };
 
@@ -76,14 +73,7 @@ namespace interest_probe
         std::array<int64_t, max_sample_creditor_destinations> destination_transfers_raw{};
         uint32_t destination_transfer_count = 0;
         int64_t destination_transfer_raw = 0;
-        int64_t daily_start_bank_interest_raw = 0;
-        int64_t daily_start_state_interest_raw = 0;
-        uint8_t daily_start_available = 0;
-        int64_t global_bank_interest_raw = 0;
-        int64_t global_state_interest_raw = 0;
-        uint8_t global_snapshot_available = 0;
         uint32_t flags = 0;
-        uint32_t collection_us = 0;
     };
 
     struct PopMoneySnapshot

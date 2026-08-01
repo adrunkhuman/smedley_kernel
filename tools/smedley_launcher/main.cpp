@@ -327,7 +327,6 @@ namespace
                 AddAvailableLink(L"Smedley log", links.smedley_log);
                 AddAvailableLink(L"Victoria II system log", links.victoria_system_log);
                 AddAvailableLink(L"Victoria II user directory", links.victoria_user_dir);
-                AddAvailableLink(L"Economy trace", links.economy_trace);
                 AddAvailableLink(L"Telemetry trace", links.telemetry_trace);
                 AddAvailableLink(L"Source save", links.source_save);
             }
