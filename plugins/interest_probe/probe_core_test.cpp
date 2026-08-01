@@ -541,6 +541,22 @@ TEST(InterestBatchTest, RejectsInvalidDebtorsAtomically)
     EXPECT_EQ(batch.recipient(2).transfer_raw, (std::numeric_limits<int64_t>::max)());
 }
 
+TEST(InterestBatchTest, TracksDailyPopIdentitiesWithoutAllocation)
+{
+    static interest_probe::DailyPopSet pops;
+    pops.Reset();
+    EXPECT_EQ(pops.Insert(0x1000), interest_probe::PointerInsertStatus::inserted);
+    EXPECT_EQ(pops.Insert(0x2000), interest_probe::PointerInsertStatus::inserted);
+    EXPECT_TRUE(pops.Contains(0x1000));
+    EXPECT_FALSE(pops.Contains(0x3000));
+    EXPECT_EQ(pops.Insert(0x1000), interest_probe::PointerInsertStatus::duplicate);
+    EXPECT_EQ(pops.Insert(0), interest_probe::PointerInsertStatus::duplicate);
+    EXPECT_EQ(pops.size(), 2u);
+    pops.Reset();
+    EXPECT_EQ(pops.size(), 0u);
+    EXPECT_EQ(pops.Insert(0x1000), interest_probe::PointerInsertStatus::inserted);
+}
+
 TEST(InterestProbeTest, RejectsFlaggedBeforeSample)
 {
     interest_probe::Sample before{};

@@ -41,6 +41,7 @@ namespace interest_probe
             pop_balance_overflow,
             pop_not_writable,
             duplicate_pop,
+            pop_identity_limit,
             postcondition_failed,
             conservation_failed,
         };
@@ -139,6 +140,7 @@ namespace interest_probe
             case FixStatus::pop_balance_overflow: return "pop_balance_overflow";
             case FixStatus::pop_not_writable: return "pop_not_writable";
             case FixStatus::duplicate_pop: return "duplicate_pop";
+            case FixStatus::pop_identity_limit: return "pop_identity_limit";
             case FixStatus::postcondition_failed: return "postcondition_failed";
             case FixStatus::conservation_failed: return "conservation_failed";
             }
@@ -303,7 +305,7 @@ namespace interest_probe
 
         void FinalizeDay(const smedley::v2::CCurrentGameState *game_state)
         {
-            daily_paid_pop_count_ = 0;
+            daily_paid_pops_.Reset();
             uint32_t recipient_count = 0;
             const int32_t date_raw = batch_.date_raw();
             const uint32_t rejected_debtors = batch_.rejected_debtors();
@@ -379,7 +381,7 @@ namespace interest_probe
             for (uint32_t index = 0; index < collected; ++index) {
                 const int64_t payout = allocations_[index].payout_raw;
                 if (payout == 0) continue;
-                if (!RegisterDailyPop(candidates_[index].address)) {
+                if (daily_paid_pops_.Contains(reinterpret_cast<uintptr_t>(candidates_[index].address))) {
                     result->status = FixStatus::duplicate_pop;
                     return;
                 }
@@ -408,6 +410,18 @@ namespace interest_probe
                 return;
             }
             result->payout_raw = payout_total;
+            if (result->paid_pop_count > daily_pop_set_capacity - daily_paid_pops_.size()) {
+                result->status = FixStatus::pop_identity_limit;
+                return;
+            }
+            for (uint32_t index = 0; index < collected; ++index) {
+                if (allocations_[index].payout_raw == 0) continue;
+                if (daily_paid_pops_.Insert(reinterpret_cast<uintptr_t>(candidates_[index].address))
+                    != PointerInsertStatus::inserted) {
+                    result->status = FixStatus::duplicate_pop;
+                    return;
+                }
+            }
 
             for (uint32_t index = 0; index < collected; ++index) {
                 const int64_t payout = allocations_[index].payout_raw;
@@ -427,17 +441,6 @@ namespace interest_probe
                 ++result->verified_pop_count;
             }
             result->status = FixStatus::paid;
-        }
-
-        bool RegisterDailyPop(const void *pop)
-        {
-            const uintptr_t address = reinterpret_cast<uintptr_t>(pop);
-            for (uint32_t index = 0; index < daily_paid_pop_count_; ++index) {
-                if (daily_paid_pops_[index] == address) return false;
-            }
-            if (daily_paid_pop_count_ >= daily_paid_pops_.size()) return false;
-            daily_paid_pops_[daily_paid_pop_count_++] = address;
-            return true;
         }
 
         static const void *ResolveCountry(const void *context, int32_t ordinal)
@@ -512,8 +515,7 @@ namespace interest_probe
         bool disabled_ = false;
         int32_t finalized_date_raw_ = 0;
         uint32_t candidate_count_ = 0;
-        uint32_t daily_paid_pop_count_ = 0;
-        std::array<uintptr_t, max_sample_pops> daily_paid_pops_{};
+        DailyPopSet daily_paid_pops_{};
         std::array<PopCandidate, max_sample_pops> candidates_{};
         std::array<AllocationEntry, max_sample_pops> allocations_{};
         std::array<PopMoneySnapshot, max_sample_pops> before_snapshots_{};

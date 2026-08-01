@@ -13,6 +13,42 @@ namespace interest_probe
         }
     }
 
+    PointerInsertStatus DailyPopSet::Insert(uintptr_t address)
+    {
+        if (address == 0) return PointerInsertStatus::duplicate;
+        constexpr size_t mask = daily_pop_set_capacity - 1;
+        size_t slot = static_cast<size_t>((address >> 4) * uintptr_t{2654435761u}) & mask;
+        for (size_t attempt = 0; attempt < daily_pop_set_capacity; ++attempt) {
+            if (entries_[slot] == address) return PointerInsertStatus::duplicate;
+            if (entries_[slot] == 0) {
+                entries_[slot] = address;
+                ++size_;
+                return PointerInsertStatus::inserted;
+            }
+            slot = (slot + 1) & mask;
+        }
+        return PointerInsertStatus::full;
+    }
+
+    bool DailyPopSet::Contains(uintptr_t address) const
+    {
+        if (address == 0) return false;
+        constexpr size_t mask = daily_pop_set_capacity - 1;
+        size_t slot = static_cast<size_t>((address >> 4) * uintptr_t{2654435761u}) & mask;
+        for (size_t attempt = 0; attempt < daily_pop_set_capacity; ++attempt) {
+            if (entries_[slot] == address) return true;
+            if (entries_[slot] == 0) return false;
+            slot = (slot + 1) & mask;
+        }
+        return false;
+    }
+
+    void DailyPopSet::Reset()
+    {
+        entries_.fill(0);
+        size_ = 0;
+    }
+
     bool DailyInterestBatch::Begin(int32_t date_raw, uint32_t country_count)
     {
         Reset();

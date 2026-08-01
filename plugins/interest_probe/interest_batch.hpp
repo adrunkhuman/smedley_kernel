@@ -1,11 +1,33 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace interest_probe
 {
     constexpr uint32_t max_batch_countries = 512;
+    constexpr size_t daily_pop_set_capacity = 262144;
+
+    enum class PointerInsertStatus
+    {
+        inserted,
+        duplicate,
+        full,
+    };
+
+    class DailyPopSet
+    {
+    public:
+        PointerInsertStatus Insert(uintptr_t address);
+        bool Contains(uintptr_t address) const;
+        void Reset();
+        size_t size() const { return size_; }
+
+    private:
+        std::array<uintptr_t, daily_pop_set_capacity> entries_{};
+        size_t size_ = 0;
+    };
 
     struct InterestTransfer
     {
