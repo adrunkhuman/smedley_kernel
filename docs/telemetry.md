@@ -71,7 +71,8 @@ filters.
 | `country.military` | `unit_count_candidate`, `mobilized_candidate`, `scheduled_mobilization_count_candidate`, `leadership_candidate_raw`, `military_ranking_candidate` |
 | `world.military` | `ongoing_war_count_candidate` |
 | `country.diplomacy` | record groups `status`, `relations` |
-| `state.factory` | record groups `identity`, `employment`, `production`, `finance` |
+| `state.factory` | record groups `identity`, `employment`, `production`, `finance`, `inputs` |
+| `world.market` | record groups `price`, `supply`, `demand`, `sales` |
 | `province.daily` | `owner_tag_candidate`, `controller_tag_candidate`, `colonial_level_candidate`, `life_rating_candidate`, `infrastructure_candidate_raw` |
 | `province.production` | `building_slot_count_candidate`, `construction_count_candidate` |
 | `pop.economy` | `money_raw`, `savings_raw`, `interest_cash_flow_raw`, `total_cash_flow_raw` |
@@ -218,12 +219,26 @@ guarantees, and 21 neighbors. Influence values and opaque diplomatic actions or
 statuses remain unavailable.
 
 `state.factory` emits one record per selected group and factory from the owning
-country's bounded state list. Entities are country tag, the state's first
-province ID as an explicit identity candidate, and the factory-definition key.
-The anchor province can change when ownership splits a state and is not a
-durable state-region identifier. Identity reports level, employment reports the
-total employee count, and production reports `output_raw`, where displayed
-output is `output_raw / 32768`.
+country's bounded state list. Factory entities are country tag, serialized
+persistent state ID, and factory-definition key. Identity additionally carries
+the shared state-region key, anchor-province candidate, level, subsidy state, and closed
+state. Persistent state IDs distinguish separately owned state instances;
+owner-specific portions of a split state share the same `CRegion` key.
+
+A controlled `SAX_558` merge retained PRU state 757, removed SAX state 907, and
+moved the same `fabric_factory` node into PRU immediately while paused. This
+verifies ordinary non-duplicate attribution and lineage. Duplicate factory-type
+selection was also tested for equal-level Fabric Factories: the recipient PRU
+node survived unchanged, including subsidy and budget, while the transferred
+SAX node disappeared. Different-level duplicates and merges above eight
+distinct types remain unavailable.
+
+Employment reports total employees plus craftsmen and clerk assignment totals.
+Production reports current `output_raw`, output-good key and ordinal, and the
+definition's `base_output_raw`; fixed-point output values use a 32,768 scale.
+`inputs` emits one record per nonempty stockpile good with its zero-based,
+mod-load-order-dependent ordinal and 32,768-scaled `stockpile_raw`. It does not
+infer current demand from the static production recipe.
 
 Finance reports nonnegative observed amounts: `budget_raw`,
 `market_spending_expense_raw`, `sales_income_raw`, `paychecks_expense_raw`, and
@@ -234,6 +249,14 @@ remain positive in telemetry; the UI supplies their minus signs. Vanilla
 The wiki documents employment and production formulas but not a paycheck
 cadence; no cadence claim is made.
 
+The UI's last-day balance equals sales income plus investment income minus
+market-spending and paycheck expenses. The main factory-list profit is a
+separate computed display value and remains unavailable. Upgrade projects use
+an embedded state `CPopProject`; progress and material acquisition remain
+unavailable until its referenced storage is correlated. Upgrade availability
+must not be inferred because policy, ownership, funds, level, and existing
+projects can prevent it.
+
 Vanilla run `40d36695-696f-408e-af64-df266a1cfcc8` emitted identity,
 employment, production, and finance records for all seven PRU factories on
 1836.1.3: four in the state anchored by Berlin 549, one anchored by province
@@ -242,13 +265,62 @@ filtered, dropped, or invalid records. Brandenburg's types, levels, employment,
 and Small Arms values exactly matched the independent UI and read-only process
 probe.
 
+Depth run `734efd9b-7873-4c26-b9aa-660422b3d4ad` emitted 53 factory records:
+seven each for identity, employment, production, and finance plus 25 input
+stockpile records. The trace had zero gaps, filtered records, drops, or invalid
+records. Persistent state IDs were 750, 753, and 756; all Brandenburg worker
+splits and Small Arms stockpile values matched the save exactly.
+
+Region run `421a1be4-c4c4-4e03-bcec-01d380742c7e` emitted the same 53 factory
+records with shared `state_region_key` identities, zero gaps, filters, drops, or
+invalid records.
+
+`world.market` emits one record per active zero-based goods ordinal and selected
+group. All amounts use the engine's 32,768 fixed-point scale. Price reports
+current and previous price; supply reports current/previous supply and world
+market stock; demand reports nominal and real demand; sales reports total actual
+sold and the world-market subset. Goods ordinals follow mod load order and need
+a future goods-catalog record for portable names. Global market records do not
+attribute sales to individual factories, RGOs, artisans, or countries.
+
+Run `51693f9a-19fb-4900-bfb8-3254022e79ae` emitted four market groups for 48
+goods with zero gaps, filters, drops, or invalid records. Small Arms matched the
+save exactly: price 37.01001, previous price 37.00000, supply 40.24960, demand
+320.48798, real demand 25.16080, actual sold 20.36069, and world-market sold
+4.80011.
+
+No GDP or value-added record is emitted yet. A future versioned production
+account must distinguish gross physical output, realized sales, intermediate
+input consumption, inventory change, worker compensation, capitalist income,
+and transfers such as subsidies. Factory output and global market pools also
+need a verified daily phase alignment before they can be joined by date. Until
+actual factory input consumption and producer-specific sold quantity are mapped,
+`sales_income / market_price` and `output * market_price` remain analytical
+candidates rather than telemetry contracts.
+
+Four-day run `a4edf016-5d61-40e0-83e7-37b9df278e2a` disproved both same-day and
+one-day-lag producer-sales derivation: inferred sold/output ratios ranged from
+0.14 to 2.16. Factory output, realized income, and market price therefore need a
+verified clearing phase or producer inventory field before joining. Across the
+same run, every factory and day satisfied the exact cash-flow identity
+`budget_delta = sales_income + investment_income - market_spending - paychecks`.
+
+RGO telemetry remains unavailable, but two UI-correlated probes establish its
+first observation boundary. `CProvince+0x1ac` is employment capacity, while
+current employment is the sum of farmer/labourer POP employment. Daily output
+is computed as base output × output efficiency × throughput: Berlin reproduced
+20.648 fruit and Görlitz reproduced 5.713 coal exactly. Runtime resource identity
+and modifier components must be mapped before these become telemetry records.
+
 Candidate container metadata is validated before emission. Limits are 64
 province-building slots, 4,096 province constructions, 100,000 country units or
 scheduled mobilizations, 512 entries in each country relation vector, and 4,096
-ongoing wars. Factory capture allows 512 states, 64 factories per state, and
-4,096 factories per selected country. Negative list sizes, inconsistent null pointers, reversed or
+ongoing wars. Factory capture allows 512 states, 64 factories per state, 4,096
+factories, 1,024 employment assignments per factory, and 16,384 input records
+per selected country. Negative list sizes, inconsistent null pointers, reversed or
 misaligned vector pointers, exceeded limits, and non-normalized candidate tags
-suppress only the affected record and increment its family's `invalid` count.
+suppress the affected selected-country poll and increment the family's `invalid`
+count. Unselected factory groups are not traversed or validated.
 
 `world.daily` is emitted once per selected sample date before country filtering.
 It reports `country_slot_count`, `ai_scheduler_entry_count`, and

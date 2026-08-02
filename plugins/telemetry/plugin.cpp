@@ -396,6 +396,57 @@ namespace telemetry_plugin
                             nullptr, 0, &field, 1, false, true));
                     }
                 }
+                if (const auto *rule = FindRule("world.market", &rule_index);
+                    rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
+                    ++family_stats_[rule_index].polls_due;
+                    uint32_t market_count = 0;
+                    if (!interest_bug_fix::CollectWorldMarket(game_state, world_market_snapshots_.data(),
+                            world_market_snapshots_.size(), &market_count)) {
+                        ++family_stats_[rule_index].invalid;
+                    } else {
+                        for (uint32_t index = 0; index < market_count; ++index) {
+                            const auto &snapshot = world_market_snapshots_[index];
+                            const auto entity = IntField("good_ordinal", snapshot.good_ordinal);
+                            if (HasField(*rule, "price")) {
+                                const SmedleyTelemetryFieldV1 payload[] = {
+                                    IntField("price_raw", snapshot.price_raw),
+                                    IntField("last_price_raw", snapshot.last_price_raw),
+                                };
+                                ++family_stats_[rule_index].collection_attempts;
+                                AccountResult(rule_index, EmitTyped("world.market.price", "state", raw_date,
+                                    &entity, 1, payload, 2, false, true));
+                            }
+                            if (HasField(*rule, "supply")) {
+                                const SmedleyTelemetryFieldV1 payload[] = {
+                                    IntField("supply_raw", snapshot.supply_raw),
+                                    IntField("last_supply_raw", snapshot.last_supply_raw),
+                                    IntField("worldmarket_stock_raw", snapshot.worldmarket_stock_raw),
+                                };
+                                ++family_stats_[rule_index].collection_attempts;
+                                AccountResult(rule_index, EmitTyped("world.market.supply", "state", raw_date,
+                                    &entity, 1, payload, 3, false, true));
+                            }
+                            if (HasField(*rule, "demand")) {
+                                const SmedleyTelemetryFieldV1 payload[] = {
+                                    IntField("demand_raw", snapshot.demand_raw),
+                                    IntField("real_demand_raw", snapshot.real_demand_raw),
+                                };
+                                ++family_stats_[rule_index].collection_attempts;
+                                AccountResult(rule_index, EmitTyped("world.market.demand", "state", raw_date,
+                                    &entity, 1, payload, 2, false, true));
+                            }
+                            if (HasField(*rule, "sales")) {
+                                const SmedleyTelemetryFieldV1 payload[] = {
+                                    IntField("actual_sold_raw", snapshot.actual_sold_raw),
+                                    IntField("actual_sold_world_raw", snapshot.actual_sold_world_raw),
+                                };
+                                ++family_stats_[rule_index].collection_attempts;
+                                AccountResult(rule_index, EmitTyped("world.market.sales", "state", raw_date,
+                                    &entity, 1, payload, 2, false, true));
+                            }
+                        }
+                    }
+                }
                 if (const auto *rule = FindRule("province.daily", &rule_index);
                     rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
                     ++family_stats_[rule_index].polls_due;
@@ -511,9 +562,17 @@ namespace telemetry_plugin
                 if (country != nullptr && !country_tag_value) ++family_stats_[country_rule_index].invalid;
                 else if (country_tag_value && HasCountryTag(*rule, *country_tag_value)) {
                     uint32_t factory_count = 0;
+                    uint32_t input_count = 0;
                     uint32_t flags = 0;
+                    uint32_t groups = 0;
+                    if (HasField(*rule, "identity")) groups |= interest_bug_fix::FACTORY_IDENTITY;
+                    if (HasField(*rule, "employment")) groups |= interest_bug_fix::FACTORY_EMPLOYMENT;
+                    if (HasField(*rule, "production")) groups |= interest_bug_fix::FACTORY_PRODUCTION;
+                    if (HasField(*rule, "finance")) groups |= interest_bug_fix::FACTORY_FINANCE;
+                    if (HasField(*rule, "inputs")) groups |= interest_bug_fix::FACTORY_INPUTS;
                     if (!interest_bug_fix::CollectCountryFactories(country, factory_snapshots_.data(),
-                            factory_snapshots_.size(), &factory_count, &flags)) {
+                            factory_snapshots_.size(), &factory_count, factory_input_snapshots_.data(),
+                            factory_input_snapshots_.size(), &input_count, groups, &flags)) {
                         ++family_stats_[country_rule_index].invalid;
                     } else {
                         const bool reliable = !rule->country_tags.empty() && rule->country_tags.size() <= 16;
@@ -521,26 +580,46 @@ namespace telemetry_plugin
                             const auto &snapshot = factory_snapshots_[index];
                             const SmedleyTelemetryFieldV1 entities[] = {
                                 StringField("country_tag", *country_tag_value),
-                                IntField("anchor_province_id_candidate", snapshot.anchor_province_id_candidate),
+                                IntField("state_id", snapshot.state_id),
                                 StringField("factory_type", snapshot.factory_type),
                             };
                             if (HasField(*rule, "identity")) {
                                 ++family_stats_[country_rule_index].collection_attempts;
-                                const auto field = IntField("level", snapshot.level);
+                                const SmedleyTelemetryFieldV1 identity_entities[] = {
+                                    StringField("country_tag", *country_tag_value),
+                                    IntField("state_id", snapshot.state_id),
+                                    StringField("state_region_key", snapshot.state_region_key),
+                                    StringField("factory_type", snapshot.factory_type),
+                                };
+                                const SmedleyTelemetryFieldV1 payload[] = {
+                                    IntField("anchor_province_id_candidate", snapshot.anchor_province_id_candidate),
+                                    IntField("level", snapshot.level),
+                                    BoolField("subsidized", snapshot.subsidized),
+                                    BoolField("closed", snapshot.closed),
+                                };
                                 AccountResult(country_rule_index, EmitTyped("state.factory.identity", "state", raw_date,
-                                    entities, 3, &field, 1, false, reliable));
+                                    identity_entities, 4, payload, 4, false, reliable));
                             }
                             if (HasField(*rule, "employment")) {
                                 ++family_stats_[country_rule_index].collection_attempts;
-                                const auto field = IntField("employee_count", snapshot.employee_count);
+                                const SmedleyTelemetryFieldV1 payload[] = {
+                                    IntField("employee_count", snapshot.employee_count),
+                                    IntField("craftsmen_count", snapshot.craftsmen_count),
+                                    IntField("clerk_count", snapshot.clerk_count),
+                                };
                                 AccountResult(country_rule_index, EmitTyped("state.factory.employment", "state", raw_date,
-                                    entities, 3, &field, 1, false, reliable));
+                                    entities, 3, payload, 3, false, reliable));
                             }
                             if (HasField(*rule, "production")) {
                                 ++family_stats_[country_rule_index].collection_attempts;
-                                const auto field = IntField("output_raw", snapshot.output_raw);
+                                const SmedleyTelemetryFieldV1 payload[] = {
+                                    IntField("output_raw", snapshot.output_raw),
+                                    IntField("output_good_ordinal", snapshot.output_good_ordinal),
+                                    StringField("output_good", snapshot.output_good),
+                                    IntField("base_output_raw", snapshot.base_output_raw),
+                                };
                                 AccountResult(country_rule_index, EmitTyped("state.factory.production", "state", raw_date,
-                                    entities, 3, &field, 1, false, reliable));
+                                    entities, 3, payload, 4, false, reliable));
                             }
                             if (HasField(*rule, "finance")) {
                                 ++family_stats_[country_rule_index].collection_attempts;
@@ -553,6 +632,26 @@ namespace telemetry_plugin
                                 };
                                 AccountResult(country_rule_index, EmitTyped("state.factory.finance", "state", raw_date,
                                     entities, 3, payload, 5, false, reliable));
+                            }
+                        }
+                        if (HasField(*rule, "inputs")) {
+                            for (uint32_t index = 0; index < input_count; ++index) {
+                                const auto &input = factory_input_snapshots_[index];
+                                if (input.factory_snapshot_index >= factory_count) {
+                                    ++family_stats_[country_rule_index].invalid;
+                                    continue;
+                                }
+                                const auto &factory = factory_snapshots_[input.factory_snapshot_index];
+                                const SmedleyTelemetryFieldV1 entities[] = {
+                                    StringField("country_tag", *country_tag_value),
+                                    IntField("state_id", factory.state_id),
+                                    StringField("factory_type", factory.factory_type),
+                                    IntField("good_ordinal", input.good_ordinal),
+                                };
+                                const auto field = IntField("stockpile_raw", input.stockpile_raw);
+                                ++family_stats_[country_rule_index].collection_attempts;
+                                AccountResult(country_rule_index, EmitTyped("state.factory.input", "state", raw_date,
+                                    entities, 4, &field, 1, false, reliable));
                             }
                         }
                     }
@@ -739,6 +838,8 @@ namespace telemetry_plugin
         std::array<std::optional<int>, smedley::telemetry::kMaxCaptureRules> last_family_poll_dates_;
         std::array<PopAggregate, interest_bug_fix::max_sample_pops> pop_aggregates_;
         std::array<interest_bug_fix::FactorySnapshot, interest_bug_fix::max_sample_factories> factory_snapshots_;
+        std::array<interest_bug_fix::FactoryInputSnapshot, interest_bug_fix::max_sample_factory_inputs> factory_input_snapshots_;
+        std::array<interest_bug_fix::WorldMarketSnapshot, 64> world_market_snapshots_;
         std::optional<int> last_global_date_;
         std::optional<int> last_progress_date_;
         std::optional<int> last_observed_date_;

@@ -619,12 +619,66 @@ source = "size from existing flags.hpp; PMIA 1.9.0 calls CTernary<CFlag *>::Get(
 name = "CState"
 status = "provisional"
 size = 0x0290
-source = "constructor RVA 0x000cdc60 and three allocation call sites establish size; runtime resolved +0x48 elements as province indices, correlated +0x60 with state factory counts, and correlated +0x258 with scaled POP savings, while +0x260 semantics remain provisional"
+source = "constructor RVA 0x000cdc60 and three allocation call sites establish size; benchmark save and runtime correlate persistent ID +0x0c, province indices +0x48, factory list +0x60, embedded CPopProject +0x1c8, and scaled POP savings +0x258, while +0x260 semantics remain provisional"
 fields = [
+  { name = "persistent_state_id", offset = 0x000c },
   { name = "provinces_candidate", offset = 0x0048 },
   { name = "factories", offset = 0x0060 },
+  { name = "pop_project", offset = 0x01c8 },
+  { name = "region", offset = 0x0250 },
   { name = "savings_in_bank_candidate", offset = 0x0258 },
   { name = "interest_payments_candidate", offset = 0x0260 },
+]
+
+[[layouts]]
+name = "CRegion"
+status = "verified-runtime"
+size = 0x0108
+source = "RTTI and contiguous runtime instances establish size; owner-specific CState instances share the same +0x250 CRegion pointer, with stable key +0x18 and display name +0x34 across split vanilla regions"
+fields = [
+  { name = "provinces", offset = 0x0008 },
+  { name = "key", offset = 0x0018 },
+  { name = "name", offset = 0x0034 },
+]
+
+[[layouts]]
+name = "CWorldMarket.market_data_prefix"
+status = "verified-runtime"
+size = 0x054c
+source = "live RTTI resolves CWorldMarket; embedded CGoodsPool fields correlate byte-for-byte with benchmark save worldmarket pools and run 51693f9a-19fb-4900-bfb8-3254022e79ae"
+fields = [
+  { name = "supply", offset = 0x0008 },
+  { name = "last_supply", offset = 0x0060 },
+  { name = "worldmarket_stock", offset = 0x0120 },
+  { name = "demand", offset = 0x0178 },
+  { name = "real_demand", offset = 0x01d0 },
+  { name = "price", offset = 0x0280 },
+  { name = "last_price", offset = 0x02d8 },
+  { name = "actual_sold", offset = 0x0434 },
+  { name = "actual_sold_world", offset = 0x04f4 },
+]
+
+[[layouts]]
+name = "CPopEmployment"
+status = "verified-runtime"
+size = 0x0010
+source = "RTTI and live CStateBuilding employment vectors resolved POP pointers and assigned counts; benchmark save and UI totals match every Brandenburg assignment"
+fields = [
+  { name = "pop", offset = 0x0008 },
+  { name = "assigned_count", offset = 0x000c },
+]
+
+[[layouts]]
+name = "CProductionType"
+status = "verified-runtime"
+size = 0x0160
+source = "constructor RVA 0x000dd0a0 establishes shape; live small-arms definition and vanilla production_types.txt correlate input pools, output CGoods pointer, and base output"
+fields = [
+  { name = "key", offset = 0x0008 },
+  { name = "input_goods", offset = 0x0024 },
+  { name = "output_good", offset = 0x0080 },
+  { name = "base_output", offset = 0x0088 },
+  { name = "maintenance_goods", offset = 0x0090 },
 ]
 
 [[layouts]]
@@ -635,13 +689,19 @@ source = "RTTI and constructor RVA 0x000f2bc0 establish object shape; two live b
 fields = [
   { name = "definition", offset = 0x0018 },
   { name = "level", offset = 0x0020 },
+  { name = "input_stockpile", offset = 0x0028 },
   { name = "output", offset = 0x00d8 },
+  { name = "employment", offset = 0x00f0 },
   { name = "employees", offset = 0x0128 },
   { name = "budget", offset = 0x0150 },
   { name = "market_spending", offset = 0x0158 },
   { name = "sales_income", offset = 0x0160 },
   { name = "paychecks", offset = 0x0168 },
   { name = "investment", offset = 0x0170 },
+  { name = "subsidized", offset = 0x0180 },
+  { name = "closed", offset = 0x0188 },
+  { name = "injected_money", offset = 0x01d0 },
+  { name = "injected_days", offset = 0x01d8 },
 ]
 
 [[layouts]]
@@ -655,6 +715,7 @@ fields = [
   { name = "state", offset = 0x0188 },
   { name = "pops", offset = 0x0194 },
   { name = "num_pops", offset = 0x01a8 },
+  { name = "rgo_employment_capacity", offset = 0x01ac },
   { name = "infrastructure", offset = 0x02b8 },
 ]
 

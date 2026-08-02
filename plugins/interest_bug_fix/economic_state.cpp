@@ -15,12 +15,16 @@ namespace interest_bug_fix
         constexpr size_t country_minimum_size = 0xe9c;
         constexpr size_t country_tag_offset = 0x1c;
         constexpr size_t country_states_offset = 0xe44;
+        constexpr size_t game_state_world_market_offset = 0xbcc;
         constexpr size_t country_treasury_offset = 0xe78;
         constexpr size_t country_bank_offset = 0xe88;
         constexpr size_t country_creditors_offset = 0xe8c;
         constexpr size_t state_size = 0x290;
+        constexpr size_t state_id_offset = 0x0c;
         constexpr size_t state_provinces_offset = 0x48;
         constexpr size_t state_factories_offset = 0x60;
+        constexpr size_t state_region_offset = 0x250;
+        constexpr size_t region_key_offset = 0x18;
         constexpr size_t state_savings_offset = 0x258;
         constexpr size_t state_interest_offset = 0x260;
         constexpr size_t bank_interest_offset = 0x20;
@@ -54,14 +58,37 @@ namespace interest_bug_fix
         constexpr size_t state_building_size = 0x220;
         constexpr size_t state_building_definition_offset = 0x18;
         constexpr size_t state_building_level_offset = 0x20;
+        constexpr size_t state_building_stockpile_index_offset = 0x30;
+        constexpr size_t state_building_stockpile_values_offset = 0x70;
         constexpr size_t state_building_output_offset = 0xd8;
+        constexpr size_t state_building_employment_offset = 0xf0;
         constexpr size_t state_building_employees_offset = 0x128;
         constexpr size_t state_building_budget_offset = 0x150;
         constexpr size_t state_building_market_spending_offset = 0x158;
         constexpr size_t state_building_sales_income_offset = 0x160;
         constexpr size_t state_building_paychecks_offset = 0x168;
         constexpr size_t state_building_investment_offset = 0x170;
+        constexpr size_t state_building_subsidized_offset = 0x180;
+        constexpr size_t state_building_closed_offset = 0x188;
         constexpr size_t building_definition_key_offset = 0x20;
+        constexpr size_t market_supply_offset = 0x08;
+        constexpr size_t market_last_supply_offset = 0x60;
+        constexpr size_t market_stock_offset = 0x120;
+        constexpr size_t market_demand_offset = 0x178;
+        constexpr size_t market_real_demand_offset = 0x1d0;
+        constexpr size_t market_price_offset = 0x280;
+        constexpr size_t market_last_price_offset = 0x2d8;
+        constexpr size_t market_actual_sold_offset = 0x434;
+        constexpr size_t market_actual_sold_world_offset = 0x4f4;
+        constexpr size_t building_definition_production_type_offset = 0x12c;
+        constexpr size_t production_type_output_good_offset = 0x80;
+        constexpr size_t production_type_base_output_offset = 0x88;
+        constexpr size_t goods_ordinal_offset = 0x08;
+        constexpr size_t goods_key_offset = 0x0c;
+        constexpr size_t pop_type_key_offset = 0x08;
+        constexpr size_t pop_employment_size = 0x10;
+        constexpr size_t pop_employment_pop_offset = 0x08;
+        constexpr size_t pop_employment_count_offset = 0x0c;
         constexpr int64_t pop_savings_state_scale = 1000;
 
         struct ListNode
@@ -241,18 +268,53 @@ namespace interest_bug_fix
             return true;
         }
 
-        bool ReadFactoryType(const void *definition, char *destination, size_t destination_size)
+        bool ReadBoundedString(const void *object, size_t key_offset, char *destination, size_t destination_size)
         {
-            if (definition == nullptr || destination == nullptr || destination_size == 0) return false;
+            if (object == nullptr || destination == nullptr || destination_size == 0) return false;
             GameString key{};
-            if (!ReadAt(definition, building_definition_key_offset, &key)
+            if (!ReadAt(object, key_offset, &key)
                 || key.size == 0 || key.size >= destination_size || key.capacity < key.size) return false;
             const char *source = key.capacity <= 15 ? key.value.inline_value : key.value.pointer;
             if (source == nullptr || !CopyReadable(destination, source, key.size + 1)
                 || destination[key.size] != '\0') return false;
             for (uint32_t index = 0; index < key.size; ++index) {
                 const unsigned char value = static_cast<unsigned char>(destination[index]);
-                if (!((value >= 'a' && value <= 'z') || (value >= '0' && value <= '9') || value == '_')) return false;
+                if (value < 0x20 || value > 0x7e) return false;
+            }
+            return true;
+        }
+
+        bool ReadNormalizedKey(const void *object, size_t key_offset, char *destination, size_t destination_size)
+        {
+            if (!ReadBoundedString(object, key_offset, destination, destination_size)) return false;
+            for (const char *value = destination; *value != '\0'; ++value) {
+                if (!((*value >= 'a' && *value <= 'z') || (*value >= '0' && *value <= '9') || *value == '_')) return false;
+            }
+            return true;
+        }
+
+        bool ReadGoodsPool(const void *pool, std::array<int64_t, 64> *values,
+                           std::array<bool, 64> *present)
+        {
+            if (pool == nullptr || values == nullptr || present == nullptr) return false;
+            values->fill(0);
+            present->fill(false);
+            std::array<uint8_t, 64> indices{};
+            PointerVector stored_values{};
+            uint32_t stored_count = 0;
+            if (!ReadAt(pool, 0x08, &indices)
+                || !ReadAt(pool, 0x48, &stored_values)
+                || !VectorCount(stored_values, sizeof(int64_t), 65, &stored_count)) return false;
+            int64_t sentinel = 0;
+            if (stored_count != 0 && (!ReadAt(stored_values.begin, 0, &sentinel) || sentinel != 0)) return false;
+            std::array<bool, 65> seen{};
+            for (uint32_t ordinal = 0; ordinal < indices.size(); ++ordinal) {
+                const uint8_t index = indices[ordinal];
+                if (index == 0) continue;
+                if (index >= stored_count || seen[index]) return false;
+                seen[index] = true;
+                if (!ReadAt(stored_values.begin, index * sizeof(int64_t), &(*values)[ordinal])) return false;
+                (*present)[ordinal] = true;
             }
             return true;
         }
@@ -794,10 +856,13 @@ namespace interest_bug_fix
 
     bool CollectCountryFactories(const void *country, FactorySnapshot *snapshots,
                                  size_t snapshot_capacity, uint32_t *snapshot_count,
-                                 uint32_t *flags)
+                                 FactoryInputSnapshot *inputs, size_t input_capacity,
+                                 uint32_t *input_count, uint32_t groups, uint32_t *flags)
     {
-        if (snapshots == nullptr || snapshot_count == nullptr || flags == nullptr) return false;
+        if (snapshots == nullptr || snapshot_count == nullptr || inputs == nullptr
+            || input_count == nullptr || flags == nullptr) return false;
         *snapshot_count = 0;
+        *input_count = 0;
         *flags = 0;
         ResetMemoryRegionCache();
         if (!IsReadable(country, country_states_offset + 12)) {
@@ -832,14 +897,26 @@ namespace interest_bug_fix
                     break;
                 }
                 int32_t anchor_province_id = -1;
-                PointerVector provinces{};
-                uint32_t province_count = 0;
-                if (!ReadAt(current_state.data, state_provinces_offset, &provinces)
-                    || !VectorCount(provinces, sizeof(int32_t), max_provinces_per_state, &province_count)
-                    || province_count == 0 || !ReadAt(provinces.begin, 0, &anchor_province_id)
-                    || anchor_province_id < 0) {
+                int32_t state_id = -1;
+                char state_region_key[64]{};
+                if (!ReadAt(current_state.data, state_id_offset, &state_id)
+                    || state_id <= 0) {
                     *flags |= FACTORY_STATE_UNREADABLE;
                     break;
+                }
+                if ((groups & FACTORY_IDENTITY) != 0) {
+                    PointerVector provinces{};
+                    uint32_t province_count = 0;
+                    const void *region = nullptr;
+                    if (!ReadAt(current_state.data, state_provinces_offset, &provinces)
+                        || !VectorCount(provinces, sizeof(int32_t), max_provinces_per_state, &province_count)
+                        || province_count == 0 || !ReadAt(provinces.begin, 0, &anchor_province_id)
+                        || anchor_province_id < 0 || !ReadAt(current_state.data, state_region_offset, &region)
+                        || !ReadBoundedString(region, region_key_offset,
+                            state_region_key, sizeof(state_region_key))) {
+                        *flags |= FACTORY_STATE_UNREADABLE;
+                        break;
+                    }
                 }
 
                 const StateBuildingNode *factory_node = nullptr;
@@ -871,27 +948,148 @@ namespace interest_bug_fix
                         FactorySnapshot snapshot{};
                         snapshot.state_index = states_walked;
                         snapshot.factory_index = factories_walked;
+                        snapshot.state_id = state_id;
                         snapshot.anchor_province_id_candidate = anchor_province_id;
+                        if ((groups & FACTORY_IDENTITY) != 0) {
+                            std::memcpy(snapshot.state_region_key, state_region_key, sizeof(state_region_key));
+                        }
                         const void *definition = nullptr;
                         std::memcpy(&definition, current_factory.data.data() + state_building_definition_offset, sizeof(definition));
-                        std::memcpy(&snapshot.level, current_factory.data.data() + state_building_level_offset, sizeof(snapshot.level));
-                        std::memcpy(&snapshot.output_raw, current_factory.data.data() + state_building_output_offset, sizeof(snapshot.output_raw));
-                        std::memcpy(&snapshot.employee_count, current_factory.data.data() + state_building_employees_offset, sizeof(snapshot.employee_count));
-                        std::memcpy(&snapshot.budget_raw, current_factory.data.data() + state_building_budget_offset, sizeof(snapshot.budget_raw));
-                        std::memcpy(&snapshot.market_spending_raw, current_factory.data.data() + state_building_market_spending_offset, sizeof(snapshot.market_spending_raw));
-                        std::memcpy(&snapshot.sales_income_raw, current_factory.data.data() + state_building_sales_income_offset, sizeof(snapshot.sales_income_raw));
-                        std::memcpy(&snapshot.paychecks_raw, current_factory.data.data() + state_building_paychecks_offset, sizeof(snapshot.paychecks_raw));
-                        std::memcpy(&snapshot.investment_raw, current_factory.data.data() + state_building_investment_offset, sizeof(snapshot.investment_raw));
-                        if (!ReadFactoryType(definition, snapshot.factory_type, sizeof(snapshot.factory_type))) {
+                        if ((groups & FACTORY_IDENTITY) != 0) {
+                            std::memcpy(&snapshot.level, current_factory.data.data() + state_building_level_offset, sizeof(snapshot.level));
+                            const uint8_t subsidized = current_factory.data[state_building_subsidized_offset];
+                            const uint8_t closed = current_factory.data[state_building_closed_offset];
+                            if (subsidized > 1 || closed > 1 || snapshot.level < 0) {
+                                *flags |= FACTORY_UNREADABLE;
+                                break;
+                            }
+                            snapshot.subsidized = subsidized != 0;
+                            snapshot.closed = closed != 0;
+                        }
+                        if (!ReadNormalizedKey(definition, building_definition_key_offset,
+                                snapshot.factory_type, sizeof(snapshot.factory_type))) {
                             *flags |= FACTORY_DEFINITION_INVALID;
                             break;
                         }
-                        if (snapshot.level < 0 || snapshot.employee_count < 0 || snapshot.output_raw < 0
-                            || snapshot.budget_raw < 0 || snapshot.market_spending_raw < 0
-                            || snapshot.sales_income_raw < 0 || snapshot.paychecks_raw < 0
-                            || snapshot.investment_raw < 0) {
-                            *flags |= FACTORY_UNREADABLE;
-                            break;
+
+                        if ((groups & FACTORY_PRODUCTION) != 0) {
+                            std::memcpy(&snapshot.output_raw, current_factory.data.data() + state_building_output_offset, sizeof(snapshot.output_raw));
+                            const void *production_type = nullptr;
+                            const void *output_good = nullptr;
+                            if (!ReadAt(definition, building_definition_production_type_offset, &production_type)
+                                || !ReadAt(production_type, production_type_output_good_offset, &output_good)
+                                || !ReadAt(production_type, production_type_base_output_offset, &snapshot.base_output_raw)
+                                || !ReadAt(output_good, goods_ordinal_offset, &snapshot.output_good_ordinal)
+                                || !ReadNormalizedKey(output_good, goods_key_offset,
+                                    snapshot.output_good, sizeof(snapshot.output_good))
+                                || snapshot.output_raw < 0 || snapshot.output_good_ordinal < 0
+                                || snapshot.base_output_raw < 0) {
+                                *flags |= FACTORY_DEFINITION_INVALID;
+                                break;
+                            }
+                        }
+
+                        if ((groups & FACTORY_EMPLOYMENT) != 0) {
+                            std::memcpy(&snapshot.employee_count, current_factory.data.data() + state_building_employees_offset, sizeof(snapshot.employee_count));
+                            PointerVector employment{};
+                            uint32_t employment_count = 0;
+                            if (snapshot.employee_count < 0
+                                || !ReadAt(current_factory.data.data(), state_building_employment_offset, &employment)
+                                || !VectorCount(employment, pop_employment_size, 1024, &employment_count)) {
+                                *flags |= FACTORY_UNREADABLE;
+                                break;
+                            }
+                            int64_t assigned_total = 0;
+                            for (uint32_t index = 0; index < employment_count; ++index) {
+                                std::array<uint8_t, pop_employment_size> record{};
+                                const auto *record_address = static_cast<const uint8_t *>(employment.begin)
+                                    + index * pop_employment_size;
+                                const void *pop = nullptr;
+                                int32_t assigned = 0;
+                                const void *pop_type = nullptr;
+                                char pop_type_key[64]{};
+                                if (!CopyReadable(record.data(), record_address, record.size())) {
+                                    *flags |= FACTORY_UNREADABLE;
+                                    break;
+                                }
+                                std::memcpy(&pop, record.data() + pop_employment_pop_offset, sizeof(pop));
+                                std::memcpy(&assigned, record.data() + pop_employment_count_offset, sizeof(assigned));
+                                if (assigned < 0 || !ReadAt(pop, pop_type_offset, &pop_type)
+                                    || !ReadNormalizedKey(pop_type, pop_type_key_offset,
+                                        pop_type_key, sizeof(pop_type_key))) {
+                                    *flags |= FACTORY_UNREADABLE;
+                                    break;
+                                }
+                                assigned_total += assigned;
+                                if (assigned_total > (std::numeric_limits<int32_t>::max)()) {
+                                    *flags |= FACTORY_UNREADABLE;
+                                    break;
+                                }
+                                if (std::strcmp(pop_type_key, "craftsmen") == 0) snapshot.craftsmen_count += assigned;
+                                else if (std::strcmp(pop_type_key, "clerks") == 0) snapshot.clerk_count += assigned;
+                            }
+                            if (*flags != 0) break;
+                            if (assigned_total != snapshot.employee_count) {
+                                *flags |= FACTORY_UNREADABLE;
+                                break;
+                            }
+                        }
+
+                        if ((groups & FACTORY_INPUTS) != 0) {
+                            PointerVector stockpile_values{};
+                            uint32_t stockpile_value_count = 0;
+                            std::array<uint8_t, 64> stockpile_index{};
+                            std::array<bool, 65> seen_value_indices{};
+                            if (!CopyReadable(stockpile_index.data(),
+                                    current_factory.data.data() + state_building_stockpile_index_offset,
+                                    stockpile_index.size())
+                                || !ReadAt(current_factory.data.data(), state_building_stockpile_values_offset,
+                                    &stockpile_values)
+                                || !VectorCount(stockpile_values, sizeof(int64_t), 65, &stockpile_value_count)) {
+                                *flags |= FACTORY_UNREADABLE;
+                                break;
+                            }
+                            int64_t sentinel = 0;
+                            if (stockpile_value_count != 0
+                                && (!ReadAt(stockpile_values.begin, 0, &sentinel) || sentinel != 0)) {
+                                *flags |= FACTORY_UNREADABLE;
+                                break;
+                            }
+                            for (uint32_t good_ordinal = 0; good_ordinal < stockpile_index.size(); ++good_ordinal) {
+                                const uint8_t value_index = stockpile_index[good_ordinal];
+                                if (value_index == 0) continue;
+                                if (value_index >= stockpile_value_count || seen_value_indices[value_index]
+                                    || *input_count >= input_capacity || *input_count >= max_sample_factory_inputs) {
+                                    *flags |= value_index >= stockpile_value_count || seen_value_indices[value_index]
+                                        ? FACTORY_UNREADABLE : FACTORY_LIMIT;
+                                    break;
+                                }
+                                seen_value_indices[value_index] = true;
+                                FactoryInputSnapshot input{};
+                                input.factory_snapshot_index = *snapshot_count;
+                                input.good_ordinal = static_cast<int32_t>(good_ordinal);
+                                if (!ReadAt(stockpile_values.begin, value_index * sizeof(int64_t), &input.stockpile_raw)
+                                    || input.stockpile_raw < 0) {
+                                    *flags |= FACTORY_UNREADABLE;
+                                    break;
+                                }
+                                inputs[(*input_count)++] = input;
+                            }
+                            if (*flags != 0) break;
+                        }
+
+                        if ((groups & FACTORY_FINANCE) != 0) {
+                            std::memcpy(&snapshot.budget_raw, current_factory.data.data() + state_building_budget_offset, sizeof(snapshot.budget_raw));
+                            std::memcpy(&snapshot.market_spending_raw, current_factory.data.data() + state_building_market_spending_offset, sizeof(snapshot.market_spending_raw));
+                            std::memcpy(&snapshot.sales_income_raw, current_factory.data.data() + state_building_sales_income_offset, sizeof(snapshot.sales_income_raw));
+                            std::memcpy(&snapshot.paychecks_raw, current_factory.data.data() + state_building_paychecks_offset, sizeof(snapshot.paychecks_raw));
+                            std::memcpy(&snapshot.investment_raw, current_factory.data.data() + state_building_investment_offset, sizeof(snapshot.investment_raw));
+                            if (snapshot.budget_raw < 0 || snapshot.market_spending_raw < 0
+                                || snapshot.sales_income_raw < 0 || snapshot.paychecks_raw < 0
+                                || snapshot.investment_raw < 0) {
+                                *flags |= FACTORY_UNREADABLE;
+                                break;
+                            }
                         }
                         snapshots[(*snapshot_count)++] = snapshot;
                     }
@@ -923,6 +1121,54 @@ namespace interest_bug_fix
             *flags |= FACTORY_STATE_LIST_INVALID;
         }
         return *flags == 0;
+    }
+
+    bool CollectWorldMarket(const void *game_state, WorldMarketSnapshot *snapshots,
+                            size_t snapshot_capacity, uint32_t *snapshot_count)
+    {
+        if (game_state == nullptr || snapshots == nullptr || snapshot_count == nullptr) return false;
+        *snapshot_count = 0;
+        ResetMemoryRegionCache();
+        const void *world_market = nullptr;
+        if (!ReadAt(game_state, game_state_world_market_offset, &world_market)) return false;
+
+        std::array<int64_t, 64> supply{}, last_supply{}, stock{}, demand{}, real_demand{};
+        std::array<int64_t, 64> price{}, last_price{}, actual_sold{}, actual_sold_world{};
+        std::array<bool, 64> supply_present{}, last_supply_present{}, stock_present{};
+        std::array<bool, 64> demand_present{}, real_demand_present{}, price_present{};
+        std::array<bool, 64> last_price_present{}, actual_sold_present{}, actual_sold_world_present{};
+        if (!ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_supply_offset, &supply, &supply_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_last_supply_offset, &last_supply, &last_supply_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_stock_offset, &stock, &stock_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_demand_offset, &demand, &demand_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_real_demand_offset, &real_demand, &real_demand_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_price_offset, &price, &price_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_last_price_offset, &last_price, &last_price_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_actual_sold_offset, &actual_sold, &actual_sold_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_actual_sold_world_offset,
+                &actual_sold_world, &actual_sold_world_present)) return false;
+
+        for (uint32_t ordinal = 0; ordinal < price_present.size(); ++ordinal) {
+            if (!price_present[ordinal]) continue;
+            if (!last_price_present[ordinal] || *snapshot_count >= snapshot_capacity
+                || price[ordinal] < 0 || last_price[ordinal] < 0 || supply[ordinal] < 0
+                || last_supply[ordinal] < 0 || stock[ordinal] < 0 || demand[ordinal] < 0
+                || real_demand[ordinal] < 0 || actual_sold[ordinal] < 0
+                || actual_sold_world[ordinal] < 0) return false;
+            WorldMarketSnapshot snapshot{};
+            snapshot.good_ordinal = static_cast<int32_t>(ordinal);
+            snapshot.price_raw = price[ordinal];
+            snapshot.last_price_raw = last_price[ordinal];
+            snapshot.supply_raw = supply[ordinal];
+            snapshot.last_supply_raw = last_supply[ordinal];
+            snapshot.worldmarket_stock_raw = stock[ordinal];
+            snapshot.demand_raw = demand[ordinal];
+            snapshot.real_demand_raw = real_demand[ordinal];
+            snapshot.actual_sold_raw = actual_sold[ordinal];
+            snapshot.actual_sold_world_raw = actual_sold_world[ordinal];
+            snapshots[(*snapshot_count)++] = snapshot;
+        }
+        return true;
     }
 
     bool CanWritePopMoney(const void *pop)

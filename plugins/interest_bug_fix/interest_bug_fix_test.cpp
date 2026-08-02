@@ -692,8 +692,15 @@ TEST(InterestBugFixTest, CollectsBoundedFactoryFields)
 {
     std::array<std::byte, 0x1608> country{};
     std::array<std::byte, 0x290> state{};
-    std::array<std::byte, 0x80> definition{};
+    std::array<std::byte, 0x108> region{};
+    std::array<std::byte, 0x140> definition{};
+    std::array<std::byte, 0x140> production_type{};
+    std::array<std::byte, 0x40> output_good{};
+    std::array<std::byte, 0x70> pop{};
+    std::array<std::byte, 0x40> pop_type{};
+    std::array<std::byte, 0x10> employment{};
     std::array<int32_t, 1> provinces{549};
+    std::array<int64_t, 2> stockpile_values{0, 12357};
     Node state_node{state.data(), nullptr, nullptr, 0, {}};
     FactoryNode factory_node{};
     const void *state_head = &state_node;
@@ -703,12 +710,32 @@ TEST(InterestBugFixTest, CollectsBoundedFactoryFields)
     const void *factory_head = &factory_node;
     const int factory_count = 1;
     const void *definition_pointer = definition.data();
+    const void *region_pointer = region.data();
+    const void *production_type_pointer = production_type.data();
+    const void *output_good_pointer = output_good.data();
+    const void *pop_pointer = pop.data();
+    const void *pop_type_pointer = pop_type.data();
+    const void *employment_begin = employment.data();
+    const void *employment_end = employment.data() + employment.size();
+    const void *stockpile_begin = stockpile_values.data();
+    const void *stockpile_end = stockpile_values.data() + stockpile_values.size();
     const char factory_type[] = "glass_factory";
     const uint32_t factory_type_size = sizeof(factory_type) - 1;
     const uint32_t factory_type_capacity = 15;
+    const char output_good_type[] = "small_arms";
+    const uint32_t output_good_type_size = sizeof(output_good_type) - 1;
+    const uint32_t output_good_type_capacity = 15;
+    const char pop_type_name[] = "craftsmen";
+    const uint32_t pop_type_name_size = sizeof(pop_type_name) - 1;
+    const uint32_t pop_type_name_capacity = 15;
+    const char state_region_key[] = "PRU_549";
+    const uint32_t state_region_key_size = sizeof(state_region_key) - 1;
+    const int32_t state_id = 750;
     const int32_t level = 1;
     const int32_t employees = 1998;
     const int32_t output = 13437;
+    const int32_t output_good_ordinal = 1;
+    const int32_t base_output = 65536;
     const int64_t budget = 8244550872;
     const int64_t spending = 362208000;
     const int64_t income = 497291000;
@@ -724,6 +751,8 @@ TEST(InterestBugFixTest, CollectsBoundedFactoryFields)
     Write(&state, 0x60, factory_head);
     Write(&state, 0x64, factory_head);
     Write(&state, 0x68, factory_count);
+    Write(&state, 0x0c, state_id);
+    Write(&state, 0x250, region_pointer);
     Write(&factory_node.data, 0x18, definition_pointer);
     Write(&factory_node.data, 0x20, level);
     Write(&factory_node.data, 0xd8, output);
@@ -733,43 +762,171 @@ TEST(InterestBugFixTest, CollectsBoundedFactoryFields)
     Write(&factory_node.data, 0x160, income);
     Write(&factory_node.data, 0x168, paychecks);
     Write(&factory_node.data, 0x170, investment);
+    factory_node.data[0x30] = std::byte{1};
+    Write(&factory_node.data, 0x70, stockpile_begin);
+    Write(&factory_node.data, 0x74, stockpile_end);
+    Write(&factory_node.data, 0x78, stockpile_end);
+    Write(&factory_node.data, 0xf0, employment_begin);
+    Write(&factory_node.data, 0xf4, employment_end);
+    Write(&factory_node.data, 0xf8, employment_end);
     std::memcpy(definition.data() + 0x20, factory_type, sizeof(factory_type));
     Write(&definition, 0x30, factory_type_size);
     Write(&definition, 0x34, factory_type_capacity);
+    Write(&definition, 0x12c, production_type_pointer);
+    Write(&production_type, 0x80, output_good_pointer);
+    Write(&production_type, 0x88, base_output);
+    Write(&output_good, 0x08, output_good_ordinal);
+    std::memcpy(output_good.data() + 0x0c, output_good_type, sizeof(output_good_type));
+    Write(&output_good, 0x1c, output_good_type_size);
+    Write(&output_good, 0x20, output_good_type_capacity);
+    Write(&pop, 0x68, pop_type_pointer);
+    std::memcpy(pop_type.data() + 0x08, pop_type_name, sizeof(pop_type_name));
+    Write(&pop_type, 0x18, pop_type_name_size);
+    Write(&pop_type, 0x1c, pop_type_name_capacity);
+    Write(&employment, 0x08, pop_pointer);
+    Write(&employment, 0x0c, employees);
+    std::memcpy(region.data() + 0x18, state_region_key, sizeof(state_region_key));
+    Write(&region, 0x28, state_region_key_size);
+    Write(&region, 0x2c, factory_type_capacity);
 
     std::array<interest_probe::FactorySnapshot, 2> snapshots{};
+    std::array<interest_probe::FactoryInputSnapshot, 2> inputs{};
     uint32_t captured = 0;
+    uint32_t input_count = 0;
     uint32_t flags = 0;
     ASSERT_TRUE(interest_probe::CollectCountryFactories(
-        country.data(), snapshots.data(), snapshots.size(), &captured, &flags));
+        country.data(), snapshots.data(), snapshots.size(), &captured,
+        inputs.data(), inputs.size(), &input_count,
+        interest_probe::FACTORY_IDENTITY | interest_probe::FACTORY_EMPLOYMENT
+            | interest_probe::FACTORY_PRODUCTION | interest_probe::FACTORY_FINANCE
+            | interest_probe::FACTORY_INPUTS,
+        &flags));
     ASSERT_EQ(flags, 0u);
     ASSERT_EQ(captured, 1u);
     const auto &snapshot = snapshots[0];
     EXPECT_EQ(snapshot.state_index, 0u);
     EXPECT_EQ(snapshot.factory_index, 0u);
+    EXPECT_EQ(snapshot.state_id, state_id);
+    EXPECT_STREQ(snapshot.state_region_key, state_region_key);
     EXPECT_EQ(snapshot.anchor_province_id_candidate, 549);
     EXPECT_STREQ(snapshot.factory_type, factory_type);
     EXPECT_EQ(snapshot.level, level);
     EXPECT_EQ(snapshot.employee_count, employees);
+    EXPECT_EQ(snapshot.craftsmen_count, employees);
+    EXPECT_EQ(snapshot.clerk_count, 0);
     EXPECT_EQ(snapshot.output_raw, output);
+    EXPECT_EQ(snapshot.output_good_ordinal, output_good_ordinal);
+    EXPECT_STREQ(snapshot.output_good, output_good_type);
+    EXPECT_EQ(snapshot.base_output_raw, base_output);
+    EXPECT_FALSE(snapshot.subsidized);
+    EXPECT_FALSE(snapshot.closed);
     EXPECT_EQ(snapshot.budget_raw, budget);
     EXPECT_EQ(snapshot.market_spending_raw, spending);
     EXPECT_EQ(snapshot.sales_income_raw, income);
     EXPECT_EQ(snapshot.paychecks_raw, paychecks);
     EXPECT_EQ(snapshot.investment_raw, investment);
+    ASSERT_EQ(input_count, 1u);
+    EXPECT_EQ(inputs[0].factory_snapshot_index, 0u);
+    EXPECT_EQ(inputs[0].good_ordinal, 0);
+    EXPECT_EQ(inputs[0].stockpile_raw, stockpile_values[1]);
+
+    const void *null_pointer = nullptr;
+    Write(&definition, 0x12c, null_pointer);
+    ASSERT_TRUE(interest_probe::CollectCountryFactories(
+        country.data(), snapshots.data(), snapshots.size(), &captured,
+        inputs.data(), inputs.size(), &input_count, interest_probe::FACTORY_IDENTITY, &flags));
+    EXPECT_EQ(captured, 1u);
+    Write(&definition, 0x12c, production_type_pointer);
+
+    Write(&state, 0x48, null_pointer);
+    Write(&state, 0x4c, null_pointer);
+    Write(&state, 0x50, null_pointer);
+    ASSERT_TRUE(interest_probe::CollectCountryFactories(
+        country.data(), snapshots.data(), snapshots.size(), &captured,
+        inputs.data(), inputs.size(), &input_count, interest_probe::FACTORY_FINANCE, &flags));
+    EXPECT_EQ(captured, 1u);
+    Write(&state, 0x48, province_begin);
+    Write(&state, 0x4c, province_end);
+    Write(&state, 0x50, province_end);
+
+    factory_node.data[0x31] = std::byte{1};
+    EXPECT_FALSE(interest_probe::CollectCountryFactories(
+        country.data(), snapshots.data(), snapshots.size(), &captured,
+        inputs.data(), inputs.size(), &input_count, interest_probe::FACTORY_INPUTS, &flags));
+    EXPECT_NE(flags & interest_probe::FACTORY_UNREADABLE, 0u);
+    factory_node.data[0x31] = std::byte{0};
 
     factory_node.next = &factory_node;
     const int malformed_factory_count = 2;
     Write(&state, 0x68, malformed_factory_count);
     EXPECT_FALSE(interest_probe::CollectCountryFactories(
-        country.data(), snapshots.data(), snapshots.size(), &captured, &flags));
+        country.data(), snapshots.data(), snapshots.size(), &captured,
+        inputs.data(), inputs.size(), &input_count, interest_probe::FACTORY_IDENTITY, &flags));
     EXPECT_NE(flags & interest_probe::FACTORY_LIST_INVALID, 0u);
 
     factory_node.next = nullptr;
     Write(&state, 0x68, factory_count);
     EXPECT_FALSE(interest_probe::CollectCountryFactories(
-        country.data(), snapshots.data(), 0, &captured, &flags));
+        country.data(), snapshots.data(), 0, &captured,
+        inputs.data(), inputs.size(), &input_count, interest_probe::FACTORY_IDENTITY, &flags));
     EXPECT_NE(flags & interest_probe::FACTORY_LIMIT, 0u);
+}
+
+TEST(InterestBugFixTest, CollectsAndValidatesWorldMarketPools)
+{
+    std::array<std::byte, 0xd08> game_state{};
+    std::array<std::byte, 0x54c> world_market{};
+    std::array<std::array<int64_t, 2>, 9> values{};
+    constexpr std::array<size_t, 9> offsets{0x08, 0x60, 0x120, 0x178, 0x1d0, 0x280, 0x2d8, 0x434, 0x4f4};
+    const void *world_market_pointer = world_market.data();
+    Write(&game_state, 0xbcc, world_market_pointer);
+    for (size_t index = 0; index < offsets.size(); ++index) {
+        values[index] = {0, static_cast<int64_t>((index + 1) * 100)};
+        world_market[offsets[index] + 0x08] = std::byte{1};
+        const void *begin = values[index].data();
+        const void *end = values[index].data() + values[index].size();
+        Write(&world_market, offsets[index] + 0x48, begin);
+        Write(&world_market, offsets[index] + 0x4c, end);
+        Write(&world_market, offsets[index] + 0x50, end);
+    }
+
+    std::array<interest_probe::WorldMarketSnapshot, 4> snapshots{};
+    uint32_t captured = 0;
+    ASSERT_TRUE(interest_probe::CollectWorldMarket(
+        game_state.data(), snapshots.data(), snapshots.size(), &captured));
+    ASSERT_EQ(captured, 1u);
+    EXPECT_EQ(snapshots[0].good_ordinal, 0);
+    EXPECT_EQ(snapshots[0].supply_raw, 100);
+    EXPECT_EQ(snapshots[0].last_supply_raw, 200);
+    EXPECT_EQ(snapshots[0].worldmarket_stock_raw, 300);
+    EXPECT_EQ(snapshots[0].demand_raw, 400);
+    EXPECT_EQ(snapshots[0].real_demand_raw, 500);
+    EXPECT_EQ(snapshots[0].price_raw, 600);
+    EXPECT_EQ(snapshots[0].last_price_raw, 700);
+    EXPECT_EQ(snapshots[0].actual_sold_raw, 800);
+    EXPECT_EQ(snapshots[0].actual_sold_world_raw, 900);
+
+    world_market[offsets[5] + 0x09] = std::byte{1};
+    EXPECT_FALSE(interest_probe::CollectWorldMarket(
+        game_state.data(), snapshots.data(), snapshots.size(), &captured));
+
+    std::array<std::array<int64_t, 65>, 9> dense_values{};
+    for (size_t pool = 0; pool < offsets.size(); ++pool) {
+        for (size_t ordinal = 0; ordinal < 64; ++ordinal) {
+            dense_values[pool][ordinal + 1] = static_cast<int64_t>(ordinal + 1);
+            world_market[offsets[pool] + 0x08 + ordinal] = static_cast<std::byte>(ordinal + 1);
+        }
+        const void *begin = dense_values[pool].data();
+        const void *end = dense_values[pool].data() + dense_values[pool].size();
+        Write(&world_market, offsets[pool] + 0x48, begin);
+        Write(&world_market, offsets[pool] + 0x4c, end);
+        Write(&world_market, offsets[pool] + 0x50, end);
+    }
+    std::array<interest_probe::WorldMarketSnapshot, 64> dense_snapshots{};
+    ASSERT_TRUE(interest_probe::CollectWorldMarket(
+        game_state.data(), dense_snapshots.data(), dense_snapshots.size(), &captured));
+    EXPECT_EQ(captured, 64u);
+    EXPECT_EQ(dense_snapshots.back().good_ordinal, 63);
 }
 
 TEST(InterestBugFixTest, ReadsValidatedPopDetailCandidates)

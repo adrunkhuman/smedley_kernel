@@ -196,6 +196,15 @@ Level `+0x20` was one for each. Employee count `+0x128` exactly matched 1,998,
 1,698, 1,848, and 2,431. Small Arms output `+0xd8` matched 0.410 on 1836.1.2 and
 0.389 on 1836.1.3 after division by 32,768.
 
+The `CPopEmployment` vector at `+0xf0` contains 16-byte records with POP pointer
+`+0x8` and assigned count `+0xc`. Resolving each POP's `CPopType` key reproduced
+the UI's craftsmen/clerk splits and the serialized save assignments exactly.
+The `CGoodsPool` at `+0x28` maps zero-based goods ordinals to 64-bit stockpile
+values and exactly reproduced the save's Small Arms ammunition, steel, cement,
+and machine-parts values. `CBuilding+0x12c` points to `CProductionType`; output
+good `+0x80` and base output `+0x88` match `production_types.txt` and the live
+`CGoods` key.
+
 Small Arms finance fields correlated on two dates: budget `+0x150`, market
 spending `+0x158`, sales income `+0x160`, paychecks `+0x168`, and investment
 `+0x170`. These are nonnegative 64-bit amounts displayed after division by
@@ -204,17 +213,128 @@ spending `+0x158`, sales income `+0x160`, paychecks `+0x168`, and investment
 leftovers, while GFM overrides it to 0.3. The wiki does not establish payment
 cadence, and telemetry does not infer one.
 
-Capture bounds state lists to 512, factory lists to 64 per state, and output to
-4,096 factories per selected country. It validates list links, readable spans,
-normalized definition keys, and nonnegative observed values. Entity identity
-uses country tag, factory-definition key, and the first state province as an
-explicit candidate; state splitting and durable state-region identity remain
-unmapped.
+Small Arms save `injected_money=122750.09155` and `injected_days=7` correlate to
+`CStateBuilding+0x1d0` and `+0x1d8`. Four-day run
+`a4edf016-5d61-40e0-83e7-37b9df278e2a` balanced every factory budget exactly
+from the five emitted finance fields, with no separate injection residual. This
+supports deferred injected capital being represented through observed
+`last_investment`; exact funding source and tranche rules remain unclaimed.
+
+Controlled paused UI toggles isolated subsidy byte `+0x180` and closed byte
+`+0x188`: each changed only from zero to one while the object and list position
+remained stable. Closing also reset an unrelated counter at `+0x218`, whose
+semantics remain unclaimed. Save correlation identifies `CState+0xc` as the
+persistent state ID (Brandenburg 750). The value 47 at `+0x8` is the constant
+persistent object-type discriminator, not a state-region ID. Shared region
+grouping is provided separately by `CRegion` below.
+
+Factory upgrades create state-level project data through the embedded
+`CPopProject` at `CState+0x1c8`; its changing goods state is referenced outside
+the inline `CState` bytes. The 730-day Small Arms upgrade matched its active
+building definition. Progress, material acquisition, and upgrade availability
+remain unavailable pending a same-process project-storage correlation.
+
+Capture bounds state lists to 512, factory lists to 64 per state, output to
+4,096 factories, employment to 1,024 assignments per factory, and stockpiles to
+16,384 input records per selected country. It validates list links, readable
+spans, normalized definition and POP-type keys, assignment totals, goods-pool
+indices, and nonnegative observed values. Entity identity uses country tag,
+persistent state ID, and factory-definition key; the anchor province remains an
+explicit candidate.
+Only selected record groups are traversed. Malformed metadata in a selected
+group suppresses that selected-country poll and increments family `invalid`.
+
+`CState+0x250` points to a shared `CRegion` object. RTTI and contiguous runtime
+instances establish size `0x108`; key `+0x18` and Windows-1252 display name `+0x34` resolve
+Brandenburg as `PRU_549` / `Brandenburg`. Owner-specific state instances for a
+split region share this pointer and key. The benchmark includes many examples,
+including Osthannover portions owned by ENG, BRE, HAM, and HAN. Factory identity
+emits the durable region key while country attribution continues to come from
+the owning country's state list.
+
+Localized region names are not emitted because the supported English game still
+stores names such as `Württemberg` and `Westpreußen` as Windows-1252, while the
+telemetry ABI requires UTF-8. The stable ASCII region key avoids lossy or invalid
+text until localization transcoding has an explicit contract.
+
+Public OpenVic testing reports that merging split portions reconciles duplicate
+factory types, but the exact winner is disputed and behavior above eight
+distinct types is not established. No merge semantics are claimed until a
+controlled supported-game probe covers duplicate levels/subsidies and overflow.
+
+A controlled supported-game `changeowner` probe transferred Saxony provinces
+558/559/560 into Prussia while paused. PRU's existing state 757 and its pointer
+survived, SAX state 907 disappeared, and the unchanged level-1 `fabric_factory`
+node moved from SAX's list into PRU's list. Region key remained `SAX_558`, and
+PRU's province vector became 687/558/559/560 immediately without a daily tick.
+This verifies non-duplicate merge attribution and factory-node continuity; it
+does not establish duplicate-type winner or over-eight behavior.
+
+A second `SAX_558` fixture built a subsidized level-1 Fabric Factory in PRU state
+757 while SAX state 907 retained its unsubsidized level-1 Fabric Factory. Before
+merge the nodes were `0x3d3e96c0` (PRU, budget 1000.00) and `0x44615010` (SAX,
+budget 931.91). After transferring 558/559/560, PRU still contained exactly its
+original node with unchanged subsidy and budget; the SAX node disappeared. This
+establishes recipient-wins reconciliation for equal-level duplicate types.
+Different-level duplicates and over-eight distinct types remain untested.
+
+## World market
+
+`CGameState+0xbcc` resolves a live `CWorldMarket`. Its mapped market-data prefix
+contains `CGoodsPool` fields whose zero-based ordinals and 32,768-scaled values
+match the benchmark save byte-for-byte:
+
+| Offset | Save field |
+| ---: | --- |
+| `+0x008` | `supply_pool` |
+| `+0x060` | `last_supply_pool` |
+| `+0x120` | `worldmarket_pool` |
+| `+0x178` | `demand` |
+| `+0x1d0` | `real_demand` |
+| `+0x280` | `price_pool` |
+| `+0x2d8` | `last_price_history` |
+| `+0x434` | `actual_sold` |
+| `+0x4f4` | `actual_sold_world` |
+
+Run `51693f9a-19fb-4900-bfb8-3254022e79ae` emitted 192 market records for 48
+goods with zero gaps, filters, drops, or invalid records. Small Arms ordinal 1
+matched every independently serialized value. These are global market totals;
+they do not establish factory-specific sold quantity or country attribution.
+
+The four-day phase run found no stable same-day or one-day relationship between
+factory output and `sales_income / price`; ratios ranged from 0.14 to 2.16.
+Producer inventory or market-clearing instrumentation is required before
+factory-specific sold quantity can be claimed.
+
+## RGO production leads
+
+Paused UI correlation on Berlin 549 (fruit farm) and Görlitz 687 (coal mine)
+establishes `CProvince+0x1ac` as RGO employment capacity: 195,625 and 60,000
+respectively. Current employment is derived from farmer/labourer POP employment;
+Berlin totals 110,896 and Görlitz 54,730, matching the UI.
+
+The UI output identity is exact for both examples:
+
+```text
+Berlin:  11.20 base × 1.90 output efficiency × 0.9703 throughput = 20.648 fruit
+Görlitz:  7.20 base × 1.45 output efficiency × 0.5472 throughput = 5.713 coal
+```
+
+The component tooltips expose aristocrat-owner, RGO technology, worker, and
+infrastructure contributions. Active runtime production-type/resource identity
+and the final modifier fields remain unmapped, so no RGO telemetry or derived
+output is emitted yet.
 
 Injected vanilla run `40d36695-696f-408e-af64-df266a1cfcc8` loaded the unchanged
 benchmark and emitted four record groups for each of seven PRU factories. The
 28 records had zero filtered, dropped, or invalid results and preserved the
 independently observed Brandenburg values exactly.
+
+Depth run `734efd9b-7873-4c26-b9aa-660422b3d4ad` emitted 53 accepted records
+with zero gaps, filters, drops, or invalid results: seven each for identity,
+employment, production, and finance and 25 per-good stockpile records. It
+confirmed persistent state IDs 750/753/756 and matched all independently read
+Brandenburg employment and Small Arms stockpile values.
 
 ## Military aggregate candidates
 

@@ -9,6 +9,7 @@ namespace interest_bug_fix
     constexpr uint32_t max_sample_destination_provinces = 4096;
     constexpr uint32_t max_sample_pops = 100000;
     constexpr uint32_t max_sample_factories = 4096;
+    constexpr uint32_t max_sample_factory_inputs = 16384;
 
     enum SampleFlag : uint32_t
     {
@@ -114,20 +115,59 @@ namespace interest_bug_fix
         FACTORY_LIMIT = 1u << 6,
     };
 
+    enum FactoryCaptureGroup : uint32_t
+    {
+        FACTORY_IDENTITY = 1u << 0,
+        FACTORY_EMPLOYMENT = 1u << 1,
+        FACTORY_PRODUCTION = 1u << 2,
+        FACTORY_FINANCE = 1u << 3,
+        FACTORY_INPUTS = 1u << 4,
+    };
+
     struct FactorySnapshot
     {
         uint32_t state_index = 0;
         uint32_t factory_index = 0;
+        int32_t state_id = -1;
         int32_t anchor_province_id_candidate = -1;
+        char state_region_key[64]{};
         char factory_type[64]{};
         int32_t level = 0;
         int32_t employee_count = 0;
+        int32_t craftsmen_count = 0;
+        int32_t clerk_count = 0;
         int32_t output_raw = 0;
+        int32_t output_good_ordinal = -1;
+        char output_good[64]{};
+        int32_t base_output_raw = 0;
+        bool subsidized = false;
+        bool closed = false;
         int64_t budget_raw = 0;
         int64_t market_spending_raw = 0;
         int64_t sales_income_raw = 0;
         int64_t paychecks_raw = 0;
         int64_t investment_raw = 0;
+    };
+
+    struct FactoryInputSnapshot
+    {
+        uint32_t factory_snapshot_index = 0;
+        int32_t good_ordinal = -1;
+        int64_t stockpile_raw = 0;
+    };
+
+    struct WorldMarketSnapshot
+    {
+        int32_t good_ordinal = -1;
+        int64_t price_raw = 0;
+        int64_t last_price_raw = 0;
+        int64_t supply_raw = 0;
+        int64_t last_supply_raw = 0;
+        int64_t worldmarket_stock_raw = 0;
+        int64_t demand_raw = 0;
+        int64_t real_demand_raw = 0;
+        int64_t actual_sold_raw = 0;
+        int64_t actual_sold_world_raw = 0;
     };
 
     using CountryResolver = const void *(*)(const void *context, int32_t ordinal);
@@ -154,5 +194,8 @@ namespace interest_bug_fix
     bool CanWritePopMoney(const void *pop);
     bool CollectCountryFactories(const void *country, FactorySnapshot *snapshots,
                                  size_t snapshot_capacity, uint32_t *snapshot_count,
-                                 uint32_t *flags);
+                                 FactoryInputSnapshot *inputs, size_t input_capacity,
+                                 uint32_t *input_count, uint32_t groups, uint32_t *flags);
+    bool CollectWorldMarket(const void *game_state, WorldMarketSnapshot *snapshots,
+                            size_t snapshot_capacity, uint32_t *snapshot_count);
 }

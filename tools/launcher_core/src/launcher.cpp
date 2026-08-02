@@ -611,7 +611,11 @@ namespace smedley::launcher
             if (rule.family == "country.diplomacy") return field == "status" || field == "relations";
             if (rule.family == "state.factory") {
                 return field == "identity" || field == "employment"
-                    || field == "production" || field == "finance";
+                    || field == "production" || field == "finance" || field == "inputs";
+            }
+            if (rule.family == "world.market") {
+                return field == "price" || field == "supply"
+                    || field == "demand" || field == "sales";
             }
             if (rule.family == "world.military") return field == "ongoing_war_count_candidate";
             if (rule.family == "province.daily") {
@@ -703,6 +707,7 @@ namespace smedley::launcher
                     && rule.family != "country.daily" && rule.family != "country.metrics"
                     && rule.family != "country.military" && rule.family != "country.diplomacy"
                     && rule.family != "state.factory"
+                    && rule.family != "world.market"
                     && rule.family != "province.daily" && rule.family != "province.production"
                     && rule.family != "pop.economy"
                     && rule.family != "pop.demographics" && rule.family != "pop.aggregate") {

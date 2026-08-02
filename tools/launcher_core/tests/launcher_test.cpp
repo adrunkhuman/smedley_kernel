@@ -491,7 +491,8 @@ TEST_F(LauncherCoreTest, ValidatesTelemetryPluginAndBuildsPerRunTraceCommand)
         {"world.daily", "yearly", {"country_slot_count"}, {}, {}, std::nullopt, std::nullopt},
         {"country.daily", "daily", {"treasury_raw"}, {"ENG"}, {}, 3, 9},
         {"country.metrics", "monthly", {"power", "politics"}, {"PRU"}, {}, std::nullopt, std::nullopt},
-        {"state.factory", "daily", {"identity", "employment", "production", "finance"}, {"PRU"}, {}, std::nullopt, std::nullopt},
+        {"state.factory", "daily", {"identity", "employment", "production", "finance", "inputs"}, {"PRU"}, {}, std::nullopt, std::nullopt},
+        {"world.market", "daily", {"price", "supply", "demand", "sales"}, {}, {}, std::nullopt, std::nullopt},
     };
     const auto plan = launcher::BuildLaunchPlan(profile);
 
@@ -506,7 +507,8 @@ TEST_F(LauncherCoreTest, ValidatesTelemetryPluginAndBuildsPerRunTraceCommand)
     EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=world.daily|yearly|country_slot_count||||"), std::wstring::npos);
     EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=country.daily|daily|treasury_raw|ENG||3|9"), std::wstring::npos);
     EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=country.metrics|monthly|power,politics|PRU|||"), std::wstring::npos);
-    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=state.factory|daily|identity,employment,production,finance|PRU|||"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=state.factory|daily|identity,employment,production,finance,inputs|PRU|||"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=world.market|daily|price,supply,demand,sales||||"), std::wstring::npos);
 
     auto lifecycle_only = profile;
     lifecycle_only.telemetry_categories = {"lifecycle"};

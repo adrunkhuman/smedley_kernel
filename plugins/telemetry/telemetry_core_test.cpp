@@ -477,11 +477,25 @@ TEST(TelemetryConfigTest, AcceptsStateFactoryGroups)
         L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
         L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
         L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
-        L"-smedley-telemetry-capture=state.factory|daily|identity,employment,production,finance|PRU|||"},
+        L"-smedley-telemetry-capture=state.factory|daily|identity,employment,production,finance,inputs|PRU|||"},
         &config, &error)) << error;
     ASSERT_EQ(config.capture_rules.size(), 1u);
     EXPECT_EQ(config.capture_rules[0].family, "state.factory");
     EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"PRU"}));
+}
+
+TEST(TelemetryConfigTest, AcceptsWorldMarketGroups)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=world.market|daily|price,supply,demand,sales||||"},
+        &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "world.market");
 }
 
 TEST(EconomicCaptureTest, DetectsSignedAggregationOverflow)
