@@ -31,3 +31,16 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build -C ${{ matrix.configuration }} --output-on-failure
+
+  build-without-tests:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure Win32 build without tests
+        run: cmake -S . -B build -A Win32 -DBUILD_TESTING=OFF -DV2_GAME_DIR="${{ runner.temp }}\missing-victoria-2"
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
