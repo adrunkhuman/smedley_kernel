@@ -600,11 +600,37 @@ TEST(TelemetryConfigTest, AcceptsCountryScopedArtisanAndPopulationGroups)
         L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
         L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
         L"-smedley-telemetry-capture=pop.artisan|daily|identity,production,inputs,finance,flows,sales|FRA|||",
+        L"-smedley-telemetry-capture=pop.economy|daily|money_raw|FRA|||",
+        L"-smedley-telemetry-capture=pop.demographics|daily|size_candidate|FRA|||",
+        L"-smedley-telemetry-capture=pop.identity|daily|pop_type_tag_candidate,culture_tag_candidate,religion_tag_candidate|FRA|||",
+        L"-smedley-telemetry-capture=pop.needs|daily|life_satisfaction_candidate_raw,everyday_satisfaction_candidate_raw,luxury_satisfaction_candidate_raw|FRA|||",
+        L"-smedley-telemetry-capture=pop.lifecycle|daily|summary,appeared,disappeared,scope_changed|FRA|||",
         L"-smedley-telemetry-capture=pop.aggregate|daily|size_candidate|FRA|||"},
         &config, &error)) << error;
-    ASSERT_EQ(config.capture_rules.size(), 2u);
-    EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"FRA"}));
-    EXPECT_EQ(config.capture_rules[1].country_tags, (std::vector<std::string>{"FRA"}));
+    ASSERT_EQ(config.capture_rules.size(), 7u);
+    for (const auto &rule : config.capture_rules) {
+        EXPECT_EQ(rule.country_tags, (std::vector<std::string>{"FRA"}));
+    }
+}
+
+TEST(TelemetryConfigTest, RejectsNondailyPopLifecycleCapture)
+{
+    telemetry::Config config;
+    std::string error;
+    EXPECT_FALSE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=pop.lifecycle|monthly|summary||||"}, &config, &error));
+    EXPECT_EQ(error, "POP lifecycle capture requires daily cadence");
+}
+
+TEST(TelemetryConfigTest, RequiresPopulationOwnerOnlyForCountryFiltersAndArtisans)
+{
+    EXPECT_FALSE(telemetry::PopulationOwnerRequired("pop.economy", 0));
+    EXPECT_FALSE(telemetry::PopulationOwnerRequired("pop.demographics", 0));
+    EXPECT_TRUE(telemetry::PopulationOwnerRequired("pop.economy", 1));
+    EXPECT_TRUE(telemetry::PopulationOwnerRequired("pop.artisan", 0));
 }
 
 TEST(EconomicCaptureTest, DetectsSignedAggregationOverflow)

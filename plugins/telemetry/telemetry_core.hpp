@@ -137,6 +137,7 @@ namespace smedley::telemetry
     bool HasCountryTag(const Config &config, std::string_view tag);
     bool IsDateInRange(const Config &config, std::optional<int> date);
     bool IsDateInRange(const CaptureRule &rule, int date);
+    bool PopulationOwnerRequired(std::string_view family, size_t country_filter_count);
     bool ParseCaptureRule(std::wstring_view value, CaptureRule *rule, std::string *error);
     std::string CaptureCadenceName(CaptureCadence cadence);
     std::optional<CalendarDate> DecodeClausewitzDate(int raw_date);

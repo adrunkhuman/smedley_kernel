@@ -2260,6 +2260,319 @@ namespace smedley::trace
         return Publish(&destination, error);
     }
 
+    bool ExportPopStockLifecycleCsv(const fs::path &input, const fs::path &output,
+                                    const std::string &country, bool overwrite,
+                                    std::string *error, std::string *warning)
+    {
+        fs::path input_path, output_path;
+        if (!AbsolutePath(input, &input_path, error) || !AbsolutePath(output, &output_path, error)) return false;
+        if (!country.empty() && !IsTag(country)) {
+            *error = "pop-stock-lifecycle country filter must be a normalized tag";
+            return false;
+        }
+        struct StockRow {
+            uint64_t sequence = 0;
+            std::string country;
+            int64_t province = -1, type = -1, count = -1, size = -1, employed = -1;
+            std::string quality;
+        };
+        struct LifecycleRow {
+            uint64_t sequence = 0;
+            std::string kind, country, previous_country, current_country;
+            int64_t pop_id = -1, province = -1, type = -1, size = -1;
+            int64_t previous_province = -1, previous_type = -1, current_province = -1, current_type = -1;
+            std::string quality;
+        };
+        struct LifecycleSummaryRow {
+            uint64_t sequence = 0;
+            bool seen = false, opening_seen = false, complete = false;
+            int64_t opening = -1, closing = -1, appeared = -1, disappeared = -1, scope_changed = -1, unchanged = -1;
+            std::string quality;
+        };
+        std::vector<StockRow> stocks;
+        std::vector<LifecycleRow> lifecycle;
+        std::set<std::tuple<std::string, int64_t>> lifecycle_keys;
+        LifecycleSummaryRow lifecycle_summary;
+        std::optional<int> active_date;
+        std::optional<int> previous_date;
+        std::optional<int64_t> previous_closing;
+        std::map<std::string, CaptureRuleMetadata> capture_metadata;
+        std::map<std::string, int64_t> family_polls;
+        std::set<std::string> family_health;
+        uint64_t terminal_health_sequence = 0;
+        size_t date_count = 0, output_rows = 0;
+        Summary summary;
+        Output destination;
+        if (!StartOutput(input_path, output_path, L".csv", overwrite, &destination, error)) return false;
+        if (!Write(&destination,
+                "run_id,sequence,game_date_raw,record_kind,country_tag,province_id_candidate,"
+                "pop_type_id_candidate,pop_id,pop_count,size_candidate,employed_candidate,opening_seen,"
+                "opening_pop_count,closing_pop_count,observed_appeared_count,observed_disappeared_count,"
+                "scope_changed_count,unchanged_count,complete,previous_country_tag_candidate,"
+                "previous_province_id_candidate,previous_pop_type_id_candidate,current_country_tag_candidate,"
+                "current_province_id_candidate,current_pop_type_id_candidate,quality\r\n", error)) return false;
+        const auto number = [](int64_t value) { return value < 0 ? std::string{} : std::to_string(value); };
+        const auto flush = [&](std::string *flush_error) {
+            if (!active_date) return true;
+            if (previous_date && (*previous_date > (std::numeric_limits<int>::max)() - 24
+                || *previous_date + 24 != *active_date)) {
+                *flush_error = "POP stock/lifecycle observations are not consecutive daily snapshots";
+                return false;
+            }
+            if (stocks.empty() || !lifecycle_summary.seen) {
+                *flush_error = "POP stock and lifecycle dates are incomplete";
+                return false;
+            }
+            int64_t stock_count = 0;
+            for (const auto &row : stocks) {
+                if (row.count > (std::numeric_limits<int64_t>::max)() - stock_count) {
+                    *flush_error = "POP stock count overflow";
+                    return false;
+                }
+                stock_count += row.count;
+            }
+            if (stock_count != lifecycle_summary.closing) {
+                *flush_error = "POP aggregate stock does not equal lifecycle closing stock";
+                return false;
+            }
+            size_t appeared = 0, disappeared = 0, changed = 0;
+            for (const auto &row : lifecycle) {
+                if (row.kind == "lifecycle.appeared") ++appeared;
+                else if (row.kind == "lifecycle.disappeared") ++disappeared;
+                else ++changed;
+            }
+            if (!lifecycle_summary.opening_seen) {
+                if (previous_closing || lifecycle_summary.complete || lifecycle_summary.opening != 0
+                    || lifecycle_summary.appeared != 0 || lifecycle_summary.disappeared != 0
+                    || lifecycle_summary.scope_changed != 0 || lifecycle_summary.unchanged != 0
+                    || !lifecycle.empty()) {
+                    *flush_error = "POP lifecycle warm-up is inconsistent";
+                    return false;
+                }
+            } else {
+                const auto checked_sum = [&](int64_t left, int64_t right, int64_t *result) {
+                    if (right > (std::numeric_limits<int64_t>::max)() - left) return false;
+                    *result = left + right;
+                    return true;
+                };
+                int64_t surviving = 0, opening_partition = 0, closing_partition = 0;
+                if (!previous_closing || !lifecycle_summary.complete
+                    || lifecycle_summary.opening != *previous_closing
+                    || lifecycle_summary.appeared != static_cast<int64_t>(appeared)
+                    || lifecycle_summary.disappeared != static_cast<int64_t>(disappeared)
+                    || lifecycle_summary.scope_changed != static_cast<int64_t>(changed)
+                    || !checked_sum(lifecycle_summary.unchanged, lifecycle_summary.scope_changed, &surviving)
+                    || !checked_sum(surviving, lifecycle_summary.disappeared, &opening_partition)
+                    || !checked_sum(surviving, lifecycle_summary.appeared, &closing_partition)
+                    || opening_partition != lifecycle_summary.opening
+                    || closing_partition != lifecycle_summary.closing) {
+                    *flush_error = "POP lifecycle summary does not reconcile with stock and detail records";
+                    return false;
+                }
+            }
+            for (const auto &row : stocks) {
+                if (!country.empty() && row.country != country) continue;
+                const std::string line = CsvText(summary.run_id) + ',' + std::to_string(row.sequence) + ','
+                    + std::to_string(*active_date) + ",\"stock\"," + CsvText(row.country) + ','
+                    + std::to_string(row.province) + ',' + std::to_string(row.type) + ",,"
+                    + std::to_string(row.count) + ',' + std::to_string(row.size) + ','
+                    + std::to_string(row.employed) + ",,,,,,,,,,,,,,," + CsvText(row.quality) + "\r\n";
+                if (!Write(&destination, line, flush_error)) return false;
+                ++output_rows;
+            }
+            const std::string summary_line = CsvText(summary.run_id) + ','
+                + std::to_string(lifecycle_summary.sequence) + ',' + std::to_string(*active_date)
+                + ",\"lifecycle.summary\",,,,,,,,"
+                + (lifecycle_summary.opening_seen ? "true" : "false") + ','
+                + std::to_string(lifecycle_summary.opening) + ',' + std::to_string(lifecycle_summary.closing) + ','
+                + std::to_string(lifecycle_summary.appeared) + ',' + std::to_string(lifecycle_summary.disappeared) + ','
+                + std::to_string(lifecycle_summary.scope_changed) + ',' + std::to_string(lifecycle_summary.unchanged) + ','
+                + (lifecycle_summary.complete ? "true" : "false") + ",,,,,,,"
+                + CsvText(lifecycle_summary.quality) + "\r\n";
+            if (!Write(&destination, summary_line, flush_error)) return false;
+            ++output_rows;
+            for (const auto &row : lifecycle) {
+                const bool selected = country.empty() || row.country == country
+                    || row.previous_country == country || row.current_country == country;
+                if (!selected) continue;
+                const std::string line = CsvText(summary.run_id) + ',' + std::to_string(row.sequence) + ','
+                    + std::to_string(*active_date) + ',' + CsvText(row.kind) + ',' + CsvText(row.country) + ','
+                    + number(row.province) + ',' + number(row.type) + ',' + std::to_string(row.pop_id) + ",,"
+                    + number(row.size) + ",,,,,,,,,," + CsvText(row.previous_country) + ','
+                    + number(row.previous_province) + ',' + number(row.previous_type) + ','
+                    + CsvText(row.current_country) + ',' + number(row.current_province) + ','
+                    + number(row.current_type) + ',' + CsvText(row.quality) + "\r\n";
+                if (!Write(&destination, line, flush_error)) return false;
+                ++output_rows;
+            }
+            previous_closing = lifecycle_summary.closing;
+            previous_date = *active_date;
+            ++date_count;
+            stocks.clear();
+            lifecycle.clear();
+            lifecycle_keys.clear();
+            lifecycle_summary = {};
+            return true;
+        };
+        if (!Stream(input_path, &summary, [&](const Record &record, std::string *visitor_error) {
+            if (record.event == "telemetry.capture.rule" || record.event == "telemetry.capture.field"
+                || record.event == "telemetry.capture.country") {
+                return CaptureGdpMetadata(record, &capture_metadata, visitor_error);
+            }
+            if (record.event == "telemetry.family.summary") {
+                const auto *family = Entity(record, "family");
+                if (family == nullptr || family->kind != JsonKind::String
+                    || (family->text != "pop.aggregate" && family->text != "pop.lifecycle")) return true;
+                int64_t dropped = -1, invalid = -1, polls_due = -1;
+                if (record.category != "lifecycle" || record.mapping_id != "v2game-3.04"
+                    || record.quality != "verified-current" || record.game_date_raw
+                    || !IntegerField(record, "dropped", &dropped) || dropped != 0
+                    || !IntegerField(record, "invalid", &invalid) || invalid != 0
+                    || !IntegerField(record, "polls_due", &polls_due) || polls_due < 0
+                    || !family_health.insert(family->text).second) {
+                    *visitor_error = "POP stock/lifecycle family health is missing, duplicated, or unhealthy";
+                    return false;
+                }
+                family_polls[family->text] = polls_due;
+                return true;
+            }
+            if (record.event == "telemetry.summary") {
+                return CaptureTerminalHealth(record, &terminal_health_sequence, visitor_error);
+            }
+            const bool stock_event = record.event == "pop.aggregate";
+            const bool lifecycle_event = record.event.rfind("pop.lifecycle.", 0) == 0;
+            if (!stock_event && !lifecycle_event) return true;
+            if (record.category != "state" || record.mapping_id != "v2game-3.04"
+                || record.quality != "provisional" || !record.game_date_raw) {
+                *visitor_error = record.event + " has an unsupported envelope";
+                return false;
+            }
+            if (active_date && *active_date != *record.game_date_raw && !flush(visitor_error)) return false;
+            active_date = *record.game_date_raw;
+            if (stock_event) {
+                StockRow row;
+                row.sequence = record.sequence;
+                row.quality = record.quality;
+                if (!CountryEntity(record, &row.country, visitor_error)
+                    || !IntegerEntity(record, "province_id_candidate", &row.province) || row.province < 0
+                    || !IntegerEntity(record, "pop_type_id_candidate", &row.type) || row.type < 0
+                    || !IntegerField(record, "pop_count", &row.count) || row.count < 0
+                    || !IntegerField(record, "size_candidate", &row.size) || row.size < 0
+                    || !IntegerField(record, "employed_candidate", &row.employed) || row.employed < 0) {
+                    *visitor_error = "pop.aggregate has an invalid stock schema";
+                    return false;
+                }
+                if (std::any_of(stocks.begin(), stocks.end(), [&](const StockRow &candidate) {
+                        return candidate.country == row.country && candidate.province == row.province
+                            && candidate.type == row.type;
+                    })) {
+                    *visitor_error = "duplicate POP aggregate stock identity";
+                    return false;
+                }
+                stocks.push_back(std::move(row));
+                return true;
+            }
+            if (record.event == "pop.lifecycle.summary") {
+                if (lifecycle_summary.seen
+                    || !BooleanField(record, "opening_seen", &lifecycle_summary.opening_seen)
+                    || !IntegerField(record, "opening_pop_count", &lifecycle_summary.opening)
+                    || !IntegerField(record, "closing_pop_count", &lifecycle_summary.closing)
+                    || !IntegerField(record, "observed_appeared_count", &lifecycle_summary.appeared)
+                    || !IntegerField(record, "observed_disappeared_count", &lifecycle_summary.disappeared)
+                    || !IntegerField(record, "scope_changed_count", &lifecycle_summary.scope_changed)
+                    || !IntegerField(record, "unchanged_count", &lifecycle_summary.unchanged)
+                    || !BooleanField(record, "complete", &lifecycle_summary.complete)
+                    || lifecycle_summary.opening < 0 || lifecycle_summary.closing < 0
+                    || lifecycle_summary.appeared < 0 || lifecycle_summary.disappeared < 0
+                    || lifecycle_summary.scope_changed < 0 || lifecycle_summary.unchanged < 0) {
+                    *visitor_error = "pop.lifecycle.summary is malformed or duplicated";
+                    return false;
+                }
+                lifecycle_summary.seen = true;
+                lifecycle_summary.sequence = record.sequence;
+                lifecycle_summary.quality = record.quality;
+                return true;
+            }
+            LifecycleRow row;
+            row.sequence = record.sequence;
+            row.quality = record.quality;
+            if (!IntegerEntity(record, "pop_id", &row.pop_id) || row.pop_id < 0) {
+                *visitor_error = record.event + " has an invalid POP identity";
+                return false;
+            }
+            if (record.event == "pop.lifecycle.scope_changed") {
+                const auto *previous_country = Field(record, "previous_country_tag_candidate");
+                const auto *current_country = Field(record, "current_country_tag_candidate");
+                row.kind = "lifecycle.scope_changed";
+                if (previous_country == nullptr || previous_country->kind != JsonKind::String || !IsTag(previous_country->text)
+                    || current_country == nullptr || current_country->kind != JsonKind::String || !IsTag(current_country->text)
+                    || !IntegerField(record, "previous_province_id_candidate", &row.previous_province)
+                    || !IntegerField(record, "previous_pop_type_id_candidate", &row.previous_type)
+                    || !IntegerField(record, "current_province_id_candidate", &row.current_province)
+                    || !IntegerField(record, "current_pop_type_id_candidate", &row.current_type)
+                    || row.previous_province < 0 || row.previous_type < 0 || row.current_province < 0 || row.current_type < 0) {
+                    *visitor_error = "pop.lifecycle.scope_changed is malformed";
+                    return false;
+                }
+                row.previous_country = previous_country->text;
+                row.current_country = current_country->text;
+            } else if (record.event == "pop.lifecycle.observed_appeared"
+                || record.event == "pop.lifecycle.observed_disappeared") {
+                const auto *tag = Entity(record, "country_tag_candidate");
+                row.kind = record.event == "pop.lifecycle.observed_appeared"
+                    ? "lifecycle.appeared" : "lifecycle.disappeared";
+                if (tag == nullptr || tag->kind != JsonKind::String || !IsTag(tag->text)
+                    || !IntegerEntity(record, "province_id_candidate", &row.province) || row.province < 0
+                    || !IntegerEntity(record, "pop_type_id_candidate", &row.type) || row.type < 0
+                    || !IntegerField(record, "size_candidate", &row.size) || row.size < 0) {
+                    *visitor_error = record.event + " is malformed";
+                    return false;
+                }
+                row.country = tag->text;
+            } else {
+                *visitor_error = "unsupported POP lifecycle event";
+                return false;
+            }
+            if (!lifecycle_keys.emplace(row.kind, row.pop_id).second) {
+                *visitor_error = "duplicate POP lifecycle detail identity";
+                return false;
+            }
+            lifecycle.push_back(std::move(row));
+            return true;
+        }, error) || !flush(error)) return false;
+        if (!summary.warning.empty() || summary.gaps != 0 || summary.date_regressed) {
+            *error = "POP stock/lifecycle export requires a complete trace without sequence or date gaps";
+            return false;
+        }
+        if (family_health != std::set<std::string>{"pop.aggregate", "pop.lifecycle"}
+            || terminal_health_sequence == 0 || !summary.last_sequence
+            || terminal_health_sequence != *summary.last_sequence) {
+            *error = "POP stock/lifecycle export requires terminal family and writer health summaries";
+            return false;
+        }
+        const auto aggregate = capture_metadata.find("pop.aggregate");
+        const auto lifecycle_contract = capture_metadata.find("pop.lifecycle");
+        const auto has_fields = [](const CaptureRuleMetadata &rule, const std::set<std::string> &required) {
+            return rule.all_fields || std::includes(rule.fields.begin(), rule.fields.end(), required.begin(), required.end());
+        };
+        if (aggregate == capture_metadata.end() || lifecycle_contract == capture_metadata.end()
+            || !aggregate->second.seen || !lifecycle_contract->second.seen
+            || aggregate->second.cadence != "daily" || lifecycle_contract->second.cadence != "daily"
+            || aggregate->second.bounded_dates || lifecycle_contract->second.bounded_dates
+            || aggregate->second.country_filter_count != 0 || aggregate->second.province_filter_count != 0
+            || lifecycle_contract->second.country_filter_count != 0 || lifecycle_contract->second.province_filter_count != 0
+            || !has_fields(aggregate->second, {"employed_candidate", "pop_count", "size_candidate"})
+            || !has_fields(lifecycle_contract->second, {"appeared", "disappeared", "scope_changed", "summary"})
+            || family_polls["pop.aggregate"] != static_cast<int64_t>(date_count)
+            || family_polls["pop.lifecycle"] != static_cast<int64_t>(date_count)) {
+            *error = "POP stock/lifecycle export requires complete unfiltered daily capture metadata";
+            return false;
+        }
+        if (output_rows == 0) { *error = "trace contains no complete POP stock/lifecycle observations"; return false; }
+        if (warning) *warning = summary.warning;
+        return Publish(&destination, error);
+    }
+
     bool ExportCountryGdpCsv(const fs::path &input, const fs::path &output,
                              const std::string &country, std::optional<int> base_date,
                              std::optional<double> gold_to_cash_rate, bool overwrite,

@@ -597,11 +597,38 @@ establish a general infrastructure-to-building-level conversion.
 
 `pop.economy` reuses the runtime-verified POP money `+0x180`, savings `+0x250`,
 interest cash flow `+0x210`, and total cash flow `+0x218` fields. The bounded POP
-walk also reads provisional size `+0x58`, employed count `+0x60`, province pointer
+walk also reads engine POP ID `+0x0c`, provisional size `+0x58`, employed count `+0x60`, province pointer
 `+0x64`, type pointer `+0x68`, consciousness `+0x118`, militancy `+0x120`, and
 literacy `+0x128`. Candidate IDs come from province `+0x58` and POP type `+0x28`.
 The three rate candidates use the same 48.15 fixed-point scale as other mapped
 game values.
+
+Save-correlated runtime scan `952f4ca8-fbfc-4859-8ce6-b18995f30431` selected
+POP ID 18,563 from the unchanged `benchmark.v2`. Memory values at `CPop+0x130`,
+`+0x138`, and `+0x140` were respectively 32,768, 24,672, and 30. The source save
+records `everyday_needs=0.75293` and `luxury_needs=0.00092`; 24,672 / 32,768 is
+0.7529296875 and 30 / 32,768 is 0.0009155273. The omitted/default life-needs
+value correlates with full satisfaction 32,768. `pop.needs` exposes these three
+bounded values as provisional satisfaction candidates, not goods demand or
+spending. The temporary broad layout emission used to locate them is not part
+of the plugin.
+
+Static constructor evidence at RVAs `0x00554a40` and `0x00554f40` identifies
+`CPop+0x6c` as `CCulture*` and `CPop+0x70` as the religion object. Their
+normalized definition keys are stored at `CCulture+0x18` and religion `+0x10`;
+the latter is distinct from the additional serialized religion string at
+`+0x2c`. Clean runtime run `a54302ac-af7a-470d-8c6f-f457b8e14d2b` read POP ID 18,563
+as type `clergymen`, culture `polish`, religion `catholic`, exactly matching the
+unchanged `benchmark.v2` save. It emitted 449 PRU identity records with zero
+family-invalid records, sequence gaps, drops, or writer failures.
+
+A complete line-oriented audit of that save found 23,429 POP records and 23,429
+unique serialized IDs. Province + type + culture + religion produced only
+22,610 distinct keys: 329 keys were duplicated, all for artisans. Adding the
+artisan production type still left 126 duplicated keys. Therefore `pop_id` is
+the only mapped individual in-process identity. Type/culture/religion are valid
+cohort dimensions, but no combination of those mapped dimensions is claimed as
+a universal individual POP key.
 
 Vanilla one-day run `4f40b617-b56a-4478-81b1-9e35b1d90b4e` loaded the unchanged
 `benchmark.v2` and selected province 549. Each of `pop.economy` and
@@ -610,12 +637,14 @@ records. The first Berlin POP reported size 4,275, consciousness raw 98,337,
 literacy raw 22,938, and militancy zero. These correlate with the save's size
 4,275, consciousness 3.00101, literacy 0.70001, and militancy zero after dividing
 the rate candidates by 32,768. Candidate POP-type IDs 1 and 2 correlated with
-the save's aristocrat and artisan groups in this probe, but names and durable
-per-POP identities remain unmapped.
+the save's aristocrat and artisan groups in this probe. The same `pop_id` field
+now identifies individual economy, demographic, artisan, and cash-flow records.
+It remains an in-process engine identity: behavior across promotion, demotion,
+split, merge, deletion, save/reload, and ID reuse is not yet established.
 
 `pop.aggregate` groups the same bounded snapshot by candidate province and
-POP-type IDs. Its sums are observational and deliberately omit culture and
-religion until stable identifiers for those dimensions are mapped.
+POP-type IDs. Its sums are observational and deliberately aggregate across
+culture and religion; `pop.identity` exposes those normalized keys separately.
 
 Run `3ac4d510-7dbe-45af-9701-1902379785df` enabled all three POP families for
 Berlin on the same date. It accepted 23 economy records, 23 demographic records,
@@ -623,6 +652,48 @@ and 10 province/type aggregates with no drops or invalid records. The initial
 bounded copy took 90,224 microseconds; the other two rules reused it and reported
 zero additional snapshot collection time. Type 2 grouped nine POPs with total
 size 60,020; types 7 and 8 grouped four and three POPs respectively.
+
+Three-day PRU run `081308fc-fdd5-4bf4-ba62-913b60da54f8` replaced the former
+snapshot-local individual index with engine `pop_id` and exercised country-only
+filters for both individual families. It emitted 1,348 economy, 1,348
+demographic, and 709 aggregate records with zero gaps, drops, writer failures,
+or family invalid records. Every economy date/ID key had one matching
+demographic key. The first two dates each had 449 unique IDs; the third had 450.
+The original 449 appeared on all three dates, establishing consecutive-observation
+stability but not yet the semantics of the newly appearing ID or any lifecycle
+transition.
+
+Three-day lifecycle run `39d37341-e686-4094-bb8a-e24ba5f104d7` reconciled the
+complete 19,996-POP world stock while filtering detail records to PRU. After the
+warm-up date, consecutive observations reported `+40/-6` and `+43/-6`; PRU
+detail included observed appearance of POP ID 27,654. All 3,453 trace records
+were valid, with zero sequence gaps, drops, writer failures, or lifecycle-family
+invalid records. These remain observed stock changes, not classified births,
+deaths, migrations, promotions, splits, or merges.
+
+Targeted 17-day run `719679d6-4d1a-439d-937b-b8104c3164e3` established one
+migration-like identity correlation. FRA POP `27606` was French, Catholic, craftsmen,
+type candidate 7, size 65, and remained in province 412 through raw date
+59883744. On 59883768 it disappeared while POP `28227` appeared in province
+420 with the exact same type, culture, religion, and size. On 59883792 that ID
+disappeared while POP `28266` appeared in province 458 with the same complete
+cohort identity and size. Thus these location transitions replaced `pop_id`
+rather than retaining it as a `scope_changed` event; both moves conserved all
+65 observed people exactly. The native migration mutation boundary was not
+instrumented, so this evidence does not classify every matched pair as migration.
+
+The run completed its exact target with 200,010 records, zero sequence gaps,
+drops, family-invalid records, or writer failure. The strict POP stock/lifecycle
+export accepted all 17 daily stocks and reconciliations. The source save retained
+SHA-256 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
+One-day needs run `dc0c5f46-abab-4c00-8143-7cdc32712c99` emitted 449 PRU
+`pop.needs` records and the lifecycle warm-up summary. The complete 1,632-record
+trace had zero sequence gaps, drops, writer failures, or family invalid records;
+all emitted satisfaction candidates remained within zero through 32,768. The
+temporary broad layout event was absent. Needs reads use a separate bounded
+reader, so rejection of a provisional value does not invalidate the shared POP
+snapshot used by established families.
 
 ## POP cash-flow accounting
 

@@ -1,4 +1,4 @@
-#include "economic_state.hpp"
+#include "../game_state/readers.hpp"
 
 #include <smedley/events/dailyinterest.hpp>
 #include <smedley/memory.hpp>
@@ -15,6 +15,8 @@
 
 namespace interest_bug_fix
 {
+    using namespace smedley::game_state;
+
     namespace
     {
         constexpr int64_t fixture_amount = 1000;
@@ -106,7 +108,7 @@ namespace interest_bug_fix
             const auto *game_state = smedley::v2::CCurrentGameState::instance();
             if (game_state == nullptr) return;
             const void *pop = nullptr;
-            Sample sample = CollectSample(event.GetCountry(), game_state->current_date_raw(),
+            CountryEconomySnapshot sample = ReadCountryEconomy(event.GetCountry(), game_state->current_date_raw(),
                 ResolveCountry, ResolveProvince, game_state, &pop);
             if (pop == nullptr && sample.flags == 0) return;
 

@@ -3,7 +3,7 @@
 #include <array>
 #include <cstdint>
 
-namespace interest_bug_fix
+namespace smedley::game_state
 {
     constexpr uint32_t max_sample_creditor_destinations = 64;
     constexpr uint32_t max_sample_destination_provinces = 4096;
@@ -11,7 +11,7 @@ namespace interest_bug_fix
     constexpr uint32_t max_sample_factories = 4096;
     constexpr uint32_t max_sample_factory_inputs = 16384;
 
-    enum SampleFlag : uint32_t
+    enum CountryEconomySnapshotFlag : uint32_t
     {
         SAMPLE_COUNTRY_UNREADABLE = 1u << 0,
         SAMPLE_STATE_LIST_INVALID = 1u << 1,
@@ -34,10 +34,9 @@ namespace interest_bug_fix
         SAMPLE_POP_LIMIT = 1u << 20,
         SAMPLE_DUPLICATE_PROVINCE = 1u << 21,
         SAMPLE_DUPLICATE_POP = 1u << 22,
-        SAMPLE_DESTINATION_TRANSFER_INVALID = 1u << 24,
     };
 
-    struct Sample
+    struct CountryEconomySnapshot
     {
         int32_t date_raw = 0;
         char country_tag[4]{};
@@ -72,9 +71,6 @@ namespace interest_bug_fix
         std::array<uint32_t, max_sample_creditor_destinations> destination_keys{};
         std::array<int32_t, max_sample_creditor_destinations> destination_ordinals{};
         std::array<int64_t, max_sample_creditor_destinations> destination_bank_interests_raw{};
-        std::array<int64_t, max_sample_creditor_destinations> destination_transfers_raw{};
-        uint32_t destination_transfer_count = 0;
-        int64_t destination_transfer_raw = 0;
         uint32_t flags = 0;
     };
 
@@ -103,6 +99,20 @@ namespace interest_bug_fix
         int64_t militancy_candidate_raw = 0;
         int64_t literacy_candidate_raw = 0;
         PopMoneySnapshot economy;
+    };
+
+    struct PopNeedsSnapshot
+    {
+        int64_t life_satisfaction_candidate_raw = 0;
+        int64_t everyday_satisfaction_candidate_raw = 0;
+        int64_t luxury_satisfaction_candidate_raw = 0;
+    };
+
+    struct PopIdentityDimensions
+    {
+        char pop_type_tag_candidate[64]{};
+        char culture_tag_candidate[64]{};
+        char religion_tag_candidate[64]{};
     };
 
     struct ArtisanSnapshot
@@ -278,30 +288,32 @@ namespace interest_bug_fix
     using CountryResolver = const void *(*)(const void *context, int32_t ordinal);
     using ProvinceResolver = const void *(*)(const void *context, int32_t id);
 
-    Sample CollectSample(const void *country, int32_t date_raw,
-                         CountryResolver country_resolver = nullptr, ProvinceResolver province_resolver = nullptr,
-                         const void *resolver_context = nullptr, const void **immediate_pop = nullptr);
-    Sample CollectInterestSample(const void *country, int32_t date_raw,
-                                 CountryResolver country_resolver, const void *resolver_context);
-    Sample CollectInterestAfter(const Sample &before, const void *country, int32_t date_raw,
-                                CountryResolver country_resolver, const void *resolver_context);
-    bool ComputeDestinationTransfers(const Sample &before, Sample *after);
-    bool TreasuryLossCoversTransfer(int64_t before_treasury, int64_t after_treasury, int64_t transfer);
-    bool ComputeTreasuryResidual(int64_t before_treasury, int64_t after_treasury,
-                                 int64_t transfer, int64_t *residual);
+    CountryEconomySnapshot ReadCountryEconomy(const void *country, int32_t date_raw,
+                                              CountryResolver country_resolver = nullptr,
+                                              ProvinceResolver province_resolver = nullptr,
+                                              const void *resolver_context = nullptr,
+                                              const void **immediate_pop = nullptr);
+    CountryEconomySnapshot ReadCountryCreditors(const void *country, int32_t date_raw,
+                                                CountryResolver country_resolver,
+                                                const void *resolver_context);
+    CountryEconomySnapshot ReadCountryCreditorBalances(const CountryEconomySnapshot &before,
+                                                        const void *country, int32_t date_raw,
+                                                        CountryResolver country_resolver,
+                                                        const void *resolver_context);
     bool CollectCountryPops(const void *country, int32_t date_raw,
                             ProvinceResolver province_resolver, const void *resolver_context,
                             PopCandidate *candidates, size_t candidate_capacity,
                             uint32_t province_attempt_capacity, uint32_t *candidate_count,
-                            Sample *quality);
+                             CountryEconomySnapshot *quality);
     bool ReadPopMoneySnapshot(const void *pop, PopMoneySnapshot *snapshot);
     bool ReadPopDetailSnapshot(const void *pop, PopDetailSnapshot *snapshot);
+    bool ReadPopIdentityDimensions(const void *pop, PopIdentityDimensions *identity);
+    bool ReadPopNeedsSnapshot(const void *pop, PopNeedsSnapshot *snapshot);
     bool ReadArtisanSnapshot(const void *pop, ArtisanSnapshot *snapshot,
                              ArtisanInputSnapshot *inputs, size_t input_capacity, uint32_t *input_count,
                              uint32_t groups = ARTISAN_ALL, ArtisanReadFailure *failure = nullptr);
     const char *ArtisanReadFailureName(ArtisanReadFailureReason reason);
     bool ReadInactiveArtisan(const void *pop, int32_t *pop_id);
-    bool CanWritePopMoney(const void *pop);
     bool CollectCountryFactories(const void *country, FactorySnapshot *snapshots,
                                  size_t snapshot_capacity, uint32_t *snapshot_count,
                                  FactoryInputSnapshot *inputs, size_t input_capacity,

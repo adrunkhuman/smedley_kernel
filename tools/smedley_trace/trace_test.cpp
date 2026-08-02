@@ -456,6 +456,116 @@ TEST_F(TraceTest, ExportsStrictPopCashFlowAccounts)
     EXPECT_NE(error.find("does not reconcile"), std::string::npos);
 }
 
+TEST_F(TraceTest, ExportsStrictPopStockAndLifecycle)
+{
+    const auto input = Path(L"pop-stock-lifecycle");
+    const auto output = Path(L"pop-stock-lifecycle", L".csv");
+    uint64_t sequence = 0;
+    std::string trace_text;
+    const auto append = [&](const std::string &line) { trace_text += line + '\n'; };
+    const auto capture = [&](const std::string &family, const std::vector<std::string> &fields) {
+        append(HealthLine(++sequence, "telemetry.capture.rule", "{\"family\":\"" + family + "\"}",
+            "{\"cadence\":\"daily\",\"all_fields\":false,\"country_filter_count\":0,"
+            "\"province_filter_count\":0,\"bounded_dates\":false}"));
+        for (const auto &field : fields) {
+            append(HealthLine(++sequence, "telemetry.capture.field",
+                "{\"family\":\"" + family + "\",\"field\":\"" + field + "\"}", "{}"));
+        }
+    };
+    capture("pop.aggregate", {"pop_count", "size_candidate", "employed_candidate"});
+    capture("pop.lifecycle", {"summary", "appeared", "disappeared", "scope_changed"});
+    append(StateLine(++sequence, 24, "pop.aggregate",
+        "{\"country_tag\":\"FRA\",\"province_id_candidate\":1,\"pop_type_id_candidate\":2}",
+        "{\"pop_count\":2,\"size_candidate\":100,\"employed_candidate\":80}"));
+    append(StateLine(++sequence, 24, "pop.aggregate",
+        "{\"country_tag\":\"BEL\",\"province_id_candidate\":2,\"pop_type_id_candidate\":3}",
+        "{\"pop_count\":1,\"size_candidate\":50,\"employed_candidate\":40}"));
+    append(StateLine(++sequence, 24, "pop.lifecycle.summary", "{}",
+        "{\"opening_seen\":false,\"opening_pop_count\":0,\"closing_pop_count\":3,"
+        "\"observed_appeared_count\":0,\"observed_disappeared_count\":0,"
+        "\"scope_changed_count\":0,\"unchanged_count\":0,\"complete\":false}"));
+    append(StateLine(++sequence, 48, "pop.aggregate",
+        "{\"country_tag\":\"FRA\",\"province_id_candidate\":1,\"pop_type_id_candidate\":2}",
+        "{\"pop_count\":2,\"size_candidate\":110,\"employed_candidate\":85}"));
+    append(StateLine(++sequence, 48, "pop.aggregate",
+        "{\"country_tag\":\"BEL\",\"province_id_candidate\":2,\"pop_type_id_candidate\":3}",
+        "{\"pop_count\":1,\"size_candidate\":45,\"employed_candidate\":38}"));
+    append(StateLine(++sequence, 48, "pop.lifecycle.summary", "{}",
+        "{\"opening_seen\":true,\"opening_pop_count\":3,\"closing_pop_count\":3,"
+        "\"observed_appeared_count\":1,\"observed_disappeared_count\":1,"
+        "\"scope_changed_count\":1,\"unchanged_count\":1,\"complete\":true}"));
+    append(StateLine(++sequence, 48, "pop.lifecycle.observed_appeared",
+        "{\"country_tag_candidate\":\"FRA\",\"province_id_candidate\":1,"
+        "\"pop_type_id_candidate\":2,\"pop_id\":11}", "{\"size_candidate\":10}"));
+    append(StateLine(++sequence, 48, "pop.lifecycle.observed_disappeared",
+        "{\"country_tag_candidate\":\"BEL\",\"province_id_candidate\":2,"
+        "\"pop_type_id_candidate\":3,\"pop_id\":9}", "{\"size_candidate\":5}"));
+    append(StateLine(++sequence, 48, "pop.lifecycle.scope_changed", "{\"pop_id\":7}",
+        "{\"previous_country_tag_candidate\":\"BEL\",\"previous_province_id_candidate\":2,"
+        "\"previous_pop_type_id_candidate\":3,\"current_country_tag_candidate\":\"FRA\","
+        "\"current_province_id_candidate\":1,\"current_pop_type_id_candidate\":2}"));
+    append(HealthLine(++sequence, "telemetry.family.summary", "{\"family\":\"pop.aggregate\"}",
+        "{\"polls_due\":2,\"dropped\":0,\"invalid\":0}"));
+    append(HealthLine(++sequence, "telemetry.family.summary", "{\"family\":\"pop.lifecycle\"}",
+        "{\"polls_due\":2,\"dropped\":0,\"invalid\":0}"));
+    append(HealthLine(++sequence, "telemetry.summary", "{}", "{\"dropped\":0,\"write_failed\":false}"));
+    Write(input, trace_text);
+
+    std::string error;
+    ASSERT_TRUE(trace::ExportPopStockLifecycleCsv(input, output, "FRA", false, &error)) << error;
+    std::ifstream csv(output, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(csv)), {});
+    EXPECT_NE(contents.find("\"stock\",\"FRA\",1,2,,2,100,80"), std::string::npos);
+    EXPECT_EQ(contents.find("\"stock\",\"BEL\""), std::string::npos);
+    EXPECT_NE(contents.find("\"lifecycle.summary\""), std::string::npos);
+    EXPECT_NE(contents.find("\"lifecycle.appeared\",\"FRA\",1,2,11"), std::string::npos);
+    EXPECT_NE(contents.find("\"lifecycle.scope_changed\""), std::string::npos);
+    EXPECT_NE(contents.find("\"BEL\",2,3,\"FRA\",1,2"), std::string::npos);
+
+    auto invalid = trace_text;
+    const auto complete = invalid.rfind("\"complete\":true");
+    ASSERT_NE(complete, std::string::npos);
+    invalid.replace(complete, std::string("\"complete\":true").size(), "\"complete\":false");
+    const auto invalid_trace = Path(L"pop-stock-lifecycle-invalid");
+    const auto invalid_output = Path(L"pop-stock-lifecycle-invalid", L".csv");
+    Write(invalid_trace, invalid);
+    EXPECT_FALSE(trace::ExportPopStockLifecycleCsv(invalid_trace, invalid_output, {}, false, &error));
+    EXPECT_NE(error.find("does not reconcile"), std::string::npos);
+    EXPECT_FALSE(fs::exists(invalid_output));
+
+    auto invalid_partition = trace_text;
+    const auto unchanged = invalid_partition.find("\"unchanged_count\":1");
+    ASSERT_NE(unchanged, std::string::npos);
+    invalid_partition.replace(unchanged, std::string("\"unchanged_count\":1").size(),
+        "\"unchanged_count\":0");
+    const auto invalid_partition_trace = Path(L"pop-stock-lifecycle-invalid-partition");
+    Write(invalid_partition_trace, invalid_partition);
+    EXPECT_FALSE(trace::ExportPopStockLifecycleCsv(invalid_partition_trace,
+        Path(L"pop-stock-lifecycle-invalid-partition", L".csv"), {}, false, &error));
+    EXPECT_NE(error.find("does not reconcile"), std::string::npos);
+
+    auto skipped_date = trace_text;
+    size_t date_position = 0;
+    while ((date_position = skipped_date.find("\"game_date_raw\":48", date_position)) != std::string::npos) {
+        skipped_date.replace(date_position, std::string("\"game_date_raw\":48").size(), "\"game_date_raw\":72");
+    }
+    const auto skipped_trace = Path(L"pop-stock-lifecycle-skipped");
+    Write(skipped_trace, skipped_date);
+    EXPECT_FALSE(trace::ExportPopStockLifecycleCsv(skipped_trace,
+        Path(L"pop-stock-lifecycle-skipped", L".csv"), {}, false, &error));
+    EXPECT_NE(error.find("not consecutive"), std::string::npos);
+
+    auto unhealthy = trace_text;
+    const auto dropped = unhealthy.rfind("\"dropped\":0");
+    ASSERT_NE(dropped, std::string::npos);
+    unhealthy.replace(dropped, std::string("\"dropped\":0").size(), "\"dropped\":1");
+    const auto unhealthy_trace = Path(L"pop-stock-lifecycle-unhealthy");
+    Write(unhealthy_trace, unhealthy);
+    EXPECT_FALSE(trace::ExportPopStockLifecycleCsv(unhealthy_trace,
+        Path(L"pop-stock-lifecycle-unhealthy", L".csv"), {}, false, &error));
+    EXPECT_NE(error.find("unhealthy"), std::string::npos);
+}
+
 TEST_F(TraceTest, ExportsStrictNominalRealAndPerCapitaCountryGdp)
 {
     const auto input = Path(L"country-gdp");

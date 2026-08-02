@@ -5,7 +5,7 @@
 
 namespace telemetry_plugin
 {
-    using namespace interest_bug_fix;
+    using namespace smedley::game_state;
 
     EconomicSnapshot EconomicCapture::Collect(
         const smedley::v2::CCurrentGameState *game_state, int32_t date)
@@ -27,11 +27,11 @@ namespace telemetry_plugin
         uint32_t candidate_count = 0;
         for (size_t ordinal = 1; ordinal < slots; ++ordinal) {
             const auto *country = game_state->country(static_cast<int32_t>(ordinal));
-            const Sample credit_quality = CollectSample(country, date);
+            const CountryEconomySnapshot credit_quality = ReadCountryEconomy(country, date);
             constexpr uint32_t credit_flag_mask = SAMPLE_SUM_OVERFLOW | SAMPLE_CREDITOR_VECTOR_INVALID
                 | SAMPLE_CREDITOR_UNREADABLE | SAMPLE_CREDITOR_TAG_INVALID;
             snapshot.credit_flags |= credit_quality.flags & credit_flag_mask;
-            Sample quality{};
+            CountryEconomySnapshot quality{};
             uint32_t collected = 0;
             const uint32_t province_remaining = snapshot.province_count >= max_sample_destination_provinces
                 ? 0 : max_sample_destination_provinces - snapshot.province_count;
@@ -117,7 +117,7 @@ namespace telemetry_plugin
             uint32_t candidate_count = 0;
             for (size_t ordinal = 1; ordinal < slots; ++ordinal) {
                 const auto *country = game_state->country(static_cast<int32_t>(ordinal));
-                Sample quality{};
+                CountryEconomySnapshot quality{};
                 uint32_t collected = 0;
                 const uint32_t province_remaining = capture.province_count >= max_sample_destination_provinces
                     ? 0 : max_sample_destination_provinces - capture.province_count;
@@ -150,6 +150,11 @@ namespace telemetry_plugin
                         capture.flags |= SAMPLE_POP_UNREADABLE;
                         break;
                     }
+                    population_ids_[index] = population_details_[index].pop_id;
+                }
+                if (capture.complete()
+                    && !SortUniqueNonnegativeIds(population_ids_.data(), candidate_count)) {
+                    capture.flags |= SAMPLE_DUPLICATE_POP;
                 }
             }
         }

@@ -832,13 +832,18 @@ fields = [
 name = "CPop"
 status = "historical-unverified"
 size = 0x0288
-source = "parent of commit 967a1a4 native/handles/CPop.hpp; current static/runtime evidence verifies size 0x288, money +0x180, cash flow +0x1d8, total +0x218, savings +0x250, and next +0x27c while other fields remain historical"
+source = "parent of commit 967a1a4 native/handles/CPop.hpp; current static/runtime evidence verifies size 0x288, ID +0x0c, province +0x64, POP type +0x68, culture +0x6c, religion +0x70, money +0x180, cash flow +0x1d8, total +0x218, savings +0x250, and next +0x27c while other fields remain historical"
 fields = [
+  { name = "id", offset = 0x000c },
   { name = "size", offset = 0x0058 },
   { name = "province", offset = 0x0064 },
   { name = "pop_type", offset = 0x0068 },
+  { name = "culture", offset = 0x006c },
+  { name = "religion", offset = 0x0070 },
   { name = "literacy", offset = 0x0128 },
   { name = "life_needs_met", offset = 0x0130 },
+  { name = "everyday_needs_met", offset = 0x0138 },
+  { name = "luxury_needs_met", offset = 0x0140 },
   { name = "money", offset = 0x0180 },
   { name = "daily_money", offset = 0x0188 },
   { name = "economy", offset = 0x01d4 },
