@@ -133,7 +133,10 @@ traces without external dependencies. It derives verified daily factory value
 added and strict country nominal, real, and per-capita GDP from complete
 producer, market, and population captures. It also exports reconciled daily POP
 cash-flow accounts at country and candidate POP-type scope while retaining
-filtered individual detail in JSONL. Run
+filtered individual detail in JSONL. The `producer-sales`, `pop-cashflow`, and
+`country-gdp` commands are strict offline exports: gaps, drops, incomplete
+boundaries, or unhealthy terminal summaries fail rather than becoming zero.
+Run
 `smedley_trace summary TRACE.jsonl` or
 see [`docs/telemetry.md`](docs/telemetry.md) for all commands.
 

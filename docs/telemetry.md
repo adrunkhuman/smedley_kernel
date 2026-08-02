@@ -390,6 +390,17 @@ production, realized sold quantity, and closing inventory, all at the 32,768
 scale. Revenue reports settlement proceeds at the 32,768,000 money scale.
 The enforced identity is `sold = opening + produced - closing`.
 
+RGO and artisan sales use the same three-record shape under
+`province.rgo.sales.*` and `pop.artisan.sales.*`. Factory summaries contain
+`settlement_seen`, `settlement_count`, and `complete`; RGO and artisan summaries
+contain `settlement_seen`, `opening_inventory_seen`, and `complete`. Every
+complete `.quantity` record contains `output_good_ordinal`,
+`opening_inventory_raw`, `produced_raw`, `sold_raw`, and
+`closing_inventory_raw`. Every `.revenue` contains `proceeds_raw`; RGO and
+artisan revenue also retains `percent_sold_domestic_raw` and
+`percent_sold_export_raw`. Factory identity is country/state/type, RGO identity
+is country/province, and artisan identity is country/province/`pop_id`.
+
 Vanilla run `40d36695-696f-408e-af64-df266a1cfcc8` emitted identity,
 employment, production, and finance records for all seven PRU factories on
 1836.1.3: four in the state anchored by Berlin 549, one anchored by province
@@ -424,8 +435,9 @@ save exactly: price 37.01001, previous price 37.00000, supply 40.24960, demand
 
 Country GDP is a strict offline production account exported by `smedley_trace
 country-gdp`; no in-game GDP record is invented. It combines direct factory
-consumption, ordinary RGO gross output, precious-metal cash generation, artisan
-recipe consumption, and resident POP sizes. Realized sales, worker
+consumption, ordinary RGO gross output, precious-metal output valued using the
+active mod's explicit `GOLD_TO_CASH_RATE`, artisan recipe consumption, and
+resident POP sizes. Realized sales, worker
 compensation, capitalist income, inventory change, and subsidies remain
 separate distribution and financing measures rather than production value.
 
@@ -585,6 +597,20 @@ can be equal-and-opposite identity transfers; a country account is reconciled on
 when its residual is zero and the bounded hook reported complete capture. Taxes
 and tariffs have no independently verified POP field or cash-flow index and are
 therefore not reported as separate components.
+
+The individual events are `pop.cashflow.{summary,account,component}`. Their
+identity is country, province, candidate POP type, and `pop_id`; component
+records add `cash_flow_index` and `component`. Individual summaries report
+`opening_money_seen`, `probe_complete`, `reconciled`, and `call_count`.
+`pop.cashflow.aggregate.{summary,account,component}` replaces individual
+identity with country and candidate POP type, while
+`pop.cashflow.country.{summary,account,component}` uses country alone.
+Aggregate and country summaries report `opening_pop_count`, `closing_pop_count`,
+`opening_money_seen`, and `reconciled`. Every account reports
+`opening_money_raw`, `closing_money_raw`, `money_delta_raw`, and `residual_raw`;
+every component reports `posted_raw` and `money_delta_raw`. The CSV exporter
+represents country rows with `pop_type_id_candidate=-1`; JSONL country events do
+not invent that entity.
 
 POP money, savings, interest cash flow, and total cash flow reuse fields already
 verified by the interest-fix work. Size, employment, consciousness, militancy,
@@ -785,6 +811,46 @@ the selected scope contains precious-metal output. The command rejects gaps,
 drops, invalid family records, missing prices or identities, incomplete factory
 boundaries, producer entrants without opening factory flow evidence, non-daily
 intervals, and missing active-mod gold valuation.
+
+A minimal unbounded PRU capture uses these rules; change all four `PRU` filters
+together for another country:
+
+```toml
+[[telemetry_captures]]
+family = "world.market"
+cadence = "daily"
+fields = ["price"]
+
+[[telemetry_captures]]
+family = "state.factory"
+cadence = "daily"
+fields = ["production", "flows"]
+country_tags = ["PRU"]
+
+[[telemetry_captures]]
+family = "province.rgo"
+cadence = "daily"
+fields = ["identity", "production"]
+country_tags = ["PRU"]
+
+[[telemetry_captures]]
+family = "pop.artisan"
+cadence = "daily"
+fields = ["identity", "production", "inputs"]
+country_tags = ["PRU"]
+
+[[telemetry_captures]]
+family = "pop.aggregate"
+cadence = "daily"
+fields = ["size_candidate"]
+country_tags = ["PRU"]
+```
+
+Do not set `start_date_raw`, `end_date_raw`, or `province_ids` on these rules.
+After at least three captured dates, export with
+`smedley_trace country-gdp run.jsonl gdp.csv --country PRU`; add
+`--gold-to-cash-rate RATE` when the selected scope contains precious-metal
+output.
 
 Live three-day PRU run `001c25f0-f5a4-429d-89b7-fafd126a3487` emitted capture
 contracts and 2,859 total records with zero gaps, drops, writer failure, or family invalid records and
