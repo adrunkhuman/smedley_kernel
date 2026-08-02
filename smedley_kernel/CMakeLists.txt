@@ -1,7 +1,6 @@
 ﻿cmake_minimum_required(VERSION 3.20)
 
 FILE(GLOB_RECURSE kernel_sources src/*.cpp)
-FILE(GLOB_RECURSE test_sources tests/*.cpp)
 
 include_directories("include/smedley")
 
@@ -10,28 +9,32 @@ target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL SMEDLEY_EVENT_B
 target_link_libraries(smedley_kernel PRIVATE shell32)
 target_include_directories(smedley_kernel PUBLIC "${PROJECT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
-add_executable(smedley_run_tests ${test_sources})
-target_link_libraries(smedley_run_tests GTest::gtest_main smedley_kernel)
+if(BUILD_TESTING)
+  FILE(GLOB_RECURSE test_sources tests/*.cpp)
 
-add_library(smedley_plugin_abi_header_c OBJECT tests/plugin_abi_header_c_test.c)
-target_include_directories(smedley_plugin_abi_header_c PRIVATE "${CMAKE_SOURCE_DIR}/include")
+  add_executable(smedley_run_tests ${test_sources})
+  target_link_libraries(smedley_run_tests GTest::gtest_main smedley_kernel)
 
-add_library(smedley_event_api_header_c OBJECT tests/event_api_header_c_test.c)
-target_include_directories(smedley_event_api_header_c PRIVATE "${CMAKE_SOURCE_DIR}/include")
+  add_library(smedley_plugin_abi_header_c OBJECT tests/plugin_abi_header_c_test.c)
+  target_include_directories(smedley_plugin_abi_header_c PRIVATE "${CMAKE_SOURCE_DIR}/include")
 
-add_library(smedley_plugin_abi_fixture MODULE test_plugins/plugin_abi_fixture.c)
-set_target_properties(smedley_plugin_abi_fixture PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
-target_include_directories(smedley_plugin_abi_fixture PRIVATE "${CMAKE_SOURCE_DIR}/include")
-add_dependencies(smedley_run_tests smedley_plugin_abi_fixture)
+  add_library(smedley_event_api_header_c OBJECT tests/event_api_header_c_test.c)
+  target_include_directories(smedley_event_api_header_c PRIVATE "${CMAKE_SOURCE_DIR}/include")
 
-add_library(smedley_event_mutation_fixture MODULE test_plugins/event_mutation_fixture.cpp)
-set_target_properties(smedley_event_mutation_fixture PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
-target_link_libraries(smedley_event_mutation_fixture PRIVATE smedley_kernel)
-target_include_directories(smedley_event_mutation_fixture PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
-add_dependencies(smedley_run_tests smedley_event_mutation_fixture)
+  add_library(smedley_plugin_abi_fixture MODULE test_plugins/plugin_abi_fixture.c)
+  set_target_properties(smedley_plugin_abi_fixture PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
+  target_include_directories(smedley_plugin_abi_fixture PRIVATE "${CMAKE_SOURCE_DIR}/include")
+  add_dependencies(smedley_run_tests smedley_plugin_abi_fixture)
 
-include(GoogleTest)
-gtest_discover_tests(smedley_run_tests DISCOVERY_TIMEOUT 30)
+  add_library(smedley_event_mutation_fixture MODULE test_plugins/event_mutation_fixture.cpp)
+  set_target_properties(smedley_event_mutation_fixture PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
+  target_link_libraries(smedley_event_mutation_fixture PRIVATE smedley_kernel)
+  target_include_directories(smedley_event_mutation_fixture PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  add_dependencies(smedley_run_tests smedley_event_mutation_fixture)
+
+  include(GoogleTest)
+  gtest_discover_tests(smedley_run_tests DISCOVERY_TIMEOUT 30)
+endif()
 
 if(EXISTS ${V2_GAME_DIR})
 	install(TARGETS smedley_kernel DESTINATION ${V2_GAME_DIR})
