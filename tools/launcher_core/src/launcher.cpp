@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cwctype>
 #include <fstream>
@@ -23,7 +24,7 @@ namespace smedley::launcher
         constexpr int telemetry_min_sample_days = 1;
         constexpr int telemetry_max_sample_days = 365;
         constexpr int telemetry_min_queue_capacity = 64;
-        constexpr int telemetry_max_queue_capacity = 8192;
+        constexpr int telemetry_max_queue_capacity = 32768;
         constexpr int run_min_days = 1;
         constexpr int run_max_days = 1000000;
         constexpr int run_min_timeout_seconds = 1;
@@ -603,6 +604,9 @@ namespace smedley::launcher
             }
             if (rule.family == "country.daily") return field == "treasury_raw" || field == "treasury";
             if (rule.family == "country.metrics") return field == "power" || field == "politics";
+            if (rule.family == "country.economy") {
+                return field == "totals" || field == "components" || field == "per_capita";
+            }
             if (rule.family == "country.military") {
                 return field == "unit_count_candidate" || field == "mobilized_candidate"
                     || field == "scheduled_mobilization_count_candidate" || field == "leadership_candidate_raw"
@@ -611,7 +615,8 @@ namespace smedley::launcher
             if (rule.family == "country.diplomacy") return field == "status" || field == "relations";
             if (rule.family == "state.factory") {
                 return field == "identity" || field == "employment"
-                    || field == "production" || field == "finance" || field == "inputs";
+                    || field == "production" || field == "finance" || field == "inputs"
+                    || field == "flows";
             }
             if (rule.family == "world.market") {
                 return field == "price" || field == "supply"
@@ -633,6 +638,10 @@ namespace smedley::launcher
             if (rule.family == "pop.economy") {
                 return field == "money_raw" || field == "savings_raw"
                     || field == "interest_cash_flow_raw" || field == "total_cash_flow_raw";
+            }
+            if (rule.family == "pop.artisan") {
+                return field == "identity" || field == "production"
+                    || field == "inputs" || field == "finance" || field == "flows";
             }
             if (rule.family == "pop.demographics") {
                 return field == "size_candidate" || field == "employed_candidate"
@@ -697,7 +706,15 @@ namespace smedley::launcher
                 return false;
             }
             if (profile.telemetry_queue_capacity < telemetry_min_queue_capacity || profile.telemetry_queue_capacity > telemetry_max_queue_capacity) {
-                AddDiagnostic(diagnostics, "telemetry.queue_capacity", "telemetry_queue_capacity must be from 64 through 8192", path);
+                AddDiagnostic(diagnostics, "telemetry.queue_capacity", "telemetry_queue_capacity must be from 64 through 32768", path);
+                return false;
+            }
+            if (profile.telemetry_gold_to_cash_rate
+                && (!std::isfinite(*profile.telemetry_gold_to_cash_rate)
+                    || *profile.telemetry_gold_to_cash_rate <= 0.0
+                    || *profile.telemetry_gold_to_cash_rate > 1000.0)) {
+                AddDiagnostic(diagnostics, "telemetry.gold_to_cash_rate",
+                    "telemetry_gold_to_cash_rate must be a finite number from greater than 0 through 1000", path);
                 return false;
             }
             if (profile.telemetry_captures.size() > 32) {
@@ -708,14 +725,15 @@ namespace smedley::launcher
                 const auto &rule = profile.telemetry_captures[rule_index];
                 const std::string prefix = "telemetry_captures[" + std::to_string(rule_index) + "] ";
                 if (rule.family != "world.daily" && rule.family != "world.economy" && rule.family != "world.military"
-                    && rule.family != "country.daily" && rule.family != "country.metrics"
+                    && rule.family != "country.daily" && rule.family != "country.metrics" && rule.family != "country.economy"
                     && rule.family != "country.military" && rule.family != "country.diplomacy"
                     && rule.family != "state.factory"
                     && rule.family != "world.market"
                     && rule.family != "province.daily" && rule.family != "province.production"
                     && rule.family != "province.rgo"
                     && rule.family != "pop.economy"
-                    && rule.family != "pop.demographics" && rule.family != "pop.aggregate") {
+                    && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
+                    && rule.family != "pop.artisan") {
                     AddDiagnostic(diagnostics, "telemetry.capture_family", prefix + "contains an unknown family", path);
                     return false;
                 }
@@ -744,10 +762,11 @@ namespace smedley::launcher
                         return false;
                     }
                 }
-                if (rule.family != "country.daily" && rule.family != "country.metrics"
-                    && rule.family != "country.military" && rule.family != "country.diplomacy"
-                    && rule.family != "state.factory"
-                    && !rule.country_tags.empty()) {
+            if (rule.family != "country.daily" && rule.family != "country.metrics" && rule.family != "country.economy"
+                && rule.family != "country.military" && rule.family != "country.diplomacy"
+                && rule.family != "state.factory" && rule.family != "province.rgo"
+                && rule.family != "pop.artisan" && rule.family != "pop.aggregate"
+                && !rule.country_tags.empty()) {
                     AddDiagnostic(diagnostics, "telemetry.capture_country_tags", prefix + "country_tags are only supported by country families", path);
                     return false;
                 }
@@ -762,6 +781,7 @@ namespace smedley::launcher
                 if (rule.family != "province.daily" && rule.family != "province.production" && rule.family != "province.rgo"
                     && rule.family != "pop.economy"
                     && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
+                    && rule.family != "pop.artisan"
                     && !rule.province_ids.empty()) {
                     AddDiagnostic(diagnostics, "telemetry.capture_province_ids", prefix + "province_ids are only supported by province and POP families", path);
                     return false;
@@ -770,6 +790,13 @@ namespace smedley::launcher
                     AddDiagnostic(diagnostics, "telemetry.capture_date_range", prefix + "start_date_raw must not exceed end_date_raw", path);
                     return false;
                 }
+            }
+            if (std::any_of(profile.telemetry_captures.begin(), profile.telemetry_captures.end(),
+                    [](const TelemetryCaptureRule &rule) { return rule.family == "country.economy"; })
+                && !profile.telemetry_gold_to_cash_rate) {
+                AddDiagnostic(diagnostics, "telemetry.gold_to_cash_rate",
+                    "country.economy requires telemetry_gold_to_cash_rate", path);
+                return false;
             }
             if (!profile.telemetry_captures.empty()
                 && std::find(profile.telemetry_categories.begin(), profile.telemetry_categories.end(), "state")
@@ -1454,6 +1481,14 @@ namespace smedley::launcher
                 }
                 loaded.telemetry_overwrite = *value;
             }
+            if (table.contains("telemetry_gold_to_cash_rate")) {
+                const auto value = table["telemetry_gold_to_cash_rate"].value<double>();
+                if (!value) {
+                    AddDiagnostic(diagnostics, "profile.schema", "telemetry_gold_to_cash_rate must be a number", path);
+                    return false;
+                }
+                loaded.telemetry_gold_to_cash_rate = *value;
+            }
             if (table.contains("telemetry_captures")) {
                 const auto *captures = table["telemetry_captures"].as_array();
                 if (captures == nullptr) {
@@ -1615,6 +1650,9 @@ namespace smedley::launcher
         output << "telemetry_sample_days = " << profile.telemetry_sample_days << "\n";
         output << "telemetry_queue_capacity = " << profile.telemetry_queue_capacity << "\n";
         output << "telemetry_overwrite = " << (profile.telemetry_overwrite ? "true" : "false") << "\n";
+        if (profile.telemetry_gold_to_cash_rate) {
+            output << "telemetry_gold_to_cash_rate = " << *profile.telemetry_gold_to_cash_rate << "\n";
+        }
         write_paths("scripts", profile.scripts);
         output << "script_instruction_budget = " << profile.script_instruction_budget << "\n";
         output << "script_memory_bytes = " << profile.script_memory_bytes << "\n";
@@ -1908,6 +1946,10 @@ namespace smedley::launcher
                     arguments.push_back(L"-smedley-telemetry-sample-days=" + std::to_wstring(plan.profile.telemetry_sample_days));
                     arguments.push_back(L"-smedley-telemetry-queue-capacity=" + std::to_wstring(plan.profile.telemetry_queue_capacity));
                     arguments.push_back(L"-smedley-telemetry-overwrite=" + std::to_wstring(plan.profile.telemetry_overwrite ? 1 : 0));
+                    if (plan.profile.telemetry_gold_to_cash_rate) {
+                        arguments.push_back(L"-smedley-telemetry-gold-to-cash-rate="
+                            + std::to_wstring(*plan.profile.telemetry_gold_to_cash_rate));
+                    }
                     for (const auto &rule : plan.profile.telemetry_captures) {
                         arguments.push_back(L"-smedley-telemetry-capture=" + TelemetryCaptureArgument(rule));
                     }

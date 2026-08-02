@@ -8,9 +8,12 @@
 #include <cmath>
 #include <cstdio>
 #include <fstream>
+#include <iomanip>
 #include <limits>
+#include <set>
 #include <sstream>
 #include <string_view>
+#include <tuple>
 
 namespace smedley::trace
 {
@@ -355,6 +358,26 @@ namespace smedley::trace
         bool IntegerField(const Record &record, const char *key, int64_t *value)
         {
             const auto *field = Field(record, key);
+            return field && field->kind == JsonKind::Number && ParseIntegerText(field->text, value);
+        }
+
+        bool BooleanField(const Record &record, const char *key, bool *value)
+        {
+            const auto *field = Field(record, key);
+            if (field == nullptr || field->kind != JsonKind::Boolean) return false;
+            *value = field->text == "true";
+            return field->text == "true" || field->text == "false";
+        }
+
+        const Scalar *Entity(const Record &record, const char *key)
+        {
+            const auto found = record.entities.find(key);
+            return found == record.entities.end() ? nullptr : &found->second;
+        }
+
+        bool IntegerEntity(const Record &record, const char *key, int64_t *value)
+        {
+            const auto *field = Entity(record, key);
             return field && field->kind == JsonKind::Number && ParseIntegerText(field->text, value);
         }
 
@@ -717,6 +740,8 @@ namespace smedley::trace
             return true;
         }
 
+        std::string CsvText(std::string value);
+
         bool CsvCountry(const Record &record, std::string *line, std::string *error)
         {
             const auto country = record.entities.find("country_tag"), raw = record.payload.find("treasury_raw"), treasury = record.payload.find("treasury");
@@ -726,9 +751,762 @@ namespace smedley::trace
             const double actual = std::strtod(treasury->second.text.c_str(), &end);
             const double expected = static_cast<double>(raw_value) / 32768.0;
             if (!end || *end || !std::isfinite(actual) || std::fabs(actual - expected) > 0.000001 + std::fabs(expected) * 1e-9) { *error = "country.daily treasury values disagree"; return false; }
-            auto text = [](std::string value) { if (!value.empty() && std::strchr("=+-@", value.front())) value.insert(value.begin(), '\''); std::string quoted = "\""; for (char character : value) quoted += character == '\"' ? "\"\"" : std::string(1, character); return quoted + "\""; };
-            *line = text(record.run_id) + ',' + std::to_string(record.sequence) + ',' + text(record.wall_time_utc) + ',' + std::to_string(record.monotonic_us) + ',' + std::to_string(*record.game_date_raw) + ',' + text(record.quality) + ',' + text(country->second.text) + ',' + raw->second.text + ',' + treasury->second.text + "\r\n";
+            *line = CsvText(record.run_id) + ',' + std::to_string(record.sequence) + ',' + CsvText(record.wall_time_utc) + ',' + std::to_string(record.monotonic_us) + ',' + std::to_string(*record.game_date_raw) + ',' + CsvText(record.quality) + ',' + CsvText(country->second.text) + ',' + raw->second.text + ',' + treasury->second.text + "\r\n";
             return true;
+        }
+
+        std::string CsvText(std::string value)
+        {
+            if (!value.empty() && std::strchr("=+-@", value.front())) value.insert(value.begin(), '\'');
+            std::string quoted = "\"";
+            for (const char character : value) quoted += character == '\"' ? "\"\"" : std::string(1, character);
+            return quoted + "\"";
+        }
+
+        using FactoryKey = std::tuple<std::string, int64_t, std::string>;
+
+        struct FactoryDay
+        {
+            bool production_seen = false;
+            int64_t output_raw = 0;
+            int64_t output_good_ordinal = -1;
+            bool input_flow_summary_seen = false;
+            bool input_flow_complete = false;
+            bool input_no_purchase = false;
+            std::map<int64_t, std::array<int64_t, 4>> input_flow_raw;
+        };
+
+        struct ProductionDay
+        {
+            std::map<int64_t, int64_t> price_raw;
+            std::map<FactoryKey, FactoryDay> factories;
+        };
+
+        using ArtisanKey = std::pair<std::string, int64_t>;
+        using RgoKey = std::pair<std::string, int64_t>;
+
+        struct ArtisanDay
+        {
+            bool inactive = false;
+            bool identity_seen = false;
+            bool production_seen = false;
+            int64_t output_raw = 0;
+            int64_t current_producing_raw = 0;
+            int64_t output_good_ordinal = -1;
+            bool input_flow_summary_seen = false;
+            bool input_flow_complete = false;
+            bool input_no_purchase = false;
+            std::map<int64_t, std::array<int64_t, 4>> input_flow_raw;
+            std::map<int64_t, int64_t> input_need_raw;
+        };
+
+        struct RgoDay
+        {
+            bool identity_seen = false;
+            bool production_seen = false;
+            bool finance_seen = false;
+            std::string output_good;
+            int64_t output_good_ordinal = -1;
+            int64_t gross_output_raw = 0;
+            int64_t income_raw = 0;
+        };
+
+        struct GdpDay : ProductionDay
+        {
+            std::map<ArtisanKey, ArtisanDay> artisans;
+            std::map<RgoKey, RgoDay> rgos;
+            std::map<std::string, int64_t> population;
+            std::set<std::tuple<std::string, int64_t, int64_t>> population_groups;
+        };
+
+        bool CountryEntity(const Record &record, std::string *country, std::string *error)
+        {
+            const auto *field = Entity(record, "country_tag");
+            if (record.category != "state" || record.mapping_id != "v2game-3.04"
+                || record.quality != "provisional" || !record.game_date_raw
+                || field == nullptr || field->kind != JsonKind::String || !IsTag(field->text)) {
+                *error = record.event + " has an unsupported schema";
+                return false;
+            }
+            *country = field->text;
+            return true;
+        }
+
+        bool ArtisanRecord(const Record &record, ArtisanKey *key, std::string *error)
+        {
+            std::string country;
+            int64_t pop_id = -1, province_id = -1;
+            if (!CountryEntity(record, &country, error)
+                || !IntegerEntity(record, "pop_id", &pop_id) || pop_id < 0
+                || !IntegerEntity(record, "province_id", &province_id) || province_id < 0) {
+                if (error->empty()) *error = record.event + " has invalid artisan identity";
+                return false;
+            }
+            *key = {country, pop_id};
+            return true;
+        }
+
+        bool CaptureArtisanIdentity(const Record &record, GdpDay *day, std::string *error)
+        {
+            ArtisanKey key;
+            int64_t output_good = -1;
+            const auto *name = Field(record, "output_good");
+            if (!ArtisanRecord(record, &key, error)
+                || !IntegerField(record, "output_good_ordinal", &output_good) || output_good < 0 || output_good >= 64
+                || name == nullptr || name->kind != JsonKind::String || !IsIdentifier(name->text)) {
+                if (error->empty()) *error = "pop.artisan.identity has invalid values";
+                return false;
+            }
+            auto &artisan = day->artisans[key];
+            if (artisan.identity_seen) { *error = "duplicate pop.artisan.identity record"; return false; }
+            artisan.identity_seen = true;
+            artisan.output_good_ordinal = output_good;
+            return true;
+        }
+
+        bool CaptureInactiveArtisan(const Record &record, GdpDay *day, std::string *error)
+        {
+            ArtisanKey key;
+            if (!ArtisanRecord(record, &key, error)) return false;
+            auto &artisan = day->artisans[key];
+            if (artisan.inactive || artisan.identity_seen || artisan.production_seen) {
+                *error = "duplicate or conflicting pop.artisan.inactive record";
+                return false;
+            }
+            artisan.inactive = true;
+            return true;
+        }
+
+        bool CaptureArtisanProduction(const Record &record, GdpDay *day, std::string *error)
+        {
+            ArtisanKey key;
+            int64_t output = 0, current_producing = 0;
+            if (!ArtisanRecord(record, &key, error)
+                || !IntegerField(record, "gross_output_raw", &output) || output < 0
+                || !IntegerField(record, "current_producing_raw", &current_producing)
+                || current_producing < 0) {
+                if (error->empty()) *error = "pop.artisan.production has invalid values";
+                return false;
+            }
+            auto &artisan = day->artisans[key];
+            if (artisan.production_seen) { *error = "duplicate pop.artisan.production record"; return false; }
+            artisan.production_seen = true;
+            artisan.output_raw = output;
+            artisan.current_producing_raw = current_producing;
+            return true;
+        }
+
+        bool CaptureArtisanFlowSummary(const Record &record, GdpDay *day, std::string *error)
+        {
+            ArtisanKey key;
+            bool post = false, pre = false, primary = false, secondary = false;
+            int64_t count = 0;
+            if (!ArtisanRecord(record, &key, error)
+                || !BooleanField(record, "post_consumption_seen", &post)
+                || !BooleanField(record, "pre_purchase_seen", &pre)
+                || !BooleanField(record, "primary_delivery_seen", &primary)
+                || !BooleanField(record, "secondary_delivery_seen", &secondary)
+                || !IntegerField(record, "settlement_count", &count) || count < 0) {
+                if (error->empty()) *error = "pop.artisan.input.flow.summary has invalid values";
+                return false;
+            }
+            auto &artisan = day->artisans[key];
+            if (artisan.input_flow_summary_seen) {
+                *error = "duplicate pop.artisan.input.flow.summary record";
+                return false;
+            }
+            artisan.input_flow_summary_seen = true;
+            artisan.input_no_purchase = post && !pre && !primary && !secondary && count == 0;
+            artisan.input_flow_complete = artisan.input_no_purchase
+                || (post && pre && primary && secondary && count == 1);
+            return true;
+        }
+
+        bool CaptureArtisanFlow(const Record &record, GdpDay *day, std::string *error)
+        {
+            ArtisanKey key;
+            int64_t good = -1;
+            std::array<int64_t, 4> values{};
+            if (!ArtisanRecord(record, &key, error)
+                || !IntegerEntity(record, "good_ordinal", &good) || good < 0 || good >= 64
+                || !IntegerField(record, "post_consumption_raw", &values[0]) || values[0] < 0
+                || !IntegerField(record, "pre_purchase_raw", &values[1]) || values[1] < 0
+                || !IntegerField(record, "delivered_primary_raw", &values[2]) || values[2] < 0
+                || !IntegerField(record, "delivered_secondary_raw", &values[3]) || values[3] < 0) {
+                if (error->empty()) *error = "pop.artisan.input.flow has invalid values";
+                return false;
+            }
+            if (!day->artisans[key].input_flow_raw.emplace(good, values).second) {
+                *error = "duplicate pop.artisan.input.flow record";
+                return false;
+            }
+            return true;
+        }
+
+        bool CaptureArtisanInput(const Record &record, GdpDay *day, std::string *error)
+        {
+            ArtisanKey key;
+            int64_t good = -1, need = 0;
+            if (!ArtisanRecord(record, &key, error)
+                || !IntegerEntity(record, "good_ordinal", &good) || good < 0 || good >= 64
+                || !IntegerField(record, "need_raw", &need) || need < 0) {
+                if (error->empty()) *error = "pop.artisan.input has invalid values";
+                return false;
+            }
+            if (!day->artisans[key].input_need_raw.emplace(good, need).second) {
+                *error = "duplicate pop.artisan.input record";
+                return false;
+            }
+            return true;
+        }
+
+        bool RgoRecord(const Record &record, RgoKey *key, std::string *error)
+        {
+            std::string country;
+            int64_t province = -1;
+            if (!CountryEntity(record, &country, error)
+                || !IntegerEntity(record, "province_id", &province) || province < 0) {
+                if (error->empty()) *error = record.event + " has invalid RGO identity";
+                return false;
+            }
+            *key = {country, province};
+            return true;
+        }
+
+        bool CaptureRgoIdentity(const Record &record, GdpDay *day, std::string *error)
+        {
+            RgoKey key;
+            int64_t output_good = -1;
+            const auto *name = Field(record, "output_good");
+            if (!RgoRecord(record, &key, error)
+                || !IntegerField(record, "output_good_ordinal", &output_good) || output_good < 0 || output_good >= 64
+                || name == nullptr || name->kind != JsonKind::String || !IsIdentifier(name->text)) {
+                if (error->empty()) *error = "province.rgo.identity has invalid values";
+                return false;
+            }
+            auto &rgo = day->rgos[key];
+            if (rgo.identity_seen) { *error = "duplicate province.rgo.identity record"; return false; }
+            rgo.identity_seen = true;
+            rgo.output_good = name->text;
+            rgo.output_good_ordinal = output_good;
+            return true;
+        }
+
+        bool CaptureRgoProduction(const Record &record, GdpDay *day, std::string *error)
+        {
+            RgoKey key;
+            int64_t output = 0;
+            if (!RgoRecord(record, &key, error)
+                || !IntegerField(record, "gross_output_raw", &output) || output < 0) {
+                if (error->empty()) *error = "province.rgo.production has invalid values";
+                return false;
+            }
+            auto &rgo = day->rgos[key];
+            if (rgo.production_seen) { *error = "duplicate province.rgo.production record"; return false; }
+            rgo.production_seen = true;
+            rgo.gross_output_raw = output;
+            return true;
+        }
+
+        bool CaptureRgoFinance(const Record &record, GdpDay *day, std::string *error)
+        {
+            RgoKey key;
+            int64_t income = 0;
+            if (!RgoRecord(record, &key, error)
+                || !IntegerField(record, "income_raw", &income) || income < 0) {
+                if (error->empty()) *error = "province.rgo.finance has invalid values";
+                return false;
+            }
+            auto &rgo = day->rgos[key];
+            if (rgo.finance_seen) { *error = "duplicate province.rgo.finance record"; return false; }
+            rgo.finance_seen = true;
+            rgo.income_raw = income;
+            return true;
+        }
+
+        bool CapturePopulation(const Record &record, GdpDay *day, std::string *error)
+        {
+            std::string country;
+            int64_t province = -1, type = -1, size = -1;
+            if (!CountryEntity(record, &country, error)
+                || !IntegerEntity(record, "province_id_candidate", &province) || province < 0
+                || !IntegerEntity(record, "pop_type_id_candidate", &type) || type < 0
+                || !IntegerField(record, "size_candidate", &size) || size < 0) {
+                if (error->empty()) *error = "pop.aggregate has invalid values";
+                return false;
+            }
+            if (!day->population_groups.emplace(country, province, type).second) {
+                *error = "duplicate pop.aggregate record";
+                return false;
+            }
+            auto &total = day->population[country];
+            if (total > (std::numeric_limits<int64_t>::max)() - size) {
+                *error = "pop.aggregate population overflows";
+                return false;
+            }
+            total += size;
+            return true;
+        }
+
+        bool FactoryRecord(const Record &record, FactoryKey *key, std::string *error)
+        {
+            const auto *country = Entity(record, "country_tag");
+            const auto *type = Entity(record, "factory_type");
+            int64_t state_id = 0;
+            if (record.category != "state" || record.mapping_id != "v2game-3.04" || record.quality != "provisional"
+                || !record.game_date_raw || country == nullptr || country->kind != JsonKind::String
+                || !IsTag(country->text) || type == nullptr || type->kind != JsonKind::String
+                || !IsIdentifier(type->text) || !IntegerEntity(record, "state_id", &state_id) || state_id < 0) {
+                *error = record.event + " has an unsupported schema";
+                return false;
+            }
+            *key = {country->text, state_id, type->text};
+            return true;
+        }
+
+        bool CaptureFactoryProduction(const Record &record, ProductionDay *day, std::string *error)
+        {
+            FactoryKey key;
+            int64_t output_raw = 0, output_good = -1;
+            if (!FactoryRecord(record, &key, error)
+                || !IntegerField(record, "output_raw", &output_raw) || output_raw < 0
+                || !IntegerField(record, "output_good_ordinal", &output_good) || output_good < 0 || output_good >= 64) {
+                if (error->empty()) *error = "state.factory.production has invalid values";
+                return false;
+            }
+            auto &factory = day->factories[key];
+            if (factory.production_seen) { *error = "duplicate state.factory.production record"; return false; }
+            factory.production_seen = true;
+            factory.output_raw = output_raw;
+            factory.output_good_ordinal = output_good;
+            return true;
+        }
+
+        bool CaptureFactoryInputFlowSummary(const Record &record, ProductionDay *day, std::string *error)
+        {
+            FactoryKey key;
+            bool post_consumption = false, pre_purchase = false, primary = false, secondary = false;
+            int64_t count = 0;
+            if (!FactoryRecord(record, &key, error)
+                || !BooleanField(record, "post_consumption_seen", &post_consumption)
+                || !BooleanField(record, "pre_purchase_seen", &pre_purchase)
+                || !BooleanField(record, "primary_delivery_seen", &primary)
+                || !BooleanField(record, "secondary_delivery_seen", &secondary)
+                || !IntegerField(record, "settlement_count", &count) || count < 0) {
+                if (error->empty()) *error = "state.factory.input.flow.summary has invalid values";
+                return false;
+            }
+            auto &factory = day->factories[key];
+            if (factory.input_flow_summary_seen) {
+                *error = "duplicate state.factory.input.flow.summary record";
+                return false;
+            }
+            factory.input_flow_summary_seen = true;
+            factory.input_no_purchase = post_consumption && !pre_purchase && !primary && !secondary && count == 0;
+            factory.input_flow_complete = factory.input_no_purchase
+                || (post_consumption && pre_purchase && primary && secondary && count == 1);
+            return true;
+        }
+
+        bool CaptureFactoryInputFlow(const Record &record, ProductionDay *day, std::string *error)
+        {
+            FactoryKey key;
+            int64_t good = -1;
+            std::array<int64_t, 4> values{};
+            if (!FactoryRecord(record, &key, error)
+                || !IntegerEntity(record, "good_ordinal", &good) || good < 0 || good >= 64
+                || !IntegerField(record, "post_consumption_raw", &values[0]) || values[0] < 0
+                || !IntegerField(record, "pre_purchase_raw", &values[1]) || values[1] < 0
+                || !IntegerField(record, "delivered_primary_raw", &values[2]) || values[2] < 0
+                || !IntegerField(record, "delivered_secondary_raw", &values[3]) || values[3] < 0) {
+                if (error->empty()) *error = "state.factory.input.flow has invalid values";
+                return false;
+            }
+            if (!day->factories[key].input_flow_raw.emplace(good, values).second) {
+                *error = "duplicate state.factory.input.flow record";
+                return false;
+            }
+            return true;
+        }
+
+        bool CaptureMarketPrice(const Record &record, ProductionDay *day, std::string *error)
+        {
+            int64_t good = -1, price = 0;
+            if (record.category != "state" || record.mapping_id != "v2game-3.04" || record.quality != "provisional"
+                || !record.game_date_raw || !IntegerEntity(record, "good_ordinal", &good)
+                || good < 0 || good >= 64 || !IntegerField(record, "price_raw", &price) || price < 0) {
+                *error = "world.market.price has an unsupported schema";
+                return false;
+            }
+            if (!day->price_raw.emplace(good, price).second) { *error = "duplicate world.market.price record"; return false; }
+            return true;
+        }
+
+        bool HealthyFactoryTrace(const Summary &summary, std::string *error)
+        {
+            if (!summary.warning.empty()) { *error = "factory value added requires a complete final record"; return false; }
+            if (summary.gaps != 0) { *error = "factory value added requires a trace without sequence gaps"; return false; }
+            if (summary.date_regressed) { *error = "factory value added requires monotonic game dates"; return false; }
+            const auto dropped = summary.progress.find("dropped");
+            int64_t dropped_count = 0;
+            if (dropped != summary.progress.end()
+                && (dropped->second.kind != JsonKind::Number
+                    || !ParseIntegerText(dropped->second.text, &dropped_count) || dropped_count != 0)) {
+                *error = "factory value added requires healthy telemetry output";
+                return false;
+            }
+            const auto write_failed = summary.progress.find("write_failed");
+            if (write_failed != summary.progress.end()
+                && (write_failed->second.kind != JsonKind::Boolean || write_failed->second.text != "false")) {
+                *error = "factory value added requires healthy telemetry output";
+                return false;
+            }
+            return true;
+        }
+
+        bool CaptureFamilyHealth(const Record &record, bool *factory_seen, bool *market_seen, std::string *error)
+        {
+            const auto *family = Entity(record, "family");
+            if (record.category != "lifecycle" || record.mapping_id != "v2game-3.04"
+                || record.quality != "verified-current" || record.game_date_raw || family == nullptr
+                || family->kind != JsonKind::String) {
+                *error = "telemetry.family.summary is unhealthy or malformed";
+                return false;
+            }
+            bool *seen = nullptr;
+            if (family->text == "state.factory") seen = factory_seen;
+            else if (family->text == "world.market") seen = market_seen;
+            else return true;
+            int64_t dropped = -1, invalid = -1;
+            if (!IntegerField(record, "dropped", &dropped) || !IntegerField(record, "invalid", &invalid)
+                || dropped != 0 || invalid != 0) {
+                *error = "telemetry.family.summary is unhealthy or malformed";
+                return false;
+            }
+            if (*seen) { *error = "duplicate telemetry.family.summary record"; return false; }
+            *seen = true;
+            return true;
+        }
+
+        bool CaptureTerminalHealth(const Record &record, uint64_t *sequence, std::string *error)
+        {
+            int64_t dropped = -1;
+            const auto *write_failed = Field(record, "write_failed");
+            if (record.category != "lifecycle" || record.mapping_id != "v2game-3.04"
+                || record.quality != "verified-current" || record.game_date_raw || !record.entities.empty()
+                || !IntegerField(record, "dropped", &dropped) || dropped != 0 || write_failed == nullptr
+                || write_failed->kind != JsonKind::Boolean || write_failed->text != "false") {
+                *error = "telemetry.summary is unhealthy or malformed";
+                return false;
+            }
+            if (*sequence != 0) { *error = "duplicate telemetry.summary record"; return false; }
+            *sequence = record.sequence;
+            return true;
+        }
+
+        struct CaptureRuleMetadata
+        {
+            bool seen = false;
+            bool all_fields = false;
+            bool bounded_dates = false;
+            std::string cadence;
+            int64_t country_filter_count = -1;
+            int64_t province_filter_count = -1;
+            std::set<std::string> fields;
+            std::set<std::string> countries;
+        };
+
+        bool CaptureGdpMetadata(const Record &record, std::map<std::string, CaptureRuleMetadata> *metadata,
+                                std::string *error)
+        {
+            const auto *family = Entity(record, "family");
+            if (record.category != "lifecycle" || record.mapping_id != "v2game-3.04"
+                || record.quality != "verified-current" || record.game_date_raw
+                || family == nullptr || family->kind != JsonKind::String || !IsIdentifier(family->text)) {
+                *error = record.event + " is malformed";
+                return false;
+            }
+            auto &rule = (*metadata)[family->text];
+            if (record.event == "telemetry.capture.rule") {
+                const auto *cadence = Field(record, "cadence");
+                bool all_fields = false, bounded_dates = false;
+                int64_t country_count = -1, province_count = -1;
+                if (rule.seen || cadence == nullptr || cadence->kind != JsonKind::String
+                    || !BooleanField(record, "all_fields", &all_fields)
+                    || !BooleanField(record, "bounded_dates", &bounded_dates)
+                    || !IntegerField(record, "country_filter_count", &country_count) || country_count < 0
+                    || !IntegerField(record, "province_filter_count", &province_count) || province_count < 0) {
+                    *error = "telemetry.capture.rule is malformed or duplicated";
+                    return false;
+                }
+                rule.seen = true;
+                rule.cadence = cadence->text;
+                rule.all_fields = all_fields;
+                rule.bounded_dates = bounded_dates;
+                rule.country_filter_count = country_count;
+                rule.province_filter_count = province_count;
+                return true;
+            }
+            if (record.event == "telemetry.capture.field") {
+                const auto *field = Entity(record, "field");
+                if (field == nullptr || field->kind != JsonKind::String || !IsIdentifier(field->text)
+                    || !rule.fields.insert(field->text).second) {
+                    *error = "telemetry.capture.field is malformed or duplicated";
+                    return false;
+                }
+                return true;
+            }
+            const auto *country = Entity(record, "country_tag");
+            if (country == nullptr || country->kind != JsonKind::String || !IsTag(country->text)
+                || !rule.countries.insert(country->text).second) {
+                *error = "telemetry.capture.country is malformed or duplicated";
+                return false;
+            }
+            return true;
+        }
+
+        bool CaptureGdpFamilyHealth(const Record &record, std::set<std::string> *seen,
+                                    std::map<std::string, int64_t> *polls, std::string *error)
+        {
+            const auto *family = Entity(record, "family");
+            if (record.category != "lifecycle" || record.mapping_id != "v2game-3.04"
+                || record.quality != "verified-current" || record.game_date_raw || family == nullptr
+                || family->kind != JsonKind::String) {
+                *error = "telemetry.family.summary is unhealthy or malformed";
+                return false;
+            }
+            static const std::set<std::string> required = {
+                "world.market", "state.factory", "province.rgo", "pop.artisan", "pop.aggregate"};
+            if (required.find(family->text) == required.end()) return true;
+            int64_t dropped = -1, invalid = -1, polls_due = -1;
+            if (!IntegerField(record, "dropped", &dropped) || !IntegerField(record, "invalid", &invalid)
+                || !IntegerField(record, "polls_due", &polls_due) || polls_due < 0
+                || dropped != 0 || invalid != 0) {
+                *error = "telemetry.family.summary is unhealthy or malformed";
+                return false;
+            }
+            if (!seen->insert(family->text).second) {
+                *error = "duplicate telemetry.family.summary record";
+                return false;
+            }
+            (*polls)[family->text] = polls_due;
+            return true;
+        }
+
+        bool ValidateGdpMetadata(const std::map<std::string, CaptureRuleMetadata> &metadata,
+                                 const std::map<std::string, int64_t> &polls, size_t day_count,
+                                 std::string *error)
+        {
+            static const std::map<std::string, std::set<std::string>> required = {
+                {"world.market", {"price"}},
+                {"state.factory", {"production", "flows"}},
+                {"province.rgo", {"identity", "production"}},
+                {"pop.artisan", {"identity", "production", "inputs"}},
+                {"pop.aggregate", {"size_candidate"}},
+            };
+            for (const auto &[family, fields] : required) {
+                const auto candidate = metadata.find(family);
+                const auto family_polls = polls.find(family);
+                if (candidate == metadata.end() || !candidate->second.seen
+                    || candidate->second.cadence != "daily" || candidate->second.bounded_dates
+                    || candidate->second.province_filter_count != 0
+                    || candidate->second.country_filter_count
+                        != static_cast<int64_t>(candidate->second.countries.size())
+                    || family_polls == polls.end() || family_polls->second != static_cast<int64_t>(day_count)) {
+                    *error = "country GDP requires complete daily capture scope for " + family;
+                    return false;
+                }
+                if (!candidate->second.all_fields
+                    && !std::includes(candidate->second.fields.begin(), candidate->second.fields.end(),
+                        fields.begin(), fields.end())) {
+                    *error = "country GDP capture is missing required fields for " + family;
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        struct ProducerValues
+        {
+            long double nominal_gross = 0.0L;
+            long double nominal_inputs = 0.0L;
+            long double real_gross = 0.0L;
+            long double real_inputs = 0.0L;
+        };
+
+        template<typename Map>
+        bool ValueProducerSet(const Map &opening_map, const Map &current_map,
+                              const std::map<int64_t, int64_t> &current_prices,
+                              const std::map<int64_t, int64_t> &base_prices,
+                              const std::string &country, int current_date,
+                              std::string_view sector, ProducerValues *values, std::string *error)
+        {
+            using Key = typename Map::key_type;
+            std::set<Key> opening_keys, current_keys;
+            for (const auto &[key, unused] : opening_map) {
+                if (std::get<0>(key) == country) opening_keys.insert(key);
+            }
+            for (const auto &[key, unused] : current_map) {
+                if (std::get<0>(key) == country) current_keys.insert(key);
+            }
+            for (const auto &key : current_keys) {
+                if (opening_keys.find(key) == opening_keys.end()) {
+                    *error = std::string(sector) + " entered without opening flow evidence before date "
+                        + std::to_string(current_date) + " for " + country;
+                    return false;
+                }
+            }
+            constexpr long double scale = 32768.0L * 32768.0L;
+            const std::array<int64_t, 4> empty{};
+            for (const auto &key : current_keys) {
+                const auto &opening = opening_map.at(key);
+                const auto &current = current_map.at(key);
+                if (!opening.input_flow_complete || !current.input_flow_complete) {
+                    *error = std::string(sector) + " input flow is incomplete before date "
+                        + std::to_string(current_date);
+                    return false;
+                }
+                const auto nominal_output_price = current_prices.find(current.output_good_ordinal);
+                const auto real_output_price = base_prices.find(current.output_good_ordinal);
+                if (nominal_output_price == current_prices.end() || real_output_price == base_prices.end()) {
+                    *error = std::string(sector) + " output price is missing at date " + std::to_string(current_date);
+                    return false;
+                }
+                values->nominal_gross += static_cast<long double>(current.output_raw)
+                    * nominal_output_price->second / scale;
+                values->real_gross += static_cast<long double>(current.output_raw)
+                    * real_output_price->second / scale;
+                std::set<int64_t> goods;
+                for (const auto &[good, unused] : opening.input_flow_raw) goods.insert(good);
+                for (const auto &[good, unused] : current.input_flow_raw) goods.insert(good);
+                for (const int64_t good : goods) {
+                    const auto nominal_price = current_prices.find(good);
+                    const auto real_price = base_prices.find(good);
+                    if (nominal_price == current_prices.end() || real_price == base_prices.end()) {
+                        *error = std::string(sector) + " input price is missing at date " + std::to_string(current_date);
+                        return false;
+                    }
+                    const auto opening_entry = opening.input_flow_raw.find(good);
+                    const auto current_entry = current.input_flow_raw.find(good);
+                    const auto &opening_flow = opening_entry == opening.input_flow_raw.end() ? empty : opening_entry->second;
+                    const auto &current_flow = current_entry == current.input_flow_raw.end() ? empty : current_entry->second;
+                    const bool opening_invalid = !opening.input_no_purchase
+                        && (opening_flow[2] > (std::numeric_limits<int64_t>::max)() - opening_flow[3]
+                            || opening_flow[1] > (std::numeric_limits<int64_t>::max)()
+                                - opening_flow[2] - opening_flow[3]);
+                    const bool current_invalid = current.input_no_purchase
+                        ? current_flow[1] != 0 || current_flow[2] != 0 || current_flow[3] != 0
+                        : current_flow[0] != current_flow[1]
+                            || current_flow[2] > (std::numeric_limits<int64_t>::max)() - current_flow[3]
+                            || current_flow[1] > (std::numeric_limits<int64_t>::max)()
+                                - current_flow[2] - current_flow[3];
+                    if (opening_invalid || current_invalid) {
+                        *error = std::string(sector) + " input flow does not reconcile at date "
+                            + std::to_string(current_date);
+                        return false;
+                    }
+                    const int64_t opening_stock = opening.input_no_purchase ? opening_flow[0]
+                        : opening_flow[1] + opening_flow[2] + opening_flow[3];
+                    if (current_flow[0] > opening_stock) {
+                        *error = std::string(sector) + " input stock increased before settlement at date "
+                            + std::to_string(current_date) + " for producer "
+                            + std::to_string(std::get<1>(key)) + " good " + std::to_string(good);
+                        return false;
+                    }
+                    const int64_t consumed = opening_stock - current_flow[0];
+                    values->nominal_inputs += static_cast<long double>(consumed) * nominal_price->second / scale;
+                    values->real_inputs += static_cast<long double>(consumed) * real_price->second / scale;
+                }
+            }
+            return true;
+        }
+
+        bool ValueArtisans(const GdpDay &day, const std::map<int64_t, int64_t> &base_prices,
+                           const std::string &country, int date, ProducerValues *values, std::string *error)
+        {
+            constexpr long double scale = 32768.0L * 32768.0L;
+            for (const auto &[key, artisan] : day.artisans) {
+                if (key.first != country) continue;
+                if (artisan.inactive) continue;
+                if (!artisan.identity_seen || !artisan.production_seen) {
+                    *error = "artisan production is incomplete at date " + std::to_string(date)
+                        + " for POP " + std::to_string(key.second);
+                    return false;
+                }
+                const auto nominal_output_price = day.price_raw.find(artisan.output_good_ordinal);
+                const auto real_output_price = base_prices.find(artisan.output_good_ordinal);
+                if (nominal_output_price == day.price_raw.end() || real_output_price == base_prices.end()) {
+                    *error = "artisan output price is missing at date " + std::to_string(date);
+                    return false;
+                }
+                values->nominal_gross += static_cast<long double>(artisan.output_raw)
+                    * nominal_output_price->second / scale;
+                values->real_gross += static_cast<long double>(artisan.output_raw)
+                    * real_output_price->second / scale;
+                for (const auto &[good, need] : artisan.input_need_raw) {
+                    if (need != 0 && artisan.current_producing_raw
+                        > (std::numeric_limits<int64_t>::max)() / need) {
+                        *error = "artisan input consumption overflows at date " + std::to_string(date)
+                            + " for POP " + std::to_string(key.second);
+                        return false;
+                    }
+                    const auto nominal_price = day.price_raw.find(good);
+                    const auto real_price = base_prices.find(good);
+                    if (nominal_price == day.price_raw.end() || real_price == base_prices.end()) {
+                        *error = "artisan input price is missing at date " + std::to_string(date);
+                        return false;
+                    }
+                    const int64_t consumed = need * artisan.current_producing_raw / 32768;
+                    values->nominal_inputs += static_cast<long double>(consumed) * nominal_price->second / scale;
+                    values->real_inputs += static_cast<long double>(consumed) * real_price->second / scale;
+                }
+            }
+            return true;
+        }
+
+        bool ValueRgos(const GdpDay &day, const std::map<int64_t, int64_t> &base_prices,
+                       std::optional<double> gold_to_cash_rate,
+                       const std::string &country, int date, long double *nominal,
+                       long double *real, long double *precious, std::string *error)
+        {
+            constexpr long double quantity_price_scale = 32768.0L * 32768.0L;
+            for (const auto &[key, rgo] : day.rgos) {
+                if (key.first != country) continue;
+                if (!rgo.identity_seen || !rgo.production_seen) {
+                    *error = "RGO snapshot is incomplete at date " + std::to_string(date);
+                    return false;
+                }
+                if (rgo.output_good == "precious_metal") {
+                    if (!gold_to_cash_rate) {
+                        *error = "precious-metal GDP requires --gold-to-cash-rate for the active mod";
+                        return false;
+                    }
+                    const long double value = static_cast<long double>(rgo.gross_output_raw)
+                        * static_cast<long double>(*gold_to_cash_rate) / 32768.0L;
+                    *nominal += value;
+                    *real += value;
+                    *precious += value;
+                    continue;
+                }
+                const auto current_price = day.price_raw.find(rgo.output_good_ordinal);
+                const auto base_price = base_prices.find(rgo.output_good_ordinal);
+                if (current_price == day.price_raw.end() || base_price == base_prices.end()) {
+                    *error = "RGO output price is missing at date " + std::to_string(date);
+                    return false;
+                }
+                *nominal += static_cast<long double>(rgo.gross_output_raw) * current_price->second
+                    / quantity_price_scale;
+                *real += static_cast<long double>(rgo.gross_output_raw) * base_price->second
+                    / quantity_price_scale;
+            }
+            return true;
+        }
+
+        std::string Decimal(long double value)
+        {
+            std::ostringstream output;
+            output << std::fixed << std::setprecision(9) << value;
+            return output.str();
         }
     }
 
@@ -876,7 +1654,7 @@ namespace smedley::trace
     }
 
     bool ExportCountryCsv(const fs::path &input, const fs::path &output, bool overwrite,
-                          std::string *error, std::string *warning)
+                           std::string *error, std::string *warning)
     {
         fs::path input_path, output_path;
         if (!AbsolutePath(input, &input_path, error) || !AbsolutePath(output, &output_path, error)) return false;
@@ -889,6 +1667,318 @@ namespace smedley::trace
             std::string line;
             return CsvCountry(record, &line, visitor_error) && Write(&destination, line, visitor_error);
         }, error)) return false;
+        if (warning) *warning = summary.warning;
+        return Publish(&destination, error);
+    }
+
+    bool ExportFactoryValueAddedCsv(const fs::path &input, const fs::path &output,
+                                    const std::string &country, bool overwrite,
+                                    std::string *error, std::string *warning)
+    {
+        fs::path input_path, output_path;
+        if (!AbsolutePath(input, &input_path, error) || !AbsolutePath(output, &output_path, error)) return false;
+        std::map<int, ProductionDay> days;
+        bool factory_health_seen = false, market_health_seen = false;
+        uint64_t terminal_health_sequence = 0;
+        Summary summary;
+        if (!Stream(input_path, &summary, [&](const Record &record, std::string *visitor_error) {
+            if (record.event == "telemetry.family.summary") {
+                return CaptureFamilyHealth(record, &factory_health_seen, &market_health_seen, visitor_error);
+            }
+            if (record.event == "telemetry.summary") {
+                return CaptureTerminalHealth(record, &terminal_health_sequence, visitor_error);
+            }
+            if (record.event != "world.market.price" && record.event != "state.factory.production"
+                && record.event != "state.factory.input.flow.summary"
+                && record.event != "state.factory.input.flow") return true;
+            if (!record.game_date_raw) { *visitor_error = record.event + " is missing game_date_raw"; return false; }
+            auto &day = days[*record.game_date_raw];
+            if (record.event == "world.market.price") return CaptureMarketPrice(record, &day, visitor_error);
+            if (record.event == "state.factory.production") return CaptureFactoryProduction(record, &day, visitor_error);
+            if (record.event == "state.factory.input.flow.summary") {
+                return CaptureFactoryInputFlowSummary(record, &day, visitor_error);
+            }
+            return CaptureFactoryInputFlow(record, &day, visitor_error);
+        }, error) || !HealthyFactoryTrace(summary, error)) return false;
+        if (!factory_health_seen || !market_health_seen || terminal_health_sequence == 0
+            || !summary.last_sequence || terminal_health_sequence != *summary.last_sequence) {
+            *error = "factory value added requires terminal factory, market, and writer health summaries";
+            return false;
+        }
+        if (days.size() < 2) { *error = "factory value added requires at least two daily snapshots"; return false; }
+
+        for (auto day_iterator = days.begin(); day_iterator != days.end(); ++day_iterator) {
+            const auto &[date, day] = *day_iterator;
+            for (const auto &[key, factory] : day.factories) {
+                if (!factory.production_seen || !factory.input_flow_summary_seen) {
+                    *error = "factory snapshot is missing production or flow-summary evidence at date " + std::to_string(date);
+                    return false;
+                }
+                if (day_iterator != days.begin() && !factory.input_flow_complete) {
+                    *error = "factory input flow is incomplete at date " + std::to_string(date);
+                    return false;
+                }
+            }
+        }
+
+        Output destination;
+        if (!StartOutput(input_path, output_path, L".csv", overwrite, &destination, error)) return false;
+        if (!Write(&destination,
+                "run_id,opening_date_raw,game_date_raw,country_tag,factory_count,gross_output_value,intermediate_consumption,value_added,quality\r\n",
+                error)) return false;
+
+        constexpr long double quantity_price_scale = 32768.0L * 32768.0L;
+        size_t rows = 0;
+        for (auto current = std::next(days.begin()); current != days.end(); ++current) {
+            const auto previous = std::prev(current);
+            if (current->first - previous->first != 24) {
+                *error = "factory value added requires consecutive daily snapshots";
+                return false;
+            }
+            std::set<std::string> countries;
+            for (const auto &[key, unused] : previous->second.factories) countries.insert(std::get<0>(key));
+            for (const auto &[key, unused] : current->second.factories) countries.insert(std::get<0>(key));
+            for (const auto &tag : countries) {
+                if (!country.empty() && tag != country) continue;
+                std::set<FactoryKey> previous_factories, current_factories;
+                for (const auto &[key, unused] : previous->second.factories) {
+                    if (std::get<0>(key) == tag) previous_factories.insert(key);
+                }
+                for (const auto &[key, unused] : current->second.factories) {
+                    if (std::get<0>(key) == tag) current_factories.insert(key);
+                }
+                if (previous_factories != current_factories) {
+                    *error = "factory set changed between dates " + std::to_string(previous->first)
+                        + " and " + std::to_string(current->first) + " for " + tag;
+                    return false;
+                }
+                if (current_factories.empty()) continue;
+
+                const bool opening_complete = std::all_of(previous_factories.begin(), previous_factories.end(),
+                    [&](const FactoryKey &key) { return previous->second.factories.at(key).input_flow_complete; });
+                if (!opening_complete) {
+                    if (previous != days.begin()) {
+                        *error = "factory input flow is incomplete at date " + std::to_string(previous->first);
+                        return false;
+                    }
+                    continue;
+                }
+
+                long double gross_output = 0.0L, intermediate_consumption = 0.0L;
+                for (const auto &key : current_factories) {
+                    const auto &opening = previous->second.factories.at(key);
+                    const auto &closing = current->second.factories.at(key);
+                    const auto output_price = current->second.price_raw.find(closing.output_good_ordinal);
+                    if (output_price == current->second.price_raw.end()) {
+                        *error = "missing output price at date " + std::to_string(current->first);
+                        return false;
+                    }
+                    gross_output += static_cast<long double>(closing.output_raw)
+                        * static_cast<long double>(output_price->second) / quantity_price_scale;
+                    std::set<int64_t> input_goods;
+                    for (const auto &[good, unused] : opening.input_flow_raw) input_goods.insert(good);
+                    for (const auto &[good, unused] : closing.input_flow_raw) input_goods.insert(good);
+                    for (const int64_t good : input_goods) {
+                        const auto price = current->second.price_raw.find(good);
+                        if (price == current->second.price_raw.end()) {
+                            *error = "missing input price at date " + std::to_string(current->first);
+                            return false;
+                        }
+                        const std::array<int64_t, 4> empty_flow{};
+                        const auto opening_flow = opening.input_flow_raw.find(good);
+                        const auto closing_flow = closing.input_flow_raw.find(good);
+                        const auto &opening_values = opening_flow == opening.input_flow_raw.end() ? empty_flow : opening_flow->second;
+                        const auto &values = closing_flow == closing.input_flow_raw.end() ? empty_flow : closing_flow->second;
+                        if (!opening.input_no_purchase
+                            && (opening_values[2] > (std::numeric_limits<int64_t>::max)() - opening_values[3]
+                                || opening_values[1] > (std::numeric_limits<int64_t>::max)()
+                                    - opening_values[2] - opening_values[3])) {
+                            *error = "factory opening input flow overflows at date " + std::to_string(previous->first);
+                            return false;
+                        }
+                        const int64_t opening_raw = opening.input_no_purchase ? opening_values[0]
+                            : opening_values[1] + opening_values[2] + opening_values[3];
+                        const bool closing_invalid = closing.input_no_purchase
+                            ? values[1] != 0 || values[2] != 0 || values[3] != 0
+                            : values[0] != values[1]
+                                || values[2] > (std::numeric_limits<int64_t>::max)() - values[3]
+                                || values[1] > (std::numeric_limits<int64_t>::max)() - values[2] - values[3];
+                        if (closing_invalid) {
+                            *error = "factory input flow does not reconcile at date " + std::to_string(current->first);
+                            return false;
+                        }
+                        if (values[0] > opening_raw) {
+                            *error = "factory input stock increased before settlement at date " + std::to_string(current->first);
+                            return false;
+                        }
+                        intermediate_consumption += static_cast<long double>(opening_raw - values[0])
+                            * static_cast<long double>(price->second) / quantity_price_scale;
+                    }
+                }
+                const long double value_added = gross_output - intermediate_consumption;
+                const std::string line = CsvText(summary.run_id) + ',' + std::to_string(previous->first) + ','
+                    + std::to_string(current->first) + ',' + CsvText(tag) + ',' + std::to_string(current_factories.size()) + ','
+                    + Decimal(gross_output) + ',' + Decimal(intermediate_consumption) + ',' + Decimal(value_added)
+                    + ',' + CsvText("verified-runtime") + "\r\n";
+                if (!Write(&destination, line, error)) return false;
+                ++rows;
+            }
+        }
+        if (rows == 0) { *error = country.empty() ? "trace contains no complete factory intervals" : "country has no complete factory intervals"; return false; }
+        if (warning) *warning = summary.warning;
+        return Publish(&destination, error);
+    }
+
+    bool ExportCountryGdpCsv(const fs::path &input, const fs::path &output,
+                             const std::string &country, std::optional<int> base_date,
+                             std::optional<double> gold_to_cash_rate, bool overwrite,
+                             std::string *error, std::string *warning)
+    {
+        fs::path input_path, output_path;
+        if (!AbsolutePath(input, &input_path, error) || !AbsolutePath(output, &output_path, error)) return false;
+        if (!country.empty() && !IsTag(country)) { *error = "GDP country filter must be a normalized tag"; return false; }
+        std::map<int, GdpDay> days;
+        std::set<std::string> family_health;
+        std::map<std::string, int64_t> family_polls;
+        std::map<std::string, CaptureRuleMetadata> capture_metadata;
+        uint64_t terminal_health_sequence = 0;
+        Summary summary;
+        if (!Stream(input_path, &summary, [&](const Record &record, std::string *visitor_error) {
+            if (record.event == "telemetry.capture.rule" || record.event == "telemetry.capture.field"
+                || record.event == "telemetry.capture.country") {
+                return CaptureGdpMetadata(record, &capture_metadata, visitor_error);
+            }
+            if (record.event == "telemetry.family.summary") {
+                return CaptureGdpFamilyHealth(record, &family_health, &family_polls, visitor_error);
+            }
+            if (record.event == "telemetry.summary") {
+                return CaptureTerminalHealth(record, &terminal_health_sequence, visitor_error);
+            }
+            static const std::set<std::string> events = {
+                "world.market.price", "state.factory.production", "state.factory.input.flow.summary",
+                "state.factory.input.flow", "province.rgo.identity", "province.rgo.production",
+                "province.rgo.finance", "pop.artisan.identity", "pop.artisan.production",
+                "pop.artisan.input", "pop.artisan.inactive", "pop.aggregate"};
+            if (events.find(record.event) == events.end()) return true;
+            if (!record.game_date_raw) { *visitor_error = record.event + " is missing game_date_raw"; return false; }
+            auto &day = days[*record.game_date_raw];
+            if (record.event == "world.market.price") return CaptureMarketPrice(record, &day, visitor_error);
+            if (record.event == "state.factory.production") return CaptureFactoryProduction(record, &day, visitor_error);
+            if (record.event == "state.factory.input.flow.summary") {
+                return CaptureFactoryInputFlowSummary(record, &day, visitor_error);
+            }
+            if (record.event == "state.factory.input.flow") return CaptureFactoryInputFlow(record, &day, visitor_error);
+            if (record.event == "province.rgo.identity") return CaptureRgoIdentity(record, &day, visitor_error);
+            if (record.event == "province.rgo.production") return CaptureRgoProduction(record, &day, visitor_error);
+            if (record.event == "province.rgo.finance") return CaptureRgoFinance(record, &day, visitor_error);
+            if (record.event == "pop.artisan.identity") return CaptureArtisanIdentity(record, &day, visitor_error);
+            if (record.event == "pop.artisan.production") return CaptureArtisanProduction(record, &day, visitor_error);
+            if (record.event == "pop.artisan.input") return CaptureArtisanInput(record, &day, visitor_error);
+            if (record.event == "pop.artisan.inactive") return CaptureInactiveArtisan(record, &day, visitor_error);
+            return CapturePopulation(record, &day, visitor_error);
+        }, error) || !HealthyFactoryTrace(summary, error)) return false;
+        static const std::set<std::string> expected_health = {
+            "world.market", "state.factory", "province.rgo", "pop.artisan", "pop.aggregate"};
+        if (family_health != expected_health || terminal_health_sequence == 0
+            || !summary.last_sequence || terminal_health_sequence != *summary.last_sequence) {
+            *error = "country GDP requires terminal market, producer, population, and writer health summaries";
+            return false;
+        }
+        if (days.size() < 3) { *error = "country GDP requires at least three daily snapshots"; return false; }
+        if (!ValidateGdpMetadata(capture_metadata, family_polls, days.size(), error)) return false;
+        for (auto current = std::next(days.begin()); current != days.end(); ++current) {
+            if (current->first - std::prev(current)->first != 24) {
+                *error = "country GDP requires consecutive daily snapshots";
+                return false;
+            }
+        }
+        const int base = base_date.value_or(days.begin()->first);
+        const auto base_day = days.find(base);
+        if (base_day == days.end()) { *error = "GDP base date has no daily snapshot"; return false; }
+        if (base_day->second.price_raw.empty()) { *error = "GDP base date has no market prices"; return false; }
+        for (const auto &[date, day] : days) {
+            for (const auto &[key, factory] : day.factories) {
+                if (!factory.production_seen || !factory.input_flow_summary_seen) {
+                    *error = "factory snapshot is incomplete at date " + std::to_string(date);
+                    return false;
+                }
+            }
+            for (const auto &[key, artisan] : day.artisans) {
+                if (!artisan.inactive && (!artisan.identity_seen || !artisan.production_seen)) {
+                    *error = "artisan snapshot is incomplete at date " + std::to_string(date);
+                    return false;
+                }
+            }
+            for (const auto &[key, rgo] : day.rgos) {
+                if (!rgo.identity_seen || !rgo.production_seen) {
+                    *error = "RGO snapshot is incomplete at date " + std::to_string(date);
+                    return false;
+                }
+            }
+        }
+
+        Output destination;
+        if (!StartOutput(input_path, output_path, L".csv", overwrite, &destination, error)) return false;
+        if (!Write(&destination,
+                "run_id,opening_date_raw,game_date_raw,base_date_raw,gold_to_cash_rate,country_tag,population,"
+                "factory_gross_output,factory_intermediate_consumption,factory_value_added,factory_real_value_added,"
+                "rgo_value_added,rgo_real_value_added,precious_metal_value_added,"
+                "artisan_gross_output,artisan_intermediate_consumption,artisan_value_added,artisan_real_value_added,"
+                "nominal_gdp,real_gdp,nominal_gdp_per_capita,real_gdp_per_capita,quality\r\n", error)) return false;
+
+        size_t rows = 0;
+        for (auto current = std::next(days.begin(), 2); current != days.end(); ++current) {
+            const auto opening = std::prev(current);
+            std::set<std::string> countries;
+            for (const auto &[tag, unused] : current->second.population) countries.insert(tag);
+            if (!country.empty()) countries = {country};
+            for (const auto &tag : countries) {
+                for (const char *family : {"state.factory", "province.rgo", "pop.artisan", "pop.aggregate"}) {
+                    const auto &rule = capture_metadata.at(family);
+                    if (rule.country_filter_count != 0 && rule.countries.find(tag) == rule.countries.end()) {
+                        *error = "country GDP capture scope does not include " + tag + " for " + family;
+                        return false;
+                    }
+                }
+                const auto population = current->second.population.find(tag);
+                if (population == current->second.population.end() || population->second <= 0) {
+                    *error = "country GDP requires a positive population at date " + std::to_string(current->first)
+                        + " for " + tag;
+                    return false;
+                }
+                ProducerValues factories, artisans;
+                if (!ValueProducerSet(opening->second.factories, current->second.factories,
+                        current->second.price_raw, base_day->second.price_raw, tag, current->first,
+                        "factory", &factories, error)
+                    || !ValueArtisans(current->second, base_day->second.price_raw, tag,
+                        current->first, &artisans, error)) return false;
+                long double rgo_nominal = 0.0L, rgo_real = 0.0L, precious = 0.0L;
+                if (!ValueRgos(current->second, base_day->second.price_raw, gold_to_cash_rate,
+                        tag, current->first,
+                        &rgo_nominal, &rgo_real, &precious, error)) return false;
+                const long double factory_va = factories.nominal_gross - factories.nominal_inputs;
+                const long double factory_real_va = factories.real_gross - factories.real_inputs;
+                const long double artisan_va = artisans.nominal_gross - artisans.nominal_inputs;
+                const long double artisan_real_va = artisans.real_gross - artisans.real_inputs;
+                const long double nominal = factory_va + rgo_nominal + artisan_va;
+                const long double real = factory_real_va + rgo_real + artisan_real_va;
+                const long double denominator = static_cast<long double>(population->second);
+                const std::string line = CsvText(summary.run_id) + ',' + std::to_string(opening->first) + ','
+                    + std::to_string(current->first) + ',' + std::to_string(base) + ','
+                    + (gold_to_cash_rate ? Decimal(*gold_to_cash_rate) : std::string{}) + ',' + CsvText(tag) + ','
+                    + std::to_string(population->second) + ',' + Decimal(factories.nominal_gross) + ','
+                    + Decimal(factories.nominal_inputs) + ',' + Decimal(factory_va) + ','
+                    + Decimal(factory_real_va) + ',' + Decimal(rgo_nominal) + ',' + Decimal(rgo_real) + ','
+                    + Decimal(precious) + ',' + Decimal(artisans.nominal_gross) + ','
+                    + Decimal(artisans.nominal_inputs) + ',' + Decimal(artisan_va) + ','
+                    + Decimal(artisan_real_va) + ',' + Decimal(nominal) + ',' + Decimal(real) + ','
+                    + Decimal(nominal / denominator) + ',' + Decimal(real / denominator) + ','
+                    + CsvText("verified-runtime") + "\r\n";
+                if (!Write(&destination, line, error)) return false;
+                ++rows;
+            }
+        }
+        if (rows == 0) { *error = "trace contains no complete country GDP intervals"; return false; }
         if (warning) *warning = summary.warning;
         return Publish(&destination, error);
     }

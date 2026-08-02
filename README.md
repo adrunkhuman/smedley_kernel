@@ -129,7 +129,10 @@ decision internals remain unavailable rather than being guessed. State
 snapshots are not AI decision reasoning.
 
 `smedley_trace` validates, summarizes, compares, filters, and exports telemetry
-traces without external dependencies. Run `smedley_trace summary TRACE.jsonl` or
+traces without external dependencies. It derives verified daily factory value
+added and strict country nominal, real, and per-capita GDP from complete
+producer, market, and population captures. Run
+`smedley_trace summary TRACE.jsonl` or
 see [`docs/telemetry.md`](docs/telemetry.md) for all commands.
 
 `scripting` runs selected source-visible Lua 5.1 files without exposing

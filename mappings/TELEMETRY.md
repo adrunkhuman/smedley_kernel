@@ -205,6 +205,89 @@ and machine-parts values. `CBuilding+0x12c` points to `CProductionType`; output
 good `+0x80` and base output `+0x88` match `production_types.txt` and the live
 `CGoods` key.
 
+Static callsites identify a second `CGoodsPool` at `CStateBuilding+0x80`.
+RVA `0x000dd470` copies the production type's input
+recipe, scales it, adds scaled maintenance goods, subtracts the current `+0x28`
+stockpile, and clamps at zero. The daily caller at RVA `0x00084060` stores that
+result in `+0x80` before market settlement at RVA `0x00082ff0`. Telemetry samples
+the retained request after the daily boundary. Belgian partial fulfillment
+proves that settlement does not replace it with fulfilled purchases.
+
+The requested-input index table uses zero for an empty in-registry entry. Bytes
+beyond the loaded registry are stale (`0xff` for Prussia and `0xee` for Belgium
+at ordinal 48), so traversal is bounded by the loaded-goods count at global RVA
+`0x00e587f4`; the GFM probe reports 48 goods. Run
+`8b355d27-c585-4fb7-8c8f-f79caf33c025` emitted 50 input records over two dates
+and accepted all 92 selected factory records without invalid or dropped
+results. On the second date, summing `requested_raw * world.market.price` for
+each factory reproduced `market_spending_expense_raw` for all seven factories
+within 0.000081 currency. Glass differed by 0.000056 from fixed-point rounding.
+This fully supplied case did not distinguish requests from fulfilled purchases.
+
+Belgian run `a859d772-6846-4749-9fb6-d12467774133` emitted 123 accepted factory
+records over three dates with zero invalid or dropped results. Cement request
+value exceeded market spending by 0.09938 and 0.41326 currency on consecutive
+dates; Canned Food differed by 0.23857 on the third date. Fully supplied
+factories remained within 0.00009. This verifies `+0x80` as requested demand and
+disproves using it as fulfilled purchases in a quantity inventory equation.
+
+Valuing both inventory endpoints at the current market price supported an
+initial shortage-safe monetary estimate:
+
+```text
+intermediate consumption = market spending + opening stock value - closing stock value
+factory value added = output value - intermediate consumption
+```
+
+Across Belgium's six factories, the two comparable daily results were
+110.4296 gross / 94.1747 intermediate / 16.2549 value added and 116.1762 gross /
+98.4568 intermediate / 17.7194 value added. All six factory-level value-added
+results were positive on both dates. This remains provisional: snapshots must
+bracket the same interval as spending, other stock transfers must be absent,
+and spending may use transaction prices different from the current prices used
+for both inventory endpoints.
+
+Thirty-day Belgian run `3aacdf40-e989-4d52-92c8-f052fa2a78d8` extended this to
+29 consecutive intervals and 174 factory-interval results. All results remained
+positive through persistent Canned Food, Cement, Steel, Fabric, and Small Arms
+shortages. Country daily value added ranged from 16.2549 to 20.7850 and averaged
+19.5229. The trace accepted all 1,230 selected factory records with zero invalid
+or dropped results. This supports the daily snapshot alignment used by the
+offline interval alignment. The mixed transaction/current-price estimate was
+subsequently replaced by direct physical consumption measurement.
+
+The daily settlement caller at RVA `0x000845fd` calls settlement routine RVA
+`0x00082ff0`. Immediately after production consumption and before purchases,
+the factory stock pool is the caller's factory argument plus `0x28`. Primary
+and secondary delivered-goods pools are passed to the same `CGoodsPool` add
+helper at callsite RVAs `0x0008369d` and `0x000836aa`; the helper is RVA
+`0x0007dc20`. The telemetry `flows` group verifies the expected five-byte calls
+before replacing them and preserves registers, flags, and the original calls.
+
+Belgian 30-day run `0cff14dc-70fa-4d36-b820-f819e13dcb3e` captured 174 factory
+intervals with zero incomplete boundaries, negative consumption quantities, or
+stock-flow reconciliation failures. Every closing stock equaled pre-purchase
+stock plus primary and secondary deliveries. Direct consumption is therefore
+the previous closing stock minus the current post-consumption stock. Its maximum
+difference from the earlier spending-plus-inventory estimate was 0.000811603
+currency after current-price valuation. Country factory value added averaged
+19.522634493 and ranged from 16.255384248 to 20.784684079.
+
+Final renamed-event run `608c1a54-b2f5-41b8-8fcd-83c0382c51d1` emitted complete
+`state.factory.input.flow.summary` and `state.factory.input.flow` records. Its
+first two intervals produced 16.255384248 and 17.719507277 of direct factory
+value added. This establishes the callsites, phase boundaries, and derived
+physical consumption as `verified-runtime` for the supported executable.
+
+After queue draining moved to one shared snapshot per observed game date,
+flows-only run `b7c6d433-2404-49f7-a12f-738810579949` omitted both finance and
+ordinary input snapshots. It emitted 24 complete summaries and 69 flow records
+over four sampled dates with zero gaps, drops, or invalid records. The first
+date was the expected pre-settlement hook warm-up; the next two complete
+intervals exported value added of 17.719507277 and 19.813987492. The hook queue
+and date snapshot are bounded to 2,048 records, supporting at most 512 factories
+per daily boundary before explicit invalid accounting.
+
 Small Arms finance fields correlated on two dates: budget `+0x150`, market
 spending `+0x158`, sales income `+0x160`, paychecks `+0x168`, and investment
 `+0x170`. These are nonnegative 64-bit amounts displayed after division by
@@ -306,6 +389,49 @@ factory output and `sales_income / price`; ratios ranged from 0.14 to 2.16.
 Producer inventory or market-clearing instrumentation is required before
 factory-specific sold quantity can be claimed.
 
+## Artisan production
+
+Typed runtime and save correlation establish the artisan economy object at
+`CPop+0x1d4`. `CPop+0x0c` is the persistent POP ID. The object contains the
+stockpile `CGoodsPool` at `+0x00`, recipe-need pool at `+0x58`, active
+`CProductionType*` at `+0xb0`, last spending `+0xb8`, current production factor
+`+0xc0`, percent afforded `+0xc8`, domestic/export sold fractions `+0xd0/+0xd8`,
+leftover `+0xe0`, throttle `+0xe8`, needs cost `+0xf0`, and production income
+`+0xf8`. Quantities and fractions use the 32,768 scale; monetary values use the
+32,768,000 scale. `CProductionType+0x80` is the output good and `+0x88` is base
+output.
+
+Berlin POP 8845 matched every independently serialized field: ammunition
+recipe, current-production raw 3,116, percent afforded 32,768, last spending and
+needs cost 1,126,244,000, production income 163,852,000, and input recipe raws
+65,536/65,536/163,840. Gross output is the fixed-point product of current
+production and base output.
+
+The engine's active recipe coefficients are the intermediate-input quantities
+per unit of `current_producing_raw`. Runtime POP 8845 later had production raw
+23,565. Multiplying its three coefficients and shifting 15 bits gives consumed
+raw quantities 47,130/47,130/117,825. The independent market-boundary trace
+showed previous closing stocks 47,132/47,132/117,830 and current residuals
+2/2/5, exactly the same consumption. This establishes recipe consumption as
+`verified-runtime` without relying on cross-date stock identity when artisans
+switch recipes.
+
+The artisan market-settlement caller at RVA `0x00086bff` holds `CPop*` in EBX
+and calls RVA `0x00083aa0`. Primary and secondary goods additions occur at RVAs
+`0x00083fca` and `0x00083fda`, with `CPop*` retained in EDI and its economy
+object in ESI. A three-day country-filtered hook run recorded all four boundaries
+for nine Berlin artisans after warm-up, 40 per-good records, and zero gaps,
+drops, or invalid records. The hook is observational and bounded to 8,192
+records for at most 16 selected country tags.
+
+Callsite RVA `0x00086b81` invokes RVA `0x000dd3c0`, which copies the active
+recipe input pool, scales it, and subtracts artisan stock from a temporary
+requirement pool through `CGoodsPool` subtraction RVA `0x0007dca0`; it does not
+mutate the artisan stock pool. A temporary before/after wrapper confirmed equal
+artisan stock on both sides. This disproves treating that call as the physical
+stock-consumption boundary and supports using the recipe/current-production
+account directly.
+
 ## RGO production
 
 Paused UI correlation on Berlin 549 (fruit farm) and Görlitz 687 (coal mine)
@@ -364,6 +490,15 @@ accepted records with zero invalid or dropped records.
 Run `e5f0655c-7a87-4342-a77a-96c2b2d47492` emitted production and separate
 modifier records with owner raw values 305 and 463. Its family summary reported
 ten accepted records with zero filtered, dropped, or invalid results.
+
+Metz province 412 resolves `precious_metal_mine` and precious-metal ordinal 17.
+Run `962c2f5b-afb6-4ef2-b29d-eb579c480561` emitted gross output raw 262,128 and
+income raw 7,385,056,000 with zero gaps, drops, or invalid records. The income
+matches save `last_income=225374.02344` after the save's raw / 32,768 display
+scale, but does not match 7.9995 units times vanilla `GOLD_TO_CASH_RATE=0.5`.
+Therefore RGO income is not precious-metal cash creation. GDP values precious
+metal as gross quantity times the active mod's explicit rate (vanilla 0.5, GFM
+1.0), never by the non-tradeable good's market price or RGO income field.
 
 Injected vanilla run `40d36695-696f-408e-af64-df266a1cfcc8` loaded the unchanged
 benchmark and emitted four record groups for each of seven PRU factories. The

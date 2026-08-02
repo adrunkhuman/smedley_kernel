@@ -10,6 +10,7 @@
 #include <direct.h>
 #include <psapi.h>
 #include <shlobj.h>
+#include <algorithm>
 
 PLUGIN_API void LoadPlugins()
 {
@@ -163,10 +164,17 @@ namespace smedley
                 try {
                     plugin->OnLoad();
                 } catch (...) {
+                    bool rolled_back = true;
                     try {
                         plugin->OnUnload();
                     } catch (...) {
                         _logger->Failure("legacy plugin rollback unload failed: " + def.id);
+                        rolled_back = false;
+                    }
+                    if (!rolled_back) {
+                        LoadedPlugin retained;
+                        retained.legacy = plugin.release();
+                        _plugins.push_back(std::move(retained));
                     }
                     throw;
                 }
@@ -189,6 +197,7 @@ namespace smedley
 
     void PluginLoader::UnloadPlugins()
     {
+        std::vector<LoadedPlugin> retained;
         for (auto it = _plugins.rbegin(); it != _plugins.rend(); ++it) {
             if (it->abi_v1) {
                 std::vector<std::string> errors;
@@ -197,12 +206,19 @@ namespace smedley
                 continue;
             }
             if (it->legacy != nullptr) {
+                bool unloaded = true;
                 try {
                     it->legacy->OnUnload();
                 } catch (const std::exception &error) {
                     _logger->Failure("plugin unload failed: " + std::string(error.what()));
+                    unloaded = false;
                 } catch (...) {
                     _logger->Failure("plugin unload failed with an unknown exception");
+                    unloaded = false;
+                }
+                if (!unloaded) {
+                    retained.push_back(std::move(*it));
+                    continue;
                 }
                 try {
                     delete it->legacy;
@@ -212,9 +228,10 @@ namespace smedley
             }
         }
 
-        _plugins.clear();
-        _plugin_defs.clear();
-        _loaded = false;
+        std::reverse(retained.begin(), retained.end());
+        _plugins = std::move(retained);
+        if (_plugins.empty()) _plugin_defs.clear();
+        _loaded = !_plugins.empty();
     }
 
     std::vector<std::filesystem::path> PluginLoader::ParsePluginArguments(const wchar_t *command_line)

@@ -104,6 +104,43 @@ namespace interest_bug_fix
         PopMoneySnapshot economy;
     };
 
+    struct ArtisanSnapshot
+    {
+        const void *address = nullptr;
+        int32_t pop_id = -1;
+        char production_type[64]{};
+        int32_t output_good_ordinal = -1;
+        char output_good[64]{};
+        int64_t base_output_raw = 0;
+        int64_t current_producing_raw = 0;
+        int64_t gross_output_raw = 0;
+        int64_t last_spending_raw = 0;
+        int64_t percent_afforded_raw = 0;
+        int64_t percent_sold_domestic_raw = 0;
+        int64_t percent_sold_export_raw = 0;
+        int64_t leftover_raw = 0;
+        int64_t throttle_raw = 0;
+        int64_t needs_cost_raw = 0;
+        int64_t production_income_raw = 0;
+    };
+
+    struct ArtisanInputSnapshot
+    {
+        int32_t good_ordinal = -1;
+        int64_t stockpile_raw = 0;
+        int64_t need_raw = 0;
+    };
+
+    enum ArtisanCaptureGroup : uint32_t
+    {
+        ARTISAN_IDENTITY = 1u << 0,
+        ARTISAN_PRODUCTION = 1u << 1,
+        ARTISAN_INPUTS = 1u << 2,
+        ARTISAN_FINANCE = 1u << 3,
+        ARTISAN_FLOWS = 1u << 4,
+        ARTISAN_ALL = ARTISAN_IDENTITY | ARTISAN_PRODUCTION | ARTISAN_INPUTS | ARTISAN_FINANCE | ARTISAN_FLOWS,
+    };
+
     enum FactoryCaptureFlag : uint32_t
     {
         FACTORY_COUNTRY_UNREADABLE = 1u << 0,
@@ -113,6 +150,11 @@ namespace interest_bug_fix
         FACTORY_UNREADABLE = 1u << 4,
         FACTORY_DEFINITION_INVALID = 1u << 5,
         FACTORY_LIMIT = 1u << 6,
+        FACTORY_REQUESTED_INPUT_METADATA_INVALID = 1u << 7,
+        FACTORY_REQUESTED_INPUT_SENTINEL_INVALID = 1u << 8,
+        FACTORY_REQUESTED_INPUT_INDEX_INVALID = 1u << 9,
+        FACTORY_REQUESTED_INPUT_VALUE_INVALID = 1u << 10,
+        FACTORY_GOODS_REGISTRY_INVALID = 1u << 11,
     };
 
     enum FactoryCaptureGroup : uint32_t
@@ -126,6 +168,7 @@ namespace interest_bug_fix
 
     struct FactorySnapshot
     {
+        const void *address = nullptr;
         uint32_t state_index = 0;
         uint32_t factory_index = 0;
         int32_t state_id = -1;
@@ -154,6 +197,7 @@ namespace interest_bug_fix
         uint32_t factory_snapshot_index = 0;
         int32_t good_ordinal = -1;
         int64_t stockpile_raw = 0;
+        int64_t requested_raw = 0;
     };
 
     struct WorldMarketSnapshot
@@ -219,11 +263,16 @@ namespace interest_bug_fix
                             Sample *quality);
     bool ReadPopMoneySnapshot(const void *pop, PopMoneySnapshot *snapshot);
     bool ReadPopDetailSnapshot(const void *pop, PopDetailSnapshot *snapshot);
+    bool ReadArtisanSnapshot(const void *pop, ArtisanSnapshot *snapshot,
+                             ArtisanInputSnapshot *inputs, size_t input_capacity, uint32_t *input_count,
+                             uint32_t groups = ARTISAN_ALL);
+    bool ReadInactiveArtisan(const void *pop, int32_t *pop_id);
     bool CanWritePopMoney(const void *pop);
     bool CollectCountryFactories(const void *country, FactorySnapshot *snapshots,
                                  size_t snapshot_capacity, uint32_t *snapshot_count,
                                  FactoryInputSnapshot *inputs, size_t input_capacity,
-                                 uint32_t *input_count, uint32_t groups, uint32_t *flags);
+                                 uint32_t *input_count, uint32_t groups, uint32_t *flags,
+                                 uint32_t loaded_goods_count_override = 0);
     bool CollectWorldMarket(const void *game_state, WorldMarketSnapshot *snapshots,
                             size_t snapshot_capacity, uint32_t *snapshot_count);
     const void *ResolveStateEmploymentRegistry();

@@ -343,6 +343,53 @@ signature = "a1 28 87 25 01 85 c0 75 33"
 source = "returns the singleton vector object stored at preferred VA 0x01258728; callers at RVAs 0x10950b, 0x340ed9, 0x555def, and others index its first vector by province ID times 0xb0"
 
 [[symbols]]
+name = "Loaded goods count"
+rva = 0x00e587f4
+kind = "data"
+status = "verified-runtime"
+source = "daily factory caller RVA 0x00084060 passes this count to the goods-pool index remapper at RVA 0x00ab1550; GFM runtime value 48 exactly bounds valid world-market and requested-input ordinals"
+
+[[symbols]]
+name = "Factory settlement callsite"
+rva = 0x000845fd
+kind = "callsite"
+status = "verified-runtime"
+signature = "e8 ee e9 ff ff"
+source = "opt-in factory flow hook observed post-consumption stock and reconciled it with deliveries at RVAs 0x0008369d/0x000836aa across 174 live intervals"
+
+[[symbols]]
+name = "Artisan settlement callsite"
+rva = 0x00086bff
+kind = "callsite"
+status = "verified-runtime"
+signature = "e8 9c ce ff ff"
+source = "EBX is CPop*; country-filtered live hooks reconciled post-consumption stock with both delivery callsites for nine Berlin artisans over two complete boundaries"
+
+[[symbols]]
+name = "Artisan primary delivery callsite"
+rva = 0x00083fca
+kind = "callsite"
+status = "verified-runtime"
+signature = "e8 51 9c ff ff"
+source = "EDI remains CPop* and ESI is its artisan economy/stockpile object; live flow records captured the stack-passed primary goods pool before the original CGoodsPool add"
+
+[[symbols]]
+name = "Artisan secondary delivery callsite"
+rva = 0x00083fda
+kind = "callsite"
+status = "verified-runtime"
+signature = "e8 41 9c ff ff"
+source = "same register contract as the primary callsite; live traces captured secondary deliveries and complete settlement counts"
+
+[[symbols]]
+name = "Artisan recipe requirement calculation"
+rva = 0x000dd3c0
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 83 e4 f8 51 53"
+source = "caller RVA 0x00086b81 passes CPop* in EAX, active CProductionType* and artisan economy on stack, and a temporary pool in ECX; static flow copies and scales recipe inputs and subtracts stock from the temporary pool rather than artisan stock"
+
+[[symbols]]
 name = "CStateEmployment gross output calculation"
 rva = 0x000de350
 kind = "function"
@@ -727,11 +774,12 @@ fields = [
 name = "CStateBuilding"
 status = "verified-runtime"
 size = 0x0220
-source = "RTTI and constructor RVA 0x000f2bc0 establish object shape; two live benchmark dates correlated type, level, employees, output, budget, spending, income, paychecks, and investment against the Production UI"
+source = "RTTI and constructor RVA 0x000f2bc0 establish object shape; live Prussian and Belgian runs correlated type, level, employees, output, finance, stockpile, and requested inputs; static callsites RVA 0x000dd470 and 0x00084060 write requested recipe inputs remaining after stockpile subtraction, and Belgian partial fulfillment proves the retained pool is demand rather than purchases"
 fields = [
   { name = "definition", offset = 0x0018 },
   { name = "level", offset = 0x0020 },
   { name = "input_stockpile", offset = 0x0028 },
+  { name = "requested_inputs", offset = 0x0080 },
   { name = "output", offset = 0x00d8 },
   { name = "employment", offset = 0x00f0 },
   { name = "employees", offset = 0x0128 },

@@ -292,6 +292,33 @@ TEST(TelemetryTimingTest, ConvertsLongUptimeWithoutMultiplicationOverflow)
     EXPECT_EQ(telemetry::QpcToMicroseconds((std::numeric_limits<uint64_t>::max)(), 1), (std::numeric_limits<uint64_t>::max)());
 }
 
+TEST(TelemetryConfigTest, RequiresExplicitGoldRateForCountryEconomy)
+{
+    const std::vector<std::wstring> base = {
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=lifecycle,state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=country.economy|monthly|totals,components,per_capita|ENG|||",
+    };
+    telemetry::Config config;
+    std::string error;
+    EXPECT_FALSE(telemetry::ParseLaunchArguments(base, &config, &error));
+    EXPECT_EQ(error, "country.economy requires -smedley-telemetry-gold-to-cash-rate");
+
+    auto configured = base;
+    configured.push_back(L"-smedley-telemetry-gold-to-cash-rate=0.5");
+    config = {};
+    ASSERT_TRUE(telemetry::ParseLaunchArguments(configured, &config, &error)) << error;
+    ASSERT_TRUE(config.gold_to_cash_rate);
+    EXPECT_DOUBLE_EQ(*config.gold_to_cash_rate, 0.5);
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "country.economy");
+
+    configured.back() = L"-smedley-telemetry-gold-to-cash-rate=1000.1";
+    config = {};
+    EXPECT_FALSE(telemetry::ParseLaunchArguments(configured, &config, &error));
+}
+
 TEST(TelemetrySamplingTest, SkipsUnavailableAndResetsOnDateRegression)
 {
     std::optional<int> last;
@@ -477,7 +504,7 @@ TEST(TelemetryConfigTest, AcceptsStateFactoryGroups)
         L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
         L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
         L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
-        L"-smedley-telemetry-capture=state.factory|daily|identity,employment,production,finance,inputs|PRU|||"},
+        L"-smedley-telemetry-capture=state.factory|daily|identity,employment,production,finance,inputs,flows|PRU|||"},
         &config, &error)) << error;
     ASSERT_EQ(config.capture_rules.size(), 1u);
     EXPECT_EQ(config.capture_rules[0].family, "state.factory");
@@ -506,11 +533,28 @@ TEST(TelemetryConfigTest, AcceptsProvinceRgoGroups)
         L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
         L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
         L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
-        L"-smedley-telemetry-capture=province.rgo|daily|identity,employment,production,finance,modifiers||549,687||"},
+        L"-smedley-telemetry-capture=province.rgo|daily|identity,employment,production,finance,modifiers|PRU|549,687||"},
         &config, &error)) << error;
     ASSERT_EQ(config.capture_rules.size(), 1u);
     EXPECT_EQ(config.capture_rules[0].family, "province.rgo");
+    EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"PRU"}));
     EXPECT_EQ(config.capture_rules[0].province_ids, (std::vector<int32_t>{549, 687}));
+}
+
+TEST(TelemetryConfigTest, AcceptsCountryScopedArtisanAndPopulationGroups)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=pop.artisan|daily|identity,production,inputs,finance,flows|FRA|||",
+        L"-smedley-telemetry-capture=pop.aggregate|daily|size_candidate|FRA|||"},
+        &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 2u);
+    EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"FRA"}));
+    EXPECT_EQ(config.capture_rules[1].country_tags, (std::vector<std::string>{"FRA"}));
 }
 
 TEST(EconomicCaptureTest, DetectsSignedAggregationOverflow)

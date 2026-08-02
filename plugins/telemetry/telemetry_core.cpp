@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cwchar>
 #include <limits>
 
 #include <windows.h>
@@ -486,12 +487,18 @@ namespace smedley::telemetry
             *error = "-smedley-telemetry-start-date-raw must not exceed -smedley-telemetry-end-date-raw";
             return false;
         }
+        if (config.gold_to_cash_rate
+            && (!std::isfinite(*config.gold_to_cash_rate) || *config.gold_to_cash_rate <= 0.0
+                || *config.gold_to_cash_rate > 1000.0)) {
+            *error = "-smedley-telemetry-gold-to-cash-rate must be a finite number from greater than 0 through 1000";
+            return false;
+        }
         if (config.sample_days < 1 || config.sample_days > kMaxSampleDays) {
             *error = "-smedley-telemetry-sample-days must be from 1 through 365";
             return false;
         }
         if (config.queue_capacity < kMinQueueCapacity || config.queue_capacity > kMaxQueueCapacity) {
-            *error = "-smedley-telemetry-queue-capacity must be from 64 through 8192";
+            *error = "-smedley-telemetry-queue-capacity must be from 64 through 32768";
             return false;
         }
         if (config.capture_rules.size() > kMaxCaptureRules) {
@@ -504,14 +511,15 @@ namespace smedley::telemetry
         }
         for (const auto &rule : config.capture_rules) {
             if (rule.family != "world.daily" && rule.family != "world.economy" && rule.family != "world.military"
-                && rule.family != "country.daily" && rule.family != "country.metrics"
+                && rule.family != "country.daily" && rule.family != "country.metrics" && rule.family != "country.economy"
                 && rule.family != "country.military" && rule.family != "country.diplomacy"
                 && rule.family != "state.factory"
                 && rule.family != "world.market"
                 && rule.family != "province.daily" && rule.family != "province.production"
                 && rule.family != "province.rgo"
                 && rule.family != "pop.economy"
-                && rule.family != "pop.demographics" && rule.family != "pop.aggregate") {
+                && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
+                && rule.family != "pop.artisan") {
                 *error = "telemetry capture rule contains an unknown family";
                 return false;
             }
@@ -538,6 +546,9 @@ namespace smedley::telemetry
                 }
                 if (rule.family == "country.daily") return field == "treasury_raw" || field == "treasury";
                 if (rule.family == "country.metrics") return field == "power" || field == "politics";
+                if (rule.family == "country.economy") {
+                    return field == "totals" || field == "components" || field == "per_capita";
+                }
                 if (rule.family == "country.military") {
                     return field == "unit_count_candidate" || field == "mobilized_candidate"
                         || field == "scheduled_mobilization_count_candidate" || field == "leadership_candidate_raw"
@@ -546,7 +557,7 @@ namespace smedley::telemetry
                 if (rule.family == "country.diplomacy") return field == "status" || field == "relations";
                 if (rule.family == "state.factory") {
                     return field == "identity" || field == "employment"
-                        || field == "production" || field == "finance" || field == "inputs";
+                        || field == "production" || field == "finance" || field == "inputs" || field == "flows";
                 }
                 if (rule.family == "world.market") {
                     return field == "price" || field == "supply"
@@ -569,6 +580,10 @@ namespace smedley::telemetry
                     return field == "money_raw" || field == "savings_raw"
                         || field == "interest_cash_flow_raw" || field == "total_cash_flow_raw";
                 }
+                if (rule.family == "pop.artisan") {
+                    return field == "identity" || field == "production"
+                        || field == "inputs" || field == "finance" || field == "flows";
+                }
                 if (rule.family == "pop.demographics") {
                     return field == "size_candidate" || field == "employed_candidate"
                         || field == "consciousness_candidate_raw" || field == "militancy_candidate_raw"
@@ -588,9 +603,10 @@ namespace smedley::telemetry
                     return false;
                 }
             }
-            if (rule.family != "country.daily" && rule.family != "country.metrics"
+            if (rule.family != "country.daily" && rule.family != "country.metrics" && rule.family != "country.economy"
                 && rule.family != "country.military" && rule.family != "country.diplomacy"
-                && rule.family != "state.factory"
+                && rule.family != "state.factory" && rule.family != "province.rgo"
+                && rule.family != "pop.artisan" && rule.family != "pop.aggregate"
                 && !rule.country_tags.empty()) {
                 *error = "telemetry capture country filters are only supported by country families";
                 return false;
@@ -606,10 +622,17 @@ namespace smedley::telemetry
             if (rule.family != "province.daily" && rule.family != "province.production" && rule.family != "province.rgo"
                 && rule.family != "pop.economy"
                 && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
+                && rule.family != "pop.artisan"
                 && !rule.province_ids.empty()) {
                 *error = "telemetry capture province filters are only supported by province and POP families";
                 return false;
             }
+        }
+        if (std::any_of(config.capture_rules.begin(), config.capture_rules.end(),
+                [](const CaptureRule &rule) { return rule.family == "country.economy"; })
+            && !config.gold_to_cash_rate) {
+            *error = "country.economy requires -smedley-telemetry-gold-to-cash-rate";
+            return false;
         }
         return IsJsonLinesPath(config.output_path) ? true : (*error = "-smedley-telemetry-output must end in .jsonl", false);
     }
@@ -625,6 +648,7 @@ namespace smedley::telemetry
         bool have_country_tags = false;
         bool have_start_date = false;
         bool have_end_date = false;
+        bool have_gold_to_cash_rate = false;
         bool have_capture_rules = false;
         for (const auto &argument : arguments) {
             const auto parse_value = [&](const wchar_t *prefix, std::wstring *value) {
@@ -699,6 +723,18 @@ namespace smedley::telemetry
                 have_end_date = true;
             } else if (argument.rfind(L"-smedley-telemetry-end-date-raw", 0) == 0) {
                 *error = "malformed -smedley-telemetry-end-date-raw argument"; return false;
+            } else if (parse_value(L"-smedley-telemetry-gold-to-cash-rate=", &value)) {
+                wchar_t *end = nullptr;
+                const double parsed = std::wcstod(value.c_str(), &end);
+                if (have_gold_to_cash_rate || end == value.c_str() || *end != L'\0'
+                    || !std::isfinite(parsed) || parsed <= 0.0 || parsed > 1000.0) {
+                    *error = "-smedley-telemetry-gold-to-cash-rate must appear once with a value greater than 0 through 1000";
+                    return false;
+                }
+                config->gold_to_cash_rate = parsed;
+                have_gold_to_cash_rate = true;
+            } else if (argument.rfind(L"-smedley-telemetry-gold-to-cash-rate", 0) == 0) {
+                *error = "malformed -smedley-telemetry-gold-to-cash-rate argument"; return false;
             } else if (parse_value(L"-smedley-telemetry-sample-days=", &value)) {
                 if (have_sample_days || !ParsePositive(value, 1, kMaxSampleDays, &config->sample_days)) {
                     *error = "-smedley-telemetry-sample-days must appear once with a value from 1 through 365"; return false;
@@ -708,7 +744,7 @@ namespace smedley::telemetry
                 *error = "malformed -smedley-telemetry-sample-days argument"; return false;
             } else if (parse_value(L"-smedley-telemetry-queue-capacity=", &value)) {
                 if (have_queue_capacity || !ParsePositive(value, kMinQueueCapacity, kMaxQueueCapacity, &config->queue_capacity)) {
-                    *error = "-smedley-telemetry-queue-capacity must appear once with a value from 64 through 8192"; return false;
+                    *error = "-smedley-telemetry-queue-capacity must appear once with a value from 64 through 32768"; return false;
                 }
                 have_queue_capacity = true;
             } else if (argument.rfind(L"-smedley-telemetry-queue-capacity", 0) == 0) {

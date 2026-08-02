@@ -87,6 +87,7 @@ namespace smedley::launcher
         int telemetry_sample_days = 1;
         int telemetry_queue_capacity = 1024;
         bool telemetry_overwrite = false;
+        std::optional<double> telemetry_gold_to_cash_rate;
         std::vector<TelemetryCaptureRule> telemetry_captures;
         std::vector<fs::path> scripts;
         int script_instruction_budget = 100000;

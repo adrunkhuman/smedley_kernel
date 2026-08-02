@@ -73,7 +73,7 @@ void PrintUsage()
         << "  --telemetry-start-date-raw N  Optional inclusive raw game date\n"
         << "  --telemetry-end-date-raw N  Optional inclusive raw game date\n"
         << "  --telemetry-sample-days N  State sample interval from 1 through 365 (default: 1)\n"
-        << "  --telemetry-queue-capacity N  Bounded record queue from 64 through 8192 (default: 1024)\n"
+        << "  --telemetry-queue-capacity N  Bounded record queue from 64 through 32768 (default: 1024)\n"
         << "  --telemetry-overwrite  Replace an existing telemetry output file\n"
         << "  --telemetry-capture RULE  family|cadence|fields|countries|provinces|start|end; may be repeated\n"
         << "  --script PATH   Lua source under GAME_DIR/scripts; may be repeated\n"

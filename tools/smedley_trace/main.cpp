@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <limits>
 
@@ -19,6 +20,9 @@ namespace
                   << "  smedley_trace compare LEFT RIGHT\n"
                   << "  smedley_trace assert-benchmark TRACE (--completed [--days N] | --failed REASON)\n"
                   << "  smedley_trace export-csv TRACE OUTPUT [--overwrite] --event country.daily\n"
+                  << "  smedley_trace factory-value-added TRACE OUTPUT [--country TAG] [--overwrite]\n"
+                  << "  smedley_trace country-gdp TRACE OUTPUT [--country TAG] [--base-date RAW]"
+                     " [--gold-to-cash-rate RATE] [--overwrite]\n"
                   << "  smedley_trace export-trace TRACE OUTPUT [--event TYPE] [--category lifecycle|state] [--country TAG] [--overwrite]\n";
     }
 
@@ -227,6 +231,75 @@ int wmain(int argc, wchar_t **argv)
         if (!event) { std::cerr << "smedley_trace: export-csv requires --event country.daily\n"; return 2; }
         std::string warning;
         if (!ExportCountryCsv(argv[2], argv[3], overwrite, &error, &warning)) { std::cerr << "smedley_trace: " << error << '\n'; return 1; }
+        if (!warning.empty()) std::cerr << "warning: " << warning << '\n';
+        return 0;
+    }
+
+    if (command == L"factory-value-added" && argc >= 4) {
+        bool overwrite = false, country_seen = false;
+        std::string country;
+        for (int index = 4; index < argc; ++index) {
+            const std::wstring option = argv[index];
+            if (option == L"--overwrite" && !overwrite) overwrite = true;
+            else if (option == L"--country" && !country_seen && ++index < argc
+                && Utf8(argv[index], &country) && IsTag(country)) country_seen = true;
+            else { std::cerr << "smedley_trace: invalid factory-value-added arguments\n"; return 2; }
+        }
+        std::string warning;
+        if (!ExportFactoryValueAddedCsv(argv[2], argv[3], country, overwrite, &error, &warning)) {
+            std::cerr << "smedley_trace: " << error << '\n';
+            return 1;
+        }
+        if (!warning.empty()) std::cerr << "warning: " << warning << '\n';
+        return 0;
+    }
+
+    if (command == L"country-gdp" && argc >= 4) {
+        bool overwrite = false, country_seen = false, base_seen = false, gold_rate_seen = false;
+        std::string country;
+        std::optional<int> base_date;
+        std::optional<double> gold_to_cash_rate;
+        for (int index = 4; index < argc; ++index) {
+            const std::wstring option = argv[index];
+            if (option == L"--overwrite" && !overwrite) overwrite = true;
+            else if (option == L"--country" && !country_seen && ++index < argc
+                && Utf8(argv[index], &country) && IsTag(country)) country_seen = true;
+            else if (option == L"--base-date" && !base_seen && ++index < argc) {
+                const std::wstring text = argv[index];
+                size_t used = 0;
+                try {
+                    const long long parsed = std::stoll(text, &used);
+                    if (used != text.size() || parsed < 0 || parsed > (std::numeric_limits<int>::max)()) {
+                        throw std::out_of_range("base date");
+                    }
+                    base_date = static_cast<int>(parsed);
+                    base_seen = true;
+                } catch (...) {
+                    std::cerr << "smedley_trace: base date must be a nonnegative 32-bit raw date\n";
+                    return 2;
+                }
+            } else if (option == L"--gold-to-cash-rate" && !gold_rate_seen && ++index < argc) {
+                const std::wstring text = argv[index];
+                size_t used = 0;
+                try {
+                    const double parsed = std::stod(text, &used);
+                    if (used != text.size() || !std::isfinite(parsed) || parsed <= 0.0 || parsed > 1000.0) {
+                        throw std::out_of_range("gold rate");
+                    }
+                    gold_to_cash_rate = parsed;
+                    gold_rate_seen = true;
+                } catch (...) {
+                    std::cerr << "smedley_trace: gold-to-cash rate must be greater than 0 and at most 1000\n";
+                    return 2;
+                }
+            } else { std::cerr << "smedley_trace: invalid country-gdp arguments\n"; return 2; }
+        }
+        std::string warning;
+        if (!ExportCountryGdpCsv(argv[2], argv[3], country, base_date, gold_to_cash_rate,
+                overwrite, &error, &warning)) {
+            std::cerr << "smedley_trace: " << error << '\n';
+            return 1;
+        }
         if (!warning.empty()) std::cerr << "warning: " << warning << '\n';
         return 0;
     }

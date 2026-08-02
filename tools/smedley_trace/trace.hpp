@@ -59,7 +59,14 @@ namespace smedley::trace
     bool ExportTrace(const fs::path &input, const fs::path &output, const Filter &filter, bool overwrite,
                      std::string *error, std::string *warning = nullptr);
     bool ExportCountryCsv(const fs::path &input, const fs::path &output, bool overwrite,
-                          std::string *error, std::string *warning = nullptr);
+                           std::string *error, std::string *warning = nullptr);
+    bool ExportFactoryValueAddedCsv(const fs::path &input, const fs::path &output,
+                                    const std::string &country, bool overwrite,
+                                    std::string *error, std::string *warning = nullptr);
+    bool ExportCountryGdpCsv(const fs::path &input, const fs::path &output,
+                             const std::string &country, std::optional<int> base_date,
+                             std::optional<double> gold_to_cash_rate, bool overwrite,
+                             std::string *error, std::string *warning = nullptr);
     bool IsBenchmarkFailureReason(const std::string &reason);
     bool VerifyBenchmark(const Summary &summary, const BenchmarkExpectation &expectation, std::string *error);
     std::string FormatBenchmarkVerification(const Summary &summary);

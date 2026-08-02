@@ -23,7 +23,7 @@ namespace smedley::telemetry
 {
     constexpr size_t kMaxRecordBytes = 1024;
     constexpr int kMinQueueCapacity = 64;
-    constexpr int kMaxQueueCapacity = 8192;
+    constexpr int kMaxQueueCapacity = 32768;
     constexpr int kMaxSampleDays = 365;
     constexpr size_t kMaxCaptureRules = 32;
 
@@ -83,6 +83,7 @@ namespace smedley::telemetry
         int queue_capacity = 1024;
         bool overwrite = false;
         std::vector<CaptureRule> capture_rules;
+        std::optional<double> gold_to_cash_rate;
     };
 
     struct Envelope

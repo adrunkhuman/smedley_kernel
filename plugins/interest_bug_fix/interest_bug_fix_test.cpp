@@ -701,6 +701,7 @@ TEST(InterestBugFixTest, CollectsBoundedFactoryFields)
     std::array<std::byte, 0x10> employment{};
     std::array<int32_t, 1> provinces{549};
     std::array<int64_t, 2> stockpile_values{0, 12357};
+    std::array<int64_t, 3> requested_values{0, 6543, 7777};
     Node state_node{state.data(), nullptr, nullptr, 0, {}};
     FactoryNode factory_node{};
     const void *state_head = &state_node;
@@ -719,6 +720,8 @@ TEST(InterestBugFixTest, CollectsBoundedFactoryFields)
     const void *employment_end = employment.data() + employment.size();
     const void *stockpile_begin = stockpile_values.data();
     const void *stockpile_end = stockpile_values.data() + stockpile_values.size();
+    const void *requested_begin = requested_values.data();
+    const void *requested_end = requested_values.data() + requested_values.size();
     const char factory_type[] = "glass_factory";
     const uint32_t factory_type_size = sizeof(factory_type) - 1;
     const uint32_t factory_type_capacity = 15;
@@ -763,9 +766,15 @@ TEST(InterestBugFixTest, CollectsBoundedFactoryFields)
     Write(&factory_node.data, 0x168, paychecks);
     Write(&factory_node.data, 0x170, investment);
     factory_node.data[0x30] = std::byte{1};
+    factory_node.data[0x88] = std::byte{1};
+    factory_node.data[0x89] = std::byte{2};
+    factory_node.data[0xb8] = std::byte{0xff};
     Write(&factory_node.data, 0x70, stockpile_begin);
     Write(&factory_node.data, 0x74, stockpile_end);
     Write(&factory_node.data, 0x78, stockpile_end);
+    Write(&factory_node.data, 0xc8, requested_begin);
+    Write(&factory_node.data, 0xcc, requested_end);
+    Write(&factory_node.data, 0xd0, requested_end);
     Write(&factory_node.data, 0xf0, employment_begin);
     Write(&factory_node.data, 0xf4, employment_end);
     Write(&factory_node.data, 0xf8, employment_end);
@@ -800,7 +809,7 @@ TEST(InterestBugFixTest, CollectsBoundedFactoryFields)
         interest_probe::FACTORY_IDENTITY | interest_probe::FACTORY_EMPLOYMENT
             | interest_probe::FACTORY_PRODUCTION | interest_probe::FACTORY_FINANCE
             | interest_probe::FACTORY_INPUTS,
-        &flags));
+        &flags, 48));
     ASSERT_EQ(flags, 0u);
     ASSERT_EQ(captured, 1u);
     const auto &snapshot = snapshots[0];
@@ -825,10 +834,14 @@ TEST(InterestBugFixTest, CollectsBoundedFactoryFields)
     EXPECT_EQ(snapshot.sales_income_raw, income);
     EXPECT_EQ(snapshot.paychecks_raw, paychecks);
     EXPECT_EQ(snapshot.investment_raw, investment);
-    ASSERT_EQ(input_count, 1u);
+    ASSERT_EQ(input_count, 2u);
     EXPECT_EQ(inputs[0].factory_snapshot_index, 0u);
     EXPECT_EQ(inputs[0].good_ordinal, 0);
     EXPECT_EQ(inputs[0].stockpile_raw, stockpile_values[1]);
+    EXPECT_EQ(inputs[0].requested_raw, requested_values[1]);
+    EXPECT_EQ(inputs[1].good_ordinal, 1);
+    EXPECT_EQ(inputs[1].stockpile_raw, 0);
+    EXPECT_EQ(inputs[1].requested_raw, requested_values[2]);
 
     const void *null_pointer = nullptr;
     Write(&definition, 0x12c, null_pointer);
@@ -852,9 +865,35 @@ TEST(InterestBugFixTest, CollectsBoundedFactoryFields)
     factory_node.data[0x31] = std::byte{1};
     EXPECT_FALSE(interest_probe::CollectCountryFactories(
         country.data(), snapshots.data(), snapshots.size(), &captured,
-        inputs.data(), inputs.size(), &input_count, interest_probe::FACTORY_INPUTS, &flags));
+        inputs.data(), inputs.size(), &input_count, interest_probe::FACTORY_INPUTS, &flags, 48));
     EXPECT_NE(flags & interest_probe::FACTORY_UNREADABLE, 0u);
     factory_node.data[0x31] = std::byte{0};
+
+    requested_values[0] = 1;
+    EXPECT_FALSE(interest_probe::CollectCountryFactories(
+        country.data(), snapshots.data(), snapshots.size(), &captured,
+        inputs.data(), inputs.size(), &input_count, interest_probe::FACTORY_INPUTS, &flags, 48));
+    EXPECT_NE(flags & interest_probe::FACTORY_REQUESTED_INPUT_SENTINEL_INVALID, 0u);
+    requested_values[0] = 0;
+
+    factory_node.data[0x89] = std::byte{1};
+    EXPECT_FALSE(interest_probe::CollectCountryFactories(
+        country.data(), snapshots.data(), snapshots.size(), &captured,
+        inputs.data(), inputs.size(), &input_count, interest_probe::FACTORY_INPUTS, &flags, 48));
+    EXPECT_NE(flags & interest_probe::FACTORY_REQUESTED_INPUT_INDEX_INVALID, 0u);
+    factory_node.data[0x89] = std::byte{2};
+
+    factory_node.data[0x89] = std::byte{0xff};
+    EXPECT_FALSE(interest_probe::CollectCountryFactories(
+        country.data(), snapshots.data(), snapshots.size(), &captured,
+        inputs.data(), inputs.size(), &input_count, interest_probe::FACTORY_INPUTS, &flags, 48));
+    EXPECT_NE(flags & interest_probe::FACTORY_REQUESTED_INPUT_INDEX_INVALID, 0u);
+    factory_node.data[0x89] = std::byte{2};
+
+    EXPECT_FALSE(interest_probe::CollectCountryFactories(
+        country.data(), snapshots.data(), snapshots.size(), &captured,
+        inputs.data(), inputs.size(), &input_count, interest_probe::FACTORY_INPUTS, &flags, 65));
+    EXPECT_NE(flags & interest_probe::FACTORY_GOODS_REGISTRY_INVALID, 0u);
 
     factory_node.next = &factory_node;
     const int malformed_factory_count = 2;
@@ -977,6 +1016,112 @@ TEST(InterestBugFixTest, ReadsValidatedPopDetailCandidates)
 
     Write(&pop, 0x60, size + 1);
     EXPECT_FALSE(interest_probe::ReadPopDetailSnapshot(pop.data(), &detail));
+}
+
+TEST(InterestBugFixTest, ReadsValidatedArtisanProductionAndInputs)
+{
+    std::array<std::byte, 0x280> pop{};
+    std::array<std::byte, 0x30> pop_type{};
+    std::array<std::byte, 0x100> economy{};
+    std::array<std::byte, 0x90> production_type{};
+    std::array<std::byte, 0x30> output_good{};
+    std::array<int64_t, 2> stockpile_values{0, 65536};
+    std::array<int64_t, 2> need_values{0, 98304};
+    const void *pop_type_pointer = pop_type.data();
+    const void *economy_pointer = economy.data();
+    const void *production_type_pointer = production_type.data();
+    const void *output_good_pointer = output_good.data();
+    const int32_t pop_id = 8845;
+    const int32_t output_ordinal = 1;
+    const int64_t base_output = 98304;
+    const int64_t current_producing = 3116;
+
+    const char artisan_key[] = "artisans";
+    std::memcpy(pop_type.data() + 0x08, artisan_key, sizeof(artisan_key));
+    Write(&pop_type, 0x18, static_cast<uint32_t>(sizeof(artisan_key) - 1));
+    Write(&pop_type, 0x1c, uint32_t{15});
+    const char production_key[] = "artisan_ammunition";
+    const void *production_key_pointer = production_key;
+    Write(&production_type, 0x08, production_key_pointer);
+    Write(&production_type, 0x18, static_cast<uint32_t>(sizeof(production_key) - 1));
+    Write(&production_type, 0x1c, uint32_t{63});
+    const char output_key[] = "ammunition";
+    std::memcpy(output_good.data() + 0x0c, output_key, sizeof(output_key));
+    Write(&output_good, 0x1c, static_cast<uint32_t>(sizeof(output_key) - 1));
+    Write(&output_good, 0x20, uint32_t{15});
+    Write(&output_good, 0x08, output_ordinal);
+    Write(&production_type, 0x80, output_good_pointer);
+    Write(&production_type, 0x88, base_output);
+
+    Write(&pop, 0x0c, pop_id);
+    Write(&pop, 0x68, pop_type_pointer);
+    Write(&pop, 0x1d4, economy_pointer);
+    Write(&economy, 0xb0, production_type_pointer);
+    Write(&economy, 0xb8, int64_t{1126244000});
+    Write(&economy, 0xc0, current_producing);
+    Write(&economy, 0xc8, int64_t{32768});
+    Write(&economy, 0xd0, int64_t{8496});
+    Write(&economy, 0xd8, int64_t{0});
+    Write(&economy, 0xe0, int64_t{0});
+    Write(&economy, 0xe8, int64_t{32768});
+    Write(&economy, 0xf0, int64_t{1126244000});
+    Write(&economy, 0xf8, int64_t{163852000});
+    economy[0x08 + output_ordinal] = std::byte{1};
+    economy[0x58 + 0x08 + output_ordinal] = std::byte{1};
+    const void *stock_begin = stockpile_values.data();
+    const void *stock_end = stockpile_values.data() + stockpile_values.size();
+    const void *need_begin = need_values.data();
+    const void *need_end = need_values.data() + need_values.size();
+    Write(&economy, 0x48, stock_begin);
+    Write(&economy, 0x4c, stock_end);
+    Write(&economy, 0x50, stock_end);
+    Write(&economy, 0x58 + 0x48, need_begin);
+    Write(&economy, 0x58 + 0x4c, need_end);
+    Write(&economy, 0x58 + 0x50, need_end);
+
+    interest_probe::ArtisanSnapshot snapshot{};
+    std::array<interest_probe::ArtisanInputSnapshot, 4> inputs{};
+    uint32_t input_count = 0;
+    ASSERT_TRUE(interest_probe::ReadArtisanSnapshot(
+        pop.data(), &snapshot, inputs.data(), inputs.size(), &input_count));
+    EXPECT_EQ(snapshot.pop_id, pop_id);
+    EXPECT_STREQ(snapshot.production_type, production_key);
+    EXPECT_STREQ(snapshot.output_good, output_key);
+    EXPECT_EQ(snapshot.output_good_ordinal, output_ordinal);
+    EXPECT_EQ(snapshot.current_producing_raw, current_producing);
+    EXPECT_EQ(snapshot.gross_output_raw, 9348);
+    ASSERT_EQ(input_count, 1u);
+    EXPECT_EQ(inputs[0].good_ordinal, output_ordinal);
+    EXPECT_EQ(inputs[0].stockpile_raw, 65536);
+    EXPECT_EQ(inputs[0].need_raw, 98304);
+
+    Write(&economy, 0xc8, int64_t{32769});
+    EXPECT_FALSE(interest_probe::ReadArtisanSnapshot(
+        pop.data(), &snapshot, inputs.data(), inputs.size(), &input_count));
+}
+
+TEST(InterestBugFixTest, RecognizesArtisanWithoutActiveProductionType)
+{
+    std::array<std::byte, 0x280> pop{};
+    std::array<std::byte, 0x30> pop_type{};
+    std::array<std::byte, 0x100> economy{};
+    const void *pop_type_pointer = pop_type.data();
+    const void *economy_pointer = economy.data();
+    const char artisan_key[] = "artisans";
+    std::memcpy(pop_type.data() + 0x08, artisan_key, sizeof(artisan_key));
+    Write(&pop_type, 0x18, static_cast<uint32_t>(sizeof(artisan_key) - 1));
+    Write(&pop_type, 0x1c, uint32_t{15});
+    Write(&pop, 0x0c, int32_t{42});
+    Write(&pop, 0x68, pop_type_pointer);
+    Write(&pop, 0x1d4, economy_pointer);
+
+    int32_t pop_id = -1;
+    EXPECT_TRUE(interest_probe::ReadInactiveArtisan(pop.data(), &pop_id));
+    EXPECT_EQ(pop_id, 42);
+
+    const void *active_production = pop_type.data();
+    Write(&economy, 0xb0, active_production);
+    EXPECT_FALSE(interest_probe::ReadInactiveArtisan(pop.data(), &pop_id));
 }
 
 TEST(InterestBugFixTest, ReadsValidatedProvinceRgoRecord)
