@@ -76,10 +76,12 @@ province_ids = []
 
 Each rule accepts `family`, `cadence`, `fields`, `country_tags`, `province_ids`,
 and optional `start_date_raw` and `end_date_raw`. Empty `fields` selects every
-field in that family. Country filters are valid for all `country.*` families and
-`state.factory`.
-Province filters are valid for `province.daily`, `province.production`, `province.rgo`, `pop.economy`,
-`pop.demographics`, and `pop.aggregate`. An empty entity filter means every
+field in that family. Country filters are valid for all `country.*` families,
+`state.factory`, `province.rgo`, `pop.artisan`, `pop.economy`,
+`pop.demographics`, `pop.identity`, `pop.needs`, `pop.aggregate`, `pop.lifecycle`, `pop.cashflow`, and
+`pop.cashflow.aggregate`. Province filters are valid for `province.daily`,
+`province.production`, `province.rgo`, `pop.artisan`, `pop.economy`,
+`pop.demographics`, `pop.identity`, `pop.needs`, `pop.aggregate`, `pop.lifecycle`, and `pop.cashflow`. An empty entity filter means every
 entity, including daily all-province or all-POP capture when explicitly
 requested. Country families filter the country supplied by each
 `DailyUpdateEvent`; they do not initiate a separate country traversal. Global
@@ -104,7 +106,10 @@ filters.
 | `pop.artisan` | record groups `identity`, `production`, `inputs`, `finance`, `flows`, `sales` |
 | `pop.economy` | `money_raw`, `savings_raw`, `interest_cash_flow_raw`, `total_cash_flow_raw` |
 | `pop.demographics` | `size_candidate`, `employed_candidate`, `consciousness_candidate_raw`, `militancy_candidate_raw`, `literacy_candidate_raw` |
+| `pop.identity` | `pop_type_tag_candidate`, `culture_tag_candidate`, `religion_tag_candidate` |
+| `pop.needs` | `life_satisfaction_candidate_raw`, `everyday_satisfaction_candidate_raw`, `luxury_satisfaction_candidate_raw` |
 | `pop.aggregate` | `pop_count`, `size_candidate`, `employed_candidate`, `money_raw`, `savings_raw` |
+| `pop.lifecycle` | record groups `summary`, `appeared`, `disappeared`, `scope_changed` |
 | `pop.cashflow` | record groups `summary`, `account`, `components` |
 | `pop.cashflow.aggregate` | record groups `summary`, `account`, `components` |
 
@@ -120,6 +125,8 @@ are rejected before launch and again by the plugin parser.
 Both POP cash-flow families are also daily only. Individual `pop.cashflow`
 requires at least one country or province filter because it emits high-cardinality
 records; `pop.cashflow.aggregate` may cover every country.
+`pop.lifecycle` is daily only because it reconciles consecutive complete POP
+stocks; a gap or date regression restarts warm-up instead of inventing events.
 
 `country.economy` treats cadence as an accounting interval rather than a
 point-in-time sampling trigger. It reads daily factory, RGO, artisan,
@@ -574,11 +581,48 @@ remains unrelated to factory count.
 
 The opt-in POP families use a bounded snapshot shared by all POP rules due on
 the same game date. `pop.economy` and `pop.demographics` emit one record per POP,
-identified by candidate province ID, candidate POP-type ID, and a snapshot-local
-index. The index is not durable across dates. `pop.aggregate` emits one lower-
+identified by candidate province ID, candidate POP-type ID, and the engine
+`pop_id`; country filters are applied through the province owner without
+duplicating that derived identity in the eight-field record. The ID is stable
+across ordinary consecutive observations. A migration-like runtime correlation
+retained type, culture, religion, and size while moving a French craftsmen
+cohort through three provinces under IDs `27606`, `28227`, and `28266`, showing
+that location transitions can replace the ID. The native migration boundary
+itself is not yet instrumented.
+Behavior across promotion, demotion, split, merge, deletion, and pointer reuse
+remains to be established before treating it as a permanent historical
+identity. `pop.aggregate` emits one lower-
 volume record per province and POP-type pair, summing POP count, size,
 employment, money, and savings. It intentionally aggregates across culture and
-religion because stable identifiers for those dimensions are not yet mapped.
+religion; use `pop.identity` when those cohort dimensions are required.
+
+`pop.identity` emits the normalized POP-type, culture, and religion keys for
+each engine `pop_id`. The engine ID identifies one current POP object; the
+dimension tuple is descriptive, not a universal substitute for it. In
+particular, Victoria II can retain multiple artisan POPs with the same province,
+type, culture, religion, and even production recipe. Consumers may aggregate by
+the dimensions when that is the intended analysis, but must not infer that one
+tuple always denotes one POP.
+
+`pop.needs` emits the three bounded 48.15 satisfaction candidates associated
+with life, everyday, and luxury needs. They are proportions from zero through
+32,768, not costs, quantities requested, quantities purchased, or cash spent.
+The field names remain candidates until broader POP types and visible UI values
+are correlated. The family uses the same province/type/`pop_id` identity and
+country/province filters as the individual economy and demographic families.
+
+`pop.lifecycle` compares consecutive complete snapshots by engine `pop_id`.
+`pop.lifecycle.observed_appeared` and `.observed_disappeared` mean only that an
+ID entered or left the observed stock. `.scope_changed` reports changes in
+candidate country, province, or POP type for an ID present on both dates. These
+records do not claim migration, promotion, demotion, split, merge, birth, or
+death without matching identity and conservation evidence. The correlated
+migration-like case appeared as a size-preserving disappearance/appearance pair;
+`scope_changed` is reserved for a surviving ID. The daily summary reports
+opening/closing counts and every diff class. The first complete captured POP
+snapshot is emitted as a warm-up summary with no opening stock; `opening_seen`
+and `complete` are both false. Country or province filters affect detail events,
+while the summary reconciles the complete world stock.
 
 The daily POP cash-flow families observe every call to the supported
 `CPop::GiveMoney` boundary and compare those calls with consecutive POP money
@@ -739,6 +783,7 @@ smedley_trace export-csv run.jsonl treasury.csv --event country.daily
 smedley_trace factory-value-added run.jsonl factory-va.csv --country BEL
 smedley_trace producer-sales run.jsonl producer-sales.csv --country FRA
 smedley_trace pop-cashflow run.jsonl pop-cashflow.csv --country FRA
+smedley_trace pop-stock-lifecycle run.jsonl pop-stock.csv --country FRA
 smedley_trace country-gdp run.jsonl gdp.csv --country FRA --gold-to-cash-rate 0.5
 smedley_trace export-trace run.jsonl eng.jsonl --country ENG
 ```
@@ -797,6 +842,25 @@ sequence or date gaps, matching summaries and accounts, and arithmetic
 reconciliation. Warm-up rows are checked but not exported. Individual detail
 remains in filtered JSONL because a world-wide per-POP CSV is intentionally not
 a supported low-volume export.
+
+`pop-stock-lifecycle` exports daily `pop.aggregate` stock rows together with
+`pop.lifecycle` warm-up, reconciliation, appearance, disappearance, and scope-
+change rows. The source capture must be daily, unbounded, and unfiltered for
+both families, with aggregate POP count, size, and employment plus every
+lifecycle group. This lets the exporter prove that aggregate POP counts equal
+the lifecycle closing stock and that detail counts match each reconciled daily
+summary before an optional `--country` output filter is applied. Warm-up is
+retained with `opening_seen=false` and `complete=false`; it is not represented
+as a zero-change interval. The command requires matching daily poll counts,
+healthy family and writer summaries, monotonic dates, and no sequence gaps.
+Unlike permissive inspection, it rejects an incomplete final line or any other
+trace warning. A country filter retains current-country stock, appearance, and
+disappearance rows; it retains a scope-change row when either its previous or
+current country matches. Lifecycle summary rows always describe the complete
+world stock and remain present in filtered output.
+Lifecycle row names remain observational: appearance, disappearance, or a
+scope change does not by itself prove birth, death, migration, promotion,
+demotion, split, or merge.
 
 `country-gdp` requires three consecutive daily snapshots and healthy terminal
 summaries for `world.market`, `state.factory`, `province.rgo`, `pop.artisan`,

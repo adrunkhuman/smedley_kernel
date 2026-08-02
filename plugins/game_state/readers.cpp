@@ -1,4 +1,4 @@
-#include "economic_state.hpp"
+#include "readers.hpp"
 
 #include <windows.h>
 
@@ -8,7 +8,7 @@
 #include <cstring>
 #include <limits>
 
-namespace interest_bug_fix
+namespace smedley::game_state
 {
     namespace
     {
@@ -40,10 +40,17 @@ namespace interest_bug_fix
         constexpr size_t pop_employed_offset = 0x60;
         constexpr size_t pop_province_offset = 0x64;
         constexpr size_t pop_type_offset = 0x68;
+        constexpr size_t pop_culture_offset = 0x6c;
+        constexpr size_t pop_religion_offset = 0x70;
+        constexpr size_t culture_key_offset = 0x18;
+        constexpr size_t religion_key_offset = 0x10;
         constexpr size_t pop_type_id_offset = 0x28;
         constexpr size_t pop_consciousness_offset = 0x118;
         constexpr size_t pop_militancy_offset = 0x120;
         constexpr size_t pop_literacy_offset = 0x128;
+        constexpr size_t pop_life_needs_satisfaction_offset = 0x130;
+        constexpr size_t pop_everyday_needs_satisfaction_offset = 0x138;
+        constexpr size_t pop_luxury_needs_satisfaction_offset = 0x140;
         constexpr size_t pop_money_offset = 0x180;
         constexpr size_t pop_interest_cash_flow_offset = 0x210;
         constexpr size_t pop_total_cash_flow_offset = 0x218;
@@ -399,7 +406,7 @@ namespace interest_bug_fix
         void CollectPops(const PointerVector &provinces, ProvinceResolver resolver,
                           const void *resolver_context, TraversalScratch *scratch,
                           const void **immediate_pop, uint32_t province_limit,
-                          uint32_t pop_limit, Sample *sample)
+                           uint32_t pop_limit, CountryEconomySnapshot *sample)
         {
             uint32_t province_count = 0;
             if (!VectorCount(provinces, sizeof(int32_t), max_provinces_per_state, &province_count)) {
@@ -495,13 +502,13 @@ namespace interest_bug_fix
         }
     }
 
-    Sample CollectSampleImpl(const void *country, int32_t date_raw,
-                              CountryResolver country_resolver, ProvinceResolver province_resolver,
-                              const void *resolver_context, bool collect_states, bool collect_pops, TraversalScratch *scratch,
-                              const void **immediate_pop, uint32_t province_limit, uint32_t pop_limit,
-                              bool collect_creditors)
+    CountryEconomySnapshot ReadCountryEconomyImpl(const void *country, int32_t date_raw,
+                                                   CountryResolver country_resolver, ProvinceResolver province_resolver,
+                                                   const void *resolver_context, bool collect_states, bool collect_pops,
+                                                   TraversalScratch *scratch, const void **immediate_pop,
+                                                   uint32_t province_limit, uint32_t pop_limit, bool collect_creditors)
     {
-        Sample sample{};
+        CountryEconomySnapshot sample{};
         sample.date_raw = date_raw;
         if (!IsReadable(country, country_minimum_size)) {
             sample.flags |= SAMPLE_COUNTRY_UNREADABLE;
@@ -662,7 +669,7 @@ namespace interest_bug_fix
                 sample.flags |= SAMPLE_CREDITOR_DESTINATION_INVALID;
                 continue;
             }
-            const Sample destination_sample = CollectSampleImpl(
+            const CountryEconomySnapshot destination_sample = ReadCountryEconomyImpl(
                 destination, date_raw, nullptr, province_resolver, resolver_context, collect_states, collect_pops, scratch,
                 immediate_pop, province_limit, pop_limit, false);
             sample.destination_provinces_resolved += destination_sample.destination_provinces_resolved;
@@ -688,9 +695,9 @@ namespace interest_bug_fix
         return sample;
     }
 
-    Sample CollectSample(const void *country, int32_t date_raw,
-                         CountryResolver country_resolver, ProvinceResolver province_resolver,
-                         const void *resolver_context, const void **immediate_pop)
+    CountryEconomySnapshot ReadCountryEconomy(const void *country, int32_t date_raw,
+                                              CountryResolver country_resolver, ProvinceResolver province_resolver,
+                                              const void *resolver_context, const void **immediate_pop)
     {
         ResetMemoryRegionCache();
         if (immediate_pop != nullptr) *immediate_pop = nullptr;
@@ -698,7 +705,7 @@ namespace interest_bug_fix
         traversal_scratch.province_id_count = 0;
         traversal_scratch.pop_attempts = 0;
         traversal_scratch.pop_pointer_count = 0;
-        Sample sample = CollectSampleImpl(
+        CountryEconomySnapshot sample = ReadCountryEconomyImpl(
             country, date_raw, country_resolver, province_resolver, resolver_context,
             true, province_resolver != nullptr, &traversal_scratch, immediate_pop,
             max_destination_provinces, max_pops, true);
@@ -720,19 +727,20 @@ namespace interest_bug_fix
         return sample;
     }
 
-    Sample CollectInterestSample(const void *country, int32_t date_raw,
-                                 CountryResolver country_resolver, const void *resolver_context)
+    CountryEconomySnapshot ReadCountryCreditors(const void *country, int32_t date_raw,
+                                                CountryResolver country_resolver, const void *resolver_context)
     {
         ResetMemoryRegionCache();
-        return CollectSampleImpl(country, date_raw, country_resolver, nullptr, resolver_context,
+        return ReadCountryEconomyImpl(country, date_raw, country_resolver, nullptr, resolver_context,
             false, false, &traversal_scratch, nullptr, 0, 0, true);
     }
 
-    Sample CollectInterestAfter(const Sample &before, const void *country, int32_t date_raw,
-                                CountryResolver country_resolver, const void *resolver_context)
+    CountryEconomySnapshot ReadCountryCreditorBalances(const CountryEconomySnapshot &before,
+                                                        const void *country, int32_t date_raw,
+                                                        CountryResolver country_resolver, const void *resolver_context)
     {
         ResetMemoryRegionCache();
-        Sample after = CollectSampleImpl(country, date_raw, nullptr, nullptr, resolver_context,
+        CountryEconomySnapshot after = ReadCountryEconomyImpl(country, date_raw, nullptr, nullptr, resolver_context,
             false, false, &traversal_scratch, nullptr, 0, 0, false);
         after.creditor_count = before.creditor_count;
         if (country_resolver == nullptr || before.creditor_destinations > max_creditor_destinations) {
@@ -764,75 +772,11 @@ namespace interest_bug_fix
         return after;
     }
 
-    bool ComputeDestinationTransfers(const Sample &before, Sample *after)
-    {
-        if (after == nullptr || before.flags != 0 || after->flags != 0
-            || before.creditor_destinations != after->creditor_destinations
-            || before.creditor_destinations > max_sample_creditor_destinations) {
-            if (after != nullptr) after->flags |= SAMPLE_DESTINATION_TRANSFER_INVALID;
-            return false;
-        }
-        after->destination_transfers_raw.fill(0);
-        after->destination_transfer_count = 0;
-        after->destination_transfer_raw = 0;
-        for (uint32_t index = 0; index < before.creditor_destinations; ++index) {
-            if (before.destination_ordinals[index] != after->destination_ordinals[index]
-                || before.destination_keys[index] != after->destination_keys[index]) {
-                after->flags |= SAMPLE_DESTINATION_TRANSFER_INVALID;
-                return false;
-            }
-            const int64_t before_value = before.destination_bank_interests_raw[index];
-            const int64_t after_value = after->destination_bank_interests_raw[index];
-            if (before_value < 0 || after_value < before_value) {
-                after->flags |= SAMPLE_DESTINATION_TRANSFER_INVALID;
-                return false;
-            }
-            const int64_t transfer = after_value - before_value;
-            after->destination_transfers_raw[index] = transfer;
-            if (transfer == 0) continue;
-            AddChecked(transfer, &after->destination_transfer_raw, &after->flags);
-            ++after->destination_transfer_count;
-        }
-        if (before.destination_bank_interest_raw < 0
-            || after->destination_bank_interest_raw < before.destination_bank_interest_raw) {
-            after->flags |= SAMPLE_DESTINATION_TRANSFER_INVALID;
-            return false;
-        }
-        const int64_t aggregate_delta = after->destination_bank_interest_raw - before.destination_bank_interest_raw;
-        if ((after->flags & SAMPLE_SUM_OVERFLOW) != 0 || aggregate_delta != after->destination_transfer_raw) {
-            after->flags |= SAMPLE_DESTINATION_TRANSFER_INVALID;
-            return false;
-        }
-        return true;
-    }
-
-    bool TreasuryLossCoversTransfer(int64_t before_treasury, int64_t after_treasury, int64_t transfer)
-    {
-        return transfer >= 0
-            && before_treasury >= (std::numeric_limits<int64_t>::min)() + transfer
-            && after_treasury <= before_treasury - transfer;
-    }
-
-    bool ComputeTreasuryResidual(int64_t before_treasury, int64_t after_treasury,
-                                 int64_t transfer, int64_t *residual)
-    {
-        if (residual == nullptr || !TreasuryLossCoversTransfer(before_treasury, after_treasury, transfer)) {
-            return false;
-        }
-        const int64_t after_transfer = before_treasury - transfer;
-        if (after_treasury < 0
-            && after_transfer > (std::numeric_limits<int64_t>::max)() + after_treasury) {
-            return false;
-        }
-        *residual = after_transfer - after_treasury;
-        return true;
-    }
-
     bool CollectCountryPops(const void *country, int32_t date_raw,
                             ProvinceResolver province_resolver, const void *resolver_context,
                             PopCandidate *candidates, size_t candidate_capacity,
                             uint32_t province_attempt_capacity, uint32_t *candidate_count,
-                            Sample *quality)
+                             CountryEconomySnapshot *quality)
     {
         if (candidate_count == nullptr || quality == nullptr
             || (candidate_capacity != 0 && candidates == nullptr)
@@ -847,7 +791,7 @@ namespace interest_bug_fix
         const uint32_t province_limit = (std::min)(province_attempt_capacity, max_destination_provinces);
         const uint32_t pop_limit = static_cast<uint32_t>((std::min)(candidate_capacity,
             static_cast<size_t>(max_pops)));
-        Sample sample = CollectSampleImpl(country, date_raw, nullptr, province_resolver,
+        CountryEconomySnapshot sample = ReadCountryEconomyImpl(country, date_raw, nullptr, province_resolver,
             resolver_context, true, true, &traversal_scratch, nullptr, province_limit, pop_limit, false);
         sample.destination_province_attempts = traversal_scratch.province_attempts;
         sample.destination_pop_attempts = traversal_scratch.pop_attempts;
@@ -909,6 +853,46 @@ namespace interest_bug_fix
             return false;
         }
         *snapshot = value;
+        return true;
+    }
+
+    bool ReadPopNeedsSnapshot(const void *pop, PopNeedsSnapshot *snapshot)
+    {
+        if (pop == nullptr || snapshot == nullptr) return false;
+        PopNeedsSnapshot value{};
+        if (!ReadAt(pop, pop_life_needs_satisfaction_offset, &value.life_satisfaction_candidate_raw)
+            || !ReadAt(pop, pop_everyday_needs_satisfaction_offset, &value.everyday_satisfaction_candidate_raw)
+            || !ReadAt(pop, pop_luxury_needs_satisfaction_offset, &value.luxury_satisfaction_candidate_raw)) {
+            return false;
+        }
+        if (value.life_satisfaction_candidate_raw < 0 || value.life_satisfaction_candidate_raw > 32768
+            || value.everyday_satisfaction_candidate_raw < 0 || value.everyday_satisfaction_candidate_raw > 32768
+            || value.luxury_satisfaction_candidate_raw < 0 || value.luxury_satisfaction_candidate_raw > 32768) {
+            return false;
+        }
+        *snapshot = value;
+        return true;
+    }
+
+    bool ReadPopIdentityDimensions(const void *pop, PopIdentityDimensions *identity)
+    {
+        if (pop == nullptr || identity == nullptr) return false;
+        const void *culture = nullptr;
+        const void *religion = nullptr;
+        const void *pop_type = nullptr;
+        PopIdentityDimensions value{};
+        if (!ReadAt(pop, pop_type_offset, &pop_type)
+            || !ReadAt(pop, pop_culture_offset, &culture)
+            || !ReadAt(pop, pop_religion_offset, &religion)
+            || !ReadNormalizedKey(pop_type, pop_type_key_offset,
+                value.pop_type_tag_candidate, sizeof(value.pop_type_tag_candidate))
+            || !ReadNormalizedKey(culture, culture_key_offset,
+                value.culture_tag_candidate, sizeof(value.culture_tag_candidate))
+            || !ReadNormalizedKey(religion, religion_key_offset,
+                value.religion_tag_candidate, sizeof(value.religion_tag_candidate))) {
+            return false;
+        }
+        *identity = value;
         return true;
     }
 
@@ -1525,11 +1509,4 @@ namespace interest_bug_fix
         return true;
     }
 
-    bool CanWritePopMoney(const void *pop)
-    {
-        ResetMemoryRegionCache();
-        if (pop == nullptr) return false;
-        constexpr size_t span = pop_total_cash_flow_offset + sizeof(int64_t) - pop_money_offset;
-        return IsWritable(reinterpret_cast<const uint8_t *>(pop) + pop_money_offset, span);
-    }
 }

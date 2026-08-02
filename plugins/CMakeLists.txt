@@ -14,6 +14,7 @@ install(CODE "file(REMOVE
   \"${plugins_install_dir}/economic_telemetry.dll\" \"${plugins_install_dir}/economic_telemetry.toml\")")
 
 add_subdirectory("campaign_runner")
+add_subdirectory("game_state")
 add_subdirectory("interest_bug_fix")
 add_subdirectory("telemetry")
 add_subdirectory("scripting")

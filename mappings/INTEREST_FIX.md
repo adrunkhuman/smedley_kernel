@@ -594,6 +594,21 @@ debtors. The final day distributed raw transfer `20,468` as exact POP payout
 save retained SHA-256
 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 
+## Post-extraction smoke test
+
+Run `e28f1cc5-e357-433e-a386-0a1d3d8f2ee7` exercised the installed telemetry,
+campaign runner, and `interest_bug_fix` plugins after shared game-state readers
+were extracted. The supported executable matched all 64 active signatures. The
+seven-day benchmark reached raw date `59883552` exactly and produced 1,970
+records with zero sequence gaps, drops, writer failures, or Victoria error-log
+entries.
+
+All seven `interest.fix.health` summaries reported `flags=0`. Six days performed
+nonzero transfers; the final day reconciled raw transfer `20,472` to exact POP
+payout `20,472,000` across 1,115 post-write-verified POPs. The source save
+retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
 ## Remaining validation
 
 1. Map bankruptcy and the missing bank-cash/world-money categories before

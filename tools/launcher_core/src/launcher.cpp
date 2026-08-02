@@ -653,6 +653,19 @@ namespace smedley::launcher
                 return field == "pop_count" || field == "size_candidate"
                     || field == "employed_candidate" || field == "money_raw" || field == "savings_raw";
             }
+            if (rule.family == "pop.identity") {
+                return field == "pop_type_tag_candidate" || field == "culture_tag_candidate"
+                    || field == "religion_tag_candidate";
+            }
+            if (rule.family == "pop.needs") {
+                return field == "life_satisfaction_candidate_raw"
+                    || field == "everyday_satisfaction_candidate_raw"
+                    || field == "luxury_satisfaction_candidate_raw";
+            }
+            if (rule.family == "pop.lifecycle") {
+                return field == "summary" || field == "appeared" || field == "disappeared"
+                    || field == "scope_changed";
+            }
             if (rule.family == "pop.cashflow" || rule.family == "pop.cashflow.aggregate") {
                 return field == "summary" || field == "account" || field == "components";
             }
@@ -736,8 +749,9 @@ namespace smedley::launcher
                     && rule.family != "province.daily" && rule.family != "province.production"
                     && rule.family != "province.rgo"
                     && rule.family != "pop.economy"
-                    && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
-                    && rule.family != "pop.artisan" && rule.family != "pop.cashflow"
+                    && rule.family != "pop.demographics" && rule.family != "pop.identity"
+                    && rule.family != "pop.needs" && rule.family != "pop.aggregate"
+                    && rule.family != "pop.artisan" && rule.family != "pop.lifecycle" && rule.family != "pop.cashflow"
                     && rule.family != "pop.cashflow.aggregate") {
                     AddDiagnostic(diagnostics, "telemetry.capture_family", prefix + "contains an unknown family", path);
                     return false;
@@ -773,6 +787,11 @@ namespace smedley::launcher
                         prefix + "POP cash-flow capture requires daily cadence", path);
                     return false;
                 }
+                if (rule.family == "pop.lifecycle" && rule.cadence != "daily") {
+                    AddDiagnostic(diagnostics, "telemetry.capture_cadence",
+                        prefix + "POP lifecycle capture requires daily cadence", path);
+                    return false;
+                }
                 if (rule.family == "pop.cashflow" && rule.country_tags.empty() && rule.province_ids.empty()) {
                     AddDiagnostic(diagnostics, "telemetry.capture_filter",
                         prefix + "individual POP cash-flow capture requires a country or province filter", path);
@@ -789,10 +808,12 @@ namespace smedley::launcher
             if (rule.family != "country.daily" && rule.family != "country.metrics" && rule.family != "country.economy"
                 && rule.family != "country.military" && rule.family != "country.diplomacy"
                 && rule.family != "state.factory" && rule.family != "province.rgo"
-                && rule.family != "pop.artisan" && rule.family != "pop.aggregate"
+                && rule.family != "pop.artisan" && rule.family != "pop.economy"
+                && rule.family != "pop.demographics" && rule.family != "pop.identity" && rule.family != "pop.needs"
+                && rule.family != "pop.aggregate" && rule.family != "pop.lifecycle"
                 && rule.family != "pop.cashflow" && rule.family != "pop.cashflow.aggregate"
                 && !rule.country_tags.empty()) {
-                    AddDiagnostic(diagnostics, "telemetry.capture_country_tags", prefix + "country_tags are only supported by country families", path);
+                    AddDiagnostic(diagnostics, "telemetry.capture_country_tags", prefix + "country_tags are not supported by this family", path);
                     return false;
                 }
                 for (size_t province_index = 0; province_index < rule.province_ids.size(); ++province_index) {
@@ -805,7 +826,8 @@ namespace smedley::launcher
                 }
                 if (rule.family != "province.daily" && rule.family != "province.production" && rule.family != "province.rgo"
                     && rule.family != "pop.economy"
-                    && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
+                    && rule.family != "pop.demographics" && rule.family != "pop.identity" && rule.family != "pop.needs"
+                    && rule.family != "pop.aggregate" && rule.family != "pop.lifecycle"
                     && rule.family != "pop.artisan" && rule.family != "pop.cashflow"
                     && !rule.province_ids.empty()) {
                     AddDiagnostic(diagnostics, "telemetry.capture_province_ids", prefix + "province_ids are only supported by province and POP families", path);

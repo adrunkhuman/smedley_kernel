@@ -5,6 +5,14 @@ not sandboxed and have the same filesystem, memory, and process access as the
 user running the game. Prefer the constrained scripting API when its copied
 state and queued operations are sufficient.
 
+## Internal shared readers
+
+`smedley_game_state` is a private static library for bounded, observational
+Victoria II state readers shared by bundled plugins. It is not a DLL, plugin,
+public ABI, or general game-services interface. Keep read-only traversal and
+validation in this layer. Mutation, lifecycle, publication, and policy remain
+owned by the consuming plugin.
+
 ## Lifecycle ABI v1
 
 New plugins can use the compiler-independent lifecycle interface in

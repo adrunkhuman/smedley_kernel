@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace telemetry_plugin
@@ -47,4 +48,5 @@ namespace telemetry_plugin
     void AddEconomicValue(int64_t value, int64_t *total, uint32_t *flags,
                           uint32_t overflow_flag = SNAPSHOT_SUM_OVERFLOW);
     int64_t UtilizationBasisPoints(uint32_t value, uint32_t limit);
+    bool SortUniqueNonnegativeIds(int32_t *ids, size_t count);
 }

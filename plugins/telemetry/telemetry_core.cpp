@@ -518,8 +518,9 @@ namespace smedley::telemetry
                 && rule.family != "province.daily" && rule.family != "province.production"
                 && rule.family != "province.rgo"
                 && rule.family != "pop.economy"
-                && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
-                && rule.family != "pop.artisan" && rule.family != "pop.cashflow"
+                && rule.family != "pop.demographics" && rule.family != "pop.identity"
+                && rule.family != "pop.needs" && rule.family != "pop.aggregate"
+                && rule.family != "pop.artisan" && rule.family != "pop.lifecycle" && rule.family != "pop.cashflow"
                 && rule.family != "pop.cashflow.aggregate") {
                 *error = "telemetry capture rule contains an unknown family";
                 return false;
@@ -592,9 +593,22 @@ namespace smedley::telemetry
                         || field == "consciousness_candidate_raw" || field == "militancy_candidate_raw"
                         || field == "literacy_candidate_raw";
                 }
+                if (rule.family == "pop.identity") {
+                    return field == "pop_type_tag_candidate" || field == "culture_tag_candidate"
+                        || field == "religion_tag_candidate";
+                }
                 if (rule.family == "pop.aggregate") {
                     return field == "pop_count" || field == "size_candidate"
                         || field == "employed_candidate" || field == "money_raw" || field == "savings_raw";
+                }
+                if (rule.family == "pop.needs") {
+                    return field == "life_satisfaction_candidate_raw"
+                        || field == "everyday_satisfaction_candidate_raw"
+                        || field == "luxury_satisfaction_candidate_raw";
+                }
+                if (rule.family == "pop.lifecycle") {
+                    return field == "summary" || field == "appeared" || field == "disappeared"
+                        || field == "scope_changed";
                 }
                 if (rule.family == "pop.cashflow" || rule.family == "pop.cashflow.aggregate") {
                     return field == "summary" || field == "account" || field == "components";
@@ -620,6 +634,10 @@ namespace smedley::telemetry
                 *error = "POP cash-flow capture requires daily cadence";
                 return false;
             }
+            if (rule.family == "pop.lifecycle" && rule.cadence != CaptureCadence::Daily) {
+                *error = "POP lifecycle capture requires daily cadence";
+                return false;
+            }
             if (rule.family == "pop.cashflow" && rule.country_tags.empty() && rule.province_ids.empty()) {
                 *error = "individual POP cash-flow capture requires a country or province filter";
                 return false;
@@ -627,10 +645,12 @@ namespace smedley::telemetry
             if (rule.family != "country.daily" && rule.family != "country.metrics" && rule.family != "country.economy"
                 && rule.family != "country.military" && rule.family != "country.diplomacy"
                 && rule.family != "state.factory" && rule.family != "province.rgo"
-                && rule.family != "pop.artisan" && rule.family != "pop.aggregate"
+                && rule.family != "pop.artisan" && rule.family != "pop.economy"
+                && rule.family != "pop.demographics" && rule.family != "pop.identity" && rule.family != "pop.needs"
+                && rule.family != "pop.aggregate" && rule.family != "pop.lifecycle"
                 && rule.family != "pop.cashflow" && rule.family != "pop.cashflow.aggregate"
                 && !rule.country_tags.empty()) {
-                *error = "telemetry capture country filters are only supported by country families";
+                *error = "telemetry capture country filters are not supported by this family";
                 return false;
             }
             for (size_t index = 0; index < rule.province_ids.size(); ++index) {
@@ -643,7 +663,8 @@ namespace smedley::telemetry
             }
             if (rule.family != "province.daily" && rule.family != "province.production" && rule.family != "province.rgo"
                 && rule.family != "pop.economy"
-                && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
+                && rule.family != "pop.demographics" && rule.family != "pop.identity" && rule.family != "pop.needs"
+                && rule.family != "pop.aggregate" && rule.family != "pop.lifecycle"
                 && rule.family != "pop.artisan" && rule.family != "pop.cashflow"
                 && !rule.province_ids.empty()) {
                 *error = "telemetry capture province filters are only supported by province and POP families";
@@ -839,6 +860,11 @@ namespace smedley::telemetry
     {
         return (!rule.start_date_raw || date >= *rule.start_date_raw)
             && (!rule.end_date_raw || date <= *rule.end_date_raw);
+    }
+
+    bool PopulationOwnerRequired(std::string_view family, size_t country_filter_count)
+    {
+        return family == "pop.artisan" || country_filter_count != 0;
     }
 
     std::string CaptureCadenceName(CaptureCadence cadence)

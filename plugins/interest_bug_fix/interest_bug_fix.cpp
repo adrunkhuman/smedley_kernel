@@ -1,7 +1,10 @@
 #include "interest_allocation.hpp"
 #include "interest_batch.hpp"
-#include "economic_state.hpp"
+#include "interest_reconciliation.hpp"
+#include "pop_money_write.hpp"
 #include "telemetry_bridge.hpp"
+
+#include "../game_state/readers.hpp"
 
 #include <smedley/events/dailyinterest.hpp>
 #include <smedley/events/dailyupdate.hpp>
@@ -21,6 +24,8 @@
 
 namespace interest_bug_fix
 {
+    using namespace smedley::game_state;
+
     namespace
     {
         constexpr uintptr_t give_money_rva = 0x0055a5f0;
@@ -249,7 +254,7 @@ namespace interest_bug_fix
             const auto *game_state = smedley::v2::CCurrentGameState::instance();
             if (game_state == nullptr || !batch_.started()) return;
             if (event.GetPhase() == smedley::events::DailyInterestPhase::BEFORE) {
-                pending_before_ = CollectInterestSample(event.GetCountry(), game_state->current_date_raw(),
+                pending_before_ = ReadCountryCreditors(event.GetCountry(), game_state->current_date_raw(),
                     ResolveCountry, game_state);
                 has_pending_before_ = true;
                 return;
@@ -257,13 +262,14 @@ namespace interest_bug_fix
             if (!has_pending_before_) return;
             callback_started_ = std::chrono::steady_clock::now();
 
-            Sample after = CollectInterestAfter(pending_before_, event.GetCountry(),
+            CountryEconomySnapshot after = ReadCountryCreditorBalances(pending_before_, event.GetCountry(),
                 game_state->current_date_raw(), ResolveCountry, game_state);
+            DestinationTransferSummary transfer_summary{};
             const int32_t debtor_ordinal = after.country_ordinal > 0
                 ? after.country_ordinal : pending_before_.country_ordinal;
             if (pending_before_.date_raw != after.date_raw || after.date_raw != batch_.date_raw()
                 || std::memcmp(pending_before_.country_tag, after.country_tag, 4) != 0
-                || !ComputeDestinationTransfers(pending_before_, &after)) {
+                || !ComputeDestinationTransfers(pending_before_, after, &transfer_summary)) {
                 RejectPair(after, debtor_ordinal, FixStatus::invalid_pair);
                 return;
             }
@@ -271,16 +277,16 @@ namespace interest_bug_fix
             int64_t private_sink_raw = 0;
             const bool treasury_matches = ComputeTreasuryResidual(
                 pending_before_.treasury_raw, after.treasury_raw,
-                after.destination_transfer_raw, &private_sink_raw);
+                transfer_summary.transfer_raw, &private_sink_raw);
 
             std::array<InterestTransfer, max_sample_creditor_destinations> transfers{};
             uint32_t transfer_count = 0;
             for (uint32_t index = 0; index < after.creditor_destinations; ++index) {
-                if (after.destination_transfers_raw[index] <= 0) continue;
+                if (transfer_summary.transfers_raw[index] <= 0) continue;
                 InterestTransfer &transfer = transfers[transfer_count++];
                 transfer.recipient_ordinal = after.destination_ordinals[index];
                 std::memcpy(transfer.recipient_tag, &after.destination_keys[index], 4);
-                transfer.transfer_raw = after.destination_transfers_raw[index];
+                transfer.transfer_raw = transfer_summary.transfers_raw[index];
             }
             const BatchAddStatus add = batch_.AddDebtor(
                 debtor_ordinal, transfers.data(), transfer_count, private_sink_raw);
@@ -290,19 +296,19 @@ namespace interest_bug_fix
                 return;
             }
             if (!treasury_matches) {
-                day_flags_ |= SAMPLE_DESTINATION_TRANSFER_INVALID;
+                day_flags_ |= INTEREST_RECONCILIATION_INVALID;
                 FixResult warning{};
                 warning.date_raw = after.date_raw;
                 std::memcpy(warning.country_tag, after.country_tag, 4);
                 warning.status = FixStatus::treasury_mismatch;
-                warning.flags = SAMPLE_DESTINATION_TRANSFER_INVALID;
-                warning.transfer_raw = after.destination_transfer_raw;
+                warning.flags = INTEREST_RECONCILIATION_INVALID;
+                warning.transfer_raw = transfer_summary.transfer_raw;
                 Publish(warning);
             }
             if (batch_.complete()) FinalizeDay(game_state);
         }
 
-        void RejectPair(const Sample &sample, int32_t debtor_ordinal, FixStatus status)
+        void RejectPair(const CountryEconomySnapshot &sample, int32_t debtor_ordinal, FixStatus status)
         {
             has_pending_before_ = false;
             batch_.RejectDebtor(debtor_ordinal);
@@ -310,7 +316,7 @@ namespace interest_bug_fix
             result.date_raw = sample.date_raw;
             std::memcpy(result.country_tag, sample.country_tag, 4);
             result.status = status;
-            result.flags = sample.flags | SAMPLE_DESTINATION_TRANSFER_INVALID;
+            result.flags = sample.flags | INTEREST_RECONCILIATION_INVALID;
             Publish(result);
             if (batch_.complete()) {
                 const auto *game_state = smedley::v2::CCurrentGameState::instance();
@@ -436,7 +442,7 @@ namespace interest_bug_fix
         {
             const void *country = game_state->country(recipient.ordinal);
             uint32_t collected = 0;
-            Sample quality{};
+            CountryEconomySnapshot quality{};
             if (!CollectCountryPops(country, result->date_raw, ResolveProvince, game_state,
                     candidates_.data(), candidates_.size(), max_sample_destination_provinces,
                     &collected, &quality)) {
@@ -610,7 +616,7 @@ namespace interest_bug_fix
         std::ofstream output_;
         ResultQueue<result_queue_capacity> queue_{};
         DailyInterestBatch batch_{};
-        Sample pending_before_{};
+        CountryEconomySnapshot pending_before_{};
         bool has_pending_before_ = false;
         bool disabled_ = false;
         int32_t finalized_date_raw_ = 0;
