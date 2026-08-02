@@ -32,6 +32,9 @@ namespace interest_bug_fix
         constexpr size_t province_pop_lists_offset = 0x194;
         constexpr size_t province_id_offset = 0x58;
         constexpr size_t province_rgo_capacity_offset = 0x1ac;
+        constexpr size_t province_state_offset = 0x188;
+        constexpr size_t state_rgo_capacity_offset = 0xc8;
+        constexpr size_t state_population_by_type_offset = 0x118;
         constexpr size_t pop_size_offset = 0x58;
         constexpr size_t pop_employed_offset = 0x60;
         constexpr size_t pop_province_offset = 0x64;
@@ -85,6 +88,8 @@ namespace interest_bug_fix
         constexpr size_t building_definition_production_type_offset = 0x12c;
         constexpr size_t production_type_output_good_offset = 0x80;
         constexpr size_t production_type_base_output_offset = 0x88;
+        constexpr size_t production_type_owner_modifier_offset = 0xf0;
+        constexpr size_t owner_modifier_pop_type_ordinal_offset = 0x28;
         constexpr size_t goods_ordinal_offset = 0x08;
         constexpr size_t goods_key_offset = 0x0c;
         constexpr size_t pop_type_key_offset = 0x08;
@@ -266,6 +271,14 @@ namespace interest_bug_fix
                 return;
             }
             *sum += value;
+        }
+
+        bool MultiplyFixed15(int64_t left, int64_t right, int64_t *result)
+        {
+            if (result == nullptr || left < 0 || right < 0
+                || (left != 0 && right > (std::numeric_limits<int64_t>::max)() / left)) return false;
+            *result = left * right >> 15;
+            return true;
         }
 
         bool IsTagKey(uint32_t key)
@@ -1213,7 +1226,7 @@ namespace interest_bug_fix
         value.province_id = province_id;
         if (!ReadAt(record, state_employment_province_offset, &record_province) || record_province != province) return false;
 
-        if ((groups & RGO_IDENTITY) != 0 || (groups & RGO_PRODUCTION) != 0) {
+        if ((groups & RGO_IDENTITY) != 0 || (groups & (RGO_PRODUCTION | RGO_MODIFIERS)) != 0) {
             const void *production_type = nullptr;
             const void *output_good = nullptr;
             const void *definition_output_good = nullptr;
@@ -1228,13 +1241,38 @@ namespace interest_bug_fix
                     || !ReadNormalizedKey(output_good, goods_key_offset, value.output_good, sizeof(value.output_good)))) {
                 return false;
             }
-            if ((groups & RGO_PRODUCTION) != 0
-                && (!ReadAt(production_type, production_type_base_output_offset, &value.base_output_per_size_raw)
-                    || !ReadAt(record, state_employment_base_size_offset, &value.base_size_raw_candidate)
+            if ((groups & RGO_PRODUCTION) != 0) {
+                if (!ReadAt(production_type, production_type_base_output_offset, &value.base_output_per_size_raw)
+                    || !ReadAt(record, state_employment_base_size_offset, &value.base_size_raw)
                     || !ReadAt(record, state_employment_output_efficiency_offset, &value.output_efficiency_raw)
                     || !ReadAt(record, state_employment_throughput_offset, &value.throughput_raw)
-                    || value.base_output_per_size_raw < 0 || value.base_size_raw_candidate < 0
-                    || value.output_efficiency_raw < 0 || value.throughput_raw < 0)) return false;
+                    || value.base_output_per_size_raw < 0 || value.base_size_raw < 0
+                    || value.output_efficiency_raw < 0 || value.throughput_raw < 0) return false;
+                int64_t output_modifier_raw = 0;
+                int64_t output_per_size_raw = 0;
+                if (!MultiplyFixed15(value.output_efficiency_raw, value.throughput_raw, &output_modifier_raw)
+                    || !MultiplyFixed15(output_modifier_raw, value.base_output_per_size_raw, &output_per_size_raw)
+                    || !MultiplyFixed15(output_per_size_raw, value.base_size_raw, &value.gross_output_raw)) return false;
+            }
+            if ((groups & RGO_MODIFIERS) != 0) {
+                const void *state = nullptr;
+                const void *owner_modifier = nullptr;
+                const void *population_by_type = nullptr;
+                int32_t owner_pop_type_ordinal = -1;
+                if (!ReadAt(province, province_state_offset, &state)
+                    || !ReadAt(production_type, production_type_owner_modifier_offset, &owner_modifier)
+                    || !ReadAt(owner_modifier, owner_modifier_pop_type_ordinal_offset, &owner_pop_type_ordinal)
+                    || owner_pop_type_ordinal < 0 || owner_pop_type_ordinal >= 128
+                    || !ReadAt(state, state_population_by_type_offset, &population_by_type)
+                    || !ReadAt(population_by_type, static_cast<size_t>(owner_pop_type_ordinal) * sizeof(int32_t),
+                        &value.owner_population)
+                    || !ReadAt(state, state_rgo_capacity_offset, &value.state_rgo_employment_capacity)
+                    || value.owner_population < 0 || value.state_rgo_employment_capacity < 0) return false;
+                if (value.state_rgo_employment_capacity != 0) {
+                    value.owner_output_modifier_raw = static_cast<int64_t>(value.owner_population) * 32768
+                        / value.state_rgo_employment_capacity;
+                }
+            }
         }
         if ((groups & RGO_EMPLOYMENT) != 0
             && (!ReadAt(province, province_rgo_capacity_offset, &value.employment_capacity)

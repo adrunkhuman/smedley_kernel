@@ -343,6 +343,14 @@ signature = "a1 28 87 25 01 85 c0 75 33"
 source = "returns the singleton vector object stored at preferred VA 0x01258728; callers at RVAs 0x10950b, 0x340ed9, 0x555def, and others index its first vector by province ID times 0xb0"
 
 [[symbols]]
+name = "CStateEmployment gross output calculation"
+rva = 0x000de350
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 8b 48 2c 8b 50 28"
+source = "static data flow multiplies output efficiency, throughput, CProductionType+0x88 recipe output, and record +0x88 base size with a 15-bit shift after each product; live Berlin and Görlitz operands reproduce displayed 20.648 fruit and 5.713 coal"
+
+[[symbols]]
 name = "CCurrentGameState::LoadSave candidate"
 rva = 0x0027f1d0
 kind = "function"
@@ -639,6 +647,8 @@ fields = [
   { name = "persistent_state_id", offset = 0x000c },
   { name = "provinces_candidate", offset = 0x0048 },
   { name = "factories", offset = 0x0060 },
+  { name = "rgo_employment_capacity", offset = 0x00c8 },
+  { name = "population_by_type_array", offset = 0x0118 },
   { name = "pop_project", offset = 0x01c8 },
   { name = "region", offset = 0x0250 },
   { name = "savings_in_bank_candidate", offset = 0x0258 },
@@ -694,6 +704,7 @@ fields = [
   { name = "output_good", offset = 0x0080 },
   { name = "base_output", offset = 0x0088 },
   { name = "maintenance_goods", offset = 0x0090 },
+  { name = "owner_output_modifier", offset = 0x00f0 },
 ]
 
 [[layouts]]
@@ -709,7 +720,7 @@ fields = [
   { name = "throughput", offset = 0x0040 },
   { name = "employed", offset = 0x0058 },
   { name = "income", offset = 0x0080 },
-  { name = "base_size_candidate", offset = 0x0088 },
+  { name = "base_size", offset = 0x0088 },
 ]
 
 [[layouts]]

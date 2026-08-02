@@ -506,7 +506,7 @@ TEST(TelemetryConfigTest, AcceptsProvinceRgoGroups)
         L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
         L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
         L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
-        L"-smedley-telemetry-capture=province.rgo|daily|identity,employment,production,finance||549,687||"},
+        L"-smedley-telemetry-capture=province.rgo|daily|identity,employment,production,finance,modifiers||549,687||"},
         &config, &error)) << error;
     ASSERT_EQ(config.capture_rules.size(), 1u);
     EXPECT_EQ(config.capture_rules[0].family, "province.rgo");

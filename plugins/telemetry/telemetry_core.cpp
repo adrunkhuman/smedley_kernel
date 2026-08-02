@@ -563,7 +563,7 @@ namespace smedley::telemetry
                 }
                 if (rule.family == "province.rgo") {
                     return field == "identity" || field == "employment"
-                        || field == "production" || field == "finance";
+                        || field == "production" || field == "finance" || field == "modifiers";
                 }
                 if (rule.family == "pop.economy") {
                     return field == "money_raw" || field == "savings_raw"

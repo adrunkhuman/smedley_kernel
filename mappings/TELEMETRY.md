@@ -335,18 +335,35 @@ eight-byte prefix followed by a live `CStateEmployment` object.
 | `+0x40` | throughput, 32,768 scale |
 | `+0x58` | employed workers |
 | `+0x80` | income, 32,768,000 scale |
-| `+0x88` | base-size candidate, 32,768 scale |
+| `+0x88` | base size, 32,768 scale |
 
 Berlin's record resolves `orchard` and fruit ordinal 33; Görlitz resolves
 `coal_mine` and coal ordinal 10. The record values reproduce both UI efficiency,
-throughput, employment, and income displays. The effective size modifier needed
-to derive UI base output is still absent, so `province.rgo` exposes components
-but does not emit a derived gross-output quantity.
+throughput, employment, and income displays. Function RVA `0x000de350` multiplies
+efficiency, throughput, `CProductionType+0x88` recipe output, and record `+0x88`
+base size in that order, shifting right 15 bits after every multiplication. The
+derived raw outputs 676,588 and 187,206 display as the exact UI values 20.648
+and 5.713, so `province.rgo.production` emits `gross_output_raw`.
+
+The Production UI path at RVA `0x00340f8d` reads `CProvince+0x188 -> CState`,
+uses `CProductionType+0xf0 -> +0x28` to select the owner POP type from the
+state's `+0x118` population-by-type array, and divides that population by total
+state RGO capacity `+0xc8`. Berlin computes 4,275 / 457,875 = raw 305; Görlitz
+computes 848 / 60,000 = raw 463. These display as the exact owner contributions
+0.0093 and 0.0141.
 
 Injected one-day run `ea77637b-f661-47f5-b85f-18d48de2a5a0` emitted identity,
 employment, production, and finance records for both provinces. Its family
 summary reported two collection attempts, eight accepted records, and zero
 filtered, dropped, or invalid results.
+
+Follow-up run `b08cf98f-3ece-4467-9aec-6afe3284ab14` emitted raw gross outputs
+676,588 and 187,206, completed on the exact date, and again reported eight
+accepted records with zero invalid or dropped records.
+
+Run `e5f0655c-7a87-4342-a77a-96c2b2d47492` emitted production and separate
+modifier records with owner raw values 305 and 463. Its family summary reported
+ten accepted records with zero filtered, dropped, or invalid results.
 
 Injected vanilla run `40d36695-696f-408e-af64-df266a1cfcc8` loaded the unchanged
 benchmark and emitted four record groups for each of seven PRU factories. The

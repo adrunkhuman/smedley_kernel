@@ -75,7 +75,7 @@ filters.
 | `world.market` | record groups `price`, `supply`, `demand`, `sales` |
 | `province.daily` | `owner_tag_candidate`, `controller_tag_candidate`, `colonial_level_candidate`, `life_rating_candidate`, `infrastructure_candidate_raw` |
 | `province.production` | `building_slot_count_candidate`, `construction_count_candidate` |
-| `province.rgo` | record groups `identity`, `employment`, `production`, `finance` |
+| `province.rgo` | record groups `identity`, `employment`, `production`, `finance`, `modifiers` |
 | `pop.economy` | `money_raw`, `savings_raw`, `interest_cash_flow_raw`, `total_cash_flow_raw` |
 | `pop.demographics` | `size_candidate`, `employed_candidate`, `consciousness_candidate_raw`, `militancy_candidate_raw`, `literacy_candidate_raw` |
 | `pop.aggregate` | `pop_count`, `size_candidate`, `employed_candidate`, `money_raw`, `savings_raw` |
@@ -309,21 +309,31 @@ same run, every factory and day satisfied the exact cash-flow identity
 `province.rgo` emits selected groups from the bounded global `CStateEmployment`
 vector. Identity reports the production-type key and output-good key/ordinal;
 employment reports capacity and assigned workers; production reports recipe
-output per size, the provisional base-size field, output efficiency, and
-throughput; finance reports RGO income. Quantity fields and modifiers use the
+output per size, base size, output efficiency, throughput, and gross output;
+finance reports RGO income. Quantity fields and modifiers use the
 32,768 scale, while income uses the 32,768,000 money scale.
+`base_size_raw_candidate` remains as the v1 alias of verified `base_size_raw`.
 
 Berlin 549 resolved `orchard`/`fruit`, capacity 195,625, employment 110,896,
 output efficiency 1.90, and throughput 0.9703. Görlitz 687 resolved
 `coal_mine`/`coal`, capacity 60,000, employment 54,730, output efficiency 1.45,
-and throughput 0.5472. The effective RGO-size modifier and stored gross-output
-quantity remain unmapped. `base_output_per_size_raw * base_size_raw_candidate`
-therefore does not reproduce every UI base-output value and must not be treated
-as a complete production formula.
+and throughput 0.5472. Gross output follows the engine's fixed-point operation
+order: multiply efficiency by throughput, recipe output, then size, truncating
+by 15 fractional bits after each multiplication. This gives raw 676,588
+(20.648 displayed) for Berlin and 187,206 (5.713 displayed) for Görlitz.
+The `modifiers` group reports the owner POP population, total state RGO employment
+capacity, and their fixed-point ratio as `owner_output_modifier_raw`. Berlin's
+4,275 aristocrats / 457,875 capacity gives raw 305 (0.0093 displayed), while
+Görlitz's 848 / 60,000 gives raw 463 (0.0141 displayed).
 
 One-day run `ea77637b-f661-47f5-b85f-18d48de2a5a0` emitted all four groups for
 Berlin and Görlitz: eight accepted records with zero filters, drops, or invalid
 results. The benchmark stopped on the exact requested date.
+
+Follow-up run `b08cf98f-3ece-4467-9aec-6afe3284ab14` verified the exact gross
+output fields for both provinces with the same zero-invalid, zero-drop result.
+Run `e5f0655c-7a87-4342-a77a-96c2b2d47492` added the separate modifier records
+and accepted all ten selected records with zero invalid or dropped results.
 
 Candidate container metadata is validated before emission. Limits are 64
 province-building slots, 4,096 province constructions, 100,000 country units or

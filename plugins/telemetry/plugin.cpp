@@ -534,6 +534,7 @@ namespace telemetry_plugin
                     if (HasField(*rule, "employment")) groups |= interest_bug_fix::RGO_EMPLOYMENT;
                     if (HasField(*rule, "production")) groups |= interest_bug_fix::RGO_PRODUCTION;
                     if (HasField(*rule, "finance")) groups |= interest_bug_fix::RGO_FINANCE;
+                    if (HasField(*rule, "modifiers")) groups |= interest_bug_fix::RGO_MODIFIERS;
                     for (size_t id = 0; id < province_count; ++id) {
                         if (!HasProvinceId(*rule, static_cast<int>(id))) continue;
                         ++family_stats_[rule_index].collection_attempts;
@@ -565,12 +566,23 @@ namespace telemetry_plugin
                         if (HasField(*rule, "production")) {
                             const SmedleyTelemetryFieldV1 payload[] = {
                                 IntField("base_output_per_size_raw", snapshot.base_output_per_size_raw),
-                                IntField("base_size_raw_candidate", snapshot.base_size_raw_candidate),
+                                IntField("base_size_raw_candidate", snapshot.base_size_raw),
+                                IntField("base_size_raw", snapshot.base_size_raw),
                                 IntField("output_efficiency_raw", snapshot.output_efficiency_raw),
                                 IntField("throughput_raw", snapshot.throughput_raw),
+                                IntField("gross_output_raw", snapshot.gross_output_raw),
                             };
                             AccountResult(rule_index, EmitTyped("province.rgo.production", "state", raw_date,
-                                &province_id, 1, payload, 4, false, reliable));
+                                &province_id, 1, payload, 6, false, reliable));
+                        }
+                        if (HasField(*rule, "modifiers")) {
+                            const SmedleyTelemetryFieldV1 payload[] = {
+                                IntField("owner_population", snapshot.owner_population),
+                                IntField("state_rgo_employment_capacity", snapshot.state_rgo_employment_capacity),
+                                IntField("owner_output_modifier_raw", snapshot.owner_output_modifier_raw),
+                            };
+                            AccountResult(rule_index, EmitTyped("province.rgo.modifiers", "state", raw_date,
+                                &province_id, 1, payload, 3, false, reliable));
                         }
                         if (HasField(*rule, "finance")) {
                             const auto income = IntField("income_raw", snapshot.income_raw);

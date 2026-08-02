@@ -176,6 +176,7 @@ namespace interest_bug_fix
         RGO_EMPLOYMENT = 1u << 1,
         RGO_PRODUCTION = 1u << 2,
         RGO_FINANCE = 1u << 3,
+        RGO_MODIFIERS = 1u << 4,
     };
 
     struct RgoSnapshot
@@ -186,10 +187,14 @@ namespace interest_bug_fix
         char output_good[64]{};
         int32_t employment_capacity = 0;
         int32_t employed = 0;
-        int32_t base_output_per_size_raw = 0;
-        int32_t base_size_raw_candidate = 0;
-        int32_t output_efficiency_raw = 0;
-        int32_t throughput_raw = 0;
+        int64_t base_output_per_size_raw = 0;
+        int64_t base_size_raw = 0;
+        int64_t output_efficiency_raw = 0;
+        int64_t throughput_raw = 0;
+        int64_t gross_output_raw = 0;
+        int32_t owner_population = 0;
+        int32_t state_rgo_employment_capacity = 0;
+        int64_t owner_output_modifier_raw = 0;
         int64_t income_raw = 0;
     };
 
