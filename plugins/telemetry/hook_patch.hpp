@@ -14,7 +14,7 @@ namespace telemetry_plugin
         {
             HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
             if (snapshot == INVALID_HANDLE_VALUE) {
-                *error = "could not enumerate threads before patching telemetry probes";
+                *error = "could not enumerate threads before patching telemetry hooks";
                 return;
             }
             THREADENTRY32 entry{sizeof(entry)};
@@ -30,12 +30,12 @@ namespace telemetry_plugin
             try {
                 threads_.reserve(thread_count);
             } catch (...) {
-                *error = "could not reserve thread handles before patching telemetry probes";
+                *error = "could not reserve thread handles before patching telemetry hooks";
                 return;
             }
             snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
             if (snapshot == INVALID_HANDLE_VALUE) {
-                *error = "could not enumerate threads before patching telemetry probes";
+                *error = "could not enumerate threads before patching telemetry hooks";
                 return;
             }
             entry = {sizeof(entry)};
@@ -55,7 +55,7 @@ namespace telemetry_plugin
                         if (GetLastError() != ERROR_INVALID_PARAMETER) {
                             CloseHandle(snapshot);
                             CloseThreads();
-                            *error = "could not open a game thread before patching telemetry probes";
+                            *error = "could not open a game thread before patching telemetry hooks";
                             return;
                         }
                     } else {
@@ -67,14 +67,14 @@ namespace telemetry_plugin
             CloseHandle(snapshot);
             if (thread_started_during_enumeration) {
                 CloseThreads();
-                *error = "a game thread started while preparing telemetry probe patches";
+                *error = "a game thread started while preparing telemetry hook patches";
                 return;
             }
             for (HANDLE thread : threads_) {
                 if (SuspendThread(thread) == static_cast<DWORD>(-1)) {
                     std::string ignored;
                     (void)Release(&ignored);
-                    *error = "could not suspend a game thread before patching telemetry probes";
+                    *error = "could not suspend a game thread before patching telemetry hooks";
                     return;
                 }
                 ++suspended_count_;
@@ -121,13 +121,13 @@ namespace telemetry_plugin
                 context.ContextFlags = CONTEXT_CONTROL;
                 if (!GetThreadContext(threads_[index], &context)) {
                     if (WaitForSingleObject(threads_[index], 0) == WAIT_OBJECT_0) continue;
-                    if (error != nullptr) *error = "could not inspect a suspended game thread before patching telemetry probes";
+                    if (error != nullptr) *error = "could not inspect a suspended game thread before patching telemetry hooks";
                     return false;
                 }
 #if defined(_M_IX86)
                 const uintptr_t instruction_pointer = context.Eip;
 #else
-#error Telemetry probes require the Win32 x86 build.
+#error Telemetry hooks require the Win32 x86 build.
 #endif
                 if (instruction_pointer >= address && instruction_pointer < address + size) {
                     ++*count;
@@ -157,7 +157,7 @@ namespace telemetry_plugin
             suspended_count_ = failed_count;
             ready_ = failed_count != 0;
             if (failed_count != 0 && error != nullptr) {
-                *error = "could not resume a game thread after patching telemetry probes";
+                *error = "could not resume a game thread after patching telemetry hooks";
             }
             return failed_count == 0;
         }

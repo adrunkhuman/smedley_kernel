@@ -1,5 +1,5 @@
-#include "factory_sales_probe.hpp"
-#include "probe_patch.hpp"
+#include "factory_sales_hook.hpp"
+#include "hook_patch.hpp"
 
 #include <smedley/memory.hpp>
 
@@ -19,7 +19,7 @@ namespace telemetry_plugin
         constexpr size_t queue_capacity = max_factory_sales_records + 1;
         constexpr std::array<uint8_t, 5> settlement_original{0xe8, 0x1b, 0xc4, 0x06, 0x00};
 
-        std::array<FactorySalesProbeRecord, queue_capacity> queue;
+        std::array<FactorySalesHookRecord, queue_capacity> queue;
         std::atomic<uint32_t> queue_write{0};
         std::atomic<uint32_t> queue_read{0};
         std::atomic<uint64_t> queue_dropped{0};
@@ -31,7 +31,7 @@ namespace telemetry_plugin
         void __cdecl CaptureSettlement(const void *factory, const uint8_t *call_stack) noexcept
         {
             if (InterlockedCompareExchange(&active, 0, 0) == 0) return;
-            FactorySalesProbeRecord record{};
+            FactorySalesHookRecord record{};
             if (factory == nullptr || call_stack == nullptr) {
                 queue_dropped.fetch_add(1, std::memory_order_relaxed);
                 return;
@@ -112,11 +112,11 @@ namespace telemetry_plugin
         }
     }
 
-    bool InstallFactorySalesProbe(std::string *error)
+    bool InstallFactorySalesHook(std::string *error)
     {
         if (error == nullptr) return false;
         if (installed || poisoned) {
-            *error = "factory sales probe is already installed or has an unrecoverable patch state";
+            *error = "factory sales hook is already installed or has an unrecoverable patch state";
             return false;
         }
         const uintptr_t base = smedley::memory::Map::base_addr;
@@ -150,7 +150,7 @@ namespace telemetry_plugin
         return true;
     }
 
-    bool UninstallFactorySalesProbe(std::string *error)
+    bool UninstallFactorySalesHook(std::string *error)
     {
         if (error == nullptr) return false;
         if (!installed) return true;
@@ -178,8 +178,8 @@ namespace telemetry_plugin
         return true;
     }
 
-    bool DrainFactorySalesProbe(FactorySalesProbeRecord *records, size_t capacity,
-                                uint32_t *count, uint64_t *dropped)
+    bool DrainFactorySalesHook(FactorySalesHookRecord *records, size_t capacity,
+                               uint32_t *count, uint64_t *dropped)
     {
         if (records == nullptr || count == nullptr || dropped == nullptr) return false;
         *count = 0;

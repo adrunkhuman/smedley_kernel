@@ -8,7 +8,7 @@ namespace telemetry_plugin
 {
     constexpr size_t max_factory_sales_records = 8192;
 
-    struct FactorySalesProbeRecord
+    struct FactorySalesHookRecord
     {
         const void *factory = nullptr;
         int64_t proceeds_raw = 0;
@@ -17,8 +17,8 @@ namespace telemetry_plugin
         int64_t closing_inventory_raw = 0;
     };
 
-    bool InstallFactorySalesProbe(std::string *error);
-    bool UninstallFactorySalesProbe(std::string *error);
-    bool DrainFactorySalesProbe(FactorySalesProbeRecord *records, size_t capacity,
-                                uint32_t *count, uint64_t *dropped);
+    bool InstallFactorySalesHook(std::string *error);
+    bool UninstallFactorySalesHook(std::string *error);
+    bool DrainFactorySalesHook(FactorySalesHookRecord *records, size_t capacity,
+                               uint32_t *count, uint64_t *dropped);
 }

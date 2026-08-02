@@ -1,5 +1,5 @@
-#include "artisan_consumption_probe.hpp"
-#include "probe_patch.hpp"
+#include "artisan_consumption_hook.hpp"
+#include "hook_patch.hpp"
 
 #include <smedley/memory.hpp>
 
@@ -38,7 +38,7 @@ namespace telemetry_plugin
             const int64_t *values_capacity;
         };
 
-        std::array<ArtisanSettlementProbeRecord, queue_capacity> queue;
+        std::array<ArtisanSettlementHookRecord, queue_capacity> queue;
         std::array<uint32_t, max_country_keys> selected_country_keys{};
         std::atomic<uint32_t> queue_write{0};
         std::atomic<uint32_t> queue_read{0};
@@ -67,7 +67,7 @@ namespace telemetry_plugin
             }
         }
 
-        bool DecodePool(const void *source, ArtisanSettlementProbeRecord *record) noexcept
+        bool DecodePool(const void *source, ArtisanSettlementHookRecord *record) noexcept
         {
             __try {
                 const auto base = smedley::memory::Map::base_addr;
@@ -97,7 +97,7 @@ namespace telemetry_plugin
         {
             if (InterlockedCompareExchange(&active, 0, 0) == 0) return;
             if (!MatchesSelectedCountry(pop)) return;
-            ArtisanSettlementProbeRecord record{};
+            ArtisanSettlementHookRecord record{};
             record.pop = pop;
             record.pool = pool;
             if (!DecodePool(source, &record)) {
@@ -213,14 +213,14 @@ namespace telemetry_plugin
         }
     }
 
-    bool InstallArtisanConsumptionProbe(const uint32_t *country_keys, size_t country_count, std::string *error)
+    bool InstallArtisanConsumptionHook(const uint32_t *country_keys, size_t country_count, std::string *error)
     {
         if (error == nullptr || country_keys == nullptr || country_count == 0 || country_count > max_country_keys) {
             if (error != nullptr) *error = "artisan consumption requires 1 to 16 country filters";
             return false;
         }
         if (installed || poisoned) {
-            *error = "artisan consumption probe is already installed or has an unrecoverable patch state";
+            *error = "artisan consumption hook is already installed or has an unrecoverable patch state";
             return false;
         }
         const uintptr_t base = smedley::memory::Map::base_addr;
@@ -284,7 +284,7 @@ namespace telemetry_plugin
         return true;
     }
 
-    bool UninstallArtisanConsumptionProbe(std::string *error)
+    bool UninstallArtisanConsumptionHook(std::string *error)
     {
         if (error == nullptr) return false;
         if (!installed) return true;
@@ -334,8 +334,8 @@ namespace telemetry_plugin
         return true;
     }
 
-    bool DrainArtisanConsumptionProbe(ArtisanSettlementProbeRecord *records, size_t capacity,
-                                      uint32_t *count, uint64_t *dropped)
+    bool DrainArtisanConsumptionHook(ArtisanSettlementHookRecord *records, size_t capacity,
+                                     uint32_t *count, uint64_t *dropped)
     {
         if (records == nullptr || count == nullptr || dropped == nullptr) return false;
         *count = 0;

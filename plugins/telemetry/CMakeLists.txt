@@ -4,8 +4,8 @@ target_compile_definitions(smedley_telemetry_core PRIVATE UNICODE _UNICODE WIN32
 target_include_directories(smedley_telemetry_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} "${CMAKE_SOURCE_DIR}/include")
 
 add_library(telemetry MODULE plugin.cpp economic_capture.cpp economic_capture_core.cpp
-  artisan_consumption_probe.cpp factory_consumption_probe.cpp factory_sales_probe.cpp
-  pop_cash_flow_probe.cpp)
+  artisan_consumption_hook.cpp factory_consumption_hook.cpp factory_sales_hook.cpp
+  pop_cash_flow_hook.cpp)
 target_link_libraries(telemetry PRIVATE smedley_kernel smedley_telemetry_core interest_bug_fix_core shell32)
 target_include_directories(telemetry PRIVATE "../../smedley_kernel/include" "../interest_bug_fix")
 target_compile_definitions(telemetry PRIVATE SMEDLEY_TELEMETRY_BUILD)

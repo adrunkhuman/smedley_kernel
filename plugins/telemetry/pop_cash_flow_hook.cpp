@@ -1,5 +1,5 @@
-#include "pop_cash_flow_probe.hpp"
-#include "probe_patch.hpp"
+#include "pop_cash_flow_hook.hpp"
+#include "hook_patch.hpp"
 
 #include <smedley/memory.hpp>
 
@@ -23,7 +23,7 @@ namespace telemetry_plugin
 
         struct Slot
         {
-            PopCashFlowProbeRecord record;
+            PopCashFlowHookRecord record;
             bool used = false;
         };
 
@@ -32,7 +32,7 @@ namespace telemetry_plugin
             std::array<Slot, slot_capacity> slots{};
             std::array<uint32_t, slot_capacity> used_indices{};
             uint32_t used_count = 0;
-            PopCashFlowProbeStats stats{};
+            PopCashFlowHookStats stats{};
         };
 
         std::unique_ptr<Buffer> buffers[2];
@@ -276,11 +276,11 @@ namespace telemetry_plugin
 
     }
 
-    bool InstallPopCashFlowProbe(std::string *error)
+    bool InstallPopCashFlowHook(std::string *error)
     {
         if (error == nullptr) return false;
         if (installed || poisoned) {
-            *error = "POP cash-flow probe is already installed or poisoned";
+            *error = "POP cash-flow hook is already installed or poisoned";
             return false;
         }
         const uintptr_t target = smedley::memory::Map::base_addr + give_money_rva;
@@ -322,7 +322,7 @@ namespace telemetry_plugin
         return true;
     }
 
-    bool UninstallPopCashFlowProbe(std::string *error)
+    bool UninstallPopCashFlowHook(std::string *error)
     {
         if (error == nullptr) return false;
         if (!installed) return true;
@@ -377,8 +377,8 @@ namespace telemetry_plugin
         return true;
     }
 
-    bool DrainPopCashFlowProbe(PopCashFlowProbeRecord *records, size_t capacity,
-                               uint32_t *count, PopCashFlowProbeStats *stats)
+    bool DrainPopCashFlowHook(PopCashFlowHookRecord *records, size_t capacity,
+                              uint32_t *count, PopCashFlowHookStats *stats)
     {
         if (records == nullptr || count == nullptr || stats == nullptr || !installed) return false;
         uint32_t drained_buffer = 0;

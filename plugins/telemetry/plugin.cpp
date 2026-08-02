@@ -1,11 +1,11 @@
 #include "telemetry_core.hpp"
-#include "artisan_consumption_probe.hpp"
+#include "artisan_consumption_hook.hpp"
 #include "country_economy_core.hpp"
 #include "economic_capture.hpp"
-#include "factory_consumption_probe.hpp"
-#include "factory_sales_probe.hpp"
+#include "factory_consumption_hook.hpp"
+#include "factory_sales_hook.hpp"
 #include "pop_cash_flow_core.hpp"
-#include "pop_cash_flow_probe.hpp"
+#include "pop_cash_flow_hook.hpp"
 #include "producer_sales_core.hpp"
 
 #include <smedley/events/dailyupdate.hpp>
@@ -174,65 +174,65 @@ namespace telemetry_plugin
             }
             if (FindRule("pop.cashflow") != nullptr || FindRule("pop.cashflow.aggregate") != nullptr) {
                 pop_cash_flow_records_ = std::make_unique<
-                    std::array<PopCashFlowProbeRecord, max_pop_cash_flow_records>>();
+                    std::array<PopCashFlowHookRecord, max_pop_cash_flow_records>>();
                 pop_cash_flow_states_ = std::make_unique<
                     std::array<PopCashFlowState, interest_bug_fix::max_sample_pops>>();
                 pop_cash_flow_aggregates_ = std::make_unique<
                     std::array<PopCashFlowAggregate, interest_bug_fix::max_sample_pops * 2>>();
                 pop_cash_flow_previous_aggregates_ = std::make_unique<
                     std::array<PopCashFlowAggregate, interest_bug_fix::max_sample_pops>>();
-                pop_cash_flow_probe_installed_ = true;
-                if (!InstallPopCashFlowProbe(&error)) {
-                    StopConsumptionProbes(false);
-                    logger().Failure("POP cash-flow probe did not start: " + error);
+                pop_cash_flow_hook_installed_ = true;
+                if (!InstallPopCashFlowHook(&error)) {
+                    StopConsumptionHooks(false);
+                    logger().Failure("POP cash-flow hook did not start: " + error);
                     throw std::runtime_error(error);
                 }
             }
             const auto *factory_rule = FindRule("state.factory");
             if (factory_rule != nullptr && HasField(*factory_rule, "sales")) {
-                factory_sales_probe_records_ = std::make_unique<
-                    std::array<FactorySalesProbeRecord, max_factory_sales_records>>();
-                factory_sales_probe_installed_ = true;
-                if (!InstallFactorySalesProbe(&error)) {
-                    logger().Failure("factory sales probe did not start: " + error);
+                factory_sales_hook_records_ = std::make_unique<
+                    std::array<FactorySalesHookRecord, max_factory_sales_records>>();
+                factory_sales_hook_installed_ = true;
+                if (!InstallFactorySalesHook(&error)) {
+                    logger().Failure("factory sales hook did not start: " + error);
                     throw std::runtime_error(error);
                 }
             }
             if ((factory_rule != nullptr && HasField(*factory_rule, "flows")) || FindRule("country.economy") != nullptr) {
-                factory_probe_records_ = std::make_unique<std::array<FactorySettlementProbeRecord, max_factory_flow_records>>();
-                factory_probe_aggregates_ = std::make_unique<
+                factory_hook_records_ = std::make_unique<std::array<FactorySettlementHookRecord, max_factory_flow_records>>();
+                factory_hook_aggregates_ = std::make_unique<
                     std::array<GoodsFlowAggregate, interest_bug_fix::max_sample_factories>>();
                 factory_daily_flows_ = std::make_unique<
                     std::array<DailyFactoryFlow, interest_bug_fix::max_sample_factories>>();
                 factory_previous_flows_ = std::make_unique<
                     std::array<DailyFactoryFlow, interest_bug_fix::max_sample_factories>>();
-                consumption_probe_installed_ = true;
-                if (!InstallFactoryConsumptionProbe(&error)) {
-                    StopConsumptionProbes(false);
-                    logger().Failure("factory consumption probe did not start: " + error);
+                factory_consumption_hook_installed_ = true;
+                if (!InstallFactoryConsumptionHook(&error)) {
+                    StopConsumptionHooks(false);
+                    logger().Failure("factory consumption hook did not start: " + error);
                     throw std::runtime_error(error);
                 }
             }
             if (const auto *rule = FindRule("pop.artisan"); rule != nullptr && HasField(*rule, "flows")) {
                 if (rule->country_tags.empty() || rule->country_tags.size() > artisan_country_keys_.size()) {
-                    StopConsumptionProbes(false);
+                    StopConsumptionHooks(false);
                     throw std::runtime_error("artisan flows require 1 to 16 country_tags");
                 }
                 for (size_t index = 0; index < rule->country_tags.size(); ++index) {
                     std::memcpy(&artisan_country_keys_[index], rule->country_tags[index].data(), 3);
                 }
-                artisan_probe_records_ = std::make_unique<
-                    std::array<ArtisanSettlementProbeRecord, max_artisan_flow_records>>();
-                artisan_consumption_probe_installed_ = true;
-                if (!InstallArtisanConsumptionProbe(artisan_country_keys_.data(), rule->country_tags.size(), &error)) {
-                    StopConsumptionProbes(false);
-                    logger().Failure("artisan consumption probe did not start: " + error);
+                artisan_hook_records_ = std::make_unique<
+                    std::array<ArtisanSettlementHookRecord, max_artisan_flow_records>>();
+                artisan_consumption_hook_installed_ = true;
+                if (!InstallArtisanConsumptionHook(artisan_country_keys_.data(), rule->country_tags.size(), &error)) {
+                    StopConsumptionHooks(false);
+                    logger().Failure("artisan consumption hook did not start: " + error);
                     throw std::runtime_error(error);
                 }
             }
             writer_ = std::make_unique<smedley::telemetry::Writer>(config_);
             if (!writer_->Start(&error)) {
-                StopConsumptionProbes(false);
+                StopConsumptionHooks(false);
                 logger().Failure("telemetry did not start: " + error);
                 writer_.reset();
                 throw std::runtime_error(error);
@@ -242,13 +242,13 @@ namespace telemetry_plugin
             if (start_result != SMEDLEY_TELEMETRY_ACCEPTED && start_result != SMEDLEY_TELEMETRY_FILTERED) {
                 writer_->Stop();
                 writer_.reset();
-                StopConsumptionProbes(false);
+                StopConsumptionHooks(false);
                 throw std::runtime_error("could not queue telemetry session start");
             }
             if (!EmitCaptureMetadata()) {
                 writer_->Stop();
                 writer_.reset();
-                StopConsumptionProbes(false);
+                StopConsumptionHooks(false);
                 throw std::runtime_error("could not queue telemetry capture metadata");
             }
             bool handler_registered = false;
@@ -264,7 +264,7 @@ namespace telemetry_plugin
                 if (handler_registered) RemoveEventHandler<smedley::events::DailyUpdateEvent>("telemetry.daily");
                 writer_->Stop();
                 writer_.reset();
-                StopConsumptionProbes(false);
+                StopConsumptionHooks(false);
                 throw;
             }
         }
@@ -276,10 +276,10 @@ namespace telemetry_plugin
                 if (active_sink == this) active_sink = nullptr;
             }
             (void)DrainUntil((std::chrono::steady_clock::time_point::max)());
-            const bool probes_stopped = StopConsumptionProbes(true);
+            const bool hooks_stopped = StopConsumptionHooks(true);
             writer_.reset();
-            if (!probes_stopped) {
-                throw std::runtime_error("telemetry consumption probes could not be restored and were disabled");
+            if (!hooks_stopped) {
+                throw std::runtime_error("telemetry consumption hooks could not be restored and were disabled");
             }
         }
 
@@ -350,7 +350,7 @@ namespace telemetry_plugin
 #pragma optimize("", off)
         void UpdateFactoryDailyFlows(size_t rule_index)
         {
-            const int32_t current_date_raw = factory_probe_date_.value_or(0);
+            const int32_t current_date_raw = factory_hook_date_.value_or(0);
             uint32_t retained_count = 0;
             for (uint32_t index = 0; index < factory_previous_flow_count_; ++index) {
                 const auto &previous = (*factory_previous_flows_)[index];
@@ -359,8 +359,8 @@ namespace telemetry_plugin
             }
             factory_previous_flow_count_ = retained_count;
             factory_daily_flow_count_ = 0;
-            for (uint32_t record_index = 0; record_index < factory_probe_record_count_; ++record_index) {
-                const auto &record = (*factory_probe_records_)[record_index];
+            for (uint32_t record_index = 0; record_index < factory_hook_record_count_; ++record_index) {
+                const auto &record = (*factory_hook_records_)[record_index];
                 if (factory_daily_flow_count_ == 0
                     || (*factory_daily_flows_)[factory_daily_flow_count_ - 1].address != record.factory) {
                     if (factory_daily_flow_count_ >= factory_daily_flows_->size()) {
@@ -370,7 +370,7 @@ namespace telemetry_plugin
                     auto &next = (*factory_daily_flows_)[factory_daily_flow_count_];
                     next = {};
                     next.address = record.factory;
-                    next.date_raw = factory_probe_date_.value_or(0);
+                    next.date_raw = factory_hook_date_.value_or(0);
                     ++factory_daily_flow_count_;
                 }
                 const uint32_t flow_index = factory_daily_flow_count_ - 1;
@@ -520,36 +520,36 @@ namespace telemetry_plugin
         }
 #pragma optimize("", on)
 
-        bool StopConsumptionProbes(bool report_errors) noexcept
+        bool StopConsumptionHooks(bool report_errors) noexcept
         {
             bool stopped = true;
-            if (factory_sales_probe_installed_) {
+            if (factory_sales_hook_installed_) {
                 std::string error;
-                if (UninstallFactorySalesProbe(&error)) factory_sales_probe_installed_ = false;
+                if (UninstallFactorySalesHook(&error)) factory_sales_hook_installed_ = false;
                 else {
                     stopped = false;
                     if (report_errors) logger().Failure(error);
                 }
             }
-            if (pop_cash_flow_probe_installed_) {
+            if (pop_cash_flow_hook_installed_) {
                 std::string error;
-                if (UninstallPopCashFlowProbe(&error)) pop_cash_flow_probe_installed_ = false;
+                if (UninstallPopCashFlowHook(&error)) pop_cash_flow_hook_installed_ = false;
                 else {
                     stopped = false;
                     if (report_errors) logger().Failure(error);
                 }
             }
-            if (artisan_consumption_probe_installed_) {
+            if (artisan_consumption_hook_installed_) {
                 std::string error;
-                if (UninstallArtisanConsumptionProbe(&error)) artisan_consumption_probe_installed_ = false;
+                if (UninstallArtisanConsumptionHook(&error)) artisan_consumption_hook_installed_ = false;
                 else {
                     stopped = false;
                     if (report_errors) logger().Failure(error);
                 }
             }
-            if (consumption_probe_installed_) {
+            if (factory_consumption_hook_installed_) {
                 std::string error;
-                if (UninstallFactoryConsumptionProbe(&error)) consumption_probe_installed_ = false;
+                if (UninstallFactoryConsumptionHook(&error)) factory_consumption_hook_installed_ = false;
                 else {
                     stopped = false;
                     if (report_errors) logger().Failure(error);
@@ -743,25 +743,25 @@ namespace telemetry_plugin
             const auto *game_state = smedley::v2::CCurrentGameState::instance();
             const std::optional<int> raw_date = game_state ? std::optional<int>(game_state->current_date_raw()) : std::nullopt;
             if (!raw_date) { if (state_enabled) skipped_unsampleable_.fetch_add(1, std::memory_order_relaxed); finish(); return; }
-            if (consumption_probe_installed_ && factory_probe_date_ != raw_date) {
-                factory_probe_record_count_ = 0;
-                factory_probe_dropped_ = 0;
-                if (!DrainFactoryConsumptionProbe(factory_probe_records_->data(), factory_probe_records_->size(),
-                        &factory_probe_record_count_, &factory_probe_dropped_)) {
-                    factory_probe_dropped_ = 1;
+            if (factory_consumption_hook_installed_ && factory_hook_date_ != raw_date) {
+                factory_hook_record_count_ = 0;
+                factory_hook_dropped_ = 0;
+                if (!DrainFactoryConsumptionHook(factory_hook_records_->data(), factory_hook_records_->size(),
+                        &factory_hook_record_count_, &factory_hook_dropped_)) {
+                    factory_hook_dropped_ = 1;
                 }
-                std::sort(factory_probe_records_->begin(), factory_probe_records_->begin() + factory_probe_record_count_,
-                    [](const FactorySettlementProbeRecord &left, const FactorySettlementProbeRecord &right) {
+                std::sort(factory_hook_records_->begin(), factory_hook_records_->begin() + factory_hook_record_count_,
+                    [](const FactorySettlementHookRecord &left, const FactorySettlementHookRecord &right) {
                         const auto left_address = reinterpret_cast<uintptr_t>(left.factory);
                         const auto right_address = reinterpret_cast<uintptr_t>(right.factory);
                         return left_address != right_address ? left_address < right_address : left.pool < right.pool;
                     });
-                factory_probe_date_ = raw_date;
-                if (factory_probe_dropped_ != 0) {
+                factory_hook_date_ = raw_date;
+                if (factory_hook_dropped_ != 0) {
                     size_t factory_rule_index = 0;
                     if (FindRule("state.factory", &factory_rule_index) != nullptr
                         || FindRule("country.economy", &factory_rule_index) != nullptr) {
-                        family_stats_[factory_rule_index].invalid += factory_probe_dropped_;
+                        family_stats_[factory_rule_index].invalid += factory_hook_dropped_;
                     }
                 }
                 size_t factory_rule_index = 0;
@@ -771,61 +771,61 @@ namespace telemetry_plugin
                     UpdateFactoryDailyFlows(factory_rule_index);
                 }
             }
-            if (factory_sales_probe_installed_ && factory_sales_probe_date_ != raw_date) {
-                factory_sales_probe_record_count_ = 0;
-                factory_sales_probe_dropped_ = 0;
-                if (!DrainFactorySalesProbe(factory_sales_probe_records_->data(), factory_sales_probe_records_->size(),
-                        &factory_sales_probe_record_count_, &factory_sales_probe_dropped_)) {
-                    factory_sales_probe_dropped_ = 1;
+            if (factory_sales_hook_installed_ && factory_sales_hook_date_ != raw_date) {
+                factory_sales_hook_record_count_ = 0;
+                factory_sales_hook_dropped_ = 0;
+                if (!DrainFactorySalesHook(factory_sales_hook_records_->data(), factory_sales_hook_records_->size(),
+                        &factory_sales_hook_record_count_, &factory_sales_hook_dropped_)) {
+                    factory_sales_hook_dropped_ = 1;
                 }
-                std::sort(factory_sales_probe_records_->begin(),
-                    factory_sales_probe_records_->begin() + factory_sales_probe_record_count_,
-                    [](const FactorySalesProbeRecord &left, const FactorySalesProbeRecord &right) {
+                std::sort(factory_sales_hook_records_->begin(),
+                    factory_sales_hook_records_->begin() + factory_sales_hook_record_count_,
+                    [](const FactorySalesHookRecord &left, const FactorySalesHookRecord &right) {
                         return reinterpret_cast<uintptr_t>(left.factory) < reinterpret_cast<uintptr_t>(right.factory);
                     });
-                factory_sales_probe_date_ = raw_date;
-                if (factory_sales_probe_dropped_ != 0) {
+                factory_sales_hook_date_ = raw_date;
+                if (factory_sales_hook_dropped_ != 0) {
                     size_t rule_index = 0;
                     if (FindRule("state.factory", &rule_index) != nullptr) {
-                        family_stats_[rule_index].invalid += factory_sales_probe_dropped_;
+                        family_stats_[rule_index].invalid += factory_sales_hook_dropped_;
                     }
                 }
             }
-            if (artisan_consumption_probe_installed_ && artisan_probe_date_ != raw_date) {
-                artisan_probe_record_count_ = 0;
-                artisan_probe_dropped_ = 0;
-                if (!DrainArtisanConsumptionProbe(artisan_probe_records_->data(), artisan_probe_records_->size(),
-                        &artisan_probe_record_count_, &artisan_probe_dropped_)) {
-                    artisan_probe_dropped_ = 1;
+            if (artisan_consumption_hook_installed_ && artisan_hook_date_ != raw_date) {
+                artisan_hook_record_count_ = 0;
+                artisan_hook_dropped_ = 0;
+                if (!DrainArtisanConsumptionHook(artisan_hook_records_->data(), artisan_hook_records_->size(),
+                        &artisan_hook_record_count_, &artisan_hook_dropped_)) {
+                    artisan_hook_dropped_ = 1;
                 }
-                std::sort(artisan_probe_records_->begin(),
-                    artisan_probe_records_->begin() + artisan_probe_record_count_,
-                    [](const ArtisanSettlementProbeRecord &left, const ArtisanSettlementProbeRecord &right) {
+                std::sort(artisan_hook_records_->begin(),
+                    artisan_hook_records_->begin() + artisan_hook_record_count_,
+                    [](const ArtisanSettlementHookRecord &left, const ArtisanSettlementHookRecord &right) {
                         const auto left_address = reinterpret_cast<uintptr_t>(left.pop);
                         const auto right_address = reinterpret_cast<uintptr_t>(right.pop);
                         return left_address != right_address ? left_address < right_address : left.pool < right.pool;
                     });
-                artisan_probe_date_ = raw_date;
-                if (artisan_probe_dropped_ != 0) {
+                artisan_hook_date_ = raw_date;
+                if (artisan_hook_dropped_ != 0) {
                     size_t rule_index = 0;
                     if (FindRule("pop.artisan", &rule_index) != nullptr) {
-                        family_stats_[rule_index].invalid += artisan_probe_dropped_;
+                        family_stats_[rule_index].invalid += artisan_hook_dropped_;
                     }
                 }
             }
-            if (pop_cash_flow_probe_installed_ && pop_cash_flow_probe_date_ != raw_date) {
+            if (pop_cash_flow_hook_installed_ && pop_cash_flow_hook_date_ != raw_date) {
                 pop_cash_flow_record_count_ = 0;
-                pop_cash_flow_probe_stats_ = {};
-                if (!DrainPopCashFlowProbe(pop_cash_flow_records_->data(), pop_cash_flow_records_->size(),
-                        &pop_cash_flow_record_count_, &pop_cash_flow_probe_stats_)) {
-                    pop_cash_flow_probe_stats_.output_overflow = 1;
+                pop_cash_flow_hook_stats_ = {};
+                if (!DrainPopCashFlowHook(pop_cash_flow_records_->data(), pop_cash_flow_records_->size(),
+                        &pop_cash_flow_record_count_, &pop_cash_flow_hook_stats_)) {
+                    pop_cash_flow_hook_stats_.output_overflow = 1;
                 }
                 std::sort(pop_cash_flow_records_->begin(),
                     pop_cash_flow_records_->begin() + pop_cash_flow_record_count_,
-                    [](const PopCashFlowProbeRecord &left, const PopCashFlowProbeRecord &right) {
+                    [](const PopCashFlowHookRecord &left, const PopCashFlowHookRecord &right) {
                         return reinterpret_cast<uintptr_t>(left.pop) < reinterpret_cast<uintptr_t>(right.pop);
                     });
-                pop_cash_flow_probe_date_ = raw_date;
+                pop_cash_flow_hook_date_ = raw_date;
             }
             const std::optional<int> previous_date = last_observed_date_;
             int64_t delta = 0;
@@ -1148,7 +1148,7 @@ namespace telemetry_plugin
                 constexpr std::array<std::string_view, 4> pop_families = {
                     "pop.economy", "pop.demographics", "pop.aggregate", "pop.artisan"};
                 economic_capture_->InvalidatePopulationCache();
-                if (pop_cash_flow_probe_installed_) {
+                if (pop_cash_flow_hook_installed_) {
                     collection_us += EmitPopCashFlows(game_state, *raw_date);
                 }
                 for (const auto family : pop_families) {
@@ -1208,12 +1208,12 @@ namespace telemetry_plugin
                     } else {
                         const bool reliable = rule->country_tags.empty() || rule->country_tags.size() <= 16;
                         if (HasField(*rule, "flows")) {
-                            for (uint32_t index = 0; index < factory_count; ++index) (*factory_probe_aggregates_)[index] = {};
-                            for (uint32_t record_index = 0; record_index < factory_probe_record_count_; ++record_index) {
-                                const auto &record = (*factory_probe_records_)[record_index];
+                            for (uint32_t index = 0; index < factory_count; ++index) (*factory_hook_aggregates_)[index] = {};
+                            for (uint32_t record_index = 0; record_index < factory_hook_record_count_; ++record_index) {
+                                const auto &record = (*factory_hook_records_)[record_index];
                                 for (uint32_t factory_index = 0; factory_index < factory_count; ++factory_index) {
                                     if (factory_snapshots_[factory_index].address != record.factory) continue;
-                                    auto &aggregate = (*factory_probe_aggregates_)[factory_index];
+                                    auto &aggregate = (*factory_hook_aggregates_)[factory_index];
                                     if (record.pool > 3) {
                                         ++family_stats_[country_rule_index].invalid;
                                         break;
@@ -1307,15 +1307,15 @@ namespace telemetry_plugin
                                     entities, 3, payload, 5, false, reliable));
                             }
                             if (HasField(*rule, "sales")) {
-                                const auto begin = factory_sales_probe_records_->begin();
-                                const auto end = begin + factory_sales_probe_record_count_;
+                                const auto begin = factory_sales_hook_records_->begin();
+                                const auto end = begin + factory_sales_hook_record_count_;
                                 const auto match = std::lower_bound(begin, end, snapshot.address,
-                                    [](const FactorySalesProbeRecord &candidate, const void *address) {
+                                    [](const FactorySalesHookRecord &candidate, const void *address) {
                                         return reinterpret_cast<uintptr_t>(candidate.factory)
                                             < reinterpret_cast<uintptr_t>(address);
                                     });
                                 const auto match_end = std::upper_bound(match, end, snapshot.address,
-                                    [](const void *address, const FactorySalesProbeRecord &candidate) {
+                                    [](const void *address, const FactorySalesHookRecord &candidate) {
                                         return reinterpret_cast<uintptr_t>(address)
                                             < reinterpret_cast<uintptr_t>(candidate.factory);
                                     });
@@ -1381,7 +1381,7 @@ namespace telemetry_plugin
                         if (HasField(*rule, "flows")) {
                             for (uint32_t factory_index = 0; factory_index < factory_count; ++factory_index) {
                                 const auto &factory = factory_snapshots_[factory_index];
-                                const auto &aggregate = (*factory_probe_aggregates_)[factory_index];
+                                const auto &aggregate = (*factory_hook_aggregates_)[factory_index];
                                 const SmedleyTelemetryFieldV1 summary_entities[] = {
                                     StringField("country_tag", *country_tag_value),
                                     IntField("state_id", factory.state_id),
@@ -1590,10 +1590,10 @@ namespace telemetry_plugin
         std::atomic<bool> write_failure_logged_{false};
         std::atomic<bool> draining_{false};
         bool handler_registered_ = false;
-        bool consumption_probe_installed_ = false;
-        bool artisan_consumption_probe_installed_ = false;
-        bool factory_sales_probe_installed_ = false;
-        bool pop_cash_flow_probe_installed_ = false;
+        bool factory_consumption_hook_installed_ = false;
+        bool artisan_consumption_hook_installed_ = false;
+        bool factory_sales_hook_installed_ = false;
+        bool pop_cash_flow_hook_installed_ = false;
         std::shared_timed_mutex producer_mutex_;
         std::timed_mutex drain_mutex_;
         std::condition_variable_any drain_complete_cv_;
@@ -1605,7 +1605,7 @@ namespace telemetry_plugin
         std::array<FamilyStats, smedley::telemetry::kMaxCaptureRules> family_stats_;
         std::array<std::optional<int>, smedley::telemetry::kMaxCaptureRules> last_family_poll_dates_;
         std::array<PopAggregate, interest_bug_fix::max_sample_pops> pop_aggregates_;
-        std::unique_ptr<std::array<PopCashFlowProbeRecord, max_pop_cash_flow_records>> pop_cash_flow_records_;
+        std::unique_ptr<std::array<PopCashFlowHookRecord, max_pop_cash_flow_records>> pop_cash_flow_records_;
         std::unique_ptr<std::array<PopCashFlowState, interest_bug_fix::max_sample_pops>> pop_cash_flow_states_;
         std::unique_ptr<std::array<PopCashFlowAggregate, interest_bug_fix::max_sample_pops * 2>>
             pop_cash_flow_aggregates_;
@@ -1615,31 +1615,31 @@ namespace telemetry_plugin
         size_t pop_cash_flow_previous_aggregate_count_ = 0;
         std::optional<int> pop_cash_flow_previous_aggregate_date_;
         uint32_t pop_cash_flow_record_count_ = 0;
-        PopCashFlowProbeStats pop_cash_flow_probe_stats_{};
-        std::optional<int> pop_cash_flow_probe_date_;
+        PopCashFlowHookStats pop_cash_flow_hook_stats_{};
+        std::optional<int> pop_cash_flow_hook_date_;
         std::array<interest_bug_fix::FactorySnapshot, interest_bug_fix::max_sample_factories> factory_snapshots_;
         std::array<interest_bug_fix::FactoryInputSnapshot, interest_bug_fix::max_sample_factory_inputs> factory_input_snapshots_;
-        std::unique_ptr<std::array<FactorySettlementProbeRecord, max_factory_flow_records>> factory_probe_records_;
-        std::unique_ptr<std::array<GoodsFlowAggregate, interest_bug_fix::max_sample_factories>> factory_probe_aggregates_;
+        std::unique_ptr<std::array<FactorySettlementHookRecord, max_factory_flow_records>> factory_hook_records_;
+        std::unique_ptr<std::array<GoodsFlowAggregate, interest_bug_fix::max_sample_factories>> factory_hook_aggregates_;
         std::unique_ptr<std::array<DailyFactoryFlow, interest_bug_fix::max_sample_factories>> factory_daily_flows_;
         std::unique_ptr<std::array<DailyFactoryFlow, interest_bug_fix::max_sample_factories>> factory_previous_flows_;
-        uint32_t factory_probe_record_count_ = 0;
+        uint32_t factory_hook_record_count_ = 0;
         uint32_t factory_daily_flow_count_ = 0;
         uint32_t factory_previous_flow_count_ = 0;
         uint32_t factory_flow_observed_dates_ = 0;
-        uint64_t factory_probe_dropped_ = 0;
-        std::optional<int> factory_probe_date_;
-        std::unique_ptr<std::array<FactorySalesProbeRecord, max_factory_sales_records>> factory_sales_probe_records_;
-        uint32_t factory_sales_probe_record_count_ = 0;
-        uint64_t factory_sales_probe_dropped_ = 0;
-        std::optional<int> factory_sales_probe_date_;
+        uint64_t factory_hook_dropped_ = 0;
+        std::optional<int> factory_hook_date_;
+        std::unique_ptr<std::array<FactorySalesHookRecord, max_factory_sales_records>> factory_sales_hook_records_;
+        uint32_t factory_sales_hook_record_count_ = 0;
+        uint64_t factory_sales_hook_dropped_ = 0;
+        std::optional<int> factory_sales_hook_date_;
         std::array<ProducerInventoryState, interest_bug_fix::max_sample_destination_provinces> rgo_inventory_states_{};
         std::unique_ptr<std::array<ProducerInventoryState, interest_bug_fix::max_sample_pops>> artisan_inventory_states_;
         std::array<uint32_t, 16> artisan_country_keys_{};
-        std::unique_ptr<std::array<ArtisanSettlementProbeRecord, max_artisan_flow_records>> artisan_probe_records_;
-        uint32_t artisan_probe_record_count_ = 0;
-        uint64_t artisan_probe_dropped_ = 0;
-        std::optional<int> artisan_probe_date_;
+        std::unique_ptr<std::array<ArtisanSettlementHookRecord, max_artisan_flow_records>> artisan_hook_records_;
+        uint32_t artisan_hook_record_count_ = 0;
+        uint64_t artisan_hook_dropped_ = 0;
+        std::optional<int> artisan_hook_date_;
         std::array<interest_bug_fix::WorldMarketSnapshot, 64> world_market_snapshots_;
         std::array<CountryEconomyDay, max_country_economy_slots> country_economy_days_{};
         CountryEconomyAccumulator country_economy_accumulator_;
@@ -1786,7 +1786,7 @@ namespace telemetry_plugin
                 if (!tag || !HasCountryTag(rule, *tag)) continue;
                 auto *day = CountryEconomyDayFor(*tag, &day_count);
                 if (day == nullptr) return false;
-                if (factory_probe_dropped_ != 0) day->complete = false;
+                if (factory_hook_dropped_ != 0) day->complete = false;
                 uint32_t factory_count = 0, input_count = 0, flags = 0;
                 if (!interest_bug_fix::CollectCountryFactories(country, factory_snapshots_.data(), factory_snapshots_.size(),
                         &factory_count, factory_input_snapshots_.data(), factory_input_snapshots_.size(), &input_count,
@@ -2047,12 +2047,12 @@ namespace telemetry_plugin
         void CollectArtisanFlowAggregate(const void *pop, size_t rule_index, GoodsFlowAggregate *aggregate)
         {
             *aggregate = {};
-            if (!artisan_consumption_probe_installed_) return;
-            const auto first = artisan_probe_records_->begin();
-            const auto end = first + artisan_probe_record_count_;
+            if (!artisan_consumption_hook_installed_) return;
+            const auto first = artisan_hook_records_->begin();
+            const auto end = first + artisan_hook_record_count_;
             const uintptr_t address = reinterpret_cast<uintptr_t>(pop);
             auto record = std::lower_bound(first, end, address,
-                [](const ArtisanSettlementProbeRecord &candidate, uintptr_t target) {
+                [](const ArtisanSettlementHookRecord &candidate, uintptr_t target) {
                     return reinterpret_cast<uintptr_t>(candidate.pop) < target;
                 });
             while (record != end && record->pop == pop) {
@@ -2165,8 +2165,8 @@ namespace telemetry_plugin
                 if (aggregate_due) ++family_stats_[aggregate_rule_index].invalid;
                 return capture.collection_us;
             }
-            const bool probe_complete = pop_cash_flow_probe_stats_.complete();
-            if (!probe_complete) {
+            const bool capture_complete = pop_cash_flow_hook_stats_.complete();
+            if (!capture_complete) {
                 if (detail_due) ++family_stats_[detail_rule_index].invalid;
                 if (aggregate_due) ++family_stats_[aggregate_rule_index].invalid;
             }
@@ -2198,10 +2198,10 @@ namespace telemetry_plugin
                     && state->country_key == country_key;
                 const auto record_it = std::lower_bound(pop_cash_flow_records_->begin(),
                     pop_cash_flow_records_->begin() + pop_cash_flow_record_count_, candidate.address,
-                    [](const PopCashFlowProbeRecord &record, const void *address) {
+                    [](const PopCashFlowHookRecord &record, const void *address) {
                         return reinterpret_cast<uintptr_t>(record.pop) < reinterpret_cast<uintptr_t>(address);
                     });
-                const PopCashFlowProbeRecord *record = record_it != pop_cash_flow_records_->begin()
+                const PopCashFlowHookRecord *record = record_it != pop_cash_flow_records_->begin()
                     + pop_cash_flow_record_count_ && record_it->pop == candidate.address ? &*record_it : nullptr;
                 std::array<int64_t, pop_cash_flow_component_count> posted{}, component_delta{};
                 uint32_t call_count = 0;
@@ -2222,7 +2222,7 @@ namespace telemetry_plugin
                         && SubtractCashFlowValue(detail.economy.money_raw, state->money_raw, &observed_delta)
                         && SubtractCashFlowValue(observed_delta, money_delta, &residual);
                 }
-                const bool reconciled = opening_seen && probe_complete && math_valid && residual == 0;
+                const bool reconciled = opening_seen && capture_complete && math_valid && residual == 0;
 
                 const bool detail_selected = detail_due
                     && HasProvinceId(*detail_rule, detail.province_id_candidate)
@@ -2240,7 +2240,7 @@ namespace telemetry_plugin
                     if (HasField(*detail_rule, "summary")) {
                         const SmedleyTelemetryFieldV1 payload[] = {
                             BoolField("opening_money_seen", opening_seen),
-                            BoolField("probe_complete", probe_complete),
+                            BoolField("capture_complete", capture_complete),
                             BoolField("reconciled", reconciled),
                             IntField("call_count", call_count),
                         };
@@ -2276,7 +2276,7 @@ namespace telemetry_plugin
                                 component_entities, 6, payload, 2, false, reliable));
                         }
                     }
-                    if (opening_seen && probe_complete && !math_valid) {
+                    if (opening_seen && capture_complete && !math_valid) {
                         ++family_stats_[detail_rule_index].invalid;
                     }
                 }
@@ -2385,7 +2385,7 @@ namespace telemetry_plugin
                     IntField("pop_type_id_candidate", aggregate.pop_type_id),
                 };
                 const bool opening_seen = previous_aggregate_seen && aggregate.opening_pop_count != 0;
-                const bool aggregate_reconciled = opening_seen && probe_complete && aggregate.residual_raw == 0;
+                const bool aggregate_reconciled = opening_seen && capture_complete && aggregate.residual_raw == 0;
                 if (HasField(*aggregate_rule, "summary")) {
                     const SmedleyTelemetryFieldV1 payload[] = {
                         IntField("opening_pop_count", aggregate.opening_pop_count),
@@ -2460,7 +2460,7 @@ namespace telemetry_plugin
                 const auto country_entity = StringField(
                     "country_tag", std::string_view(aggregate.country_tag.data(), 3));
                 const bool opening_seen = previous_aggregate_seen && aggregate.opening_pop_count != 0;
-                const bool reconciled = opening_seen && probe_complete && aggregate.residual_raw == 0;
+                const bool reconciled = opening_seen && capture_complete && aggregate.residual_raw == 0;
                 if (HasField(*aggregate_rule, "summary")) {
                     const SmedleyTelemetryFieldV1 payload[] = {
                         IntField("opening_pop_count", aggregate.opening_pop_count),

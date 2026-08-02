@@ -153,7 +153,7 @@ After warm-up, absence of a factory settlement boundary means no verified
 factory production for that day; the plugin does not value the factory's
 cached `output_raw`. Such candidates remain visible through
 `unsettled_output_candidates`. A present but unreconciled boundary, or any
-probe drop, makes the country/day incomplete.
+hook capture drop, makes the country/day incomplete.
 Real GDP uses market prices from the first successfully observed economy day as
 its fixed base. Date regression clears both period accumulators and base prices.
 
@@ -559,7 +559,7 @@ without inventing stronger gameplay semantics.
 `province.daily` is an opt-in provisional snapshot keyed by numeric province
 ID. Its candidate fields come from the historical `CProvince` layout and remain
 named as candidates until broader runtime correlation is complete. A one-day
-vanilla probe (`dd4c7396-4fa0-4598-9b76-e1d43874d690`) correlated province ID,
+vanilla runtime validation (`dd4c7396-4fa0-4598-9b76-e1d43874d690`) correlated province ID,
 owner, controller, colonial level, and life rating against `benchmark.v2` for
 provinces 1, 425, and 549. Berlin (549) reported infrastructure raw `160` while
 the save contained railroad level 1. That pair is evidence of correlation, not
@@ -601,7 +601,7 @@ therefore not reported as separate components.
 The individual events are `pop.cashflow.{summary,account,component}`. Their
 identity is country, province, candidate POP type, and `pop_id`; component
 records add `cash_flow_index` and `component`. Individual summaries report
-`opening_money_seen`, `probe_complete`, `reconciled`, and `call_count`.
+`opening_money_seen`, `capture_complete`, `reconciled`, and `call_count`.
 `pop.cashflow.aggregate.{summary,account,component}` replaces individual
 identity with country and candidate POP type, while
 `pop.cashflow.country.{summary,account,component}` uses country alone.

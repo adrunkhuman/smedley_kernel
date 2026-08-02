@@ -10,7 +10,7 @@ namespace telemetry_plugin
     constexpr size_t pop_cash_flow_component_count = 8;
     constexpr size_t max_pop_cash_flow_records = 100000;
 
-    struct PopCashFlowProbeRecord
+    struct PopCashFlowHookRecord
     {
         const void *pop = nullptr;
         std::array<int64_t, pop_cash_flow_component_count> posted_raw{};
@@ -19,7 +19,7 @@ namespace telemetry_plugin
         uint32_t clamped_call_count = 0;
     };
 
-    struct PopCashFlowProbeStats
+    struct PopCashFlowHookStats
     {
         uint64_t calls = 0;
         uint64_t invalid_index = 0;
@@ -33,8 +33,8 @@ namespace telemetry_plugin
         }
     };
 
-    bool InstallPopCashFlowProbe(std::string *error);
-    bool UninstallPopCashFlowProbe(std::string *error);
-    bool DrainPopCashFlowProbe(PopCashFlowProbeRecord *records, size_t capacity,
-                               uint32_t *count, PopCashFlowProbeStats *stats);
+    bool InstallPopCashFlowHook(std::string *error);
+    bool UninstallPopCashFlowHook(std::string *error);
+    bool DrainPopCashFlowHook(PopCashFlowHookRecord *records, size_t capacity,
+                              uint32_t *count, PopCashFlowHookStats *stats);
 }

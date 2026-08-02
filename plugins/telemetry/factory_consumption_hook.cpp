@@ -1,5 +1,5 @@
-#include "factory_consumption_probe.hpp"
-#include "probe_patch.hpp"
+#include "factory_consumption_hook.hpp"
+#include "hook_patch.hpp"
 
 #include <smedley/memory.hpp>
 
@@ -34,7 +34,7 @@ namespace telemetry_plugin
             const int64_t *values_capacity;
         };
 
-        std::array<FactorySettlementProbeRecord, queue_capacity> queue;
+        std::array<FactorySettlementHookRecord, queue_capacity> queue;
         std::atomic<uint32_t> queue_write{0};
         std::atomic<uint32_t> queue_read{0};
         std::atomic<uint64_t> queue_dropped{0};
@@ -44,7 +44,7 @@ namespace telemetry_plugin
         bool poisoned = false;
         volatile LONG active = 0;
 
-        bool DecodePool(const void *source, FactorySettlementProbeRecord *record) noexcept
+        bool DecodePool(const void *source, FactorySettlementHookRecord *record) noexcept
         {
             __try {
                 const auto base = smedley::memory::Map::base_addr;
@@ -73,7 +73,7 @@ namespace telemetry_plugin
         void __cdecl CapturePool(const void *factory, const void *source, uint32_t pool) noexcept
         {
             if (InterlockedCompareExchange(&active, 0, 0) == 0) return;
-            FactorySettlementProbeRecord record{};
+            FactorySettlementHookRecord record{};
             if (factory == nullptr) {
                 queue_dropped.fetch_add(1, std::memory_order_relaxed);
                 return;
@@ -196,11 +196,11 @@ namespace telemetry_plugin
         }
     }
 
-    bool InstallFactoryConsumptionProbe(std::string *error)
+    bool InstallFactoryConsumptionHook(std::string *error)
     {
         if (error == nullptr) return false;
         if (installed || poisoned) {
-            *error = "factory consumption probe is already installed or has an unrecoverable patch state";
+            *error = "factory consumption hook is already installed or has an unrecoverable patch state";
             return false;
         }
         const uintptr_t base = smedley::memory::Map::base_addr;
@@ -262,7 +262,7 @@ namespace telemetry_plugin
         return true;
     }
 
-    bool UninstallFactoryConsumptionProbe(std::string *error)
+    bool UninstallFactoryConsumptionHook(std::string *error)
     {
         if (error == nullptr) return false;
         if (!installed) return true;
@@ -311,8 +311,8 @@ namespace telemetry_plugin
         return true;
     }
 
-    bool DrainFactoryConsumptionProbe(FactorySettlementProbeRecord *records, size_t capacity,
-                                      uint32_t *count, uint64_t *dropped)
+    bool DrainFactoryConsumptionHook(FactorySettlementHookRecord *records, size_t capacity,
+                                     uint32_t *count, uint64_t *dropped)
     {
         if (records == nullptr || count == nullptr || dropped == nullptr) return false;
         *count = 0;
