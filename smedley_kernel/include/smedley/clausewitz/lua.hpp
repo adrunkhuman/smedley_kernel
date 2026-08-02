@@ -1,6 +1,8 @@
 #pragma once
 
-#include <lua.hpp>
+#include <smedley/memory.hpp>
+
+struct lua_State;
 #include <windows.h>
 
 namespace smedley::clausewitz
