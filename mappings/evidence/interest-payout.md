@@ -244,18 +244,16 @@ average and 13,821 microseconds at the observed maximum. The peak occurred on
 opt-in creditor destination POP walks. This remains bounded diagnostic work,
 but it is too expensive for default telemetry.
 
-## Reversible GiveMoney fixture
+## Retired historical GiveMoney probe
 
-`pop_money_fixture` is a contributor-only CMake target and manifest; it is not
-installed with the ordinary plugins. Selecting that manifest is explicit
-authorization for one temporary mutation. The fixture waits for a structurally
-valid destination POP, snapshots four 64-bit fields, invokes `CPop::GiveMoney`
-with cash-flow index 7 and raw amount `+1000`, snapshots again, invokes `-1000`,
-and verifies exact restoration. It performs no callback-thread I/O and reports
-the fixed-size result from a worker thread.
+The retired `pop_money_fixture` probe produced the evidence below. Its source,
+CMake target, and manifest are no longer available in this repository. The
+probe waited for a structurally valid destination POP, snapshotted four 64-bit
+fields, invoked `CPop::GiveMoney` with cash-flow index 7 and raw amount `+1000`,
+snapshotted again, invoked `-1000`, and verified exact restoration.
 
 Run `5ee018ab-f95f-4bc5-962e-d5cf5c968260` used only `campaign_runner` and this
-fixture from the unchanged supplied save. At raw date `59883432`, the selected
+probe from the unchanged supplied save. At raw date `59883432`, the selected
 Sweden creditor destination POP produced:
 
 | Field | Before | After `+1000` | After `-1000` |
@@ -527,7 +525,7 @@ Callback time totaled 1,629,137,122 microseconds. Paid callbacks had a 13,817 us
 median and 67,653 us maximum; allocation failures had a 9,166 us median;
 invalid pairs had a 1,492 us median; and no-transfer callbacks had a 21 us
 median. The paired baseline and full economic outcome comparison are recorded
-in `TELEMETRY.md`.
+in `telemetry.md`.
 
 Opt-out run `1759f606-f8b6-4588-aad0-31025e74fd60` repeated two days without
 selecting `interest_fix`; the prior fix CSV retained the same hash, timestamp,
@@ -576,7 +574,7 @@ there is no current depositor weighting with which to assign the bank gain, and
 inventing a recipient would violate the documented allocation model.
 
 The matched no-fix baseline and full performance/economic comparison are
-recorded in `TELEMETRY.md`.
+recorded in `telemetry.md`.
 
 ## Historical renamed-plugin smoke test
 

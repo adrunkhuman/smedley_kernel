@@ -263,6 +263,42 @@ Comments preserve non-obvious rationale, ABI requirements, verified offsets,
 and engine quirks. Do not narrate C++ syntax. Keep evidence near the mapping or
 wrapper that depends on it.
 
+## Naming And Ownership
+
+- Use one canonical term. Name code for its domain responsibility, not its
+  mechanism or history. Avoid vague `Util`, `Helper`, `Manager`, `Data`,
+  `Info`, `Common`, and `Core`; reserve `Core` for non-I/O implementation below
+  a named product boundary.
+- `plugins/` contains loadable plugins and code exclusively owned by them.
+  Shared game readers belong in `game_state/`. Preserve stable external
+  IDs and candidate, raw, and evidence names.
+
+## Structure
+
+- Co-locate tests with the code they cover. Keep dependencies target-scoped and
+  give each production target one owner.
+- Keep generated, input, handwritten, and evidence material distinct.
+
+## Tests And Probes
+
+- Automated test DLLs belong under the test tree and use the
+  `*_test_plugin` name.
+- Probes are opt-in and state their exact claim, restoration, and removal
+  condition. Do not retain exploration merely as history.
+
+## Durable Documentation
+
+- Document steady-state behavior, not the sequence of a change, and state
+  positive ownership.
+- `docs/` records current contracts, `mappings/` records evidence, and GitHub
+  issues own future work. Keep evidence IDs and hashes in `mappings/`.
+
+## Refactoring
+
+- Establish boundaries before broad renames. Do not add private compatibility
+  aliases or mix unrelated renames, behavior changes, and mapping claims.
+- Split by responsibility, not size.
+
 ## Code And Build
 
 The injected runtime currently requires MSVC x86 because it uses x86 inline

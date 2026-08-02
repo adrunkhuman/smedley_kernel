@@ -1,4 +1,0 @@
-id = "pop_money_fixture"
-name = "Reversible POP money validation fixture"
-version = "0.1"
-module = "pop_money_fixture.dll"

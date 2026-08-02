@@ -149,7 +149,7 @@ shared preflight reports an error.
 Installation provides four bundled plugin manifests: `campaign_runner`,
 `interest_bug_fix`, `telemetry`, and `scripting`. It removes retired bundled
 plugin DLLs and manifests rather than leaving them discoverable. The native
-`pop_money_fixture` validation target is build-only and is not installed.
+plugin build contains no standalone POP-money probe.
 
 The profile schema and CLI can represent multiple mods, but the current GUI
 offers one mod selector. Loading a multi-mod profile preserves every path and

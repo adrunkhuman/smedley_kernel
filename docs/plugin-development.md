@@ -1,4 +1,4 @@
-# Native plugins
+# Plugin development
 
 Native plugins are trusted x86 Windows DLLs loaded into Victoria II. They are
 not sandboxed and have the same filesystem, memory, and process access as the
@@ -181,7 +181,7 @@ or I/O.
 
 The pointer and record are valid only during the callback. Except for the
 human-control invariant, these fields retain the provisional evidence levels
-documented in [`mappings/SCRIPTING.md`](../mappings/SCRIPTING.md). A tag is an
+documented in [`mappings/evidence/scripting.md`](../mappings/evidence/scripting.md). A tag is an
 identifier copied from the current event, not a durable object handle or proof
 that the country will exist later. ABI v1 exposes no mutation and no way to
 dereference a tag outside the event.

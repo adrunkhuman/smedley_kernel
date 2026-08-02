@@ -10,7 +10,7 @@ extend supported behavior without C++. C++ is required only to build Smedley or
 write native plugins.
 
 New native plugins can use the narrow versioned C lifecycle ABI documented in
-[`docs/native-plugins.md`](docs/native-plugins.md); existing plugins retain a
+[`docs/plugin-development.md`](docs/plugin-development.md); existing plugins retain a
 legacy compatibility path. A separate C capability table provides copied daily
 country events without exposing game pointers. Native plugins may submit bounded
 typed records through the telemetry C extension API in
@@ -113,11 +113,6 @@ It keeps liquid holdings and financial claims separate instead of inventing a
 double-counted world-money total. Installation removes obsolete bundled plugin
 artifacts automatically.
 
-Native contributors can separately build the non-installed
-`pop_money_fixture` target. Explicitly selecting its manifest performs one
-reversible `+1000/-1000` POP money ABI check; ordinary players should use the
-read-only telemetry plugin instead.
-
 `telemetry` is the opt-in JSON Lines telemetry plugin. Enable it in a profile,
 the CLI, or the native launcher and select its trusted manifest like any other
 native plugin. It records lifecycle events and configurable world, country,
@@ -159,6 +154,5 @@ above. The native C ABI currently covers lifecycle, not game services. Plugin
 dependency versions, general third-party plugin settings, broad AI decision
 telemetry, profiling, and profiler-backed engine optimizations are still in
 active development. A generic pre-exit callback for plugins other than telemetry
-remains unimplemented. See
-[`mappings/ROADMAP.md`](mappings/ROADMAP.md) for the current roadmap and
+remains unimplemented. GitHub issues track future work; see
 [`mappings/`](mappings/) for reverse-engineering evidence.

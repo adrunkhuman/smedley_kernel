@@ -1,12 +1,6 @@
 add_library(interest_bug_fix_core STATIC interest_allocation.cpp interest_batch.cpp interest_reconciliation.cpp pop_money_write.cpp)
 target_include_directories(interest_bug_fix_core PUBLIC ".")
 
-if(BUILD_TESTING)
-  add_library(pop_money_fixture MODULE pop_money_fixture.cpp)
-  target_link_libraries(pop_money_fixture smedley_game_state smedley_kernel)
-  target_include_directories(pop_money_fixture PRIVATE "../../smedley_kernel/include")
-endif()
-
 add_library(interest_bug_fix MODULE interest_bug_fix.cpp telemetry_bridge.cpp)
 target_link_libraries(interest_bug_fix interest_bug_fix_core smedley_game_state smedley_kernel psapi)
 target_include_directories(interest_bug_fix PRIVATE "../../smedley_kernel/include" "${CMAKE_SOURCE_DIR}/include")
