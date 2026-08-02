@@ -45,7 +45,7 @@ namespace
             wchar_t executable[MAX_PATH];
             EXPECT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
             const auto configuration_dir = fs::path(executable).parent_path();
-            return configuration_dir.parent_path().parent_path().parent_path()
+            return fs::path(SMEDLEY_BUILD_DIR)
                 / L"plugins" / L"campaign_runner" / configuration_dir.filename() / L"campaign_runner.dll";
         }
 
@@ -54,7 +54,7 @@ namespace
             wchar_t executable[MAX_PATH];
             EXPECT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
             const auto configuration_dir = fs::path(executable).parent_path();
-            return configuration_dir.parent_path().parent_path().parent_path()
+            return fs::path(SMEDLEY_BUILD_DIR)
                 / L"plugins" / L"telemetry" / configuration_dir.filename() / L"telemetry.dll";
         }
 
@@ -63,7 +63,7 @@ namespace
             wchar_t executable[MAX_PATH];
             EXPECT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
             const auto configuration_dir = fs::path(executable).parent_path();
-            return configuration_dir.parent_path().parent_path().parent_path()
+            return fs::path(SMEDLEY_BUILD_DIR)
                 / L"plugins" / L"scripting" / configuration_dir.filename() / L"scripting.dll";
         }
 
@@ -72,7 +72,7 @@ namespace
             wchar_t executable[MAX_PATH];
             EXPECT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
             const auto configuration_dir = fs::path(executable).parent_path();
-            return configuration_dir.parent_path().parent_path().parent_path()
+            return fs::path(SMEDLEY_BUILD_DIR)
                 / L"smedley_kernel" / configuration_dir.filename() / L"smedley_plugin_abi_test_plugin.dll";
         }
     };
