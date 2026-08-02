@@ -170,6 +170,29 @@ namespace interest_bug_fix
         int64_t actual_sold_world_raw = 0;
     };
 
+    enum RgoCaptureGroup : uint32_t
+    {
+        RGO_IDENTITY = 1u << 0,
+        RGO_EMPLOYMENT = 1u << 1,
+        RGO_PRODUCTION = 1u << 2,
+        RGO_FINANCE = 1u << 3,
+    };
+
+    struct RgoSnapshot
+    {
+        int32_t province_id = -1;
+        char production_type[64]{};
+        int32_t output_good_ordinal = -1;
+        char output_good[64]{};
+        int32_t employment_capacity = 0;
+        int32_t employed = 0;
+        int32_t base_output_per_size_raw = 0;
+        int32_t base_size_raw_candidate = 0;
+        int32_t output_efficiency_raw = 0;
+        int32_t throughput_raw = 0;
+        int64_t income_raw = 0;
+    };
+
     using CountryResolver = const void *(*)(const void *context, int32_t ordinal);
     using ProvinceResolver = const void *(*)(const void *context, int32_t id);
 
@@ -198,4 +221,7 @@ namespace interest_bug_fix
                                  uint32_t *input_count, uint32_t groups, uint32_t *flags);
     bool CollectWorldMarket(const void *game_state, WorldMarketSnapshot *snapshots,
                             size_t snapshot_capacity, uint32_t *snapshot_count);
+    const void *ResolveStateEmploymentRegistry();
+    bool ReadProvinceRgo(const void *registry, const void *province, int32_t province_id,
+                         size_t province_count, uint32_t groups, RgoSnapshot *snapshot);
 }

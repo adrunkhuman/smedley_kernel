@@ -16,6 +16,7 @@ namespace interest_bug_fix
         constexpr size_t country_tag_offset = 0x1c;
         constexpr size_t country_states_offset = 0xe44;
         constexpr size_t game_state_world_market_offset = 0xbcc;
+        constexpr uintptr_t state_employment_registry_rva = 0x00e58728;
         constexpr size_t country_treasury_offset = 0xe78;
         constexpr size_t country_bank_offset = 0xe88;
         constexpr size_t country_creditors_offset = 0xe8c;
@@ -30,6 +31,7 @@ namespace interest_bug_fix
         constexpr size_t bank_interest_offset = 0x20;
         constexpr size_t province_pop_lists_offset = 0x194;
         constexpr size_t province_id_offset = 0x58;
+        constexpr size_t province_rgo_capacity_offset = 0x1ac;
         constexpr size_t pop_size_offset = 0x58;
         constexpr size_t pop_employed_offset = 0x60;
         constexpr size_t pop_province_offset = 0x64;
@@ -89,6 +91,15 @@ namespace interest_bug_fix
         constexpr size_t pop_employment_size = 0x10;
         constexpr size_t pop_employment_pop_offset = 0x08;
         constexpr size_t pop_employment_count_offset = 0x0c;
+        constexpr size_t state_employment_record_size = 0xb0;
+        constexpr size_t state_employment_production_type_offset = 0x08;
+        constexpr size_t state_employment_output_good_offset = 0x0c;
+        constexpr size_t state_employment_province_offset = 0x1c;
+        constexpr size_t state_employment_output_efficiency_offset = 0x38;
+        constexpr size_t state_employment_throughput_offset = 0x40;
+        constexpr size_t state_employment_employed_offset = 0x58;
+        constexpr size_t state_employment_income_offset = 0x80;
+        constexpr size_t state_employment_base_size_offset = 0x88;
         constexpr int64_t pop_savings_state_scale = 1000;
 
         struct ListNode
@@ -1168,6 +1179,71 @@ namespace interest_bug_fix
             snapshot.actual_sold_world_raw = actual_sold_world[ordinal];
             snapshots[(*snapshot_count)++] = snapshot;
         }
+        return true;
+    }
+
+    const void *ResolveStateEmploymentRegistry()
+    {
+        ResetMemoryRegionCache();
+        const auto module = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+        if (module == 0 || module > (std::numeric_limits<uintptr_t>::max)() - state_employment_registry_rva) {
+            return nullptr;
+        }
+        const void *registry = nullptr;
+        return ReadAt(reinterpret_cast<const void *>(module + state_employment_registry_rva), 0, &registry)
+            ? registry : nullptr;
+    }
+
+    bool ReadProvinceRgo(const void *registry, const void *province, int32_t province_id,
+                         size_t province_count, uint32_t groups, RgoSnapshot *snapshot)
+    {
+        if (registry == nullptr || province == nullptr || snapshot == nullptr || province_id < 0
+            || province_count > max_sample_destination_provinces) return false;
+        ResetMemoryRegionCache();
+        PointerVector records{};
+        uint32_t record_count = 0;
+        if (!ReadAt(registry, 0, &records)
+            || !VectorCount(records, state_employment_record_size, max_sample_destination_provinces, &record_count)
+            || record_count != province_count || static_cast<uint32_t>(province_id) >= record_count) return false;
+
+        const auto *record = static_cast<const uint8_t *>(records.begin)
+            + static_cast<size_t>(province_id) * state_employment_record_size;
+        const void *record_province = nullptr;
+        RgoSnapshot value{};
+        value.province_id = province_id;
+        if (!ReadAt(record, state_employment_province_offset, &record_province) || record_province != province) return false;
+
+        if ((groups & RGO_IDENTITY) != 0 || (groups & RGO_PRODUCTION) != 0) {
+            const void *production_type = nullptr;
+            const void *output_good = nullptr;
+            const void *definition_output_good = nullptr;
+            if (!ReadAt(record, state_employment_production_type_offset, &production_type)
+                || !ReadAt(record, state_employment_output_good_offset, &output_good)
+                || !ReadAt(production_type, production_type_output_good_offset, &definition_output_good)
+                || definition_output_good != output_good
+                || !ReadAt(output_good, goods_ordinal_offset, &value.output_good_ordinal)
+                || value.output_good_ordinal < 0 || value.output_good_ordinal >= 64) return false;
+            if ((groups & RGO_IDENTITY) != 0
+                && (!ReadNormalizedKey(production_type, 0x08, value.production_type, sizeof(value.production_type))
+                    || !ReadNormalizedKey(output_good, goods_key_offset, value.output_good, sizeof(value.output_good)))) {
+                return false;
+            }
+            if ((groups & RGO_PRODUCTION) != 0
+                && (!ReadAt(production_type, production_type_base_output_offset, &value.base_output_per_size_raw)
+                    || !ReadAt(record, state_employment_base_size_offset, &value.base_size_raw_candidate)
+                    || !ReadAt(record, state_employment_output_efficiency_offset, &value.output_efficiency_raw)
+                    || !ReadAt(record, state_employment_throughput_offset, &value.throughput_raw)
+                    || value.base_output_per_size_raw < 0 || value.base_size_raw_candidate < 0
+                    || value.output_efficiency_raw < 0 || value.throughput_raw < 0)) return false;
+        }
+        if ((groups & RGO_EMPLOYMENT) != 0
+            && (!ReadAt(province, province_rgo_capacity_offset, &value.employment_capacity)
+                || !ReadAt(record, state_employment_employed_offset, &value.employed)
+                || value.employment_capacity < 0 || value.employed < 0
+                || value.employed > value.employment_capacity)) return false;
+        if ((groups & RGO_FINANCE) != 0
+            && (!ReadAt(record, state_employment_income_offset, &value.income_raw) || value.income_raw < 0)) return false;
+        *snapshot = value;
         return true;
     }
 

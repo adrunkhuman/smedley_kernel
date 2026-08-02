@@ -328,6 +328,21 @@ status = "current-unverified"
 source = "smedley_kernel/include/smedley/v2/gamestate.hpp"
 
 [[symbols]]
+name = "CStateEmployment vector global"
+rva = 0x00e58728
+kind = "data"
+status = "verified-runtime"
+source = "accessor RVA 0x000c25b0 and multiple static callers index the returned begin pointer by province ID times 0xb0; the live 3,249-element vector maps Berlin 549 and Görlitz 687 to matching province, production type, goods, employment, modifiers, and income"
+
+[[symbols]]
+name = "CStateEmployment vector accessor"
+rva = 0x000c25b0
+kind = "function"
+status = "verified-static-callsites"
+signature = "a1 28 87 25 01 85 c0 75 33"
+source = "returns the singleton vector object stored at preferred VA 0x01258728; callers at RVAs 0x10950b, 0x340ed9, 0x555def, and others index its first vector by province ID times 0xb0"
+
+[[symbols]]
 name = "CCurrentGameState::LoadSave candidate"
 rva = 0x0027f1d0
 kind = "function"
@@ -679,6 +694,22 @@ fields = [
   { name = "output_good", offset = 0x0080 },
   { name = "base_output", offset = 0x0088 },
   { name = "maintenance_goods", offset = 0x0090 },
+]
+
+[[layouts]]
+name = "CStateEmploymentRecord"
+status = "verified-runtime"
+size = 0x00b0
+source = "static callsites use province ID times 0xb0; live vector count equals the 3,249-province game-state vector and Berlin/Görlitz records match independent UI and POP observations"
+fields = [
+  { name = "production_type", offset = 0x0008 },
+  { name = "output_good", offset = 0x000c },
+  { name = "province", offset = 0x001c },
+  { name = "output_efficiency", offset = 0x0038 },
+  { name = "throughput", offset = 0x0040 },
+  { name = "employed", offset = 0x0058 },
+  { name = "income", offset = 0x0080 },
+  { name = "base_size_candidate", offset = 0x0088 },
 ]
 
 [[layouts]]

@@ -521,6 +521,64 @@ namespace telemetry_plugin
                             &province_id, 1, payload.data(), count, false, reliable));
                     }
                 }
+                if (const auto *rule = FindRule("province.rgo", &rule_index);
+                    rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
+                    ++family_stats_[rule_index].polls_due;
+                    size_t province_count = 0;
+                    const bool province_vector_valid = game_state->province_count_candidate(&province_count);
+                    if (!province_vector_valid) ++family_stats_[rule_index].invalid;
+                    const void *registry = province_vector_valid
+                        ? interest_bug_fix::ResolveStateEmploymentRegistry() : nullptr;
+                    uint32_t groups = 0;
+                    if (HasField(*rule, "identity")) groups |= interest_bug_fix::RGO_IDENTITY;
+                    if (HasField(*rule, "employment")) groups |= interest_bug_fix::RGO_EMPLOYMENT;
+                    if (HasField(*rule, "production")) groups |= interest_bug_fix::RGO_PRODUCTION;
+                    if (HasField(*rule, "finance")) groups |= interest_bug_fix::RGO_FINANCE;
+                    for (size_t id = 0; id < province_count; ++id) {
+                        if (!HasProvinceId(*rule, static_cast<int>(id))) continue;
+                        ++family_stats_[rule_index].collection_attempts;
+                        interest_bug_fix::RgoSnapshot snapshot{};
+                        if (!interest_bug_fix::ReadProvinceRgo(registry, game_state->province(static_cast<int>(id)),
+                                static_cast<int32_t>(id), province_count, groups, &snapshot)) {
+                            ++family_stats_[rule_index].invalid;
+                            continue;
+                        }
+                        const bool reliable = !rule->province_ids.empty() && rule->province_ids.size() <= 16;
+                        const auto province_id = IntField("province_id", snapshot.province_id);
+                        if (HasField(*rule, "identity")) {
+                            const SmedleyTelemetryFieldV1 payload[] = {
+                                StringField("production_type", snapshot.production_type),
+                                IntField("output_good_ordinal", snapshot.output_good_ordinal),
+                                StringField("output_good", snapshot.output_good),
+                            };
+                            AccountResult(rule_index, EmitTyped("province.rgo.identity", "state", raw_date,
+                                &province_id, 1, payload, 3, false, reliable));
+                        }
+                        if (HasField(*rule, "employment")) {
+                            const SmedleyTelemetryFieldV1 payload[] = {
+                                IntField("employment_capacity", snapshot.employment_capacity),
+                                IntField("employed", snapshot.employed),
+                            };
+                            AccountResult(rule_index, EmitTyped("province.rgo.employment", "state", raw_date,
+                                &province_id, 1, payload, 2, false, reliable));
+                        }
+                        if (HasField(*rule, "production")) {
+                            const SmedleyTelemetryFieldV1 payload[] = {
+                                IntField("base_output_per_size_raw", snapshot.base_output_per_size_raw),
+                                IntField("base_size_raw_candidate", snapshot.base_size_raw_candidate),
+                                IntField("output_efficiency_raw", snapshot.output_efficiency_raw),
+                                IntField("throughput_raw", snapshot.throughput_raw),
+                            };
+                            AccountResult(rule_index, EmitTyped("province.rgo.production", "state", raw_date,
+                                &province_id, 1, payload, 4, false, reliable));
+                        }
+                        if (HasField(*rule, "finance")) {
+                            const auto income = IntField("income_raw", snapshot.income_raw);
+                            AccountResult(rule_index, EmitTyped("province.rgo.finance", "state", raw_date,
+                                &province_id, 1, &income, 1, false, reliable));
+                        }
+                    }
+                }
                 constexpr std::array<std::string_view, 3> pop_families = {
                     "pop.economy", "pop.demographics", "pop.aggregate"};
                 economic_capture_.InvalidatePopulationCache();

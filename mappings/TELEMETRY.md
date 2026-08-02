@@ -306,7 +306,7 @@ factory output and `sales_income / price`; ratios ranged from 0.14 to 2.16.
 Producer inventory or market-clearing instrumentation is required before
 factory-specific sold quantity can be claimed.
 
-## RGO production leads
+## RGO production
 
 Paused UI correlation on Berlin 549 (fruit farm) and Görlitz 687 (coal mine)
 establishes `CProvince+0x1ac` as RGO employment capacity: 195,625 and 60,000
@@ -321,9 +321,32 @@ Görlitz:  7.20 base × 1.45 output efficiency × 0.5472 throughput = 5.713 coal
 ```
 
 The component tooltips expose aristocrat-owner, RGO technology, worker, and
-infrastructure contributions. Active runtime production-type/resource identity
-and the final modifier fields remain unmapped, so no RGO telemetry or derived
-output is emitted yet.
+infrastructure contributions. Runtime records are an exact 3,249-element vector
+rooted at global RVA `0x00e58728`. Accessor RVA `0x000c25b0` returns the vector
+object, and static callers index it as `province_id * 0xb0`. Each element has an
+eight-byte prefix followed by a live `CStateEmployment` object.
+
+| Record offset | Meaning |
+| ---: | --- |
+| `+0x08` | `CProductionType*` |
+| `+0x0c` | output `CGoods*` |
+| `+0x1c` | `CProvince*` identity check |
+| `+0x38` | output efficiency, 32,768 scale |
+| `+0x40` | throughput, 32,768 scale |
+| `+0x58` | employed workers |
+| `+0x80` | income, 32,768,000 scale |
+| `+0x88` | base-size candidate, 32,768 scale |
+
+Berlin's record resolves `orchard` and fruit ordinal 33; Görlitz resolves
+`coal_mine` and coal ordinal 10. The record values reproduce both UI efficiency,
+throughput, employment, and income displays. The effective size modifier needed
+to derive UI base output is still absent, so `province.rgo` exposes components
+but does not emit a derived gross-output quantity.
+
+Injected one-day run `ea77637b-f661-47f5-b85f-18d48de2a5a0` emitted identity,
+employment, production, and finance records for both provinces. Its family
+summary reported two collection attempts, eight accepted records, and zero
+filtered, dropped, or invalid results.
 
 Injected vanilla run `40d36695-696f-408e-af64-df266a1cfcc8` loaded the unchanged
 benchmark and emitted four record groups for each of seven PRU factories. The

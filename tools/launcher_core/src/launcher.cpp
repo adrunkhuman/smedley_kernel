@@ -626,6 +626,10 @@ namespace smedley::launcher
             if (rule.family == "province.production") {
                 return field == "building_slot_count_candidate" || field == "construction_count_candidate";
             }
+            if (rule.family == "province.rgo") {
+                return field == "identity" || field == "employment"
+                    || field == "production" || field == "finance";
+            }
             if (rule.family == "pop.economy") {
                 return field == "money_raw" || field == "savings_raw"
                     || field == "interest_cash_flow_raw" || field == "total_cash_flow_raw";
@@ -709,6 +713,7 @@ namespace smedley::launcher
                     && rule.family != "state.factory"
                     && rule.family != "world.market"
                     && rule.family != "province.daily" && rule.family != "province.production"
+                    && rule.family != "province.rgo"
                     && rule.family != "pop.economy"
                     && rule.family != "pop.demographics" && rule.family != "pop.aggregate") {
                     AddDiagnostic(diagnostics, "telemetry.capture_family", prefix + "contains an unknown family", path);
@@ -754,7 +759,8 @@ namespace smedley::launcher
                         return false;
                     }
                 }
-                if (rule.family != "province.daily" && rule.family != "province.production" && rule.family != "pop.economy"
+                if (rule.family != "province.daily" && rule.family != "province.production" && rule.family != "province.rgo"
+                    && rule.family != "pop.economy"
                     && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
                     && !rule.province_ids.empty()) {
                     AddDiagnostic(diagnostics, "telemetry.capture_province_ids", prefix + "province_ids are only supported by province and POP families", path);

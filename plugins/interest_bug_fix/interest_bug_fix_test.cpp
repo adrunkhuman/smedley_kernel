@@ -978,3 +978,73 @@ TEST(InterestBugFixTest, ReadsValidatedPopDetailCandidates)
     Write(&pop, 0x60, size + 1);
     EXPECT_FALSE(interest_probe::ReadPopDetailSnapshot(pop.data(), &detail));
 }
+
+TEST(InterestBugFixTest, ReadsValidatedProvinceRgoRecord)
+{
+    std::array<std::byte, 0x1b0> province{};
+    std::array<std::byte, 0x160> production_type{};
+    std::array<std::byte, 0x40> output_good{};
+    std::array<std::array<std::byte, 0xb0>, 2> records{};
+    std::array<const void *, 3> registry{};
+    const void *province_pointer = province.data();
+    const void *production_type_pointer = production_type.data();
+    const void *output_good_pointer = output_good.data();
+    const void *records_begin = records.data();
+    const void *records_end = records.data() + records.size();
+    registry = {records_begin, records_end, records_end};
+
+    const char production_key[] = "coal_mine";
+    const char goods_key[] = "coal";
+    const uint32_t production_key_size = sizeof(production_key) - 1;
+    const uint32_t goods_key_size = sizeof(goods_key) - 1;
+    const uint32_t inline_capacity = 15;
+    const int32_t goods_ordinal = 10;
+    const int32_t capacity = 60000;
+    const int32_t employed = 54730;
+    const int32_t base_output = 78643;
+    const int32_t base_size = 98304;
+    const int32_t output_efficiency = 47513;
+    const int32_t throughput = 17932;
+    const int64_t income = 536724000;
+
+    Write(&province, 0x1ac, capacity);
+    std::memcpy(production_type.data() + 0x08, production_key, sizeof(production_key));
+    Write(&production_type, 0x18, production_key_size);
+    Write(&production_type, 0x1c, inline_capacity);
+    Write(&production_type, 0x80, output_good_pointer);
+    Write(&production_type, 0x88, base_output);
+    Write(&output_good, 0x08, goods_ordinal);
+    std::memcpy(output_good.data() + 0x0c, goods_key, sizeof(goods_key));
+    Write(&output_good, 0x1c, goods_key_size);
+    Write(&output_good, 0x20, inline_capacity);
+    Write(&records[1], 0x08, production_type_pointer);
+    Write(&records[1], 0x0c, output_good_pointer);
+    Write(&records[1], 0x1c, province_pointer);
+    Write(&records[1], 0x38, output_efficiency);
+    Write(&records[1], 0x40, throughput);
+    Write(&records[1], 0x58, employed);
+    Write(&records[1], 0x80, income);
+    Write(&records[1], 0x88, base_size);
+
+    interest_probe::RgoSnapshot snapshot{};
+    ASSERT_TRUE(interest_probe::ReadProvinceRgo(registry.data(), province.data(), 1, records.size(),
+        interest_probe::RGO_IDENTITY | interest_probe::RGO_EMPLOYMENT
+            | interest_probe::RGO_PRODUCTION | interest_probe::RGO_FINANCE,
+        &snapshot));
+    EXPECT_EQ(snapshot.province_id, 1);
+    EXPECT_STREQ(snapshot.production_type, production_key);
+    EXPECT_EQ(snapshot.output_good_ordinal, goods_ordinal);
+    EXPECT_STREQ(snapshot.output_good, goods_key);
+    EXPECT_EQ(snapshot.employment_capacity, capacity);
+    EXPECT_EQ(snapshot.employed, employed);
+    EXPECT_EQ(snapshot.base_output_per_size_raw, base_output);
+    EXPECT_EQ(snapshot.base_size_raw_candidate, base_size);
+    EXPECT_EQ(snapshot.output_efficiency_raw, output_efficiency);
+    EXPECT_EQ(snapshot.throughput_raw, throughput);
+    EXPECT_EQ(snapshot.income_raw, income);
+
+    const void *wrong_province = production_type.data();
+    Write(&records[1], 0x1c, wrong_province);
+    EXPECT_FALSE(interest_probe::ReadProvinceRgo(registry.data(), province.data(), 1, records.size(),
+        interest_probe::RGO_IDENTITY, &snapshot));
+}

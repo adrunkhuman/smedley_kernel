@@ -54,7 +54,7 @@ Each rule accepts `family`, `cadence`, `fields`, `country_tags`, `province_ids`,
 and optional `start_date_raw` and `end_date_raw`. Empty `fields` selects every
 field in that family. Country filters are valid for all `country.*` families and
 `state.factory`.
-Province filters are valid for `province.daily`, `province.production`, `pop.economy`,
+Province filters are valid for `province.daily`, `province.production`, `province.rgo`, `pop.economy`,
 `pop.demographics`, and `pop.aggregate`. An empty entity filter means every
 entity, including daily all-province or all-POP capture when explicitly
 requested. Country families filter the country supplied by each
@@ -75,6 +75,7 @@ filters.
 | `world.market` | record groups `price`, `supply`, `demand`, `sales` |
 | `province.daily` | `owner_tag_candidate`, `controller_tag_candidate`, `colonial_level_candidate`, `life_rating_candidate`, `infrastructure_candidate_raw` |
 | `province.production` | `building_slot_count_candidate`, `construction_count_candidate` |
+| `province.rgo` | record groups `identity`, `employment`, `production`, `finance` |
 | `pop.economy` | `money_raw`, `savings_raw`, `interest_cash_flow_raw`, `total_cash_flow_raw` |
 | `pop.demographics` | `size_candidate`, `employed_candidate`, `consciousness_candidate_raw`, `militancy_candidate_raw`, `literacy_candidate_raw` |
 | `pop.aggregate` | `pop_count`, `size_candidate`, `employed_candidate`, `money_raw`, `savings_raw` |
@@ -305,12 +306,24 @@ verified clearing phase or producer inventory field before joining. Across the
 same run, every factory and day satisfied the exact cash-flow identity
 `budget_delta = sales_income + investment_income - market_spending - paychecks`.
 
-RGO telemetry remains unavailable, but two UI-correlated probes establish its
-first observation boundary. `CProvince+0x1ac` is employment capacity, while
-current employment is the sum of farmer/labourer POP employment. Daily output
-is computed as base output × output efficiency × throughput: Berlin reproduced
-20.648 fruit and Görlitz reproduced 5.713 coal exactly. Runtime resource identity
-and modifier components must be mapped before these become telemetry records.
+`province.rgo` emits selected groups from the bounded global `CStateEmployment`
+vector. Identity reports the production-type key and output-good key/ordinal;
+employment reports capacity and assigned workers; production reports recipe
+output per size, the provisional base-size field, output efficiency, and
+throughput; finance reports RGO income. Quantity fields and modifiers use the
+32,768 scale, while income uses the 32,768,000 money scale.
+
+Berlin 549 resolved `orchard`/`fruit`, capacity 195,625, employment 110,896,
+output efficiency 1.90, and throughput 0.9703. Görlitz 687 resolved
+`coal_mine`/`coal`, capacity 60,000, employment 54,730, output efficiency 1.45,
+and throughput 0.5472. The effective RGO-size modifier and stored gross-output
+quantity remain unmapped. `base_output_per_size_raw * base_size_raw_candidate`
+therefore does not reproduce every UI base-output value and must not be treated
+as a complete production formula.
+
+One-day run `ea77637b-f661-47f5-b85f-18d48de2a5a0` emitted all four groups for
+Berlin and Görlitz: eight accepted records with zero filters, drops, or invalid
+results. The benchmark stopped on the exact requested date.
 
 Candidate container metadata is validated before emission. Limits are 64
 province-building slots, 4,096 province constructions, 100,000 country units or
