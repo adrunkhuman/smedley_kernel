@@ -73,7 +73,7 @@ namespace
             EXPECT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
             const auto configuration_dir = fs::path(executable).parent_path();
             return configuration_dir.parent_path().parent_path().parent_path()
-                / L"smedley_kernel" / configuration_dir.filename() / L"smedley_plugin_abi_fixture.dll";
+                / L"smedley_kernel" / configuration_dir.filename() / L"smedley_plugin_abi_test_plugin.dll";
         }
     };
 }
