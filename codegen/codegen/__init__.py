@@ -21,7 +21,7 @@ class MemberFunction(BaseModel):
     ret: str = "void"
     # If set, the generated function allocates return-value storage and passes
     # its pointer in the specified register or stack position.
-    retbuf: str | int | None = None
+    retbuf: int | str | None = None
     access: str = "public"
     callconv: str = "__cdecl"
     stacksize: int | None = None  # Required when the caller cleans the stack.
@@ -39,7 +39,7 @@ class MemberFunction(BaseModel):
 class Function(BaseModel):
     name: str
     ret: str
-    retbuf: str | int | None = None
+    retbuf: int | str | None = None
     callconv: str = "__cdecl"
     stacksize: int | None = None
     offset: int

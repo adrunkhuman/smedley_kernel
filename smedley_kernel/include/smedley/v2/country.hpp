@@ -258,7 +258,7 @@ namespace smedley::v2
     protected:
         /*[[[cog
         from codegen import print_class_model_fns
-        print_class_model_fns('./models/v2/classes/CCountry.toml', access='protected') 
+        print_class_model_fns('./codegen/models/v2/classes/CCountry.toml', access='protected')
         ]]]*/
         void ClearIncomeAndExpenses()
         {
@@ -343,7 +343,7 @@ namespace smedley::v2
 #pragma warning(disable : 4409)
         /*[[[cog
         from codegen import print_class_model_fns
-        print_class_model_fns('./models/v2/classes/CCountry.toml', access='public') 
+        print_class_model_fns('./codegen/models/v2/classes/CCountry.toml', access='public')
         ]]]*/
         void AddAcceptedCulture(const CCulture & culture)
         {
@@ -385,7 +385,6 @@ namespace smedley::v2
         const uintptr_t _addr = memory::Map::base_addr + 0x113c80;
         __asm mov edi, this __asm mov eax, unit __asm call _addr
         }
-        //Verified x86 stack: this, unresolved tag reference, target key, target ordinal; ret 0x10.
         void Annex(const CCountryTag & arg_0,uint32_t target_key,int target_ordinal)
         {
         const uintptr_t _addr = memory::Map::base_addr + 0x118620;

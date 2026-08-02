@@ -9,8 +9,8 @@ target_include_directories(smedley_kernel PUBLIC
   "${PROJECT_SOURCE_DIR}/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/include/smedley"
-  "${PROJECT_SOURCE_DIR}/include/lua"
-  "${PROJECT_SOURCE_DIR}/include/toml")
+  "${PROJECT_SOURCE_DIR}/third_party/toml/include"
+  PRIVATE "${PROJECT_SOURCE_DIR}/third_party/victoria2-lua/include")
 
 if(BUILD_TESTING)
   FILE(GLOB_RECURSE test_sources CONFIGURE_DEPENDS tests/*_test.cpp)
@@ -70,7 +70,7 @@ option(SMEDLEY_REGENERATE_BINDINGS "Regenerate checked-in game bindings during t
 if(SMEDLEY_REGENERATE_BINDINGS)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
   add_custom_target(cog_generate
-    COMMAND ${Python3_EXECUTABLE} -m cogapp -r -I codegen @generatedfiles.txt
+    COMMAND ${Python3_EXECUTABLE} -m cogapp -r -I codegen @codegen/generatedfiles.txt
     WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
     COMMENT "Regenerating checked-in game bindings"
     VERBATIM

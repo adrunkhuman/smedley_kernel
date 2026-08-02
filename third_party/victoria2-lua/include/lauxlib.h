@@ -171,4 +171,3 @@ LUALIB_API void (luaL_pushresult) (luaL_Buffer *B);
 
 #endif
 
-

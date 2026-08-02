@@ -47,10 +47,10 @@ Python packages or Cog. Contributors changing a model can regenerate bindings
 with an isolated environment:
 
 ```powershell
-uv run --with cogapp --with toml --with "pydantic<2" python -m cogapp -r -I codegen @generatedfiles.txt
+uv run --with cogapp --with toml --with "pydantic<2" python -m cogapp -r -I codegen @codegen/generatedfiles.txt
 ```
 
-The paths in `generatedfiles.txt` are the generated outputs. Review their diff
+The paths in `codegen/generatedfiles.txt` are the generated outputs. Review their diff
 against the model files before committing. The generator and generated wrappers
 preserve an x86 MSVC ABI and are not portable bindings.
 
