@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cwctype>
 #include <fstream>
@@ -23,7 +24,7 @@ namespace smedley::launcher
         constexpr int telemetry_min_sample_days = 1;
         constexpr int telemetry_max_sample_days = 365;
         constexpr int telemetry_min_queue_capacity = 64;
-        constexpr int telemetry_max_queue_capacity = 8192;
+        constexpr int telemetry_max_queue_capacity = 32768;
         constexpr int run_min_days = 1;
         constexpr int run_max_days = 1000000;
         constexpr int run_min_timeout_seconds = 1;
@@ -590,6 +591,77 @@ namespace smedley::launcher
             });
         }
 
+        bool IsTelemetryCaptureCadence(const std::string &cadence)
+        {
+            return cadence == "daily" || cadence == "weekly" || cadence == "monthly" || cadence == "yearly";
+        }
+
+        bool IsTelemetryCaptureField(const TelemetryCaptureRule &rule, const std::string &field)
+        {
+            if (rule.family == "world.daily") {
+                return field == "country_slot_count" || field == "ai_scheduler_entry_count"
+                    || field == "human_control_present";
+            }
+            if (rule.family == "country.daily") return field == "treasury_raw" || field == "treasury";
+            if (rule.family == "country.metrics") return field == "power" || field == "politics";
+            if (rule.family == "country.economy") {
+                return field == "totals" || field == "components" || field == "per_capita";
+            }
+            if (rule.family == "country.military") {
+                return field == "unit_count_candidate" || field == "mobilized_candidate"
+                    || field == "scheduled_mobilization_count_candidate" || field == "leadership_candidate_raw"
+                    || field == "military_ranking_candidate";
+            }
+            if (rule.family == "country.diplomacy") return field == "status" || field == "relations";
+            if (rule.family == "state.factory") {
+                return field == "identity" || field == "employment"
+                    || field == "production" || field == "finance" || field == "inputs"
+                    || field == "flows" || field == "sales";
+            }
+            if (rule.family == "world.market") {
+                return field == "price" || field == "supply"
+                    || field == "demand" || field == "sales";
+            }
+            if (rule.family == "world.military") return field == "ongoing_war_count_candidate";
+            if (rule.family == "province.daily") {
+                return field == "owner_tag_candidate" || field == "controller_tag_candidate"
+                    || field == "colonial_level_candidate" || field == "life_rating_candidate"
+                    || field == "infrastructure_candidate_raw";
+            }
+            if (rule.family == "province.production") {
+                return field == "building_slot_count_candidate" || field == "construction_count_candidate";
+            }
+            if (rule.family == "province.rgo") {
+                return field == "identity" || field == "employment"
+                    || field == "production" || field == "finance" || field == "modifiers"
+                    || field == "sales";
+            }
+            if (rule.family == "pop.economy") {
+                return field == "money_raw" || field == "savings_raw"
+                    || field == "interest_cash_flow_raw" || field == "total_cash_flow_raw";
+            }
+            if (rule.family == "pop.artisan") {
+                return field == "identity" || field == "production"
+                    || field == "inputs" || field == "finance" || field == "flows" || field == "sales";
+            }
+            if (rule.family == "pop.demographics") {
+                return field == "size_candidate" || field == "employed_candidate"
+                    || field == "consciousness_candidate_raw" || field == "militancy_candidate_raw"
+                    || field == "literacy_candidate_raw";
+            }
+            if (rule.family == "pop.aggregate") {
+                return field == "pop_count" || field == "size_candidate"
+                    || field == "employed_candidate" || field == "money_raw" || field == "savings_raw";
+            }
+            if (rule.family == "pop.cashflow" || rule.family == "pop.cashflow.aggregate") {
+                return field == "summary" || field == "account" || field == "components";
+            }
+            if (rule.family == "world.economy") {
+                return field == "health" || field == "capacity" || field == "holdings" || field == "credit";
+            }
+            return false;
+        }
+
         bool ValidateTelemetryProfile(const Profile &profile, std::vector<Diagnostic> *diagnostics, const fs::path &path = {})
         {
             if (profile.telemetry_filter_parse_error) {
@@ -638,7 +710,123 @@ namespace smedley::launcher
                 return false;
             }
             if (profile.telemetry_queue_capacity < telemetry_min_queue_capacity || profile.telemetry_queue_capacity > telemetry_max_queue_capacity) {
-                AddDiagnostic(diagnostics, "telemetry.queue_capacity", "telemetry_queue_capacity must be from 64 through 8192", path);
+                AddDiagnostic(diagnostics, "telemetry.queue_capacity", "telemetry_queue_capacity must be from 64 through 32768", path);
+                return false;
+            }
+            if (profile.telemetry_gold_to_cash_rate
+                && (!std::isfinite(*profile.telemetry_gold_to_cash_rate)
+                    || *profile.telemetry_gold_to_cash_rate <= 0.0
+                    || *profile.telemetry_gold_to_cash_rate > 1000.0)) {
+                AddDiagnostic(diagnostics, "telemetry.gold_to_cash_rate",
+                    "telemetry_gold_to_cash_rate must be a finite number from greater than 0 through 1000", path);
+                return false;
+            }
+            if (profile.telemetry_captures.size() > 32) {
+                AddDiagnostic(diagnostics, "telemetry.captures", "telemetry_captures supports at most 32 rules", path);
+                return false;
+            }
+            for (size_t rule_index = 0; rule_index < profile.telemetry_captures.size(); ++rule_index) {
+                const auto &rule = profile.telemetry_captures[rule_index];
+                const std::string prefix = "telemetry_captures[" + std::to_string(rule_index) + "] ";
+                if (rule.family != "world.daily" && rule.family != "world.economy" && rule.family != "world.military"
+                    && rule.family != "country.daily" && rule.family != "country.metrics" && rule.family != "country.economy"
+                    && rule.family != "country.military" && rule.family != "country.diplomacy"
+                    && rule.family != "state.factory"
+                    && rule.family != "world.market"
+                    && rule.family != "province.daily" && rule.family != "province.production"
+                    && rule.family != "province.rgo"
+                    && rule.family != "pop.economy"
+                    && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
+                    && rule.family != "pop.artisan" && rule.family != "pop.cashflow"
+                    && rule.family != "pop.cashflow.aggregate") {
+                    AddDiagnostic(diagnostics, "telemetry.capture_family", prefix + "contains an unknown family", path);
+                    return false;
+                }
+                if (std::any_of(profile.telemetry_captures.begin(), profile.telemetry_captures.begin() + rule_index,
+                    [&](const TelemetryCaptureRule &earlier) { return earlier.family == rule.family; })) {
+                    AddDiagnostic(diagnostics, "telemetry.capture_family", "telemetry capture families must be unique", path);
+                    return false;
+                }
+                if (!IsTelemetryCaptureCadence(rule.cadence)) {
+                    AddDiagnostic(diagnostics, "telemetry.capture_cadence", prefix + "cadence must be daily, weekly, monthly, or yearly", path);
+                    return false;
+                }
+                for (size_t field_index = 0; field_index < rule.fields.size(); ++field_index) {
+                    if (!IsTelemetryCaptureField(rule, rule.fields[field_index])
+                        || std::find(rule.fields.begin(), rule.fields.begin() + field_index, rule.fields[field_index])
+                            != rule.fields.begin() + field_index) {
+                        AddDiagnostic(diagnostics, "telemetry.capture_fields", prefix + "fields must be known and unique for the family", path);
+                        return false;
+                    }
+                }
+                if ((rule.family == "state.factory" || rule.family == "province.rgo" || rule.family == "pop.artisan")
+                    && (rule.fields.empty()
+                        || std::find(rule.fields.begin(), rule.fields.end(), "sales") != rule.fields.end())
+                    && rule.cadence != "daily") {
+                    AddDiagnostic(diagnostics, "telemetry.capture_cadence",
+                        prefix + "producer sales capture requires daily cadence", path);
+                    return false;
+                }
+                if ((rule.family == "pop.cashflow" || rule.family == "pop.cashflow.aggregate")
+                    && rule.cadence != "daily") {
+                    AddDiagnostic(diagnostics, "telemetry.capture_cadence",
+                        prefix + "POP cash-flow capture requires daily cadence", path);
+                    return false;
+                }
+                if (rule.family == "pop.cashflow" && rule.country_tags.empty() && rule.province_ids.empty()) {
+                    AddDiagnostic(diagnostics, "telemetry.capture_filter",
+                        prefix + "individual POP cash-flow capture requires a country or province filter", path);
+                    return false;
+                }
+                for (size_t tag_index = 0; tag_index < rule.country_tags.size(); ++tag_index) {
+                    if (!IsTelemetryCountryTag(rule.country_tags[tag_index])
+                        || std::find(rule.country_tags.begin(), rule.country_tags.begin() + tag_index, rule.country_tags[tag_index])
+                            != rule.country_tags.begin() + tag_index) {
+                        AddDiagnostic(diagnostics, "telemetry.capture_country_tags", prefix + "country_tags must be unique normalized tags", path);
+                        return false;
+                    }
+                }
+            if (rule.family != "country.daily" && rule.family != "country.metrics" && rule.family != "country.economy"
+                && rule.family != "country.military" && rule.family != "country.diplomacy"
+                && rule.family != "state.factory" && rule.family != "province.rgo"
+                && rule.family != "pop.artisan" && rule.family != "pop.aggregate"
+                && rule.family != "pop.cashflow" && rule.family != "pop.cashflow.aggregate"
+                && !rule.country_tags.empty()) {
+                    AddDiagnostic(diagnostics, "telemetry.capture_country_tags", prefix + "country_tags are only supported by country families", path);
+                    return false;
+                }
+                for (size_t province_index = 0; province_index < rule.province_ids.size(); ++province_index) {
+                    if (rule.province_ids[province_index] < 0
+                        || std::find(rule.province_ids.begin(), rule.province_ids.begin() + province_index,
+                                     rule.province_ids[province_index]) != rule.province_ids.begin() + province_index) {
+                        AddDiagnostic(diagnostics, "telemetry.capture_province_ids", prefix + "province_ids must be unique nonnegative integers", path);
+                        return false;
+                    }
+                }
+                if (rule.family != "province.daily" && rule.family != "province.production" && rule.family != "province.rgo"
+                    && rule.family != "pop.economy"
+                    && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
+                    && rule.family != "pop.artisan" && rule.family != "pop.cashflow"
+                    && !rule.province_ids.empty()) {
+                    AddDiagnostic(diagnostics, "telemetry.capture_province_ids", prefix + "province_ids are only supported by province and POP families", path);
+                    return false;
+                }
+                if (rule.start_date_raw && rule.end_date_raw && *rule.start_date_raw > *rule.end_date_raw) {
+                    AddDiagnostic(diagnostics, "telemetry.capture_date_range", prefix + "start_date_raw must not exceed end_date_raw", path);
+                    return false;
+                }
+            }
+            if (std::any_of(profile.telemetry_captures.begin(), profile.telemetry_captures.end(),
+                    [](const TelemetryCaptureRule &rule) { return rule.family == "country.economy"; })
+                && !profile.telemetry_gold_to_cash_rate) {
+                AddDiagnostic(diagnostics, "telemetry.gold_to_cash_rate",
+                    "country.economy requires telemetry_gold_to_cash_rate", path);
+                return false;
+            }
+            if (!profile.telemetry_captures.empty()
+                && std::find(profile.telemetry_categories.begin(), profile.telemetry_categories.end(), "state")
+                    == profile.telemetry_categories.end()) {
+                AddDiagnostic(diagnostics, "telemetry.capture", "telemetry capture rules require the state category", path);
                 return false;
             }
             return true;
@@ -714,6 +902,25 @@ namespace smedley::launcher
                 if (!result.empty()) result += L',';
                 result.append(category.begin(), category.end());
             }
+            return result;
+        }
+
+        std::wstring TelemetryCaptureArgument(const TelemetryCaptureRule &rule)
+        {
+            const auto widen = [](const std::string &value) { return std::wstring(value.begin(), value.end()); };
+            std::wstring result = widen(rule.family) + L"|" + widen(rule.cadence) + L"|";
+            result += TelemetryCategoriesArgument(rule.fields);
+            result += L"|";
+            result += TelemetryCategoriesArgument(rule.country_tags);
+            result += L"|";
+            for (size_t index = 0; index < rule.province_ids.size(); ++index) {
+                if (index) result += L',';
+                result += std::to_wstring(rule.province_ids[index]);
+            }
+            result += L"|";
+            if (rule.start_date_raw) result += std::to_wstring(*rule.start_date_raw);
+            result += L"|";
+            if (rule.end_date_raw) result += std::to_wstring(*rule.end_date_raw);
             return result;
         }
 
@@ -1299,6 +1506,79 @@ namespace smedley::launcher
                 }
                 loaded.telemetry_overwrite = *value;
             }
+            if (table.contains("telemetry_gold_to_cash_rate")) {
+                const auto value = table["telemetry_gold_to_cash_rate"].value<double>();
+                if (!value) {
+                    AddDiagnostic(diagnostics, "profile.schema", "telemetry_gold_to_cash_rate must be a number", path);
+                    return false;
+                }
+                loaded.telemetry_gold_to_cash_rate = *value;
+            }
+            if (table.contains("telemetry_captures")) {
+                const auto *captures = table["telemetry_captures"].as_array();
+                if (captures == nullptr) {
+                    AddDiagnostic(diagnostics, "profile.schema", "telemetry_captures must be an array of tables", path);
+                    return false;
+                }
+                for (const auto &node : *captures) {
+                    const auto *capture = node.as_table();
+                    if (capture == nullptr) {
+                        AddDiagnostic(diagnostics, "profile.schema", "telemetry_captures must contain tables", path);
+                        return false;
+                    }
+                    const auto family = (*capture)["family"].value<std::string>();
+                    const auto cadence = (*capture)["cadence"].value<std::string>();
+                    if (!family || family->empty() || !cadence || cadence->empty()) {
+                        AddDiagnostic(diagnostics, "profile.schema", "each telemetry capture requires family and cadence strings", path);
+                        return false;
+                    }
+                    TelemetryCaptureRule rule;
+                    rule.family = *family;
+                    rule.cadence = *cadence;
+                    const auto read_strings = [&](const char *key, std::vector<std::string> *destination) {
+                        if (!capture->contains(key)) return true;
+                        const auto *values = (*capture)[key].as_array();
+                        if (values == nullptr) return false;
+                        for (const auto &value_node : *values) {
+                            const auto value = value_node.value<std::string>();
+                            if (!value || value->empty()) return false;
+                            destination->push_back(*value);
+                        }
+                        return true;
+                    };
+                    if (!read_strings("fields", &rule.fields) || !read_strings("country_tags", &rule.country_tags)) {
+                        AddDiagnostic(diagnostics, "profile.schema", "telemetry capture fields and country_tags must contain non-empty strings", path);
+                        return false;
+                    }
+                    if (capture->contains("province_ids")) {
+                        const auto *values = (*capture)["province_ids"].as_array();
+                        if (values == nullptr) {
+                            AddDiagnostic(diagnostics, "profile.schema", "telemetry capture province_ids must be an integer array", path);
+                            return false;
+                        }
+                        for (const auto &value_node : *values) {
+                            const auto value = value_node.value<int>();
+                            if (!value) {
+                                AddDiagnostic(diagnostics, "profile.schema", "telemetry capture province_ids must contain integers", path);
+                                return false;
+                            }
+                            rule.province_ids.push_back(*value);
+                        }
+                    }
+                    const auto read_date = [&](const char *key, std::optional<int> *destination) {
+                        if (!capture->contains(key)) return true;
+                        const auto value = (*capture)[key].value<int>();
+                        if (!value) return false;
+                        *destination = *value;
+                        return true;
+                    };
+                    if (!read_date("start_date_raw", &rule.start_date_raw) || !read_date("end_date_raw", &rule.end_date_raw)) {
+                        AddDiagnostic(diagnostics, "profile.schema", "telemetry capture date bounds must be integers", path);
+                        return false;
+                    }
+                    loaded.telemetry_captures.push_back(std::move(rule));
+                }
+            }
             auto read_script_integer = [&](const char *key, int *destination) {
                 if (!table.contains(key)) return true;
                 const auto value = table[key].value<int>();
@@ -1395,10 +1675,36 @@ namespace smedley::launcher
         output << "telemetry_sample_days = " << profile.telemetry_sample_days << "\n";
         output << "telemetry_queue_capacity = " << profile.telemetry_queue_capacity << "\n";
         output << "telemetry_overwrite = " << (profile.telemetry_overwrite ? "true" : "false") << "\n";
+        if (profile.telemetry_gold_to_cash_rate) {
+            output << "telemetry_gold_to_cash_rate = " << *profile.telemetry_gold_to_cash_rate << "\n";
+        }
         write_paths("scripts", profile.scripts);
         output << "script_instruction_budget = " << profile.script_instruction_budget << "\n";
         output << "script_memory_bytes = " << profile.script_memory_bytes << "\n";
         output << "script_queue_capacity = " << profile.script_queue_capacity << "\n";
+        for (const auto &rule : profile.telemetry_captures) {
+            output << "\n[[telemetry_captures]]\n";
+            output << "family = \"" << EscapeToml(rule.family) << "\"\n";
+            output << "cadence = \"" << EscapeToml(rule.cadence) << "\"\n";
+            const auto write_strings = [&](const char *key, const std::vector<std::string> &values) {
+                output << key << " = [";
+                for (size_t index = 0; index < values.size(); ++index) {
+                    if (index) output << ", ";
+                    output << "\"" << EscapeToml(values[index]) << "\"";
+                }
+                output << "]\n";
+            };
+            write_strings("fields", rule.fields);
+            write_strings("country_tags", rule.country_tags);
+            output << "province_ids = [";
+            for (size_t index = 0; index < rule.province_ids.size(); ++index) {
+                if (index) output << ", ";
+                output << rule.province_ids[index];
+            }
+            output << "]\n";
+            if (rule.start_date_raw) output << "start_date_raw = " << *rule.start_date_raw << "\n";
+            if (rule.end_date_raw) output << "end_date_raw = " << *rule.end_date_raw << "\n";
+        }
         if (!output) {
             AddDiagnostic(diagnostics, "profile.write", "could not write profile", path);
             return false;
@@ -1665,6 +1971,13 @@ namespace smedley::launcher
                     arguments.push_back(L"-smedley-telemetry-sample-days=" + std::to_wstring(plan.profile.telemetry_sample_days));
                     arguments.push_back(L"-smedley-telemetry-queue-capacity=" + std::to_wstring(plan.profile.telemetry_queue_capacity));
                     arguments.push_back(L"-smedley-telemetry-overwrite=" + std::to_wstring(plan.profile.telemetry_overwrite ? 1 : 0));
+                    if (plan.profile.telemetry_gold_to_cash_rate) {
+                        arguments.push_back(L"-smedley-telemetry-gold-to-cash-rate="
+                            + std::to_wstring(*plan.profile.telemetry_gold_to_cash_rate));
+                    }
+                    for (const auto &rule : plan.profile.telemetry_captures) {
+                        arguments.push_back(L"-smedley-telemetry-capture=" + TelemetryCaptureArgument(rule));
+                    }
                 }
                 if (!plan.profile.scripts.empty() && scripting_selected) {
                     for (const auto &script : plan.profile.scripts) {

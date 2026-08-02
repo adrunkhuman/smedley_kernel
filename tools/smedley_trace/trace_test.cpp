@@ -72,6 +72,26 @@ namespace
                 + "\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"verified-runtime\",\"entities\":"
                 + entities + ",\"payload\":" + payload + "}";
         }
+
+        std::string StateLine(uint64_t sequence, int date, const std::string &event,
+                              const std::string &entities, const std::string &payload) const
+        {
+            return std::string("{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"run-1\",\"sequence\":")
+                + std::to_string(sequence) + ",\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":"
+                + std::to_string(sequence * 10) + ",\"game_date_raw\":" + std::to_string(date)
+                + ",\"event_type\":\"" + event + "\",\"category\":\"state\",\"mapping_id\":\"v2game-3.04\","
+                + "\"quality\":\"provisional\",\"entities\":" + entities + ",\"payload\":" + payload + "}";
+        }
+
+        std::string HealthLine(uint64_t sequence, const std::string &event,
+                               const std::string &entities, const std::string &payload) const
+        {
+            return std::string("{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"run-1\",\"sequence\":")
+                + std::to_string(sequence) + ",\"wall_time_utc\":\"2024-02-29T12:34:56.789Z\",\"monotonic_us\":"
+                + std::to_string(sequence * 10) + ",\"game_date_raw\":null,\"event_type\":\"" + event
+                + "\",\"category\":\"lifecycle\",\"mapping_id\":\"v2game-3.04\",\"quality\":\"verified-current\","
+                + "\"entities\":" + entities + ",\"payload\":" + payload + "}";
+        }
     };
 }
 
@@ -210,6 +230,345 @@ TEST_F(TraceTest, ExportsCsvTransactionallyAndNeutralizesFormulaText)
     EXPECT_FALSE(trace::ExportCountryCsv(input, output, false, &error));
     std::ifstream preserved(output, std::ios::binary);
     EXPECT_EQ(std::string((std::istreambuf_iterator<char>(preserved)), {}), "preserve");
+}
+
+TEST_F(TraceTest, ExportsDirectFactoryValueAddedWithoutFinanceOrInputSnapshots)
+{
+    const auto input = Path(L"factory-value-added");
+    const auto output = Path(L"factory-value-added", L".csv");
+    const std::string factory = "{\"country_tag\":\"BEL\",\"state_id\":836,\"factory_type\":\"cement_factory\"}";
+    const std::string input_good = "{\"country_tag\":\"BEL\",\"state_id\":836,\"factory_type\":\"cement_factory\",\"good_ordinal\":0}";
+    const std::string price_input = "{\"good_ordinal\":0}";
+    const std::string price_output = "{\"good_ordinal\":1}";
+    std::string trace_text;
+    auto append = [&](const std::string &line) { trace_text += line + '\n'; };
+    append(StateLine(1, 24, "world.market.price", price_input, "{\"price_raw\":65536}"));
+    append(StateLine(2, 24, "world.market.price", price_output, "{\"price_raw\":163840}"));
+    append(StateLine(3, 24, "state.factory.production", factory, "{\"output_raw\":131072,\"output_good_ordinal\":1}"));
+    append(StateLine(4, 24, "state.factory.input.flow.summary", factory,
+        "{\"post_consumption_seen\":true,\"pre_purchase_seen\":true,\"primary_delivery_seen\":true,\"secondary_delivery_seen\":true,\"settlement_count\":1}"));
+    append(StateLine(5, 24, "state.factory.input.flow", input_good,
+        "{\"post_consumption_raw\":262144,\"pre_purchase_raw\":262144,\"delivered_primary_raw\":65536,\"delivered_secondary_raw\":0}"));
+    append(StateLine(6, 48, "world.market.price", price_input, "{\"price_raw\":65536}"));
+    append(StateLine(7, 48, "world.market.price", price_output, "{\"price_raw\":163840}"));
+    append(StateLine(8, 48, "state.factory.production", factory, "{\"output_raw\":131072,\"output_good_ordinal\":1}"));
+    const auto unterminated = Path(L"factory-value-added-unterminated");
+    const auto unterminated_output = Path(L"factory-value-added-unterminated", L".csv");
+    Write(unterminated, trace_text);
+    std::string error;
+    EXPECT_FALSE(trace::ExportFactoryValueAddedCsv(unterminated, unterminated_output, "BEL", false, &error));
+    EXPECT_EQ(error, "factory value added requires terminal factory, market, and writer health summaries");
+    append(StateLine(9, 48, "state.factory.input.flow.summary", factory,
+        "{\"post_consumption_seen\":true,\"pre_purchase_seen\":true,\"primary_delivery_seen\":true,\"secondary_delivery_seen\":true,\"settlement_count\":1}"));
+    append(StateLine(10, 48, "state.factory.input.flow", input_good,
+        "{\"post_consumption_raw\":98304,\"pre_purchase_raw\":98304,\"delivered_primary_raw\":163840,\"delivered_secondary_raw\":0}"));
+    append(StateLine(11, 72, "world.market.price", price_input, "{\"price_raw\":65536}"));
+    append(StateLine(12, 72, "world.market.price", price_output, "{\"price_raw\":163840}"));
+    append(StateLine(13, 72, "state.factory.production", factory,
+        "{\"output_raw\":131072,\"output_good_ordinal\":1}"));
+    append(StateLine(14, 72, "state.factory.input.flow.summary", factory,
+        "{\"post_consumption_seen\":true,\"pre_purchase_seen\":false,"
+        "\"primary_delivery_seen\":false,\"secondary_delivery_seen\":false,\"settlement_count\":0}"));
+    append(StateLine(15, 72, "state.factory.input.flow", input_good,
+        "{\"post_consumption_raw\":32768,\"pre_purchase_raw\":0,"
+        "\"delivered_primary_raw\":0,\"delivered_secondary_raw\":0}"));
+    append(HealthLine(16, "telemetry.family.summary", "{\"family\":\"state.factory\"}", "{\"dropped\":0,\"invalid\":0}"));
+    append(HealthLine(17, "telemetry.family.summary", "{\"family\":\"world.market\"}", "{\"dropped\":0,\"invalid\":0}"));
+    append(HealthLine(18, "telemetry.summary", "{}", "{\"dropped\":0,\"write_failed\":false}"));
+    Write(input, trace_text);
+
+    error.clear();
+    ASSERT_TRUE(trace::ExportFactoryValueAddedCsv(input, output, "BEL", false, &error)) << error;
+    std::ifstream csv(output, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(csv)), {});
+    EXPECT_NE(contents.find("\"run-1\",24,48,\"BEL\",1,20.000000000,14.000000000,6.000000000,\"verified-runtime\""), std::string::npos);
+}
+
+TEST_F(TraceTest, RejectsIncompleteFactoryValueAddedIntervals)
+{
+    const auto input = Path(L"factory-value-added-incomplete");
+    const auto output = Path(L"factory-value-added-incomplete", L".csv");
+    const std::string factory = "{\"country_tag\":\"BEL\",\"state_id\":836,\"factory_type\":\"cement_factory\"}";
+    const std::string price_input = "{\"good_ordinal\":0}";
+    const std::string price_output = "{\"good_ordinal\":1}";
+    std::string trace_text;
+    auto append = [&](const std::string &line) { trace_text += line + '\n'; };
+    append(StateLine(1, 24, "world.market.price", price_input, "{\"price_raw\":65536}"));
+    append(StateLine(2, 24, "world.market.price", price_output, "{\"price_raw\":163840}"));
+    append(StateLine(3, 24, "state.factory.production", factory, "{\"output_raw\":131072,\"output_good_ordinal\":1}"));
+    append(StateLine(4, 48, "world.market.price", price_input, "{\"price_raw\":65536}"));
+    append(StateLine(5, 48, "world.market.price", price_output, "{\"price_raw\":163840}"));
+    append(StateLine(6, 48, "state.factory.production", factory, "{\"output_raw\":131072,\"output_good_ordinal\":1}"));
+    append(HealthLine(7, "telemetry.family.summary", "{\"family\":\"state.factory\"}", "{\"dropped\":0,\"invalid\":0}"));
+    append(HealthLine(8, "telemetry.family.summary", "{\"family\":\"world.market\"}", "{\"dropped\":0,\"invalid\":0}"));
+    append(HealthLine(9, "telemetry.summary", "{}", "{\"dropped\":0,\"write_failed\":false}"));
+    Write(input, trace_text);
+
+    std::string error;
+    EXPECT_FALSE(trace::ExportFactoryValueAddedCsv(input, output, "BEL", false, &error));
+    EXPECT_EQ(error, "factory snapshot is missing production or flow-summary evidence at date 24");
+    EXPECT_FALSE(fs::exists(output));
+}
+
+TEST_F(TraceTest, ExportsStrictProducerSalesAccounts)
+{
+    const auto input = Path(L"producer-sales");
+    const auto output = Path(L"producer-sales", L".csv");
+    const std::string factory =
+        "{\"country_tag\":\"FRA\",\"state_id\":1,\"factory_type\":\"cement_factory\"}";
+    const std::string rgo = "{\"country_tag\":\"FRA\",\"province_id\":2}";
+    const std::string artisan = "{\"country_tag\":\"FRA\",\"province_id\":3,\"pop_id\":4}";
+    uint64_t sequence = 0;
+    std::string trace_text;
+    auto append = [&](const std::string &line) { trace_text += line + '\n'; };
+    append(StateLine(++sequence, 48, "state.factory.sales.summary", factory,
+        "{\"settlement_seen\":true,\"settlement_count\":1,\"complete\":true}"));
+    append(StateLine(++sequence, 48, "state.factory.sales.quantity", factory,
+        "{\"output_good_ordinal\":1,\"opening_inventory_raw\":100,\"produced_raw\":50,"
+        "\"sold_raw\":120,\"closing_inventory_raw\":30}"));
+    append(StateLine(++sequence, 48, "state.factory.sales.revenue", factory,
+        "{\"proceeds_raw\":9000}"));
+    for (const auto &[family, entities] : std::vector<std::pair<std::string, std::string>>{
+             {"province.rgo", rgo}, {"pop.artisan", artisan}}) {
+        append(StateLine(++sequence, 48, family + ".sales.summary", entities,
+            "{\"settlement_seen\":true,\"opening_inventory_seen\":true,\"complete\":true}"));
+        append(StateLine(++sequence, 48, family + ".sales.quantity", entities,
+            "{\"output_good_ordinal\":2,\"opening_inventory_raw\":40,\"produced_raw\":20,"
+            "\"sold_raw\":45,\"closing_inventory_raw\":15}"));
+        append(StateLine(++sequence, 48, family + ".sales.revenue", entities,
+            "{\"proceeds_raw\":7000,\"percent_sold_domestic_raw\":24576,"
+            "\"percent_sold_export_raw\":16384}"));
+    }
+    for (const char *family : {"state.factory", "province.rgo", "pop.artisan"}) {
+        append(HealthLine(++sequence, "telemetry.family.summary",
+            std::string("{\"family\":\"") + family + "\"}", "{\"dropped\":0,\"invalid\":0}"));
+    }
+    append(HealthLine(++sequence, "telemetry.summary", "{}", "{\"dropped\":0,\"write_failed\":false}"));
+    Write(input, trace_text);
+
+    std::string error;
+    ASSERT_TRUE(trace::ExportProducerSalesCsv(input, output, "FRA", false, &error)) << error;
+    std::ifstream csv(output, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(csv)), {});
+    EXPECT_NE(contents.find("\"state.factory\",\"FRA\",1,,,\"cement_factory\",1,100,50,120,30,9000,,,\"provisional\""),
+        std::string::npos);
+    EXPECT_NE(contents.find("\"province.rgo\",\"FRA\",,2,,\"\",2,40,20,45,15,7000,24576,16384,\"provisional\""),
+        std::string::npos);
+
+    auto unreconciled = trace_text;
+    const auto sold = unreconciled.find("\"sold_raw\":120");
+    ASSERT_NE(sold, std::string::npos);
+    unreconciled.replace(sold, std::string("\"sold_raw\":120").size(), "\"sold_raw\":121");
+    const auto invalid = Path(L"producer-sales-invalid");
+    Write(invalid, unreconciled);
+    EXPECT_FALSE(trace::ExportProducerSalesCsv(invalid, Path(L"producer-sales-invalid", L".csv"),
+        "FRA", false, &error));
+    EXPECT_NE(error.find("unreconciled"), std::string::npos);
+
+    auto orphan = trace_text;
+    const auto revenue = orphan.find("state.factory.sales.revenue");
+    ASSERT_NE(revenue, std::string::npos);
+    orphan.replace(revenue, std::string("state.factory.sales.revenue").size(), "state.factory.finance");
+    const auto orphan_trace = Path(L"producer-sales-orphan");
+    Write(orphan_trace, orphan);
+    const auto orphan_output = Path(L"producer-sales-orphan", L".csv");
+    EXPECT_FALSE(trace::ExportProducerSalesCsv(orphan_trace, orphan_output, "FRA", false, &error));
+    EXPECT_EQ(error, "producer sales summary and detail records are inconsistent");
+    EXPECT_FALSE(fs::exists(orphan_output));
+
+    auto revenue_only = trace_text;
+    const auto quantity = revenue_only.find("state.factory.sales.quantity");
+    ASSERT_NE(quantity, std::string::npos);
+    revenue_only.replace(quantity, std::string("state.factory.sales.quantity").size(), "state.factory.production");
+    const auto revenue_only_trace = Path(L"producer-sales-revenue-only");
+    Write(revenue_only_trace, revenue_only);
+    EXPECT_FALSE(trace::ExportProducerSalesCsv(revenue_only_trace,
+        Path(L"producer-sales-revenue-only", L".csv"), "FRA", false, &error));
+    EXPECT_EQ(error, "producer sales summary and detail records are inconsistent");
+
+    auto incomplete_with_details = trace_text;
+    const auto complete = incomplete_with_details.find("\"complete\":true");
+    ASSERT_NE(complete, std::string::npos);
+    incomplete_with_details.replace(complete, std::string("\"complete\":true").size(), "\"complete\":false");
+    const auto incomplete_trace = Path(L"producer-sales-incomplete-details");
+    Write(incomplete_trace, incomplete_with_details);
+    EXPECT_FALSE(trace::ExportProducerSalesCsv(incomplete_trace,
+        Path(L"producer-sales-incomplete-details", L".csv"), "FRA", false, &error));
+    EXPECT_EQ(error, "producer sales summary and detail records are inconsistent");
+}
+
+TEST_F(TraceTest, ExportsStrictPopCashFlowAccounts)
+{
+    const auto input = Path(L"pop-cashflow");
+    const auto output = Path(L"pop-cashflow", L".csv");
+    const std::string entities = "{\"country_tag\":\"FRA\",\"pop_type_id_candidate\":2}";
+    std::string trace_text;
+    trace_text += HealthLine(1, "telemetry.capture.rule", "{\"family\":\"pop.cashflow.aggregate\"}",
+        "{\"cadence\":\"daily\",\"all_fields\":false,\"country_filter_count\":1,"
+        "\"province_filter_count\":0,\"bounded_dates\":false}") + '\n';
+    trace_text += HealthLine(2, "telemetry.capture.field",
+        "{\"family\":\"pop.cashflow.aggregate\",\"field\":\"summary\"}", "{}") + '\n';
+    trace_text += HealthLine(3, "telemetry.capture.field",
+        "{\"family\":\"pop.cashflow.aggregate\",\"field\":\"account\"}", "{}") + '\n';
+    trace_text += HealthLine(4, "telemetry.capture.field",
+        "{\"family\":\"pop.cashflow.aggregate\",\"field\":\"components\"}", "{}") + '\n';
+    trace_text += StateLine(5, 48, "pop.cashflow.aggregate.summary", entities,
+        "{\"opening_pop_count\":10,\"closing_pop_count\":11,"
+        "\"opening_money_seen\":true,\"reconciled\":true}") + '\n';
+    trace_text += StateLine(6, 48, "pop.cashflow.aggregate.account", entities,
+        "{\"opening_money_raw\":1000,\"closing_money_raw\":1150,"
+        "\"money_delta_raw\":150,\"residual_raw\":0}") + '\n';
+    trace_text += StateLine(7, 48, "pop.cashflow.aggregate.component",
+        "{\"country_tag\":\"FRA\",\"pop_type_id_candidate\":2,"
+        "\"cash_flow_index\":2,\"component\":\"salary\"}",
+        "{\"posted_raw\":200,\"money_delta_raw\":150}") + '\n';
+    trace_text += StateLine(8, 48, "pop.cashflow.country.summary", "{\"country_tag\":\"FRA\"}",
+        "{\"opening_pop_count\":10,\"closing_pop_count\":11,"
+        "\"opening_money_seen\":true,\"reconciled\":true}") + '\n';
+    trace_text += StateLine(9, 48, "pop.cashflow.country.account", "{\"country_tag\":\"FRA\"}",
+        "{\"opening_money_raw\":1000,\"closing_money_raw\":1150,"
+        "\"money_delta_raw\":150,\"residual_raw\":0}") + '\n';
+    trace_text += StateLine(10, 48, "pop.cashflow.country.component",
+        "{\"country_tag\":\"FRA\",\"cash_flow_index\":2,\"component\":\"salary\"}",
+        "{\"posted_raw\":200,\"money_delta_raw\":150}") + '\n';
+    trace_text += HealthLine(11, "telemetry.family.summary",
+        "{\"family\":\"pop.cashflow.aggregate\"}", "{\"dropped\":0,\"invalid\":0}") + '\n';
+    trace_text += HealthLine(12, "telemetry.summary", "{}",
+        "{\"dropped\":0,\"write_failed\":false}") + '\n';
+    Write(input, trace_text);
+
+    std::string error;
+    ASSERT_TRUE(trace::ExportPopCashFlowCsv(input, output, "FRA", false, &error)) << error;
+    std::ifstream csv(output, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(csv)), {});
+    EXPECT_NE(contents.find("\"FRA\",2,10,11,1000,1150,150,0,true"), std::string::npos);
+    EXPECT_NE(contents.find("\"FRA\",-1,10,11,1000,1150,150,0,true"), std::string::npos);
+    EXPECT_NE(contents.find(",200,150,"), std::string::npos);
+
+    auto invalid = trace_text;
+    const auto residual = invalid.find("\"residual_raw\":0");
+    ASSERT_NE(residual, std::string::npos);
+    invalid.replace(residual, std::string("\"residual_raw\":0").size(), "\"residual_raw\":1");
+    const auto invalid_trace = Path(L"pop-cashflow-invalid");
+    Write(invalid_trace, invalid);
+    EXPECT_FALSE(trace::ExportPopCashFlowCsv(invalid_trace,
+        Path(L"pop-cashflow-invalid", L".csv"), "FRA", false, &error));
+    EXPECT_NE(error.find("does not reconcile"), std::string::npos);
+}
+
+TEST_F(TraceTest, ExportsStrictNominalRealAndPerCapitaCountryGdp)
+{
+    const auto input = Path(L"country-gdp");
+    const auto output = Path(L"country-gdp", L".csv");
+    const std::string factory = "{\"country_tag\":\"FRA\",\"state_id\":1,\"factory_type\":\"test_factory\"}";
+    const std::string factory_input =
+        "{\"country_tag\":\"FRA\",\"state_id\":1,\"factory_type\":\"test_factory\",\"good_ordinal\":0}";
+    const std::string artisan = "{\"country_tag\":\"FRA\",\"province_id\":1,\"pop_id\":10}";
+    const std::string artisan_input =
+        "{\"country_tag\":\"FRA\",\"province_id\":1,\"pop_id\":10,\"good_ordinal\":0}";
+    const std::string ordinary_rgo = "{\"country_tag\":\"FRA\",\"province_id\":1}";
+    const std::string gold_rgo = "{\"country_tag\":\"FRA\",\"province_id\":2}";
+    const std::string population =
+        "{\"country_tag\":\"FRA\",\"province_id_candidate\":1,\"pop_type_id_candidate\":2}";
+    uint64_t sequence = 0;
+    std::string trace_text;
+    auto append = [&](const std::string &line) { trace_text += line + '\n'; };
+    const std::vector<std::pair<std::string, std::vector<std::string>>> captures = {
+        {"world.market", {"price"}}, {"state.factory", {"production", "flows"}},
+        {"province.rgo", {"identity", "production"}},
+        {"pop.artisan", {"identity", "production", "inputs"}},
+        {"pop.aggregate", {"size_candidate"}},
+    };
+    for (const auto &[family, fields] : captures) {
+        const bool world = family == "world.market";
+        append(HealthLine(++sequence, "telemetry.capture.rule",
+            "{\"family\":\"" + family + "\"}",
+            "{\"cadence\":\"daily\",\"all_fields\":false,\"country_filter_count\":"
+                + std::to_string(world ? 0 : 1)
+                + ",\"province_filter_count\":0,\"bounded_dates\":false}"));
+        for (const auto &field : fields) {
+            append(HealthLine(++sequence, "telemetry.capture.field",
+                "{\"family\":\"" + family + "\",\"field\":\"" + field + "\"}", "{}"));
+        }
+        if (!world) {
+            append(HealthLine(++sequence, "telemetry.capture.country",
+                "{\"family\":\"" + family + "\",\"country_tag\":\"FRA\"}", "{}"));
+        }
+    }
+    for (const int date : {24, 48, 72}) {
+        append(StateLine(++sequence, date, "world.market.price", "{\"good_ordinal\":0}",
+            "{\"price_raw\":32768}"));
+        append(StateLine(++sequence, date, "world.market.price", "{\"good_ordinal\":1}",
+            "{\"price_raw\":65536}"));
+        append(StateLine(++sequence, date, "state.factory.production", factory,
+            "{\"output_raw\":32768,\"output_good_ordinal\":1}"));
+        append(StateLine(++sequence, date, "state.factory.input.flow.summary", factory,
+            "{\"post_consumption_seen\":true,\"pre_purchase_seen\":true,"
+            "\"primary_delivery_seen\":true,\"secondary_delivery_seen\":true,\"settlement_count\":1}"));
+        append(StateLine(++sequence, date, "state.factory.input.flow", factory_input,
+            "{\"post_consumption_raw\":0,\"pre_purchase_raw\":0,"
+            "\"delivered_primary_raw\":32768,\"delivered_secondary_raw\":0}"));
+        append(StateLine(++sequence, date, "pop.artisan.identity", artisan,
+            "{\"production_type\":\"artisan_test\",\"output_good_ordinal\":1,\"output_good\":\"test_good\"}"));
+        append(StateLine(++sequence, date, "pop.artisan.production", artisan,
+            "{\"base_output_raw\":32768,\"current_producing_raw\":16384,\"gross_output_raw\":16384}"));
+        append(StateLine(++sequence, date, "pop.artisan.input", artisan_input,
+            "{\"stockpile_raw\":0,\"need_raw\":32768}"));
+        append(StateLine(++sequence, date, "province.rgo.identity", ordinary_rgo,
+            "{\"production_type\":\"ordinary_rgo\",\"output_good_ordinal\":1,\"output_good\":\"test_good\"}"));
+        append(StateLine(++sequence, date, "province.rgo.production", ordinary_rgo,
+            "{\"gross_output_raw\":32768}"));
+        append(StateLine(++sequence, date, "province.rgo.identity", gold_rgo,
+            "{\"production_type\":\"precious_metal_mine\",\"output_good_ordinal\":17,"
+            "\"output_good\":\"precious_metal\"}"));
+        append(StateLine(++sequence, date, "province.rgo.production", gold_rgo,
+            "{\"gross_output_raw\":65536}"));
+        append(StateLine(++sequence, date, "pop.aggregate", population, "{\"size_candidate\":100}"));
+    }
+    for (const char *family : {"world.market", "state.factory", "province.rgo", "pop.artisan", "pop.aggregate"}) {
+        append(HealthLine(++sequence, "telemetry.family.summary",
+            std::string("{\"family\":\"") + family + "\"}",
+            "{\"dropped\":0,\"invalid\":0,\"polls_due\":3}"));
+    }
+    append(HealthLine(++sequence, "telemetry.summary", "{}", "{\"dropped\":0,\"write_failed\":false}"));
+    Write(input, trace_text);
+
+    std::string error;
+    EXPECT_FALSE(trace::ExportCountryGdpCsv(input, Path(L"country-gdp-no-rate", L".csv"),
+        "FRA", std::nullopt, std::nullopt, false, &error));
+    EXPECT_EQ(error, "precious-metal GDP requires --gold-to-cash-rate for the active mod");
+
+    error.clear();
+    ASSERT_TRUE(trace::ExportCountryGdpCsv(input, output, "FRA", 24, 0.5, false, &error)) << error;
+    std::ifstream csv(output, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(csv)), {});
+    EXPECT_NE(contents.find(",24,0.500000000,\"FRA\",100,2.000000000,1.000000000,1.000000000,"
+        "1.000000000,3.000000000,3.000000000,1.000000000,1.000000000,0.500000000,"
+        "0.500000000,0.500000000,4.500000000,4.500000000,0.045000000,0.045000000,"
+        "\"verified-runtime\""), std::string::npos);
+
+    auto missing_inputs = trace_text;
+    const auto input_field = missing_inputs.find("\"field\":\"inputs\"");
+    ASSERT_NE(input_field, std::string::npos);
+    missing_inputs.replace(input_field, std::string("\"field\":\"inputs\"").size(), "\"field\":\"finance\"");
+    const auto missing_input_trace = Path(L"country-gdp-missing-inputs");
+    Write(missing_input_trace, missing_inputs);
+    EXPECT_FALSE(trace::ExportCountryGdpCsv(missing_input_trace, Path(L"country-gdp-missing-inputs", L".csv"),
+        "FRA", 24, 0.5, false, &error));
+    EXPECT_EQ(error, "country GDP capture is missing required fields for pop.artisan");
+
+    auto partial_rgo = trace_text;
+    const auto rgo_rule = partial_rgo.find("\"family\":\"province.rgo\"");
+    ASSERT_NE(rgo_rule, std::string::npos);
+    const auto province_count = partial_rgo.find("\"province_filter_count\":0", rgo_rule);
+    ASSERT_NE(province_count, std::string::npos);
+    partial_rgo.replace(province_count, std::string("\"province_filter_count\":0").size(),
+        "\"province_filter_count\":1");
+    const auto partial_rgo_trace = Path(L"country-gdp-partial-rgo");
+    Write(partial_rgo_trace, partial_rgo);
+    EXPECT_FALSE(trace::ExportCountryGdpCsv(partial_rgo_trace, Path(L"country-gdp-partial-rgo", L".csv"),
+        "FRA", 24, 0.5, false, &error));
+    EXPECT_EQ(error, "country GDP requires complete daily capture scope for province.rgo");
 }
 
 TEST_F(TraceTest, DateRegressionMakesThroughputUnavailable)

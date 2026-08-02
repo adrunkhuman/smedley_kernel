@@ -15,20 +15,53 @@ namespace interest_bug_fix
         constexpr size_t country_minimum_size = 0xe9c;
         constexpr size_t country_tag_offset = 0x1c;
         constexpr size_t country_states_offset = 0xe44;
+        constexpr size_t game_state_world_market_offset = 0xbcc;
+        constexpr uintptr_t state_employment_registry_rva = 0x00e58728;
+        constexpr uintptr_t loaded_goods_count_rva = 0x00e587f4;
         constexpr size_t country_treasury_offset = 0xe78;
         constexpr size_t country_bank_offset = 0xe88;
         constexpr size_t country_creditors_offset = 0xe8c;
         constexpr size_t state_size = 0x290;
+        constexpr size_t state_id_offset = 0x0c;
         constexpr size_t state_provinces_offset = 0x48;
+        constexpr size_t state_factories_offset = 0x60;
+        constexpr size_t state_region_offset = 0x250;
+        constexpr size_t region_key_offset = 0x18;
         constexpr size_t state_savings_offset = 0x258;
         constexpr size_t state_interest_offset = 0x260;
         constexpr size_t bank_interest_offset = 0x20;
         constexpr size_t province_pop_lists_offset = 0x194;
+        constexpr size_t province_id_offset = 0x58;
+        constexpr size_t province_rgo_capacity_offset = 0x1ac;
+        constexpr size_t province_state_offset = 0x188;
+        constexpr size_t state_rgo_capacity_offset = 0xc8;
+        constexpr size_t state_population_by_type_offset = 0x118;
+        constexpr size_t pop_size_offset = 0x58;
+        constexpr size_t pop_employed_offset = 0x60;
+        constexpr size_t pop_province_offset = 0x64;
+        constexpr size_t pop_type_offset = 0x68;
+        constexpr size_t pop_type_id_offset = 0x28;
+        constexpr size_t pop_consciousness_offset = 0x118;
+        constexpr size_t pop_militancy_offset = 0x120;
+        constexpr size_t pop_literacy_offset = 0x128;
         constexpr size_t pop_money_offset = 0x180;
         constexpr size_t pop_interest_cash_flow_offset = 0x210;
         constexpr size_t pop_total_cash_flow_offset = 0x218;
         constexpr size_t pop_savings_offset = 0x250;
         constexpr size_t pop_next_offset = 0x27c;
+        constexpr size_t pop_id_offset = 0x0c;
+        constexpr size_t pop_economy_offset = 0x1d4;
+        constexpr size_t artisan_need_pool_offset = 0x58;
+        constexpr size_t artisan_production_type_offset = 0xb0;
+        constexpr size_t artisan_last_spending_offset = 0xb8;
+        constexpr size_t artisan_current_producing_offset = 0xc0;
+        constexpr size_t artisan_percent_afforded_offset = 0xc8;
+        constexpr size_t artisan_percent_sold_domestic_offset = 0xd0;
+        constexpr size_t artisan_percent_sold_export_offset = 0xd8;
+        constexpr size_t artisan_leftover_offset = 0xe0;
+        constexpr size_t artisan_throttle_offset = 0xe8;
+        constexpr size_t artisan_needs_cost_offset = 0xf0;
+        constexpr size_t artisan_production_income_offset = 0xf8;
         constexpr size_t creditor_tag_offset = 0x08;
         constexpr size_t creditor_interest_offset = 0x10;
         constexpr size_t creditor_debt_offset = 0x18;
@@ -40,6 +73,57 @@ namespace interest_bug_fix
         constexpr uint32_t max_destination_provinces = max_sample_destination_provinces;
         constexpr uint32_t max_pop_lists_per_province = 128;
         constexpr uint32_t max_pops = max_sample_pops;
+        constexpr uint32_t max_factories_per_state = 64;
+        constexpr size_t state_building_size = 0x220;
+        constexpr size_t state_building_definition_offset = 0x18;
+        constexpr size_t state_building_level_offset = 0x20;
+        constexpr size_t state_building_stockpile_index_offset = 0x30;
+        constexpr size_t state_building_stockpile_values_offset = 0x70;
+        constexpr size_t state_building_requested_input_index_offset = 0x88;
+        constexpr size_t state_building_requested_input_values_offset = 0xc8;
+        constexpr size_t state_building_output_offset = 0xd8;
+        constexpr size_t state_building_employment_offset = 0xf0;
+        constexpr size_t state_building_employees_offset = 0x128;
+        constexpr size_t state_building_budget_offset = 0x150;
+        constexpr size_t state_building_market_spending_offset = 0x158;
+        constexpr size_t state_building_sales_income_offset = 0x160;
+        constexpr size_t state_building_paychecks_offset = 0x168;
+        constexpr size_t state_building_investment_offset = 0x170;
+        constexpr size_t state_building_subsidized_offset = 0x180;
+        constexpr size_t state_building_closed_offset = 0x188;
+        constexpr size_t building_definition_key_offset = 0x20;
+        constexpr size_t market_supply_offset = 0x08;
+        constexpr size_t market_last_supply_offset = 0x60;
+        constexpr size_t market_stock_offset = 0x120;
+        constexpr size_t market_demand_offset = 0x178;
+        constexpr size_t market_real_demand_offset = 0x1d0;
+        constexpr size_t market_price_offset = 0x280;
+        constexpr size_t market_last_price_offset = 0x2d8;
+        constexpr size_t market_actual_sold_offset = 0x434;
+        constexpr size_t market_actual_sold_world_offset = 0x4f4;
+        constexpr size_t building_definition_production_type_offset = 0x12c;
+        constexpr size_t production_type_output_good_offset = 0x80;
+        constexpr size_t production_type_base_output_offset = 0x88;
+        constexpr size_t production_type_owner_modifier_offset = 0xf0;
+        constexpr size_t owner_modifier_pop_type_ordinal_offset = 0x28;
+        constexpr size_t goods_ordinal_offset = 0x08;
+        constexpr size_t goods_key_offset = 0x0c;
+        constexpr size_t pop_type_key_offset = 0x08;
+        constexpr size_t pop_employment_size = 0x10;
+        constexpr size_t pop_employment_pop_offset = 0x08;
+        constexpr size_t pop_employment_count_offset = 0x0c;
+        constexpr size_t state_employment_record_size = 0xb0;
+        constexpr size_t state_employment_production_type_offset = 0x08;
+        constexpr size_t state_employment_output_good_offset = 0x0c;
+        constexpr size_t state_employment_province_offset = 0x1c;
+        constexpr size_t state_employment_output_efficiency_offset = 0x38;
+        constexpr size_t state_employment_throughput_offset = 0x40;
+        constexpr size_t state_employment_employed_offset = 0x58;
+        constexpr size_t state_employment_income_offset = 0x80;
+        constexpr size_t state_employment_percent_sold_domestic_offset = 0x90;
+        constexpr size_t state_employment_percent_sold_export_offset = 0x98;
+        constexpr size_t state_employment_leftover_offset = 0xa0;
+        constexpr size_t state_employment_base_size_offset = 0x88;
         constexpr int64_t pop_savings_state_scale = 1000;
 
         struct ListNode
@@ -64,6 +148,27 @@ namespace interest_bug_fix
             const void *last;
             int32_t count;
             uint32_t unknown;
+        };
+
+        struct StateBuildingNode
+        {
+            std::array<uint8_t, state_building_size> data;
+            const StateBuildingNode *previous;
+            const StateBuildingNode *next;
+            uint8_t deleted;
+            uint8_t padding[3];
+        };
+
+        struct GameString
+        {
+            union
+            {
+                char inline_value[16];
+                const char *pointer;
+            } value;
+            uint32_t size;
+            uint32_t capacity;
+            uint32_t allocator;
         };
 
         struct TraversalScratch
@@ -187,6 +292,28 @@ namespace interest_bug_fix
             *sum += value;
         }
 
+        bool MultiplyFixed15(int64_t left, int64_t right, int64_t *result)
+        {
+            if (result == nullptr || left < 0 || right < 0
+                || (left != 0 && right > (std::numeric_limits<int64_t>::max)() / left)) return false;
+            *result = left * right >> 15;
+            return true;
+        }
+
+        bool LoadedGoodsCount(uint32_t *loaded_goods_count)
+        {
+            if (loaded_goods_count == nullptr) return false;
+            const auto module = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+            int32_t count = 0;
+            if (module != 0 && module <= (std::numeric_limits<uintptr_t>::max)() - loaded_goods_count_rva
+                && ReadAt(reinterpret_cast<const void *>(module + loaded_goods_count_rva), 0, &count)
+                && count > 0 && count <= 64) {
+                *loaded_goods_count = static_cast<uint32_t>(count);
+                return true;
+            }
+            return false;
+        }
+
         bool IsTagKey(uint32_t key)
         {
             const auto *bytes = reinterpret_cast<const uint8_t *>(&key);
@@ -194,6 +321,57 @@ namespace interest_bug_fix
             for (size_t index = 0; index < 3; ++index) {
                 const uint8_t value = bytes[index];
                 if (!((value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9'))) return false;
+            }
+            return true;
+        }
+
+        bool ReadBoundedString(const void *object, size_t key_offset, char *destination, size_t destination_size)
+        {
+            if (object == nullptr || destination == nullptr || destination_size == 0) return false;
+            GameString key{};
+            if (!ReadAt(object, key_offset, &key)
+                || key.size == 0 || key.size >= destination_size || key.capacity < key.size) return false;
+            const char *source = key.capacity <= 15 ? key.value.inline_value : key.value.pointer;
+            if (source == nullptr || !CopyReadable(destination, source, key.size + 1)
+                || destination[key.size] != '\0') return false;
+            for (uint32_t index = 0; index < key.size; ++index) {
+                const unsigned char value = static_cast<unsigned char>(destination[index]);
+                if (value < 0x20 || value > 0x7e) return false;
+            }
+            return true;
+        }
+
+        bool ReadNormalizedKey(const void *object, size_t key_offset, char *destination, size_t destination_size)
+        {
+            if (!ReadBoundedString(object, key_offset, destination, destination_size)) return false;
+            for (const char *value = destination; *value != '\0'; ++value) {
+                if (!((*value >= 'a' && *value <= 'z') || (*value >= '0' && *value <= '9') || *value == '_')) return false;
+            }
+            return true;
+        }
+
+        bool ReadGoodsPool(const void *pool, std::array<int64_t, 64> *values,
+                           std::array<bool, 64> *present)
+        {
+            if (pool == nullptr || values == nullptr || present == nullptr) return false;
+            values->fill(0);
+            present->fill(false);
+            std::array<uint8_t, 64> indices{};
+            PointerVector stored_values{};
+            uint32_t stored_count = 0;
+            if (!ReadAt(pool, 0x08, &indices)
+                || !ReadAt(pool, 0x48, &stored_values)
+                || !VectorCount(stored_values, sizeof(int64_t), 65, &stored_count)) return false;
+            int64_t sentinel = 0;
+            if (stored_count != 0 && (!ReadAt(stored_values.begin, 0, &sentinel) || sentinel != 0)) return false;
+            std::array<bool, 65> seen{};
+            for (uint32_t ordinal = 0; ordinal < indices.size(); ++ordinal) {
+                const uint8_t index = indices[ordinal];
+                if (index == 0) continue;
+                if (index >= stored_count || seen[index]) return false;
+                seen[index] = true;
+                if (!ReadAt(stored_values.begin, index * sizeof(int64_t), &(*values)[ordinal])) return false;
+                (*present)[ordinal] = true;
             }
             return true;
         }
@@ -701,6 +879,648 @@ namespace interest_bug_fix
         if (snapshot == nullptr) return false;
         PopMoneySnapshot value{};
         if (!ReadPopMoney(pop, &value)) return false;
+        *snapshot = value;
+        return true;
+    }
+
+    bool ReadPopDetailSnapshot(const void *pop, PopDetailSnapshot *snapshot)
+    {
+        if (snapshot == nullptr) return false;
+        PopDetailSnapshot value{};
+        const void *province = nullptr;
+        const void *pop_type = nullptr;
+        if (!ReadAt(pop, pop_id_offset, &value.pop_id)
+            || !ReadAt(pop, pop_size_offset, &value.size_candidate)
+            || !ReadAt(pop, pop_employed_offset, &value.employed_candidate)
+            || !ReadAt(pop, pop_province_offset, &province)
+            || !ReadAt(pop, pop_type_offset, &pop_type)
+            || !ReadAt(province, province_id_offset, &value.province_id_candidate)
+            || !ReadAt(pop_type, pop_type_id_offset, &value.pop_type_id_candidate)
+            || !ReadAt(pop, pop_consciousness_offset, &value.consciousness_candidate_raw)
+            || !ReadAt(pop, pop_militancy_offset, &value.militancy_candidate_raw)
+            || !ReadAt(pop, pop_literacy_offset, &value.literacy_candidate_raw)
+            || !ReadPopMoney(pop, &value.economy)) {
+            return false;
+        }
+
+        if (value.pop_id < 0 || value.province_id_candidate < 0 || value.pop_type_id_candidate < 0
+            || value.pop_type_id_candidate > 127 || value.size_candidate < 0
+            || value.employed_candidate < 0 || value.employed_candidate > value.size_candidate) {
+            return false;
+        }
+        *snapshot = value;
+        return true;
+    }
+
+    bool ReadArtisanSnapshot(const void *pop, ArtisanSnapshot *snapshot,
+                              ArtisanInputSnapshot *inputs, size_t input_capacity, uint32_t *input_count,
+                              uint32_t groups, ArtisanReadFailure *failure)
+    {
+        if (failure != nullptr) *failure = {};
+        const auto fail = [&](ArtisanReadFailureReason reason, int64_t raw = 0) {
+            if (failure != nullptr) {
+                failure->reason = reason;
+                failure->offending_raw = raw;
+            }
+            return false;
+        };
+        if (pop == nullptr || snapshot == nullptr || inputs == nullptr || input_count == nullptr) {
+            return fail(ArtisanReadFailureReason::InvalidArgument);
+        }
+        *input_count = 0;
+        const void *pop_type = nullptr;
+        const void *economy = nullptr;
+        const void *production_type = nullptr;
+        char pop_type_key[64]{};
+        ArtisanSnapshot value{};
+        value.address = pop;
+        if (!ReadAt(pop, pop_id_offset, &value.pop_id) || value.pop_id < 0) {
+            return fail(ArtisanReadFailureReason::PopHeader, value.pop_id);
+        }
+        if (failure != nullptr) failure->pop_id = value.pop_id;
+        if (!ReadAt(pop, pop_type_offset, &pop_type)
+            || !ReadNormalizedKey(pop_type, pop_type_key_offset, pop_type_key, sizeof(pop_type_key))
+            || std::strcmp(pop_type_key, "artisans") != 0
+            || !ReadAt(pop, pop_economy_offset, &economy) || economy == nullptr) {
+            return fail(ArtisanReadFailureReason::PopHeader);
+        }
+
+        const uint32_t recipe_groups = ARTISAN_IDENTITY | ARTISAN_PRODUCTION | ARTISAN_INPUTS;
+        if ((groups & recipe_groups) != 0
+            && (!ReadAt(economy, artisan_production_type_offset, &production_type)
+                || production_type == nullptr)) return fail(ArtisanReadFailureReason::ProductionTypeMissing);
+        if ((groups & ARTISAN_IDENTITY) != 0) {
+            const void *output_good = nullptr;
+            if (!ReadNormalizedKey(production_type, 0x08, value.production_type, sizeof(value.production_type))
+                || !ReadAt(production_type, production_type_output_good_offset, &output_good) || output_good == nullptr
+                || !ReadAt(output_good, goods_ordinal_offset, &value.output_good_ordinal)
+                || value.output_good_ordinal < 0 || value.output_good_ordinal >= 64
+                || !ReadNormalizedKey(output_good, goods_key_offset, value.output_good, sizeof(value.output_good))) {
+                return fail(ArtisanReadFailureReason::Identity);
+            }
+        }
+        if ((groups & ARTISAN_PRODUCTION) != 0) {
+            if (!ReadAt(production_type, production_type_base_output_offset, &value.base_output_raw)
+                || !ReadAt(economy, artisan_current_producing_offset, &value.current_producing_raw)
+                || !MultiplyFixed15(value.current_producing_raw, value.base_output_raw, &value.gross_output_raw)) {
+                return fail(ArtisanReadFailureReason::ProductionRead);
+            }
+            if (value.base_output_raw < 0) return fail(ArtisanReadFailureReason::ProductionValue, value.base_output_raw);
+            if (value.current_producing_raw < 0) return fail(ArtisanReadFailureReason::ProductionValue, value.current_producing_raw);
+            if (value.gross_output_raw < 0) return fail(ArtisanReadFailureReason::ProductionValue, value.gross_output_raw);
+        }
+        if ((groups & ARTISAN_FINANCE) != 0) {
+            if (!ReadAt(economy, artisan_last_spending_offset, &value.last_spending_raw)
+                || !ReadAt(economy, artisan_percent_afforded_offset, &value.percent_afforded_raw)
+                || !ReadAt(economy, artisan_percent_sold_domestic_offset, &value.percent_sold_domestic_raw)
+                || !ReadAt(economy, artisan_percent_sold_export_offset, &value.percent_sold_export_raw)
+                || !ReadAt(economy, artisan_leftover_offset, &value.leftover_raw)
+                || !ReadAt(economy, artisan_throttle_offset, &value.throttle_raw)
+                || !ReadAt(economy, artisan_needs_cost_offset, &value.needs_cost_raw)
+                || !ReadAt(economy, artisan_production_income_offset, &value.production_income_raw)) {
+                return fail(ArtisanReadFailureReason::FinanceRead);
+            }
+            if (value.last_spending_raw < 0) return fail(ArtisanReadFailureReason::LastSpending, value.last_spending_raw);
+            if (value.percent_afforded_raw < 0 || value.percent_afforded_raw > 32768) {
+                return fail(ArtisanReadFailureReason::PercentAfforded, value.percent_afforded_raw);
+            }
+            if (value.percent_sold_domestic_raw < 0 || value.percent_sold_domestic_raw > 32768) {
+                return fail(ArtisanReadFailureReason::PercentSoldDomestic, value.percent_sold_domestic_raw);
+            }
+            if (value.percent_sold_export_raw < 0) {
+                return fail(ArtisanReadFailureReason::PercentSoldExport, value.percent_sold_export_raw);
+            }
+            if (value.leftover_raw < 0) return fail(ArtisanReadFailureReason::Leftover, value.leftover_raw);
+            if (value.throttle_raw < 0 || value.throttle_raw > 32768) {
+                return fail(ArtisanReadFailureReason::Throttle, value.throttle_raw);
+            }
+            if (value.needs_cost_raw < 0) return fail(ArtisanReadFailureReason::NeedsCost, value.needs_cost_raw);
+            if (value.production_income_raw < 0) {
+                return fail(ArtisanReadFailureReason::ProductionIncome, value.production_income_raw);
+            }
+        }
+
+        if ((groups & ARTISAN_INPUTS) != 0) {
+            std::array<int64_t, 64> stockpile{}, need{};
+            std::array<bool, 64> stockpile_present{}, need_present{};
+            if (!ReadGoodsPool(economy, &stockpile, &stockpile_present)
+                || !ReadGoodsPool(static_cast<const uint8_t *>(economy) + artisan_need_pool_offset,
+                    &need, &need_present)) return fail(ArtisanReadFailureReason::Inputs);
+            for (size_t ordinal = 0; ordinal < stockpile.size(); ++ordinal) {
+                if (!stockpile_present[ordinal] && !need_present[ordinal]) continue;
+                if (*input_count >= input_capacity || stockpile[ordinal] < 0 || need[ordinal] < 0) {
+                    return fail(ArtisanReadFailureReason::Inputs);
+                }
+                inputs[*input_count] = {
+                    static_cast<int32_t>(ordinal), stockpile[ordinal], need[ordinal]};
+                ++*input_count;
+            }
+        }
+        *snapshot = value;
+        return true;
+    }
+
+    const char *ArtisanReadFailureName(ArtisanReadFailureReason reason)
+    {
+        switch (reason) {
+        case ArtisanReadFailureReason::None: return "none";
+        case ArtisanReadFailureReason::InvalidArgument: return "invalid_argument";
+        case ArtisanReadFailureReason::PopHeader: return "pop_header";
+        case ArtisanReadFailureReason::ProductionTypeMissing: return "production_type_missing";
+        case ArtisanReadFailureReason::Identity: return "identity";
+        case ArtisanReadFailureReason::ProductionRead: return "production_read";
+        case ArtisanReadFailureReason::ProductionValue: return "production_value";
+        case ArtisanReadFailureReason::FinanceRead: return "finance_read";
+        case ArtisanReadFailureReason::LastSpending: return "last_spending";
+        case ArtisanReadFailureReason::PercentAfforded: return "percent_afforded";
+        case ArtisanReadFailureReason::PercentSoldDomestic: return "percent_sold_domestic";
+        case ArtisanReadFailureReason::PercentSoldExport: return "percent_sold_export";
+        case ArtisanReadFailureReason::Leftover: return "leftover";
+        case ArtisanReadFailureReason::Throttle: return "throttle";
+        case ArtisanReadFailureReason::NeedsCost: return "needs_cost";
+        case ArtisanReadFailureReason::ProductionIncome: return "production_income";
+        case ArtisanReadFailureReason::Inputs: return "inputs";
+        }
+        return "unknown";
+    }
+
+    bool ReadInactiveArtisan(const void *pop, int32_t *pop_id)
+    {
+        if (pop == nullptr || pop_id == nullptr) return false;
+        const void *pop_type = nullptr;
+        const void *economy = nullptr;
+        const void *production_type = nullptr;
+        char pop_type_key[64]{};
+        int32_t id = -1;
+        if (!ReadAt(pop, pop_id_offset, &id) || id < 0
+            || !ReadAt(pop, pop_type_offset, &pop_type)
+            || !ReadNormalizedKey(pop_type, pop_type_key_offset, pop_type_key, sizeof(pop_type_key))
+            || std::strcmp(pop_type_key, "artisans") != 0
+            || !ReadAt(pop, pop_economy_offset, &economy) || economy == nullptr
+            || !ReadAt(economy, artisan_production_type_offset, &production_type)
+            || production_type != nullptr) return false;
+        *pop_id = id;
+        return true;
+    }
+
+    bool CollectCountryFactories(const void *country, FactorySnapshot *snapshots,
+                                 size_t snapshot_capacity, uint32_t *snapshot_count,
+                                 FactoryInputSnapshot *inputs, size_t input_capacity,
+                                 uint32_t *input_count, uint32_t groups, uint32_t *flags,
+                                 uint32_t loaded_goods_count_override)
+    {
+        if (snapshots == nullptr || snapshot_count == nullptr || inputs == nullptr
+            || input_count == nullptr || flags == nullptr) return false;
+        *snapshot_count = 0;
+        *input_count = 0;
+        *flags = 0;
+        ResetMemoryRegionCache();
+        uint32_t loaded_goods_count = 0;
+        if ((groups & FACTORY_INPUTS) != 0) {
+            if (loaded_goods_count_override > 64
+                || (loaded_goods_count_override == 0 && !LoadedGoodsCount(&loaded_goods_count))) {
+                *flags = FACTORY_GOODS_REGISTRY_INVALID;
+                return false;
+            }
+            if (loaded_goods_count_override != 0) loaded_goods_count = loaded_goods_count_override;
+        }
+        if (!IsReadable(country, country_states_offset + 12)) {
+            *flags = FACTORY_COUNTRY_UNREADABLE;
+            return false;
+        }
+
+        const ListNode *state_node = nullptr;
+        const ListNode *state_tail = nullptr;
+        int32_t state_count = 0;
+        if (!ReadAt(country, country_states_offset, &state_node)
+            || !ReadAt(country, country_states_offset + 4, &state_tail)
+            || !ReadAt(country, country_states_offset + 8, &state_count)
+            || state_count < 0 || state_count > static_cast<int32_t>(max_states)
+            || ((state_count == 0) != (state_node == nullptr && state_tail == nullptr))) {
+            *flags = FACTORY_STATE_LIST_INVALID;
+            return false;
+        }
+
+        const ListNode *previous_state_node = nullptr;
+        uint32_t states_walked = 0;
+        while (state_node != nullptr && states_walked < max_states) {
+            ListNode current_state{};
+            if (!CopyReadable(&current_state, state_node, sizeof(current_state))
+                || current_state.previous != previous_state_node) {
+                *flags |= FACTORY_STATE_LIST_INVALID;
+                break;
+            }
+            if (current_state.deleted == 0 && current_state.data != nullptr) {
+                if (!IsReadable(current_state.data, state_size)) {
+                    *flags |= FACTORY_STATE_UNREADABLE;
+                    break;
+                }
+                int32_t anchor_province_id = -1;
+                int32_t state_id = -1;
+                char state_region_key[64]{};
+                if (!ReadAt(current_state.data, state_id_offset, &state_id)
+                    || state_id <= 0) {
+                    *flags |= FACTORY_STATE_UNREADABLE;
+                    break;
+                }
+                if ((groups & FACTORY_IDENTITY) != 0) {
+                    PointerVector provinces{};
+                    uint32_t province_count = 0;
+                    const void *region = nullptr;
+                    if (!ReadAt(current_state.data, state_provinces_offset, &provinces)
+                        || !VectorCount(provinces, sizeof(int32_t), max_provinces_per_state, &province_count)
+                        || province_count == 0 || !ReadAt(provinces.begin, 0, &anchor_province_id)
+                        || anchor_province_id < 0 || !ReadAt(current_state.data, state_region_offset, &region)
+                        || !ReadBoundedString(region, region_key_offset,
+                            state_region_key, sizeof(state_region_key))) {
+                        *flags |= FACTORY_STATE_UNREADABLE;
+                        break;
+                    }
+                }
+
+                const StateBuildingNode *factory_node = nullptr;
+                const StateBuildingNode *factory_tail = nullptr;
+                int32_t factory_count = 0;
+                if (!ReadAt(current_state.data, state_factories_offset, &factory_node)
+                    || !ReadAt(current_state.data, state_factories_offset + 4, &factory_tail)
+                    || !ReadAt(current_state.data, state_factories_offset + 8, &factory_count)
+                    || factory_count < 0 || factory_count > static_cast<int32_t>(max_factories_per_state)
+                    || ((factory_count == 0) != (factory_node == nullptr && factory_tail == nullptr))) {
+                    *flags |= FACTORY_LIST_INVALID;
+                    break;
+                }
+
+                const StateBuildingNode *previous_factory_node = nullptr;
+                uint32_t factories_walked = 0;
+                while (factory_node != nullptr && factories_walked < max_factories_per_state) {
+                    StateBuildingNode current_factory{};
+                    if (!CopyReadable(&current_factory, factory_node, sizeof(current_factory))
+                        || current_factory.previous != previous_factory_node) {
+                        *flags |= FACTORY_LIST_INVALID;
+                        break;
+                    }
+                    if (current_factory.deleted == 0) {
+                        if (*snapshot_count >= snapshot_capacity || *snapshot_count >= max_sample_factories) {
+                            *flags |= FACTORY_LIMIT;
+                            break;
+                        }
+                        FactorySnapshot snapshot{};
+                        snapshot.address = factory_node;
+                        snapshot.state_index = states_walked;
+                        snapshot.factory_index = factories_walked;
+                        snapshot.state_id = state_id;
+                        snapshot.anchor_province_id_candidate = anchor_province_id;
+                        if ((groups & FACTORY_IDENTITY) != 0) {
+                            std::memcpy(snapshot.state_region_key, state_region_key, sizeof(state_region_key));
+                        }
+                        const void *definition = nullptr;
+                        std::memcpy(&definition, current_factory.data.data() + state_building_definition_offset, sizeof(definition));
+                        if ((groups & FACTORY_IDENTITY) != 0) {
+                            std::memcpy(&snapshot.level, current_factory.data.data() + state_building_level_offset, sizeof(snapshot.level));
+                            const uint8_t subsidized = current_factory.data[state_building_subsidized_offset];
+                            const uint8_t closed = current_factory.data[state_building_closed_offset];
+                            if (subsidized > 1 || closed > 1 || snapshot.level < 0) {
+                                *flags |= FACTORY_UNREADABLE;
+                                break;
+                            }
+                            snapshot.subsidized = subsidized != 0;
+                            snapshot.closed = closed != 0;
+                        }
+                        if (!ReadNormalizedKey(definition, building_definition_key_offset,
+                                snapshot.factory_type, sizeof(snapshot.factory_type))) {
+                            *flags |= FACTORY_DEFINITION_INVALID;
+                            break;
+                        }
+
+                        if ((groups & FACTORY_PRODUCTION) != 0) {
+                            std::memcpy(&snapshot.output_raw, current_factory.data.data() + state_building_output_offset, sizeof(snapshot.output_raw));
+                            const void *production_type = nullptr;
+                            const void *output_good = nullptr;
+                            if (!ReadAt(definition, building_definition_production_type_offset, &production_type)
+                                || !ReadAt(production_type, production_type_output_good_offset, &output_good)
+                                || !ReadAt(production_type, production_type_base_output_offset, &snapshot.base_output_raw)
+                                || !ReadAt(output_good, goods_ordinal_offset, &snapshot.output_good_ordinal)
+                                || !ReadNormalizedKey(output_good, goods_key_offset,
+                                    snapshot.output_good, sizeof(snapshot.output_good))
+                                || snapshot.output_raw < 0 || snapshot.output_good_ordinal < 0
+                                || snapshot.base_output_raw < 0) {
+                                *flags |= FACTORY_DEFINITION_INVALID;
+                                break;
+                            }
+                        }
+
+                        if ((groups & FACTORY_EMPLOYMENT) != 0) {
+                            std::memcpy(&snapshot.employee_count, current_factory.data.data() + state_building_employees_offset, sizeof(snapshot.employee_count));
+                            PointerVector employment{};
+                            uint32_t employment_count = 0;
+                            if (snapshot.employee_count < 0
+                                || !ReadAt(current_factory.data.data(), state_building_employment_offset, &employment)
+                                || !VectorCount(employment, pop_employment_size, 1024, &employment_count)) {
+                                *flags |= FACTORY_UNREADABLE;
+                                break;
+                            }
+                            int64_t assigned_total = 0;
+                            for (uint32_t index = 0; index < employment_count; ++index) {
+                                std::array<uint8_t, pop_employment_size> record{};
+                                const auto *record_address = static_cast<const uint8_t *>(employment.begin)
+                                    + index * pop_employment_size;
+                                const void *pop = nullptr;
+                                int32_t assigned = 0;
+                                const void *pop_type = nullptr;
+                                char pop_type_key[64]{};
+                                if (!CopyReadable(record.data(), record_address, record.size())) {
+                                    *flags |= FACTORY_UNREADABLE;
+                                    break;
+                                }
+                                std::memcpy(&pop, record.data() + pop_employment_pop_offset, sizeof(pop));
+                                std::memcpy(&assigned, record.data() + pop_employment_count_offset, sizeof(assigned));
+                                if (assigned < 0 || !ReadAt(pop, pop_type_offset, &pop_type)
+                                    || !ReadNormalizedKey(pop_type, pop_type_key_offset,
+                                        pop_type_key, sizeof(pop_type_key))) {
+                                    *flags |= FACTORY_UNREADABLE;
+                                    break;
+                                }
+                                assigned_total += assigned;
+                                if (assigned_total > (std::numeric_limits<int32_t>::max)()) {
+                                    *flags |= FACTORY_UNREADABLE;
+                                    break;
+                                }
+                                if (std::strcmp(pop_type_key, "craftsmen") == 0) snapshot.craftsmen_count += assigned;
+                                else if (std::strcmp(pop_type_key, "clerks") == 0) snapshot.clerk_count += assigned;
+                            }
+                            if (*flags != 0) break;
+                            if (assigned_total != snapshot.employee_count) {
+                                *flags |= FACTORY_UNREADABLE;
+                                break;
+                            }
+                        }
+
+                        if ((groups & FACTORY_INPUTS) != 0) {
+                            PointerVector stockpile_values{};
+                            PointerVector requested_values{};
+                            uint32_t stockpile_value_count = 0;
+                            uint32_t requested_value_count = 0;
+                            std::array<uint8_t, 64> stockpile_index{};
+                            std::array<uint8_t, 64> requested_index{};
+                            std::array<bool, 65> seen_stockpile_indices{};
+                            std::array<bool, 65> seen_requested_indices{};
+                            if (!CopyReadable(stockpile_index.data(),
+                                    current_factory.data.data() + state_building_stockpile_index_offset,
+                                    stockpile_index.size())
+                                || !ReadAt(current_factory.data.data(), state_building_stockpile_values_offset,
+                                    &stockpile_values)
+                                || !VectorCount(stockpile_values, sizeof(int64_t), 65, &stockpile_value_count)) {
+                                *flags |= FACTORY_UNREADABLE;
+                                break;
+                            }
+                            if (!CopyReadable(requested_index.data(),
+                                    current_factory.data.data() + state_building_requested_input_index_offset,
+                                    requested_index.size())
+                                || !ReadAt(current_factory.data.data(), state_building_requested_input_values_offset,
+                                    &requested_values)
+                                || !VectorCount(requested_values, sizeof(int64_t), 65, &requested_value_count)) {
+                                *flags |= FACTORY_REQUESTED_INPUT_METADATA_INVALID;
+                                break;
+                            }
+                            int64_t stockpile_sentinel = 0;
+                            int64_t requested_sentinel = 0;
+                            if (stockpile_value_count != 0
+                                && (!ReadAt(stockpile_values.begin, 0, &stockpile_sentinel) || stockpile_sentinel != 0)) {
+                                *flags |= FACTORY_UNREADABLE;
+                                break;
+                            }
+                            if (requested_value_count != 0
+                                && (!ReadAt(requested_values.begin, 0, &requested_sentinel) || requested_sentinel != 0)) {
+                                *flags |= FACTORY_REQUESTED_INPUT_SENTINEL_INVALID;
+                                break;
+                            }
+                            for (uint32_t good_ordinal = 0; good_ordinal < loaded_goods_count; ++good_ordinal) {
+                                const uint8_t stockpile_value_index = stockpile_index[good_ordinal];
+                                const uint8_t requested_value_index = requested_index[good_ordinal];
+                                const bool has_requested_value = requested_value_index != 0;
+                                if (stockpile_value_index == 0 && !has_requested_value) continue;
+                                if (stockpile_value_index != 0 && (stockpile_value_index >= stockpile_value_count
+                                        || seen_stockpile_indices[stockpile_value_index])) {
+                                    *flags |= FACTORY_UNREADABLE;
+                                    break;
+                                }
+                                if (has_requested_value && (requested_value_index >= requested_value_count
+                                        || seen_requested_indices[requested_value_index])) {
+                                    *flags |= FACTORY_REQUESTED_INPUT_INDEX_INVALID;
+                                    break;
+                                }
+                                if (*input_count >= input_capacity || *input_count >= max_sample_factory_inputs) {
+                                    *flags |= FACTORY_LIMIT;
+                                    break;
+                                }
+                                if (stockpile_value_index != 0) seen_stockpile_indices[stockpile_value_index] = true;
+                                if (has_requested_value) seen_requested_indices[requested_value_index] = true;
+                                FactoryInputSnapshot input{};
+                                input.factory_snapshot_index = *snapshot_count;
+                                input.good_ordinal = static_cast<int32_t>(good_ordinal);
+                                if ((stockpile_value_index != 0 && !ReadAt(stockpile_values.begin,
+                                        stockpile_value_index * sizeof(int64_t), &input.stockpile_raw))
+                                    || input.stockpile_raw < 0) {
+                                    *flags |= FACTORY_UNREADABLE;
+                                    break;
+                                }
+                                if ((has_requested_value && !ReadAt(requested_values.begin,
+                                        requested_value_index * sizeof(int64_t), &input.requested_raw))
+                                    || input.requested_raw < 0) {
+                                    *flags |= FACTORY_REQUESTED_INPUT_VALUE_INVALID;
+                                    break;
+                                }
+                                inputs[(*input_count)++] = input;
+                            }
+                            if (*flags != 0) break;
+                        }
+
+                        if ((groups & FACTORY_FINANCE) != 0) {
+                            std::memcpy(&snapshot.budget_raw, current_factory.data.data() + state_building_budget_offset, sizeof(snapshot.budget_raw));
+                            std::memcpy(&snapshot.market_spending_raw, current_factory.data.data() + state_building_market_spending_offset, sizeof(snapshot.market_spending_raw));
+                            std::memcpy(&snapshot.sales_income_raw, current_factory.data.data() + state_building_sales_income_offset, sizeof(snapshot.sales_income_raw));
+                            std::memcpy(&snapshot.paychecks_raw, current_factory.data.data() + state_building_paychecks_offset, sizeof(snapshot.paychecks_raw));
+                            std::memcpy(&snapshot.investment_raw, current_factory.data.data() + state_building_investment_offset, sizeof(snapshot.investment_raw));
+                            if (snapshot.budget_raw < 0 || snapshot.market_spending_raw < 0
+                                || snapshot.sales_income_raw < 0 || snapshot.paychecks_raw < 0
+                                || snapshot.investment_raw < 0) {
+                                *flags |= FACTORY_UNREADABLE;
+                                break;
+                            }
+                        }
+                        snapshots[(*snapshot_count)++] = snapshot;
+                    }
+                    ++factories_walked;
+                    previous_factory_node = factory_node;
+                    if (current_factory.next == factory_node) {
+                        *flags |= FACTORY_LIST_INVALID;
+                        break;
+                    }
+                    factory_node = current_factory.next;
+                }
+                if (*flags != 0) break;
+                if (factories_walked != static_cast<uint32_t>(factory_count)
+                    || (factory_count != 0 && previous_factory_node != factory_tail)) {
+                    *flags |= FACTORY_LIST_INVALID;
+                    break;
+                }
+            }
+            ++states_walked;
+            previous_state_node = state_node;
+            if (current_state.next == state_node) {
+                *flags |= FACTORY_STATE_LIST_INVALID;
+                break;
+            }
+            state_node = current_state.next;
+        }
+        if (states_walked != static_cast<uint32_t>(state_count)
+            || (state_count != 0 && previous_state_node != state_tail)) {
+            *flags |= FACTORY_STATE_LIST_INVALID;
+        }
+        return *flags == 0;
+    }
+
+    bool CollectWorldMarket(const void *game_state, WorldMarketSnapshot *snapshots,
+                            size_t snapshot_capacity, uint32_t *snapshot_count)
+    {
+        if (game_state == nullptr || snapshots == nullptr || snapshot_count == nullptr) return false;
+        *snapshot_count = 0;
+        ResetMemoryRegionCache();
+        const void *world_market = nullptr;
+        if (!ReadAt(game_state, game_state_world_market_offset, &world_market)) return false;
+
+        std::array<int64_t, 64> supply{}, last_supply{}, stock{}, demand{}, real_demand{};
+        std::array<int64_t, 64> price{}, last_price{}, actual_sold{}, actual_sold_world{};
+        std::array<bool, 64> supply_present{}, last_supply_present{}, stock_present{};
+        std::array<bool, 64> demand_present{}, real_demand_present{}, price_present{};
+        std::array<bool, 64> last_price_present{}, actual_sold_present{}, actual_sold_world_present{};
+        if (!ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_supply_offset, &supply, &supply_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_last_supply_offset, &last_supply, &last_supply_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_stock_offset, &stock, &stock_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_demand_offset, &demand, &demand_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_real_demand_offset, &real_demand, &real_demand_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_price_offset, &price, &price_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_last_price_offset, &last_price, &last_price_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_actual_sold_offset, &actual_sold, &actual_sold_present)
+            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_actual_sold_world_offset,
+                &actual_sold_world, &actual_sold_world_present)) return false;
+
+        for (uint32_t ordinal = 0; ordinal < price_present.size(); ++ordinal) {
+            if (!price_present[ordinal]) continue;
+            if (!last_price_present[ordinal] || *snapshot_count >= snapshot_capacity
+                || price[ordinal] < 0 || last_price[ordinal] < 0 || supply[ordinal] < 0
+                || last_supply[ordinal] < 0 || stock[ordinal] < 0 || demand[ordinal] < 0
+                || real_demand[ordinal] < 0 || actual_sold[ordinal] < 0
+                || actual_sold_world[ordinal] < 0) return false;
+            WorldMarketSnapshot snapshot{};
+            snapshot.good_ordinal = static_cast<int32_t>(ordinal);
+            snapshot.price_raw = price[ordinal];
+            snapshot.last_price_raw = last_price[ordinal];
+            snapshot.supply_raw = supply[ordinal];
+            snapshot.last_supply_raw = last_supply[ordinal];
+            snapshot.worldmarket_stock_raw = stock[ordinal];
+            snapshot.demand_raw = demand[ordinal];
+            snapshot.real_demand_raw = real_demand[ordinal];
+            snapshot.actual_sold_raw = actual_sold[ordinal];
+            snapshot.actual_sold_world_raw = actual_sold_world[ordinal];
+            snapshots[(*snapshot_count)++] = snapshot;
+        }
+        return true;
+    }
+
+    const void *ResolveStateEmploymentRegistry()
+    {
+        ResetMemoryRegionCache();
+        const auto module = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+        if (module == 0 || module > (std::numeric_limits<uintptr_t>::max)() - state_employment_registry_rva) {
+            return nullptr;
+        }
+        const void *registry = nullptr;
+        return ReadAt(reinterpret_cast<const void *>(module + state_employment_registry_rva), 0, &registry)
+            ? registry : nullptr;
+    }
+
+    bool ReadProvinceRgo(const void *registry, const void *province, int32_t province_id,
+                         size_t province_count, uint32_t groups, RgoSnapshot *snapshot)
+    {
+        if (registry == nullptr || province == nullptr || snapshot == nullptr || province_id < 0
+            || province_count > max_sample_destination_provinces) return false;
+        ResetMemoryRegionCache();
+        PointerVector records{};
+        uint32_t record_count = 0;
+        if (!ReadAt(registry, 0, &records)
+            || !VectorCount(records, state_employment_record_size, max_sample_destination_provinces, &record_count)
+            || record_count != province_count || static_cast<uint32_t>(province_id) >= record_count) return false;
+
+        const auto *record = static_cast<const uint8_t *>(records.begin)
+            + static_cast<size_t>(province_id) * state_employment_record_size;
+        const void *record_province = nullptr;
+        RgoSnapshot value{};
+        value.province_id = province_id;
+        if (!ReadAt(record, state_employment_province_offset, &record_province) || record_province != province) return false;
+
+        if ((groups & RGO_IDENTITY) != 0 || (groups & (RGO_PRODUCTION | RGO_MODIFIERS)) != 0) {
+            const void *production_type = nullptr;
+            const void *output_good = nullptr;
+            const void *definition_output_good = nullptr;
+            if (!ReadAt(record, state_employment_production_type_offset, &production_type)
+                || !ReadAt(record, state_employment_output_good_offset, &output_good)
+                || !ReadAt(production_type, production_type_output_good_offset, &definition_output_good)
+                || definition_output_good != output_good
+                || !ReadAt(output_good, goods_ordinal_offset, &value.output_good_ordinal)
+                || value.output_good_ordinal < 0 || value.output_good_ordinal >= 64) return false;
+            if ((groups & RGO_IDENTITY) != 0
+                && (!ReadNormalizedKey(production_type, 0x08, value.production_type, sizeof(value.production_type))
+                    || !ReadNormalizedKey(output_good, goods_key_offset, value.output_good, sizeof(value.output_good)))) {
+                return false;
+            }
+            if ((groups & RGO_PRODUCTION) != 0) {
+                if (!ReadAt(production_type, production_type_base_output_offset, &value.base_output_per_size_raw)
+                    || !ReadAt(record, state_employment_base_size_offset, &value.base_size_raw)
+                    || !ReadAt(record, state_employment_output_efficiency_offset, &value.output_efficiency_raw)
+                    || !ReadAt(record, state_employment_throughput_offset, &value.throughput_raw)
+                    || value.base_output_per_size_raw < 0 || value.base_size_raw < 0
+                    || value.output_efficiency_raw < 0 || value.throughput_raw < 0) return false;
+                int64_t output_modifier_raw = 0;
+                int64_t output_per_size_raw = 0;
+                if (!MultiplyFixed15(value.output_efficiency_raw, value.throughput_raw, &output_modifier_raw)
+                    || !MultiplyFixed15(output_modifier_raw, value.base_output_per_size_raw, &output_per_size_raw)
+                    || !MultiplyFixed15(output_per_size_raw, value.base_size_raw, &value.gross_output_raw)) return false;
+            }
+            if ((groups & RGO_MODIFIERS) != 0) {
+                const void *state = nullptr;
+                const void *owner_modifier = nullptr;
+                const void *population_by_type = nullptr;
+                int32_t owner_pop_type_ordinal = -1;
+                if (!ReadAt(province, province_state_offset, &state)
+                    || !ReadAt(production_type, production_type_owner_modifier_offset, &owner_modifier)
+                    || !ReadAt(owner_modifier, owner_modifier_pop_type_ordinal_offset, &owner_pop_type_ordinal)
+                    || owner_pop_type_ordinal < 0 || owner_pop_type_ordinal >= 128
+                    || !ReadAt(state, state_population_by_type_offset, &population_by_type)
+                    || !ReadAt(population_by_type, static_cast<size_t>(owner_pop_type_ordinal) * sizeof(int32_t),
+                        &value.owner_population)
+                    || !ReadAt(state, state_rgo_capacity_offset, &value.state_rgo_employment_capacity)
+                    || value.owner_population < 0 || value.state_rgo_employment_capacity < 0) return false;
+                if (value.state_rgo_employment_capacity != 0) {
+                    value.owner_output_modifier_raw = static_cast<int64_t>(value.owner_population) * 32768
+                        / value.state_rgo_employment_capacity;
+                }
+            }
+        }
+        if ((groups & RGO_EMPLOYMENT) != 0
+            && (!ReadAt(province, province_rgo_capacity_offset, &value.employment_capacity)
+                || !ReadAt(record, state_employment_employed_offset, &value.employed)
+                || value.employment_capacity < 0 || value.employed < 0
+                || value.employed > value.employment_capacity)) return false;
+        if ((groups & (RGO_FINANCE | RGO_SALES)) != 0
+            && (!ReadAt(record, state_employment_income_offset, &value.income_raw) || value.income_raw < 0)) return false;
+        if ((groups & RGO_SALES) != 0
+            && (!ReadAt(record, state_employment_percent_sold_domestic_offset, &value.percent_sold_domestic_raw)
+                || !ReadAt(record, state_employment_percent_sold_export_offset, &value.percent_sold_export_raw)
+                || !ReadAt(record, state_employment_leftover_offset, &value.leftover_raw)
+                || value.percent_sold_domestic_raw < 0 || value.percent_sold_domestic_raw > 32768
+                || value.percent_sold_export_raw < 0
+                || value.leftover_raw < 0)) return false;
         *snapshot = value;
         return true;
     }

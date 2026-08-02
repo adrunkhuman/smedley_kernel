@@ -802,6 +802,7 @@ namespace
             profile.script_instruction_budget = retained_script_instruction_budget_;
             profile.script_memory_bytes = retained_script_memory_bytes_;
             profile.script_queue_capacity = retained_script_queue_capacity_;
+            profile.telemetry_captures = retained_telemetry_captures_;
             const auto save = GetText(save_path_);
             if (!save.empty()) profile.save = fs::path(save);
             profile.observer = SendMessageW(observer_, BM_GETCHECK, 0, 0) == BST_CHECKED;
@@ -1044,6 +1045,7 @@ namespace
             retained_script_instruction_budget_ = profile.script_instruction_budget;
             retained_script_memory_bytes_ = profile.script_memory_bytes;
             retained_script_queue_capacity_ = profile.script_queue_capacity;
+            retained_telemetry_captures_ = profile.telemetry_captures;
             // Loading a profile replaces the current selections; it does not
             // merge them.
             discovered_mods_.clear();
@@ -1141,6 +1143,7 @@ namespace
         std::vector<fs::path> retained_mods_;
         std::vector<fs::path> retained_plugins_;
         std::vector<fs::path> retained_scripts_;
+        std::vector<launcher::TelemetryCaptureRule> retained_telemetry_captures_;
         int retained_script_instruction_budget_ = 100000;
         int retained_script_memory_bytes_ = 8388608;
         int retained_script_queue_capacity_ = 256;

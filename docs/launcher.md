@@ -34,12 +34,20 @@ telemetry_enabled = false
 telemetry_output = "C:\\traces\\gfm.jsonl" # optional; default is per-run under %LOCALAPPDATA%
 telemetry_categories = ["lifecycle", "state"] # lifecycle, state, or both
 telemetry_sample_days = 1 # 1 through 365
-telemetry_queue_capacity = 1024 # 64 through 8192
+telemetry_queue_capacity = 1024 # 64 through 32768
+telemetry_gold_to_cash_rate = 0.5 # required by country.economy
 telemetry_overwrite = false # required to replace an existing .jsonl file
 scripts = ["scripts/examples/country_log.lua"] # optional Lua source under GAME_DIR/scripts
 script_instruction_budget = 100000 # 1000 through 10000000 per chunk/callback
 script_memory_bytes = 8388608 # 262144 through 67108864 per script
 script_queue_capacity = 256 # 16 through 4096 copied events
+
+[[telemetry_captures]] # optional; explicit rules replace legacy state sampling
+family = "country.daily"
+cadence = "weekly" # daily, weekly, monthly, or yearly
+fields = ["treasury_raw"] # empty means every family field
+country_tags = ["ENG", "D01"]
+province_ids = []
 ```
 
 `mods` selects ordinary Victoria II descriptors. Each descriptor must be under
@@ -88,6 +96,12 @@ their corresponding profile fields:
 - `--telemetry-sample-days`
 - `--telemetry-queue-capacity`
 - `--telemetry-overwrite`
+- `--telemetry-capture "family|cadence|fields|countries|provinces|start|end"`
+
+`--telemetry-capture` may be repeated. Supplying any CLI capture rule replaces
+all rules loaded from the profile. Use profiles for large rule sets. Empty
+country or province components mean all entities; daily all-entity capture is
+allowed but can materially affect simulation throughput and trace volume.
 
 Shared preflight requires selected plugin ID `telemetry` when telemetry is
 enabled. It accepts only `lifecycle` and `state` categories and validates the
@@ -154,6 +168,9 @@ The GUI includes telemetry enablement, an optional JSON Lines output browse
 field, a compact category selector (`Lifecycle + state`, `Lifecycle only`, or
 `State only`), sample-days input, queue-capacity input, and overwrite checkbox.
 These controls build the same profile and use the same preflight as the CLI.
+The GUI preserves explicit capture rules loaded from a profile and launches
+them, but it does not yet provide a rule editor. Edit rules in TOML or replace
+them with CLI `--telemetry-capture` options.
 
 The GUI preserves and launches script paths and limits loaded from a profile.
 Adding or removing scripts currently uses the profile file or CLI; the GUI does

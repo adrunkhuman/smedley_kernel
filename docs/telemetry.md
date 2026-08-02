@@ -20,14 +20,149 @@ validation before launch.
 | `telemetry_start_date_raw` | integer, optional | none | Inclusive raw game-date lower bound. |
 | `telemetry_end_date_raw` | integer, optional | none | Inclusive raw game-date upper bound; cannot precede start. |
 | `telemetry_sample_days` | integer | `1` | 1 through 365 game days. Applies before country extraction and formatting. |
-| `telemetry_queue_capacity` | integer | `1024` | 64 through 8192 fixed record slots. |
+| `telemetry_queue_capacity` | integer | `1024` | 64 through 32768 fixed record slots. |
 | `telemetry_overwrite` | boolean | `false` | Required to replace an existing output. |
+| `telemetry_gold_to_cash_rate` | number, optional | none | Required by `country.economy`; greater than 0 through 1000. Use the active mod's `GOLD_TO_CASH_RATE` (`0.5` in vanilla, `1.0` in GFM). |
+
+Profiles may instead add up to 32 explicit capture rules. A family may appear
+once. Explicit rules replace legacy `state` sampling; lifecycle category
+selection remains global. Capture rules require the `state` category.
+
+```toml
+telemetry_gold_to_cash_rate = 0.5
+
+[[telemetry_captures]]
+family = "world.economy"
+cadence = "monthly"
+fields = ["health", "holdings"]
+country_tags = []
+province_ids = []
+
+[[telemetry_captures]]
+family = "province.daily"
+cadence = "daily"
+fields = ["owner_tag_candidate", "life_rating_candidate", "infrastructure_candidate_raw"]
+country_tags = []
+province_ids = [1, 300, 549]
+
+[[telemetry_captures]]
+family = "pop.aggregate"
+cadence = "monthly"
+fields = ["pop_count", "size_candidate", "money_raw", "savings_raw"]
+country_tags = []
+province_ids = [549]
+
+[[telemetry_captures]]
+family = "country.economy"
+cadence = "yearly"
+fields = ["totals", "components", "per_capita"]
+country_tags = ["ENG", "FRA", "PRU", "USA", "CHI"]
+province_ids = []
+
+[[telemetry_captures]]
+family = "pop.cashflow"
+cadence = "daily"
+fields = ["summary", "account", "components"]
+country_tags = ["PRU"]
+province_ids = []
+
+[[telemetry_captures]]
+family = "pop.cashflow.aggregate"
+cadence = "daily"
+fields = ["summary", "account", "components"]
+country_tags = []
+province_ids = []
+```
+
+Each rule accepts `family`, `cadence`, `fields`, `country_tags`, `province_ids`,
+and optional `start_date_raw` and `end_date_raw`. Empty `fields` selects every
+field in that family. Country filters are valid for all `country.*` families and
+`state.factory`.
+Province filters are valid for `province.daily`, `province.production`, `province.rgo`, `pop.economy`,
+`pop.demographics`, and `pop.aggregate`. An empty entity filter means every
+entity, including daily all-province or all-POP capture when explicitly
+requested. Country families filter the country supplied by each
+`DailyUpdateEvent`; they do not initiate a separate country traversal. Global
+families such as `world.military` have no country entity and ignore country
+filters.
+
+| Family | Selectable fields |
+| --- | --- |
+| `world.daily` | `country_slot_count`, `ai_scheduler_entry_count`, `human_control_present` |
+| `world.economy` | record groups `health`, `capacity`, `holdings`, `credit` |
+| `country.daily` | `treasury_raw`, `treasury` |
+| `country.metrics` | record groups `power`, `politics` |
+| `country.economy` | interval groups `totals`, `components`, `per_capita` |
+| `country.military` | `unit_count_candidate`, `mobilized_candidate`, `scheduled_mobilization_count_candidate`, `leadership_candidate_raw`, `military_ranking_candidate` |
+| `world.military` | `ongoing_war_count_candidate` |
+| `country.diplomacy` | record groups `status`, `relations` |
+| `state.factory` | record groups `identity`, `employment`, `production`, `finance`, `inputs`, `flows`, `sales` |
+| `world.market` | record groups `price`, `supply`, `demand`, `sales` |
+| `province.daily` | `owner_tag_candidate`, `controller_tag_candidate`, `colonial_level_candidate`, `life_rating_candidate`, `infrastructure_candidate_raw` |
+| `province.production` | `building_slot_count_candidate`, `construction_count_candidate` |
+| `province.rgo` | record groups `identity`, `employment`, `production`, `finance`, `modifiers`, `sales` |
+| `pop.artisan` | record groups `identity`, `production`, `inputs`, `finance`, `flows`, `sales` |
+| `pop.economy` | `money_raw`, `savings_raw`, `interest_cash_flow_raw`, `total_cash_flow_raw` |
+| `pop.demographics` | `size_candidate`, `employed_candidate`, `consciousness_candidate_raw`, `militancy_candidate_raw`, `literacy_candidate_raw` |
+| `pop.aggregate` | `pop_count`, `size_candidate`, `employed_candidate`, `money_raw`, `savings_raw` |
+| `pop.cashflow` | record groups `summary`, `account`, `components` |
+| `pop.cashflow.aggregate` | record groups `summary`, `account`, `components` |
+
+Cadences are `daily`, `weekly`, `monthly`, and `yearly`. Weekly capture is
+anchored to the first eligible observed date and repeats every seven game days.
+Monthly and yearly capture emits on the first observed date in each Victoria II
+calendar period. The game calendar has 24 raw units per day, fixed 365-day
+years, no leap day, and epoch `-5000.1.1`; `1836.1.2` is raw `59883384`.
+Date regression resets each rule independently.
+Producer `sales` capture is daily only because realized quantity requires the
+previous day's closing inventory. Profiles selecting `sales` at another cadence
+are rejected before launch and again by the plugin parser.
+Both POP cash-flow families are also daily only. Individual `pop.cashflow`
+requires at least one country or province filter because it emits high-cardinality
+records; `pop.cashflow.aggregate` may cover every country.
+
+`country.economy` treats cadence as an accounting interval rather than a
+point-in-time sampling trigger. It reads daily factory, RGO, artisan,
+population, and market state into fixed country accumulators, then emits the
+completed daily, weekly, monthly, or yearly period and resets the accumulators.
+Daily cadence therefore emits one compact country snapshot per day; yearly
+cadence emits the sum of observed daily value added for the year rather than a
+single January production rate. Instrumentation memory remains bounded by 512
+country slots, 64 goods, and the existing factory boundary arrays.
+
+The family emits:
+
+- `country.economy.interval`: period bounds, observed/expected days, invalid
+  days, completeness, and average population.
+- `country.economy.total`: nominal GDP, base-price real GDP, base date, and the
+  configured precious-metal cash rate.
+- `country.economy.component`: factory, RGO, and artisan nominal/real value
+  added.
+- `country.economy.per_capita`: nominal and real period GDP divided by average
+  population.
+- `country.economy.quality`: count of factory snapshots whose cached output was
+  positive although no settlement boundary ran during that day.
+
+The first factory observation cannot establish consumption because it has no
+previous closing stock. Its country/day is emitted with `complete=false`, not
+omitted. A period remains present when a date, country, or producer boundary is
+incomplete; consumers must use `observation_days`, `expected_days`,
+`invalid_days`, and `complete` rather than treating partial GDP as verified.
+Factory value added becomes complete after consecutive settlement boundaries.
+After warm-up, absence of a factory settlement boundary means no verified
+factory production for that day; the plugin does not value the factory's
+cached `output_raw`. Such candidates remain visible through
+`unsettled_output_candidates`. A present but unreconciled boundary, or any
+hook capture drop, makes the country/day incomplete.
+Real GDP uses market prices from the first successfully observed economy day as
+its fixed base. Date regression clears both period accumulators and base prices.
 
 Selecting the `state` category also enables bounded world economic snapshots in
 `telemetry.dll`. Collection follows the same inclusive date bounds and
 `telemetry_sample_days` interval. A complete world POP walk is materially more
-expensive than ordinary treasury sampling. Country filters apply only to
-`country.daily`; they do not suppress global world records.
+expensive than ordinary treasury sampling. Legacy top-level country filters
+apply to `country.daily`; explicit rule filters apply to every `country.*`
+family. Neither suppresses global world records.
 
 If no output path is supplied, a real injected launch derives
 `%LOCALAPPDATA%\Smedley\traces\<run-id>.jsonl`. The launcher creates its run ID
@@ -42,7 +177,10 @@ CLI controls are `--telemetry`, `--no-telemetry`, `--telemetry-output PATH`,
 repeatable `--telemetry-category lifecycle|state`,
 `--telemetry-sample-days N`, `--telemetry-queue-capacity N`, and
 `--telemetry-overwrite`, repeatable `--telemetry-country TAG`,
-`--telemetry-start-date-raw N`, and `--telemetry-end-date-raw N`.
+`--telemetry-start-date-raw N`, and `--telemetry-end-date-raw N`. Repeat
+`--telemetry-capture "family|cadence|fields|countries|provinces|start|end"`
+to replace profile rules from the CLI. Comma separates fields and entity IDs;
+empty components are allowed.
 
 Outputs must end in `.jsonl` (case-insensitive). Existing outputs are rejected
 unless overwrite is explicit. Directories, reparse points, and paths colliding
@@ -108,6 +246,17 @@ report these delivery metrics:
 | `callback_count` | Number of callback attempts. |
 | `skipped_unsampleable` | Samples skipped because the mapped game state was unavailable. |
 
+At a coordinated drain, one `telemetry.family.summary` record is attempted per
+configured family. It reports `polls_due`, `collection_attempts`, `accepted`,
+`filtered`, `dropped`, `invalid`, and `collection_us`. These counters describe
+producer results, not records subsequently written by the shared worker.
+
+At session start, reliable `telemetry.capture.rule`,
+`telemetry.capture.field`, and `telemetry.capture.country` records describe the
+configured cadence, selected fields, date bounds, and entity filters. Strict
+derived exports use these records to distinguish a genuine zero from a family
+that was configured with incomplete scope.
+
 `country.daily` is a `state` record from `DailyUpdateEvent` with `provisional`
 quality. Its stable entity is the three-character country tag. Its payload
 contains `treasury_raw` and
@@ -116,12 +265,366 @@ fixed-point representation is 48.15. It deliberately does not contain
 `treasury_shadow`, pointers, guessed AI intentions, candidates, scores, or
 decision reasoning. This is economy state telemetry, not a decision trace.
 
+`country.metrics` emits provisional `country.metrics.power` and
+`country.metrics.politics` records keyed by country tag. Power contains raw
+prestige and infamy candidates plus overall, military, industrial, and prestige
+ranking candidates. Politics contains raw plurality, war exhaustion, diplomatic
+points, research points, and leadership candidates. All raw fields except
+leadership use the game's 1/1000 scalar representation; leadership uses 48.15
+fixed point and divides by 32,768.
+
+Vanilla run `f1e91e80-a3fc-41f6-9dc4-45fc2577f068` correlated PRU against
+`benchmark.v2`: prestige 50.055, plurality 25.059, diplomatic points 5.000,
+research points 32.603, leadership 8.26196, and zero infamy and war exhaustion.
+Observed rankings were overall 4, military 4, industrial 4, and prestige 5.
+
+`country.military` and `world.military` expose only bounded aggregate candidates.
+`country.military` reports country unit-list count, mobilization state and
+schedule count, leadership, and military ranking. `world.military` has no entity
+and reports only the global ongoing-war list count. They do not
+expose unit, regiment, war, side, or battle identities. Run
+`970c3cf3-f56f-4f10-aed8-5f153534150a` observed PRU with 12 unit-list entries,
+no active or scheduled mobilization, leadership raw 270728, military rank 4,
+and three global ongoing-war entries.
+
+`country.diplomacy` emits provisional status and relation summaries keyed by
+country tag. Status contains substate/vassal flags plus overlord and sphere-
+leader tag candidates. Relations contains sphereling, vassal, ally, guarantee,
+and neighbor counts. Run `70db3477-0e35-4fa6-8ea4-415bc96e7483` observed PRU
+with no overlord or sphere leader, 15 spherelings, five allies, zero vassals or
+guarantees, and 21 neighbors. Influence values and opaque diplomatic actions or
+statuses remain unavailable.
+
+`state.factory` emits one record per selected group and factory from the owning
+country's bounded state list. Factory entities are country tag, serialized
+persistent state ID, and factory-definition key. Identity additionally carries
+the shared state-region key, anchor-province candidate, level, subsidy state, and closed
+state. Persistent state IDs distinguish separately owned state instances;
+owner-specific portions of a split state share the same `CRegion` key.
+
+A controlled `SAX_558` merge retained PRU state 757, removed SAX state 907, and
+moved the same `fabric_factory` node into PRU immediately while paused. This
+verifies ordinary non-duplicate attribution and lineage. Duplicate factory-type
+selection was also tested for equal-level Fabric Factories: the recipient PRU
+node survived unchanged, including subsidy and budget, while the transferred
+SAX node disappeared. Different-level duplicates and merges above eight
+distinct types remain unavailable.
+
+Employment reports total employees plus craftsmen and clerk assignment totals.
+Production reports current `output_raw`, output-good key and ordinal, and the
+definition's `base_output_raw`; fixed-point output values use a 32,768 scale.
+`inputs` emits one record per good present in either the factory stockpile or
+requested-input pool. `stockpile_raw` is the current holding. The engine writes
+the recipe requirement remaining after stockpile subtraction and a zero clamp
+into this pool before market settlement; telemetry samples the retained value
+after the daily boundary as `requested_raw`. Both use the 32,768 quantity scale.
+`requested_raw` is demand, not fulfilled purchases or physical consumption.
+
+Run `8b355d27-c585-4fb7-8c8f-f79caf33c025` validated two daily snapshots for
+all seven Prussian factories. It accepted 92 factory records with zero invalid
+or dropped results. On the second date, valuing every factory's
+`requested_raw` quantities at same-date market prices reproduced its
+`market_spending_expense_raw`; each of the seven differences was below 0.000081
+currency. For Glass, the detailed difference was 0.000056 currency.
+This establishes purchase demand and cost, but a shortage case is still needed
+to distinguish requested from fulfilled quantities.
+
+Belgian run `a859d772-6846-4749-9fb6-d12467774133` supplied that shortage case.
+It accepted 123 factory records across six factories and three dates with zero
+invalid or dropped results. Cement's requested-input value exceeded actual
+market spending by 0.09938 currency on the second date and 0.41326 on the third;
+Canned Food missed by 0.23857 on the third date. Fully supplied factories still
+matched within 0.00009. The retained pool therefore records requested demand,
+not fulfilled purchases.
+
+Daily intermediate consumption value can be estimated without assigning the
+fulfilled purchase shortfall to individual goods:
+
+```text
+intermediate consumption = market spending
+                         + opening input stock valued at current prices
+                         - closing input stock valued at current prices
+
+factory value added = current output * current output price
+                    - intermediate consumption
+```
+
+Using current prices for both inventory endpoints avoids introducing
+revaluation into the stock-change term. The estimate assumes the snapshots
+bracket the same purchase/consumption interval as market spending and that no
+other stock transfer or write-off occurs. Market spending remains the engine's
+transaction value, which can differ from current-price valuation when prices
+move. Thirty-day Belgian run `3aacdf40-e989-4d52-92c8-f052fa2a78d8` captured
+1,230 accepted factory records with zero invalid or dropped results. Its 29
+complete daily intervals retained the same six factories through sustained
+shortages. Every one of the 174 factory-interval results had positive value
+added. Country totals averaged 119.3726 gross output, 99.8497 intermediate
+consumption, and 19.5229 value added; daily value added ranged from 16.2549 to
+20.7850. This supports the interval alignment but does not turn transaction
+spending and current-price inventory valuation into the same price basis, so
+the derived result remains provisional.
+
+Finance reports nonnegative observed amounts: `budget_raw`,
+`market_spending_expense_raw`, `sales_income_raw`, `paychecks_expense_raw`, and
+`investment_income_raw`. Displayed currency is raw / 32,768,000. Expense fields
+remain positive in telemetry; the UI supplies their minus signs. Vanilla
+`FACTORY_PAYCHECKS_LEFTOVER_FACTOR` is 0.25, but mods can override it (GFM uses
+0.3), so telemetry records the engine result rather than deriving paychecks.
+The wiki documents employment and production formulas but not a paycheck
+cadence; no cadence claim is made.
+
+The UI's last-day balance equals sales income plus investment income minus
+market-spending and paycheck expenses. The main factory-list profit is a
+separate computed display value and remains unavailable. Upgrade projects use
+an embedded state `CPopProject`; progress and material acquisition remain
+unavailable until its referenced storage is correlated. Upgrade availability
+must not be inferred because policy, ownership, funds, level, and existing
+projects can prevent it.
+
+The optional factory `sales` group emits `state.factory.sales.summary` for every
+sampled factory. `settlement_seen`, `settlement_count`, and `complete` expose
+missing, duplicate, and invalid finance boundaries rather than silently omitting
+the factory. A complete summary has one paired `sales.quantity` and
+`sales.revenue` record. Quantity reports output-good ordinal, opening inventory,
+production, realized sold quantity, and closing inventory, all at the 32,768
+scale. Revenue reports settlement proceeds at the 32,768,000 money scale.
+The enforced identity is `sold = opening + produced - closing`.
+
+RGO and artisan sales use the same three-record shape under
+`province.rgo.sales.*` and `pop.artisan.sales.*`. Factory summaries contain
+`settlement_seen`, `settlement_count`, and `complete`; RGO and artisan summaries
+contain `settlement_seen`, `opening_inventory_seen`, and `complete`. Every
+complete `.quantity` record contains `output_good_ordinal`,
+`opening_inventory_raw`, `produced_raw`, `sold_raw`, and
+`closing_inventory_raw`. Every `.revenue` contains `proceeds_raw`; RGO and
+artisan revenue also retains `percent_sold_domestic_raw` and
+`percent_sold_export_raw`. Factory identity is country/state/type, RGO identity
+is country/province, and artisan identity is country/province/`pop_id`.
+
+Vanilla run `40d36695-696f-408e-af64-df266a1cfcc8` emitted identity,
+employment, production, and finance records for all seven PRU factories on
+1836.1.3: four in the state anchored by Berlin 549, one anchored by province
+575, and two anchored by province 682. All 28 records were accepted with zero
+filtered, dropped, or invalid records. Brandenburg's types, levels, employment,
+and Small Arms values exactly matched the independent UI and read-only process
+probe.
+
+Depth run `734efd9b-7873-4c26-b9aa-660422b3d4ad` emitted 53 factory records:
+seven each for identity, employment, production, and finance plus 25 input
+stockpile records. The trace had zero gaps, filtered records, drops, or invalid
+records. Persistent state IDs were 750, 753, and 756; all Brandenburg worker
+splits and Small Arms stockpile values matched the save exactly.
+
+Region run `421a1be4-c4c4-4e03-bcec-01d380742c7e` emitted the same 53 factory
+records with shared `state_region_key` identities, zero gaps, filters, drops, or
+invalid records.
+
+`world.market` emits one record per active zero-based goods ordinal and selected
+group. All amounts use the engine's 32,768 fixed-point scale. Price reports
+current and previous price; supply reports current/previous supply and world
+market stock; demand reports nominal and real demand; sales reports total actual
+sold and the world-market subset. Goods ordinals follow mod load order and need
+a future goods-catalog record for portable names. Global market records do not
+attribute sales to individual factories, RGOs, artisans, or countries.
+
+Run `51693f9a-19fb-4900-bfb8-3254022e79ae` emitted four market groups for 48
+goods with zero gaps, filters, drops, or invalid records. Small Arms matched the
+save exactly: price 37.01001, previous price 37.00000, supply 40.24960, demand
+320.48798, real demand 25.16080, actual sold 20.36069, and world-market sold
+4.80011.
+
+Country GDP is a strict offline production account exported by `smedley_trace
+country-gdp`; no in-game GDP record is invented. It combines direct factory
+consumption, ordinary RGO gross output, precious-metal output valued using the
+active mod's explicit `GOLD_TO_CASH_RATE`, artisan recipe consumption, and
+resident POP sizes. Realized sales, worker
+compensation, capitalist income, inventory change, and subsidies remain
+separate distribution and financing measures rather than production value.
+
+Four-day run `a4edf016-5d61-40e0-83e7-37b9df278e2a` disproved deriving sales
+from output, income, and market price alone: inferred sold/output ratios ranged
+from 0.14 to 2.16. The later finance-boundary mapping resolves this with direct
+opening and closing output inventory. Across the earlier run, every factory and
+day satisfied the exact cash-flow identity
+`budget_delta = sales_income + investment_income - market_spending - paychecks`.
+
+`province.rgo` emits selected groups from the bounded global `CStateEmployment`
+vector. Identity reports the production-type key and output-good key/ordinal;
+employment reports capacity and assigned workers; production reports recipe
+output per size, base size, output efficiency, throughput, and gross output;
+finance reports RGO income. Quantity fields and modifiers use the
+32,768 scale, while income uses the 32,768,000 money scale.
+`base_size_raw_candidate` remains as the v1 alias of verified `base_size_raw`.
+The daily `sales` group adds a settlement summary and, after one warm-up
+observation, paired quantity and revenue records. It reconciles previous
+leftover inventory plus current gross output against current leftover inventory.
+`opening_inventory_seen` distinguishes warm-up, date gaps, ownership changes,
+and output-good changes from a failed inventory reconciliation.
+Revenue retains the engine's domestic and export sold fractions as raw evidence;
+it does not claim that either fraction directly allocates the emitted total
+quantity. The export-clearing value can exceed `32768`; unlike the domestic
+fraction, it is not validated as a bounded percentage.
+
+Berlin 549 resolved `orchard`/`fruit`, capacity 195,625, employment 110,896,
+output efficiency 1.90, and throughput 0.9703. Görlitz 687 resolved
+`coal_mine`/`coal`, capacity 60,000, employment 54,730, output efficiency 1.45,
+and throughput 0.5472. Gross output follows the engine's fixed-point operation
+order: multiply efficiency by throughput, recipe output, then size, truncating
+by 15 fractional bits after each multiplication. This gives raw 676,588
+(20.648 displayed) for Berlin and 187,206 (5.713 displayed) for Görlitz.
+The `modifiers` group reports the owner POP population, total state RGO employment
+capacity, and their fixed-point ratio as `owner_output_modifier_raw`. Berlin's
+4,275 aristocrats / 457,875 capacity gives raw 305 (0.0093 displayed), while
+Görlitz's 848 / 60,000 gives raw 463 (0.0141 displayed).
+
+One-day run `ea77637b-f661-47f5-b85f-18d48de2a5a0` emitted all four groups for
+Berlin and Görlitz: eight accepted records with zero filters, drops, or invalid
+results. The benchmark stopped on the exact requested date.
+
+Follow-up run `b08cf98f-3ece-4467-9aec-6afe3284ab14` verified the exact gross
+output fields for both provinces with the same zero-invalid, zero-drop result.
+Run `e5f0655c-7a87-4342-a77a-96c2b2d47492` added the separate modifier records
+and accepted all ten selected records with zero invalid or dropped results.
+
+`pop.artisan` is country- and province-filterable. `identity` reports the
+persistent POP ID, production type, and output good. `production` reports the
+recipe output, actual `current_producing_raw` factor, and their fixed-point
+product. `inputs` reports current stock and the active recipe coefficient
+`need_raw` per good. Intermediate consumption is the recipe coefficient times
+`current_producing_raw`, truncating by 15 fractional bits, not a stock-delta
+estimate. For Berlin POP 8845, raw factor 23,565 and recipe inputs 65,536,
+65,536, and 163,840 produce consumed quantities 47,130, 47,130, and 117,825;
+the direct settlement trace independently left residual stocks 2, 2, and 5
+from prior closing stocks 47,132, 47,132, and 117,830.
+
+The optional artisan `flows` group records post-consumption stock, pre-purchase
+stock, and primary/secondary deliveries at the supported executable's market
+settlement callsites. It validates the recipe account but is not used to derive
+consumption across recipe changes: artisans can switch recipes, which
+legitimately replaces the input-good set between dates. A country-filtered
+three-day run emitted complete four-boundary settlements for all nine selected
+Berlin artisans after warm-up, with 40 flow records and no gaps, drops, or
+invalid records.
+
+Artisan `sales` uses the same summary, quantity, and revenue shape. POP ID,
+province, country, and output-good continuity are required across consecutive
+days. First observations, date gaps, and recipe switches emit `complete=false`
+without a quantity or revenue pair.
+
+Five-day run `662343cc-fc1a-4ad9-a95a-4215541612c6` emitted 21 factory,
+184 RGO, and 498 artisan quantity/revenue pairs, plus 230 RGO and 630 artisan
+summaries. All producer families reported zero invalid or dropped records. The
+missing first-day RGO and artisan pairs are explicit inventory warm-up, not
+zero sales. Final thirty-day run `dc58f6ce-369a-48c3-a1ad-fdae369b0193` exported
+5,152 strict rows: 196 factory, 1,334 RGO, and 3,622 artisan accounts, with zero
+gaps, drops, writer failures, family invalid records, or failed reconciliations.
+
+Annual run `7212971a-f622-488a-9283-e02056e5c001` captured 387,773 records.
+Factory and RGO remained healthy; a Machine Parts factory explicitly reported
+199 post-warm-up days without a settlement, exercising the incomplete/shutdown
+path without inventing zero sales. All 44,881 emitted artisan pairs reconciled,
+but the family reported 213 other invalid collection attempts later in the run,
+so strict export correctly rejected the annual trace. Producer events remain
+`provisional` until those long-run artisan collection failures are mapped.
+
+Metz 412 verifies the special precious-metal case. Its runtime RGO emitted
+gross output raw 262,128 (7.9995 units) and income raw 7,385,056,000, exactly
+matching save `last_income=225374.02344` after save serialization. That income
+is not gold cash creation. Precious-metal GDP is quantity times the active
+mod's `GOLD_TO_CASH_RATE`; vanilla defines 0.5 and GFM defines 1.0. The strict
+exporter requires this mod-dependent rate explicitly whenever a selected
+country produces precious metal.
+
+Candidate container metadata is validated before emission. Limits are 64
+province-building slots, 4,096 province constructions, 100,000 country units or
+scheduled mobilizations, 512 entries in each country relation vector, and 4,096
+ongoing wars. Factory capture allows 512 states, 64 factories per state, 4,096
+factories, 1,024 employment assignments per factory, and 16,384 input records
+per selected country. Direct flow capture has a separate 512-factory daily
+limit (2,048 hook records); exceeding it increments `invalid` and makes strict
+export fail. Artisan purchase-flow capture is country-filtered to at most 16
+tags and buffers at most 8,192 hook records per date. Negative list sizes,
+inconsistent null pointers, reversed or
+misaligned vector pointers, exceeded limits, and non-normalized candidate tags
+suppress the affected selected-country poll and increment the family's `invalid`
+count. Unselected factory groups are not traversed or validated.
+
 `world.daily` is emitted once per selected sample date before country filtering.
 It reports `country_slot_count`, `ai_scheduler_entry_count`, and
 `human_control_present` with `provisional` quality. Country slots include
 non-playable engine entries, and scheduler entries are not asserted to equal a
 count of AI-controlled countries. These names expose the observed containers
 without inventing stronger gameplay semantics.
+
+`province.daily` is an opt-in provisional snapshot keyed by numeric province
+ID. Its candidate fields come from the historical `CProvince` layout and remain
+named as candidates until broader runtime correlation is complete. A one-day
+vanilla runtime validation (`dd4c7396-4fa0-4598-9b76-e1d43874d690`) correlated province ID,
+owner, controller, colonial level, and life rating against `benchmark.v2` for
+provinces 1, 425, and 549. Berlin (549) reported infrastructure raw `160` while
+the save contained railroad level 1. That pair is evidence of correlation, not
+yet a supported conversion from raw infrastructure to displayed level.
+
+`province.production` is a provisional inventory of the province-level building
+definition vector and construction list. `building_slot_count_candidate` is not
+an active-building or factory count. Berlin reported three slots while the save
+serialized fort and railroad entries and omitted naval base. Factories are
+state-level objects exposed separately by `state.factory`; the province vector
+remains unrelated to factory count.
+
+The opt-in POP families use a bounded snapshot shared by all POP rules due on
+the same game date. `pop.economy` and `pop.demographics` emit one record per POP,
+identified by candidate province ID, candidate POP-type ID, and a snapshot-local
+index. The index is not durable across dates. `pop.aggregate` emits one lower-
+volume record per province and POP-type pair, summing POP count, size,
+employment, money, and savings. It intentionally aggregates across culture and
+religion because stable identifiers for those dimensions are not yet mapped.
+
+The daily POP cash-flow families observe every call to the supported
+`CPop::GiveMoney` boundary and compare those calls with consecutive POP money
+balances. Component indices are `0 needs`, `1 welfare`, `2 salary`, `3 expenses`,
+`4 events`, `5 projects`, `6 bank`, and `7 interest`. Each component reports the
+posted amount and the actual money change after engine clamping. The account
+identity is `closing_money_raw - opening_money_raw = money_delta_raw + residual_raw`.
+The first date is a warm-up and has no account record.
+
+`pop.cashflow` identifies a POP with durable runtime `pop_id` plus its current
+country, province, and candidate type. Promotion, demotion, split, merge, and
+other direct redistribution paths can occur outside `GiveMoney`, so an individual
+residual is evidence rather than an invalid family record. `pop.cashflow.aggregate`
+emits both candidate POP-type accounts and country-total accounts. Type residuals
+can be equal-and-opposite identity transfers; a country account is reconciled only
+when its residual is zero and the bounded hook reported complete capture. Taxes
+and tariffs have no independently verified POP field or cash-flow index and are
+therefore not reported as separate components.
+
+The individual events are `pop.cashflow.{summary,account,component}`. Their
+identity is country, province, candidate POP type, and `pop_id`; component
+records add `cash_flow_index` and `component`. Individual summaries report
+`opening_money_seen`, `capture_complete`, `reconciled`, and `call_count`.
+`pop.cashflow.aggregate.{summary,account,component}` replaces individual
+identity with country and candidate POP type, while
+`pop.cashflow.country.{summary,account,component}` uses country alone.
+Aggregate and country summaries report `opening_pop_count`, `closing_pop_count`,
+`opening_money_seen`, and `reconciled`. Every account reports
+`opening_money_raw`, `closing_money_raw`, `money_delta_raw`, and `residual_raw`;
+every component reports `posted_raw` and `money_delta_raw`. The CSV exporter
+represents country rows with `pop_type_id_candidate=-1`; JSONL country events do
+not invent that entity.
+
+POP money, savings, interest cash flow, and total cash flow reuse fields already
+verified by the interest-fix work. Size, employment, consciousness, militancy,
+literacy, province ID, and POP-type ID remain explicitly named as candidates.
+The three rate fields are raw 48.15 fixed-point values. A one-day vanilla probe
+(`4f40b617-b56a-4478-81b1-9e35b1d90b4e`) emitted 23 Berlin POPs in each detail
+family with no drops or invalid records; its size and displayed rate fields
+correlated with `benchmark.v2`.
+
+A second one-day run (`3ac4d510-7dbe-45af-9701-1902379785df`) enabled all three
+POP families together. It accepted 23 economy records, 23 demographic records,
+and 10 aggregates with no drops or invalid records. Snapshot collection took
+90,224 microseconds once; the later two rules reported zero additional snapshot
+collection time because they reused the same date's bounded copy.
 
 `telemetry` attempts one bounded scan per selected sample date. It
 always attempts to emit `world.economy.health`; it attempts the other `state`
@@ -176,7 +679,11 @@ and JSON formatting. Lifecycle progress remains useful when state records are
 excluded by date or country filters. Callbacks never perform file I/O or flush.
 The queue has fixed-capacity, fixed-size record slots. Ordinary callbacks use a
 non-waiting queue lock; full, contended, stopped, or oversized records are
-explicitly counted as dropped. `telemetry.progress`, `world.daily`,
+explicitly counted as dropped. Ordinary detail writes leave 16 slots, or one
+eighth of smaller queues, reserved for reliable records. Explicit country,
+province, or POP-province allowlists of at most 16 entities use reliable
+in-memory publication;
+unfiltered high-cardinality polling remains nonblocking. `telemetry.progress`, `world.daily`,
 date-regression, economic snapshot, and opt-in interest-fix result records use
 reliable bounded publication so lock contention alone cannot split their
 evidence. The queue remains bounded, and publication still performs no file I/O.
@@ -229,17 +736,137 @@ smedley_trace compare baseline.jsonl changed.jsonl
 smedley_trace assert-benchmark run.jsonl --completed --days 365
 smedley_trace assert-benchmark timeout.jsonl --failed timeout
 smedley_trace export-csv run.jsonl treasury.csv --event country.daily
+smedley_trace factory-value-added run.jsonl factory-va.csv --country BEL
+smedley_trace producer-sales run.jsonl producer-sales.csv --country FRA
+smedley_trace pop-cashflow run.jsonl pop-cashflow.csv --country FRA
+smedley_trace country-gdp run.jsonl gdp.csv --country FRA --gold-to-cash-rate 0.5
 smedley_trace export-trace run.jsonl eng.jsonl --country ENG
 ```
 
 Malformed complete records, invalid envelopes, mixed run IDs, and non-increasing
 sequences fail validation. An incomplete final line is warned and ignored.
-Exports create a new file by default. Both export commands accept `--overwrite`:
+Exports create a new file by default. Export commands accept `--overwrite`:
 the tool writes and flushes a sibling temporary file, then atomically replaces
 the destination only after the complete source snapshot validates. It rejects
 reparse paths, hard-linked destinations, and input/output aliases. CSV text
 cells beginning with `=`, `+`, `-`, or `@` receive a leading apostrophe to avoid
 spreadsheet formula interpretation; JSON numeric cells remain numeric.
+
+The opt-in `state.factory` `flows` group installs three observational callsite
+hooks for the supported executable. `state.factory.input.flow.summary` reports
+whether each factory exposed its post-consumption stock, pre-purchase stock,
+primary delivery, and secondary delivery boundaries, plus the settlement count.
+`state.factory.input.flow` reports the four corresponding quantities for every
+nonempty goods ordinal. Selecting ordinary `inputs` does not install these
+hooks.
+
+`factory-value-added` derives one country row for each complete daily interval.
+The trace must contain daily `state.factory` production and direct flow groups
+plus `world.market` prices. The first snapshot is normally a hook warm-up
+boundary, so an N-day capture yields at most N-2 rows. For each input, direct
+consumption is the previous flow's reconciled closing stock minus current
+post-consumption stock;
+the command values that physical quantity and current output at the closing
+date's prices. It rejects sequence or date gaps, telemetry drops or writer
+failure, missing or duplicate records, incomplete settlement boundaries,
+negative consumption, failed stock-flow reconciliation, missing prices,
+non-daily intervals, factory-set changes, unsupported mappings, and traces
+without final healthy factory, market, and writer summaries instead of treating
+unavailable data as zero. Rows use `verified-runtime` quality for the supported
+executable and mapping.
+
+When a factory skips purchase settlement, the opening boundary is its previous
+post-consumption stock rather than a nonexistent delivery total. This preserves
+consumption across shutdown, input shortage, or other no-purchase days.
+
+`producer-sales` exports one row per complete factory, RGO, or artisan sales
+account. It requires reconciled quantity/revenue pairs, matching summaries,
+healthy terminal summaries for every captured producer family and the writer,
+monotonic dates, and no sequence gaps. Incomplete warm-up rows are checked but
+not exported. The CSV leaves inapplicable identity and market-fraction columns
+empty; it never converts an unavailable split to zero. Export retains only one
+game date in memory and spools validated rows to the transactional temporary
+file, so memory does not grow with campaign duration.
+
+`pop-cashflow` exports complete daily candidate POP-type and country accounts
+from `pop.cashflow.aggregate`. Country-total rows use `pop_type_id_candidate=-1`.
+The CSV includes opening and closing balances, the observed component total,
+residual, reconciliation status, and posted/actual values for all eight
+components. It requires healthy terminal aggregate and writer summaries, no
+sequence or date gaps, matching summaries and accounts, and arithmetic
+reconciliation. Warm-up rows are checked but not exported. Individual detail
+remains in filtered JSONL because a world-wide per-POP CSV is intentionally not
+a supported low-volume export.
+
+`country-gdp` requires three consecutive daily snapshots and healthy terminal
+summaries for `world.market`, `state.factory`, `province.rgo`, `pop.artisan`,
+`pop.aggregate`, and the writer. It also requires matching daily poll counts and
+capture-contract metadata proving the required fields, an unbounded date range,
+the selected country, and no partial province filter. Nominal GDP values current physical output and
+consumption at current prices. Real GDP values the same quantities at the first
+snapshot's prices, or at `--base-date RAW`. The CSV includes factory, RGO,
+precious-metal, and artisan components, resident population, nominal and real
+GDP, and both per-capita values. `--gold-to-cash-rate` is mandatory only when
+the selected scope contains precious-metal output. The command rejects gaps,
+drops, invalid family records, missing prices or identities, incomplete factory
+boundaries, producer entrants without opening factory flow evidence, non-daily
+intervals, and missing active-mod gold valuation.
+
+A minimal unbounded PRU capture uses these rules; change all four `PRU` filters
+together for another country:
+
+```toml
+[[telemetry_captures]]
+family = "world.market"
+cadence = "daily"
+fields = ["price"]
+
+[[telemetry_captures]]
+family = "state.factory"
+cadence = "daily"
+fields = ["production", "flows"]
+country_tags = ["PRU"]
+
+[[telemetry_captures]]
+family = "province.rgo"
+cadence = "daily"
+fields = ["identity", "production"]
+country_tags = ["PRU"]
+
+[[telemetry_captures]]
+family = "pop.artisan"
+cadence = "daily"
+fields = ["identity", "production", "inputs"]
+country_tags = ["PRU"]
+
+[[telemetry_captures]]
+family = "pop.aggregate"
+cadence = "daily"
+fields = ["size_candidate"]
+country_tags = ["PRU"]
+```
+
+Do not set `start_date_raw`, `end_date_raw`, or `province_ids` on these rules.
+After at least three captured dates, export with
+`smedley_trace country-gdp run.jsonl gdp.csv --country PRU`; add
+`--gold-to-cash-rate RATE` when the selected scope contains precious-metal
+output.
+
+Live three-day PRU run `001c25f0-f5a4-429d-89b7-fafd126a3487` emitted capture
+contracts and 2,859 total records with zero gaps, drops, writer failure, or family invalid records and
+exported nominal GDP 1,422.356650989, real GDP 1,415.854841757, and population
+3,564,450. Live FRA run `64dc24a5-e811-4ed5-b3e9-90fa1943fe79` emitted capture contracts and healthy
+records for 87 RGOs, 164 active artisans, population, market prices, and factory
+flows per date. With vanilla rate 0.5 it exported nominal GDP 3,997.530945404,
+real GDP 3,985.369406416, population 8,784,157, and precious-metal value added
+4.024536133.
+
+Four-day flows-only run `b7c6d433-2404-49f7-a12f-738810579949` selected only
+factory `production`, factory `flows`, and market `price`. It emitted 24
+production records, 24 complete flow summaries, and 69 flow records with zero
+gaps, drops, invalid records, or writer failure. After the initial hook warm-up,
+the two exported country intervals produced value added of 17.719507277 and
+19.813987492 with `verified-runtime` quality.
 
 `assert-benchmark` is the scriptable acceptance boundary. It exits successfully
 only when the trace has the requested completed or failed terminal state, typed

@@ -98,4 +98,65 @@ namespace telemetry_plugin
     {
         return static_cast<const smedley::v2::CCurrentGameState *>(context)->province(id);
     }
+
+    PopulationCapture EconomicCapture::CollectPopulation(
+        const smedley::v2::CCurrentGameState *game_state, int32_t date)
+    {
+        if (population_cached_ && cached_population_.date_raw == date) {
+            PopulationCapture cached = cached_population_;
+            cached.collection_us = 0;
+            return cached;
+        }
+        const auto started = std::chrono::steady_clock::now();
+        PopulationCapture capture{};
+        capture.date_raw = date;
+        const size_t slots = game_state->country_count();
+        if (slots == 0 || slots > static_cast<size_t>(max_world_countries) + 1) {
+            capture.flags = SAMPLE_COUNTRY_UNREADABLE;
+        } else {
+            uint32_t candidate_count = 0;
+            for (size_t ordinal = 1; ordinal < slots; ++ordinal) {
+                const auto *country = game_state->country(static_cast<int32_t>(ordinal));
+                Sample quality{};
+                uint32_t collected = 0;
+                const uint32_t province_remaining = capture.province_count >= max_sample_destination_provinces
+                    ? 0 : max_sample_destination_provinces - capture.province_count;
+                if (!CollectCountryPops(country, date, ResolveProvince, game_state,
+                        candidates_.data() + candidate_count, candidates_.size() - candidate_count,
+                        province_remaining, &collected, &quality)) {
+                    capture.flags |= quality.flags == 0 ? SAMPLE_COUNTRY_UNREADABLE : quality.flags;
+                    break;
+                }
+                ++capture.country_count;
+                capture.province_count += quality.destination_province_attempts;
+                candidate_count += collected;
+            }
+            capture.pop_count = candidate_count;
+            if (capture.complete()) {
+                std::sort(candidates_.begin(), candidates_.begin() + candidate_count,
+                    [](const PopCandidate &left, const PopCandidate &right) {
+                        return reinterpret_cast<uintptr_t>(left.address) < reinterpret_cast<uintptr_t>(right.address);
+                    });
+                for (uint32_t index = 1; index < candidate_count; ++index) {
+                    if (candidates_[index - 1].address == candidates_[index].address) {
+                        capture.flags |= SAMPLE_DUPLICATE_POP;
+                        break;
+                    }
+                }
+            }
+            if (capture.complete()) {
+                for (uint32_t index = 0; index < candidate_count; ++index) {
+                    if (!ReadPopDetailSnapshot(candidates_[index].address, &population_details_[index])) {
+                        capture.flags |= SAMPLE_POP_UNREADABLE;
+                        break;
+                    }
+                }
+            }
+        }
+        capture.collection_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - started).count());
+        cached_population_ = capture;
+        population_cached_ = true;
+        return cached_population_;
+    }
 }

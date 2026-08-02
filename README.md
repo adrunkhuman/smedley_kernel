@@ -90,8 +90,11 @@ and joins the writer, then writes the final summary, flushes, and closes the
 trace. If telemetry is absent or lacks the drain symbol, quit still proceeds
 without a final-summary or telemetry-durability guarantee.
 
-`telemetry` provides versioned JSON Lines records, including sampled country
-treasury state and bounded world economic snapshots when `state` is selected.
+`telemetry` provides versioned JSON Lines records. Profiles can independently
+schedule verified country, world, economic, and provisional province families
+daily, every seven days, monthly, or yearly, with field and entity filters.
+Explicit daily all-entity polling is supported; it is opt-in and reports its
+delivery and collection cost rather than silently limiting the request.
 
 `interest_bug_fix` is the independently selectable gameplay fix. It restores each
 verified creditor-bank interest transfer to that bank's positive-savings POPs
@@ -117,14 +120,24 @@ read-only telemetry plugin instead.
 
 `telemetry` is the opt-in JSON Lines telemetry plugin. Enable it in a profile,
 the CLI, or the native launcher and select its trusted manifest like any other
-native plugin. It records lifecycle events and sampled country economy state to
+native plugin. It records lifecycle events and configurable world, country,
+province, and POP snapshots at daily through yearly cadences to
 an explicit `.jsonl` output or `%LOCALAPPDATA%\Smedley\traces\<run-id>.jsonl`.
 See [`docs/telemetry.md`](docs/telemetry.md) for the schema, configuration, and
-current evidence limits. Country economy records are state snapshots, not AI
-decision reasoning.
+current evidence limits. Unmapped factories, units, battles, technologies, and
+decision internals remain unavailable rather than being guessed. State
+snapshots are not AI decision reasoning.
 
 `smedley_trace` validates, summarizes, compares, filters, and exports telemetry
-traces without external dependencies. Run `smedley_trace summary TRACE.jsonl` or
+traces without external dependencies. It derives verified daily factory value
+added and strict country nominal, real, and per-capita GDP from complete
+producer, market, and population captures. It also exports reconciled daily POP
+cash-flow accounts at country and candidate POP-type scope while retaining
+filtered individual detail in JSONL. The `producer-sales`, `pop-cashflow`, and
+`country-gdp` commands are strict offline exports: gaps, drops, incomplete
+boundaries, or unhealthy terminal summaries fail rather than becoming zero.
+Run
+`smedley_trace summary TRACE.jsonl` or
 see [`docs/telemetry.md`](docs/telemetry.md) for all commands.
 
 `scripting` runs selected source-visible Lua 5.1 files without exposing

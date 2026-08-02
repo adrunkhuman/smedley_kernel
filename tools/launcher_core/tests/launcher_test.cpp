@@ -231,6 +231,11 @@ TEST_F(LauncherCoreTest, SavesLoadsAndRejectsMalformedTelemetryProfileFields)
     original.telemetry_sample_days = 7;
     original.telemetry_queue_capacity = 512;
     original.telemetry_overwrite = true;
+    original.telemetry_gold_to_cash_rate = 0.5;
+    original.telemetry_captures = {
+        {"world.economy", "monthly", {"health", "holdings"}, {}, {}, -7, 12},
+        {"country.daily", "daily", {"treasury_raw"}, {"ENG", "D01"}, {}, std::nullopt, std::nullopt},
+    };
     std::vector<launcher::Diagnostic> diagnostics;
 
     ASSERT_TRUE(launcher::SaveProfile(root / L"telemetry.toml", original, &diagnostics));
@@ -245,6 +250,13 @@ TEST_F(LauncherCoreTest, SavesLoadsAndRejectsMalformedTelemetryProfileFields)
     EXPECT_EQ(loaded.telemetry_sample_days, 7);
     EXPECT_EQ(loaded.telemetry_queue_capacity, 512);
     EXPECT_TRUE(loaded.telemetry_overwrite);
+    ASSERT_TRUE(loaded.telemetry_gold_to_cash_rate);
+    EXPECT_DOUBLE_EQ(*loaded.telemetry_gold_to_cash_rate, 0.5);
+    ASSERT_EQ(loaded.telemetry_captures.size(), 2u);
+    EXPECT_EQ(loaded.telemetry_captures[0].family, "world.economy");
+    EXPECT_EQ(loaded.telemetry_captures[0].cadence, "monthly");
+    EXPECT_EQ(loaded.telemetry_captures[0].fields, (std::vector<std::string>{"health", "holdings"}));
+    EXPECT_EQ(loaded.telemetry_captures[1].country_tags, (std::vector<std::string>{"ENG", "D01"}));
 
     Write(root / L"bad-telemetry.toml", "name = \"Bad\"\ngame_dir = \"C:/Game\"\ntelemetry_enabled = \"true\"\n");
     diagnostics.clear();
@@ -478,6 +490,18 @@ TEST_F(LauncherCoreTest, ValidatesTelemetryPluginAndBuildsPerRunTraceCommand)
     profile.telemetry_country_tags = {"ENG"};
     profile.telemetry_start_date_raw = 3;
     profile.telemetry_end_date_raw = 9;
+    profile.telemetry_gold_to_cash_rate = 0.5;
+    profile.telemetry_captures = {
+        {"world.daily", "yearly", {"country_slot_count"}, {}, {}, std::nullopt, std::nullopt},
+        {"country.daily", "daily", {"treasury_raw"}, {"ENG"}, {}, 3, 9},
+        {"country.metrics", "monthly", {"power", "politics"}, {"PRU"}, {}, std::nullopt, std::nullopt},
+        {"state.factory", "daily", {"identity", "employment", "production", "finance", "inputs", "flows", "sales"}, {"PRU"}, {}, std::nullopt, std::nullopt},
+        {"world.market", "daily", {"price", "supply", "demand", "sales"}, {}, {}, std::nullopt, std::nullopt},
+        {"province.rgo", "daily", {"identity", "employment", "production", "finance", "modifiers", "sales"}, {"PRU"}, {549, 687}, std::nullopt, std::nullopt},
+        {"pop.artisan", "daily", {"identity", "production", "inputs", "finance", "flows", "sales"}, {"PRU"}, {}, std::nullopt, std::nullopt},
+        {"pop.aggregate", "daily", {"size_candidate"}, {"PRU"}, {}, std::nullopt, std::nullopt},
+        {"country.economy", "yearly", {"totals", "components", "per_capita"}, {"ENG", "PRU"}, {}, std::nullopt, std::nullopt},
+    };
     const auto plan = launcher::BuildLaunchPlan(profile);
 
     EXPECT_FALSE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
@@ -488,6 +512,53 @@ TEST_F(LauncherCoreTest, ValidatesTelemetryPluginAndBuildsPerRunTraceCommand)
     EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-queue-capacity=256"), std::wstring::npos);
     EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-country-tags=ENG"), std::wstring::npos);
     EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-start-date-raw=3"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-gold-to-cash-rate=0.500000"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=world.daily|yearly|country_slot_count||||"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=country.daily|daily|treasury_raw|ENG||3|9"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=country.metrics|monthly|power,politics|PRU|||"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=state.factory|daily|identity,employment,production,finance,inputs,flows,sales|PRU|||"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=world.market|daily|price,supply,demand,sales||||"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=province.rgo|daily|identity,employment,production,finance,modifiers,sales|PRU|549,687||"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=pop.artisan|daily|identity,production,inputs,finance,flows,sales|PRU|||"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=pop.aggregate|daily|size_candidate|PRU|||"), std::wstring::npos);
+    EXPECT_NE(plan.command_line.find(L"-smedley-telemetry-capture=country.economy|yearly|totals,components,per_capita|ENG,PRU|||"), std::wstring::npos);
+
+    auto missing_gold_rate = profile;
+    missing_gold_rate.telemetry_gold_to_cash_rate.reset();
+    const auto missing_gold_plan = launcher::BuildLaunchPlan(missing_gold_rate);
+    EXPECT_TRUE(std::any_of(missing_gold_plan.diagnostics.begin(), missing_gold_plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "telemetry.gold_to_cash_rate" && diagnostic.severity == launcher::Severity::Error;
+    }));
+
+    auto lifecycle_only = profile;
+    lifecycle_only.telemetry_categories = {"lifecycle"};
+    const auto lifecycle_only_plan = launcher::BuildLaunchPlan(lifecycle_only);
+    EXPECT_TRUE(std::any_of(lifecycle_only_plan.diagnostics.begin(), lifecycle_only_plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "telemetry.capture" && diagnostic.severity == launcher::Severity::Error;
+    }));
+
+    auto nondaily_sales = profile;
+    nondaily_sales.telemetry_captures[3].cadence = "monthly";
+    const auto nondaily_sales_plan = launcher::BuildLaunchPlan(nondaily_sales);
+    EXPECT_TRUE(std::any_of(nondaily_sales_plan.diagnostics.begin(), nondaily_sales_plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "telemetry.capture_cadence" && diagnostic.severity == launcher::Severity::Error;
+    }));
+
+    auto cashflow = profile;
+    cashflow.telemetry_captures.push_back(
+        {"pop.cashflow", "daily", {"summary", "account", "components"}, {"PRU"}, {}, std::nullopt, std::nullopt});
+    cashflow.telemetry_captures.push_back(
+        {"pop.cashflow.aggregate", "daily", {"summary", "account", "components"}, {}, {}, std::nullopt, std::nullopt});
+    const auto cashflow_plan = launcher::BuildLaunchPlan(cashflow);
+    EXPECT_FALSE(std::any_of(cashflow_plan.diagnostics.begin(), cashflow_plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code.rfind("telemetry.capture", 0) == 0 && diagnostic.severity == launcher::Severity::Error;
+    }));
+
+    cashflow.telemetry_captures.back().cadence = "monthly";
+    const auto nondaily_cashflow_plan = launcher::BuildLaunchPlan(cashflow);
+    EXPECT_TRUE(std::any_of(nondaily_cashflow_plan.diagnostics.begin(), nondaily_cashflow_plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "telemetry.capture_cadence" && diagnostic.severity == launcher::Severity::Error;
+    }));
 
     profile.telemetry_output = root / L"trace.txt";
     const auto bad_extension_plan = launcher::BuildLaunchPlan(profile);

@@ -328,6 +328,91 @@ status = "current-unverified"
 source = "smedley_kernel/include/smedley/v2/gamestate.hpp"
 
 [[symbols]]
+name = "CStateEmployment vector global"
+rva = 0x00e58728
+kind = "data"
+status = "verified-runtime"
+source = "accessor RVA 0x000c25b0 and multiple static callers index the returned begin pointer by province ID times 0xb0; the live 3,249-element vector maps Berlin 549 and Görlitz 687 to matching province, production type, goods, employment, modifiers, and income"
+
+[[symbols]]
+name = "CStateEmployment vector accessor"
+rva = 0x000c25b0
+kind = "function"
+status = "verified-static-callsites"
+signature = "a1 28 87 25 01 85 c0 75 33"
+source = "returns the singleton vector object stored at preferred VA 0x01258728; callers at RVAs 0x10950b, 0x340ed9, 0x555def, and others index its first vector by province ID times 0xb0"
+
+[[symbols]]
+name = "Loaded goods count"
+rva = 0x00e587f4
+kind = "data"
+status = "verified-runtime"
+source = "daily factory caller RVA 0x00084060 passes this count to the goods-pool index remapper at RVA 0x00ab1550; GFM runtime value 48 exactly bounds valid world-market and requested-input ordinals"
+
+[[symbols]]
+name = "Factory settlement callsite"
+rva = 0x000845fd
+kind = "callsite"
+status = "verified-runtime"
+signature = "e8 ee e9 ff ff"
+source = "opt-in factory flow hook observed post-consumption stock and reconciled it with deliveries at RVAs 0x0008369d/0x000836aa across 174 live intervals"
+
+[[symbols]]
+name = "Factory sales settlement callsite"
+rva = 0x00088710
+kind = "callsite"
+status = "verified-runtime"
+signature = "e8 1b c4 06 00"
+source = "the first stack argument is CStateBuilding* and the first 64-bit value argument exactly matches sales_income +0x160; live run 662343cc-fc1a-4ad9-a95a-4215541612c6 reconciled opening inventory, output +0xd8, closing inventory +0x1f8, and proceeds for all 21 captured factory settlements"
+
+[[symbols]]
+name = "Factory sales settlement"
+rva = 0x000f4b30
+kind = "function"
+status = "verified-runtime"
+source = "called at RVA 0x00088710 with CStateBuilding* and 64-bit proceeds; the callsite hook preserves the original call and live inventory chains reconcile across successive daily boundaries"
+
+[[symbols]]
+name = "Artisan settlement callsite"
+rva = 0x00086bff
+kind = "callsite"
+status = "verified-runtime"
+signature = "e8 9c ce ff ff"
+source = "EBX is CPop*; country-filtered live hooks reconciled post-consumption stock with both delivery callsites for nine Berlin artisans over two complete boundaries"
+
+[[symbols]]
+name = "Artisan primary delivery callsite"
+rva = 0x00083fca
+kind = "callsite"
+status = "verified-runtime"
+signature = "e8 51 9c ff ff"
+source = "EDI remains CPop* and ESI is its artisan economy/stockpile object; live flow records captured the stack-passed primary goods pool before the original CGoodsPool add"
+
+[[symbols]]
+name = "Artisan secondary delivery callsite"
+rva = 0x00083fda
+kind = "callsite"
+status = "verified-runtime"
+signature = "e8 41 9c ff ff"
+source = "same register contract as the primary callsite; live traces captured secondary deliveries and complete settlement counts"
+
+[[symbols]]
+name = "Artisan recipe requirement calculation"
+rva = 0x000dd3c0
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 83 e4 f8 51 53"
+source = "caller RVA 0x00086b81 passes CPop* in EAX, active CProductionType* and artisan economy on stack, and a temporary pool in ECX; static flow copies and scales recipe inputs and subtracts stock from the temporary pool rather than artisan stock"
+
+[[symbols]]
+name = "CStateEmployment gross output calculation"
+rva = 0x000de350
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 8b 48 2c 8b 50 28"
+source = "static data flow multiplies output efficiency, throughput, CProductionType+0x88 recipe output, and record +0x88 base size with a 15-bit shift after each product; live Berlin and Görlitz operands reproduce displayed 20.648 fruit and 5.713 coal"
+
+[[symbols]]
 name = "CCurrentGameState::LoadSave candidate"
 rva = 0x0027f1d0
 kind = "function"
@@ -619,11 +704,113 @@ source = "size from existing flags.hpp; PMIA 1.9.0 calls CTernary<CFlag *>::Get(
 name = "CState"
 status = "provisional"
 size = 0x0290
-source = "constructor RVA 0x000cdc60 and three allocation call sites establish size and 64-bit field shape; runtime resolved +0x48 elements as province indices and correlated +0x258 with scaled POP savings, while +0x260 semantics remain provisional"
+source = "constructor RVA 0x000cdc60 and three allocation call sites establish size; benchmark save and runtime correlate persistent ID +0x0c, province indices +0x48, factory list +0x60, embedded CPopProject +0x1c8, and scaled POP savings +0x258, while +0x260 semantics remain provisional"
 fields = [
+  { name = "persistent_state_id", offset = 0x000c },
   { name = "provinces_candidate", offset = 0x0048 },
+  { name = "factories", offset = 0x0060 },
+  { name = "rgo_employment_capacity", offset = 0x00c8 },
+  { name = "population_by_type_array", offset = 0x0118 },
+  { name = "pop_project", offset = 0x01c8 },
+  { name = "region", offset = 0x0250 },
   { name = "savings_in_bank_candidate", offset = 0x0258 },
   { name = "interest_payments_candidate", offset = 0x0260 },
+]
+
+[[layouts]]
+name = "CRegion"
+status = "verified-runtime"
+size = 0x0108
+source = "RTTI and contiguous runtime instances establish size; owner-specific CState instances share the same +0x250 CRegion pointer, with stable key +0x18 and display name +0x34 across split vanilla regions"
+fields = [
+  { name = "provinces", offset = 0x0008 },
+  { name = "key", offset = 0x0018 },
+  { name = "name", offset = 0x0034 },
+]
+
+[[layouts]]
+name = "CWorldMarket.market_data_prefix"
+status = "verified-runtime"
+size = 0x054c
+source = "live RTTI resolves CWorldMarket; embedded CGoodsPool fields correlate byte-for-byte with benchmark save worldmarket pools and run 51693f9a-19fb-4900-bfb8-3254022e79ae"
+fields = [
+  { name = "supply", offset = 0x0008 },
+  { name = "last_supply", offset = 0x0060 },
+  { name = "worldmarket_stock", offset = 0x0120 },
+  { name = "demand", offset = 0x0178 },
+  { name = "real_demand", offset = 0x01d0 },
+  { name = "price", offset = 0x0280 },
+  { name = "last_price", offset = 0x02d8 },
+  { name = "actual_sold", offset = 0x0434 },
+  { name = "actual_sold_world", offset = 0x04f4 },
+]
+
+[[layouts]]
+name = "CPopEmployment"
+status = "verified-runtime"
+size = 0x0010
+source = "RTTI and live CStateBuilding employment vectors resolved POP pointers and assigned counts; benchmark save and UI totals match every Brandenburg assignment"
+fields = [
+  { name = "pop", offset = 0x0008 },
+  { name = "assigned_count", offset = 0x000c },
+]
+
+[[layouts]]
+name = "CProductionType"
+status = "verified-runtime"
+size = 0x0160
+source = "constructor RVA 0x000dd0a0 establishes shape; live small-arms definition and vanilla production_types.txt correlate input pools, output CGoods pointer, and base output"
+fields = [
+  { name = "key", offset = 0x0008 },
+  { name = "input_goods", offset = 0x0024 },
+  { name = "output_good", offset = 0x0080 },
+  { name = "base_output", offset = 0x0088 },
+  { name = "maintenance_goods", offset = 0x0090 },
+  { name = "owner_output_modifier", offset = 0x00f0 },
+]
+
+[[layouts]]
+name = "CStateEmploymentRecord"
+status = "verified-runtime"
+size = 0x00b0
+source = "static callsites use province ID times 0xb0; live vector count equals the 3,249-province game-state vector and Berlin/Görlitz records match independent UI and POP observations"
+fields = [
+  { name = "production_type", offset = 0x0008 },
+  { name = "output_good", offset = 0x000c },
+  { name = "province", offset = 0x001c },
+  { name = "output_efficiency", offset = 0x0038 },
+  { name = "throughput", offset = 0x0040 },
+  { name = "employed", offset = 0x0058 },
+  { name = "income", offset = 0x0080 },
+  { name = "base_size", offset = 0x0088 },
+  { name = "percent_sold_domestic", offset = 0x0090 },
+  { name = "percent_sold_export", offset = 0x0098 },
+  { name = "leftover", offset = 0x00a0 },
+]
+
+[[layouts]]
+name = "CStateBuilding"
+status = "verified-runtime"
+size = 0x0220
+source = "RTTI and constructor RVA 0x000f2bc0 establish object shape; live Prussian and Belgian runs correlated type, level, employees, output, finance, stockpile, and requested inputs; static callsites RVA 0x000dd470 and 0x00084060 write requested recipe inputs remaining after stockpile subtraction, and Belgian partial fulfillment proves the retained pool is demand rather than purchases"
+fields = [
+  { name = "definition", offset = 0x0018 },
+  { name = "level", offset = 0x0020 },
+  { name = "input_stockpile", offset = 0x0028 },
+  { name = "requested_inputs", offset = 0x0080 },
+  { name = "output", offset = 0x00d8 },
+  { name = "employment", offset = 0x00f0 },
+  { name = "employees", offset = 0x0128 },
+  { name = "budget", offset = 0x0150 },
+  { name = "market_spending", offset = 0x0158 },
+  { name = "sales_income", offset = 0x0160 },
+  { name = "paychecks", offset = 0x0168 },
+  { name = "investment", offset = 0x0170 },
+  { name = "subsidized", offset = 0x0180 },
+  { name = "closed", offset = 0x0188 },
+  { name = "injected_money", offset = 0x01d0 },
+  { name = "injected_days", offset = 0x01d8 },
+  { name = "unsold_output", offset = 0x01f8 },
 ]
 
 [[layouts]]
@@ -637,6 +824,7 @@ fields = [
   { name = "state", offset = 0x0188 },
   { name = "pops", offset = 0x0194 },
   { name = "num_pops", offset = 0x01a8 },
+  { name = "rgo_employment_capacity", offset = 0x01ac },
   { name = "infrastructure", offset = 0x02b8 },
 ]
 
@@ -657,6 +845,26 @@ fields = [
   { name = "cash_flow", offset = 0x01d8 },
   { name = "savings_in_bank", offset = 0x0250 },
   { name = "next", offset = 0x027c },
+]
+
+[[layouts]]
+name = "CPopArtisanEconomy"
+status = "verified-runtime"
+size = 0x0100
+source = "typed runtime and save correlation establish the object at CPop+0x1d4; live producer-sales run 662343cc-fc1a-4ad9-a95a-4215541612c6 reconciled gross output and consecutive leftover inventory for 498 complete artisan intervals"
+fields = [
+  { name = "stockpile", offset = 0x0000 },
+  { name = "recipe_need", offset = 0x0058 },
+  { name = "production_type", offset = 0x00b0 },
+  { name = "last_spending", offset = 0x00b8 },
+  { name = "current_producing", offset = 0x00c0 },
+  { name = "percent_afforded", offset = 0x00c8 },
+  { name = "percent_sold_domestic", offset = 0x00d0 },
+  { name = "percent_sold_export", offset = 0x00d8 },
+  { name = "leftover", offset = 0x00e0 },
+  { name = "throttle", offset = 0x00e8 },
+  { name = "needs_cost", offset = 0x00f0 },
+  { name = "production_income", offset = 0x00f8 },
 ]
 
 [[layouts]]

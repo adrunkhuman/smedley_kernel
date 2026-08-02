@@ -228,6 +228,17 @@ TEST(TelemetryQueueTest, IsBoundedAndAccountsForDrops)
     EXPECT_EQ(reliable_queue.stats().dropped, 1u);
 }
 
+TEST(TelemetryQueueTest, ReservesCapacityForReliableRecords)
+{
+    telemetry::BoundedQueue queue(4);
+    EXPECT_TRUE(queue.TryPush("one", 2));
+    EXPECT_TRUE(queue.TryPush("two", 2));
+    EXPECT_FALSE(queue.TryPush("detail", 2));
+    EXPECT_TRUE(queue.Push("lifecycle-one"));
+    EXPECT_TRUE(queue.Push("lifecycle-two"));
+    EXPECT_FALSE(queue.Push("overflow"));
+}
+
 TEST(TelemetryWriterTest, WritesCompleteNewlineDelimitedRecords)
 {
     const fs::path path = fs::temp_directory_path() / (L"smedley telemetry " + std::to_wstring(GetTickCount64()) + L".jsonl");
@@ -281,6 +292,33 @@ TEST(TelemetryTimingTest, ConvertsLongUptimeWithoutMultiplicationOverflow)
     EXPECT_EQ(telemetry::QpcToMicroseconds((std::numeric_limits<uint64_t>::max)(), 1), (std::numeric_limits<uint64_t>::max)());
 }
 
+TEST(TelemetryConfigTest, RequiresExplicitGoldRateForCountryEconomy)
+{
+    const std::vector<std::wstring> base = {
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=lifecycle,state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=country.economy|monthly|totals,components,per_capita|ENG|||",
+    };
+    telemetry::Config config;
+    std::string error;
+    EXPECT_FALSE(telemetry::ParseLaunchArguments(base, &config, &error));
+    EXPECT_EQ(error, "country.economy requires -smedley-telemetry-gold-to-cash-rate");
+
+    auto configured = base;
+    configured.push_back(L"-smedley-telemetry-gold-to-cash-rate=0.5");
+    config = {};
+    ASSERT_TRUE(telemetry::ParseLaunchArguments(configured, &config, &error)) << error;
+    ASSERT_TRUE(config.gold_to_cash_rate);
+    EXPECT_DOUBLE_EQ(*config.gold_to_cash_rate, 0.5);
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "country.economy");
+
+    configured.back() = L"-smedley-telemetry-gold-to-cash-rate=1000.1";
+    config = {};
+    EXPECT_FALSE(telemetry::ParseLaunchArguments(configured, &config, &error));
+}
+
 TEST(TelemetrySamplingTest, SkipsUnavailableAndResetsOnDateRegression)
 {
     std::optional<int> last;
@@ -303,6 +341,270 @@ TEST(TelemetrySamplingTest, ObservesDateRegressionOncePerObservedTransition)
     EXPECT_TRUE(telemetry::ObserveDateRegression(minimum, &previous, &delta));
     EXPECT_EQ(delta, static_cast<int64_t>(minimum) - static_cast<int64_t>(124));
     EXPECT_FALSE(telemetry::ObserveDateRegression(minimum, &previous, &delta));
+}
+
+TEST(TelemetrySamplingTest, DecodesVictoriaFixedCalendar)
+{
+    const auto start = telemetry::DecodeClausewitzDate(59'883'384);
+    ASSERT_TRUE(start);
+    EXPECT_EQ(start->year, 1836);
+    EXPECT_EQ(start->month, 1);
+    EXPECT_EQ(start->day, 2);
+    EXPECT_EQ(start->hour, 0);
+
+    const auto no_leap_day = telemetry::DecodeClausewitzDate(59'884'752);
+    ASSERT_TRUE(no_leap_day);
+    EXPECT_EQ(no_leap_day->year, 1836);
+    EXPECT_EQ(no_leap_day->month, 2);
+    EXPECT_EQ(no_leap_day->day, 28);
+    const auto march = telemetry::DecodeClausewitzDate(59'884'776);
+    ASSERT_TRUE(march);
+    EXPECT_EQ(march->month, 3);
+    EXPECT_EQ(march->day, 1);
+}
+
+TEST(TelemetrySamplingTest, AppliesIndependentCalendarCadences)
+{
+    telemetry::CaptureRule daily{"country.daily", telemetry::CaptureCadence::Daily};
+    telemetry::ScheduleState daily_state;
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'384, daily, &daily_state));
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'384, daily, &daily_state));
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'408, daily, &daily_state));
+
+    telemetry::CaptureRule weekly{"country.daily", telemetry::CaptureCadence::Weekly};
+    telemetry::ScheduleState weekly_state;
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'384, weekly, &weekly_state));
+    EXPECT_FALSE(telemetry::ShouldCaptureDate(59'883'528, weekly, &weekly_state));
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'552, weekly, &weekly_state));
+
+    telemetry::CaptureRule monthly{"world.daily", telemetry::CaptureCadence::Monthly};
+    telemetry::ScheduleState monthly_state;
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'384, monthly, &monthly_state));
+    EXPECT_FALSE(telemetry::ShouldCaptureDate(59'884'080, monthly, &monthly_state));
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'884'104, monthly, &monthly_state));
+
+    telemetry::CaptureRule yearly{"world.economy", telemetry::CaptureCadence::Yearly};
+    telemetry::ScheduleState yearly_state;
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'384, yearly, &yearly_state));
+    EXPECT_FALSE(telemetry::ShouldCaptureDate(59'892'096, yearly, &yearly_state));
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'892'120, yearly, &yearly_state));
+    EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'384, yearly, &yearly_state));
+}
+
+TEST(TelemetryConfigTest, ParsesExplicitCaptureRules)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=lifecycle,state", L"-smedley-telemetry-sample-days=3",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=country.daily|daily|treasury_raw|ENG,D01||59883384|"}, &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "country.daily");
+    EXPECT_EQ(config.capture_rules[0].cadence, telemetry::CaptureCadence::Daily);
+    EXPECT_EQ(config.capture_rules[0].fields, (std::vector<std::string>{"treasury_raw"}));
+    EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"ENG", "D01"}));
+    EXPECT_EQ(config.capture_rules[0].start_date_raw, 59'883'384);
+}
+
+TEST(TelemetryConfigTest, AcceptsAggregatePopCapture)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=lifecycle,state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=pop.aggregate|monthly|pop_count,size_candidate,money_raw||549|59883360|60759216"},
+        &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "pop.aggregate");
+    EXPECT_EQ(config.capture_rules[0].cadence, telemetry::CaptureCadence::Monthly);
+    EXPECT_EQ(config.capture_rules[0].fields.size(), 3u);
+    ASSERT_EQ(config.capture_rules[0].province_ids.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].province_ids[0], 549);
+}
+
+TEST(TelemetryConfigTest, ValidatesDailyPopCashFlowCapture)
+{
+    const std::vector<std::wstring> base{
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0"};
+    auto arguments = base;
+    arguments.push_back(L"-smedley-telemetry-capture=pop.cashflow|daily|summary,account,components|PRU|||");
+    arguments.push_back(L"-smedley-telemetry-capture=pop.cashflow.aggregate|daily|summary,account,components||||");
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments(arguments, &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 2u);
+
+    config = {};
+    arguments = base;
+    arguments.push_back(L"-smedley-telemetry-capture=pop.cashflow|monthly|summary|PRU|||");
+    EXPECT_FALSE(telemetry::ParseLaunchArguments(arguments, &config, &error));
+    EXPECT_EQ(error, "POP cash-flow capture requires daily cadence");
+
+    config = {};
+    arguments = base;
+    arguments.push_back(L"-smedley-telemetry-capture=pop.cashflow|daily|summary||||");
+    EXPECT_FALSE(telemetry::ParseLaunchArguments(arguments, &config, &error));
+    EXPECT_EQ(error, "individual POP cash-flow capture requires a country or province filter");
+}
+
+TEST(TelemetryConfigTest, RejectsCaptureRulesWithoutStateCategory)
+{
+    telemetry::Config config;
+    std::string error;
+    EXPECT_FALSE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=lifecycle", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=pop.aggregate|daily|||||"}, &config, &error));
+    EXPECT_EQ(error, "telemetry capture rules require the state category");
+}
+
+TEST(TelemetryConfigTest, AcceptsCountryMetricGroups)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=country.metrics|monthly|power,politics|PRU|||"}, &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "country.metrics");
+    EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"PRU"}));
+}
+
+TEST(TelemetryConfigTest, AcceptsProvinceProductionCandidates)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=province.production|weekly|building_slot_count_candidate,construction_count_candidate||549||"},
+        &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "province.production");
+    EXPECT_EQ(config.capture_rules[0].province_ids, (std::vector<int32_t>{549}));
+}
+
+TEST(TelemetryConfigTest, AcceptsMilitaryAggregateFamilies)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=country.military|monthly|unit_count_candidate,mobilized_candidate|PRU|||",
+        L"-smedley-telemetry-capture=world.military|yearly|ongoing_war_count_candidate||||"}, &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 2u);
+    EXPECT_EQ(config.capture_rules[0].family, "country.military");
+    EXPECT_EQ(config.capture_rules[1].family, "world.military");
+}
+
+TEST(TelemetryConfigTest, AcceptsDiplomacyGroups)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=country.diplomacy|monthly|status,relations|PRU|||"},
+        &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "country.diplomacy");
+    EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"PRU"}));
+}
+
+TEST(TelemetryConfigTest, AcceptsStateFactoryGroups)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=state.factory|daily|identity,employment,production,finance,inputs,flows,sales|PRU|||"},
+        &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "state.factory");
+    EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"PRU"}));
+}
+
+TEST(TelemetryConfigTest, RejectsProducerSalesOutsideDailyCadence)
+{
+    telemetry::Config config;
+    std::string error;
+    EXPECT_FALSE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=province.rgo|monthly|sales|PRU|||"},
+        &config, &error));
+    EXPECT_EQ(error, "producer sales capture requires daily cadence");
+
+    error.clear();
+    config = {};
+    EXPECT_FALSE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=pop.artisan|weekly||PRU|||"},
+        &config, &error));
+    EXPECT_EQ(error, "producer sales capture requires daily cadence");
+}
+
+TEST(TelemetryConfigTest, AcceptsWorldMarketGroups)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=world.market|daily|price,supply,demand,sales||||"},
+        &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "world.market");
+}
+
+TEST(TelemetryConfigTest, AcceptsProvinceRgoGroups)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=province.rgo|daily|identity,employment,production,finance,modifiers,sales|PRU|549,687||"},
+        &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 1u);
+    EXPECT_EQ(config.capture_rules[0].family, "province.rgo");
+    EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"PRU"}));
+    EXPECT_EQ(config.capture_rules[0].province_ids, (std::vector<int32_t>{549, 687}));
+}
+
+TEST(TelemetryConfigTest, AcceptsCountryScopedArtisanAndPopulationGroups)
+{
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=pop.artisan|daily|identity,production,inputs,finance,flows,sales|FRA|||",
+        L"-smedley-telemetry-capture=pop.aggregate|daily|size_candidate|FRA|||"},
+        &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 2u);
+    EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"FRA"}));
+    EXPECT_EQ(config.capture_rules[1].country_tags, (std::vector<std::string>{"FRA"}));
 }
 
 TEST(EconomicCaptureTest, DetectsSignedAggregationOverflow)

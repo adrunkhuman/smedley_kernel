@@ -33,6 +33,15 @@ namespace smedley::v2
         uint32_t key() const { return _key.n; }
         int ordinal() const { return _ordinal; }
         const char *str() const { return _key.str; }
+        bool normalized_candidate() const
+        {
+            if (_key.str[3] != '\0') return false;
+            if (_key.str[0] == '-' && _key.str[1] == '-' && _key.str[2] == '-') return true;
+            for (const char value : {_key.str[0], _key.str[1], _key.str[2]}) {
+                if (!((value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9'))) return false;
+            }
+            return true;
+        }
     };
 
     static_assert(sizeof(CCountryTag) == 0x8);

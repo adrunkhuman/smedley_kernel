@@ -313,6 +313,29 @@ namespace smedley::v2
         bool HasCountryFlag(const char *key) { return _flags.Has(key); }
         int64_t treasury_raw() const { return _treasury.raw_value(); }
         int64_t treasury_shadow_raw() const { return _treasury_delta.raw_value(); }
+        int plurality_candidate_raw() const { return _plurality.raw_value(); }
+        int diplomatic_points_candidate_raw() const { return _diplomatic_points.raw_value(); }
+        int war_exhaustion_candidate_raw() const { return _war_exhaustion.raw_value(); }
+        int64_t leadership_candidate_raw() const { return _leadership.raw_value(); }
+        int research_points_candidate_raw() const { return _research_points.raw_value(); }
+        int prestige_candidate_raw() const { return _prestige.raw_value(); }
+        int ranking_candidate() const { return _ranking; }
+        int military_ranking_candidate() const { return _military_ranking; }
+        int industrial_ranking_candidate() const { return _industrial_ranking; }
+        int prestige_ranking_candidate() const { return _prestige_ranking; }
+        int infamy_candidate_raw() const { return _infamy.raw_value(); }
+        bool unit_count_candidate(int *count) const { return _units.bounded_size(100000, count); }
+        bool mobilized_candidate() const { return _mobilize; }
+        bool scheduled_mobilization_count_candidate(size_t *count) const { return _scheduled_mobilizations.bounded_size(100000, count); }
+        bool substate_candidate() const { return _is_substate; }
+        bool vassal_candidate() const { return _is_vassal; }
+        const CCountryTag &overlord_candidate() const { return _overlord; }
+        bool vassal_count_candidate(size_t *count) const { return _vassals.bounded_size(512, count); }
+        bool ally_count_candidate(size_t *count) const { return _allies.bounded_size(512, count); }
+        bool guaranteed_count_candidate(size_t *count) const { return _guaranteed.bounded_size(512, count); }
+        bool neighbor_count_candidate(size_t *count) const { return _neighbors.bounded_size(512, count); }
+        bool sphereling_count_candidate(size_t *count) const { return _spherelings.bounded_size(512, count); }
+        const CCountryTag &sphere_leader_candidate() const { return _sphere_leader; }
 
         // Legacy generated wrappers preserve reverse-engineered x86 call layouts;
         // C4409 is emitted while parsing byte and aggregate push operands.
