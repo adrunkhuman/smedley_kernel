@@ -58,6 +58,20 @@ cadence = "yearly"
 fields = ["totals", "components", "per_capita"]
 country_tags = ["ENG", "FRA", "PRU", "USA", "CHI"]
 province_ids = []
+
+[[telemetry_captures]]
+family = "pop.cashflow"
+cadence = "daily"
+fields = ["summary", "account", "components"]
+country_tags = ["PRU"]
+province_ids = []
+
+[[telemetry_captures]]
+family = "pop.cashflow.aggregate"
+cadence = "daily"
+fields = ["summary", "account", "components"]
+country_tags = []
+province_ids = []
 ```
 
 Each rule accepts `family`, `cadence`, `fields`, `country_tags`, `province_ids`,
@@ -91,6 +105,8 @@ filters.
 | `pop.economy` | `money_raw`, `savings_raw`, `interest_cash_flow_raw`, `total_cash_flow_raw` |
 | `pop.demographics` | `size_candidate`, `employed_candidate`, `consciousness_candidate_raw`, `militancy_candidate_raw`, `literacy_candidate_raw` |
 | `pop.aggregate` | `pop_count`, `size_candidate`, `employed_candidate`, `money_raw`, `savings_raw` |
+| `pop.cashflow` | record groups `summary`, `account`, `components` |
+| `pop.cashflow.aggregate` | record groups `summary`, `account`, `components` |
 
 Cadences are `daily`, `weekly`, `monthly`, and `yearly`. Weekly capture is
 anchored to the first eligible observed date and repeats every seven game days.
@@ -101,6 +117,9 @@ Date regression resets each rule independently.
 Producer `sales` capture is daily only because realized quantity requires the
 previous day's closing inventory. Profiles selecting `sales` at another cadence
 are rejected before launch and again by the plugin parser.
+Both POP cash-flow families are also daily only. Individual `pop.cashflow`
+requires at least one country or province filter because it emits high-cardinality
+records; `pop.cashflow.aggregate` may cover every country.
 
 `country.economy` treats cadence as an accounting interval rather than a
 point-in-time sampling trigger. It reads daily factory, RGO, artisan,
@@ -431,7 +450,8 @@ leftover inventory plus current gross output against current leftover inventory.
 and output-good changes from a failed inventory reconciliation.
 Revenue retains the engine's domestic and export sold fractions as raw evidence;
 it does not claim that either fraction directly allocates the emitted total
-quantity.
+quantity. The export-clearing value can exceed `32768`; unlike the domestic
+fraction, it is not validated as a bounded percentage.
 
 Berlin 549 resolved `orchard`/`fruit`, capacity 195,625, employment 110,896,
 output efficiency 1.90, and throughput 0.9703. Görlitz 687 resolved
@@ -547,6 +567,24 @@ index. The index is not durable across dates. `pop.aggregate` emits one lower-
 volume record per province and POP-type pair, summing POP count, size,
 employment, money, and savings. It intentionally aggregates across culture and
 religion because stable identifiers for those dimensions are not yet mapped.
+
+The daily POP cash-flow families observe every call to the supported
+`CPop::GiveMoney` boundary and compare those calls with consecutive POP money
+balances. Component indices are `0 needs`, `1 welfare`, `2 salary`, `3 expenses`,
+`4 events`, `5 projects`, `6 bank`, and `7 interest`. Each component reports the
+posted amount and the actual money change after engine clamping. The account
+identity is `closing_money_raw - opening_money_raw = money_delta_raw + residual_raw`.
+The first date is a warm-up and has no account record.
+
+`pop.cashflow` identifies a POP with durable runtime `pop_id` plus its current
+country, province, and candidate type. Promotion, demotion, split, merge, and
+other direct redistribution paths can occur outside `GiveMoney`, so an individual
+residual is evidence rather than an invalid family record. `pop.cashflow.aggregate`
+emits both candidate POP-type accounts and country-total accounts. Type residuals
+can be equal-and-opposite identity transfers; a country account is reconciled only
+when its residual is zero and the bounded hook reported complete capture. Taxes
+and tariffs have no independently verified POP field or cash-flow index and are
+therefore not reported as separate components.
 
 POP money, savings, interest cash flow, and total cash flow reuse fields already
 verified by the interest-fix work. Size, employment, consciousness, militancy,
@@ -674,6 +712,7 @@ smedley_trace assert-benchmark timeout.jsonl --failed timeout
 smedley_trace export-csv run.jsonl treasury.csv --event country.daily
 smedley_trace factory-value-added run.jsonl factory-va.csv --country BEL
 smedley_trace producer-sales run.jsonl producer-sales.csv --country FRA
+smedley_trace pop-cashflow run.jsonl pop-cashflow.csv --country FRA
 smedley_trace country-gdp run.jsonl gdp.csv --country FRA --gold-to-cash-rate 0.5
 smedley_trace export-trace run.jsonl eng.jsonl --country ENG
 ```
@@ -722,6 +761,16 @@ not exported. The CSV leaves inapplicable identity and market-fraction columns
 empty; it never converts an unavailable split to zero. Export retains only one
 game date in memory and spools validated rows to the transactional temporary
 file, so memory does not grow with campaign duration.
+
+`pop-cashflow` exports complete daily candidate POP-type and country accounts
+from `pop.cashflow.aggregate`. Country-total rows use `pop_type_id_candidate=-1`.
+The CSV includes opening and closing balances, the observed component total,
+residual, reconciliation status, and posted/actual values for all eight
+components. It requires healthy terminal aggregate and writer summaries, no
+sequence or date gaps, matching summaries and accounts, and arithmetic
+reconciliation. Warm-up rows are checked but not exported. Individual detail
+remains in filtered JSONL because a world-wide per-POP CSV is intentionally not
+a supported low-volume export.
 
 `country-gdp` requires three consecutive daily snapshots and healthy terminal
 summaries for `world.market`, `state.factory`, `province.rgo`, `pop.artisan`,

@@ -94,6 +94,7 @@ namespace interest_bug_fix
 
     struct PopDetailSnapshot
     {
+        int32_t pop_id = -1;
         int32_t province_id_candidate = -1;
         int32_t pop_type_id_candidate = -1;
         int32_t size_candidate = 0;
@@ -129,6 +130,34 @@ namespace interest_bug_fix
         int32_t good_ordinal = -1;
         int64_t stockpile_raw = 0;
         int64_t need_raw = 0;
+    };
+
+    enum class ArtisanReadFailureReason : uint32_t
+    {
+        None,
+        InvalidArgument,
+        PopHeader,
+        ProductionTypeMissing,
+        Identity,
+        ProductionRead,
+        ProductionValue,
+        FinanceRead,
+        LastSpending,
+        PercentAfforded,
+        PercentSoldDomestic,
+        PercentSoldExport,
+        Leftover,
+        Throttle,
+        NeedsCost,
+        ProductionIncome,
+        Inputs,
+    };
+
+    struct ArtisanReadFailure
+    {
+        ArtisanReadFailureReason reason = ArtisanReadFailureReason::None;
+        int32_t pop_id = -1;
+        int64_t offending_raw = 0;
     };
 
     enum ArtisanCaptureGroup : uint32_t
@@ -269,7 +298,8 @@ namespace interest_bug_fix
     bool ReadPopDetailSnapshot(const void *pop, PopDetailSnapshot *snapshot);
     bool ReadArtisanSnapshot(const void *pop, ArtisanSnapshot *snapshot,
                              ArtisanInputSnapshot *inputs, size_t input_capacity, uint32_t *input_count,
-                             uint32_t groups = ARTISAN_ALL);
+                             uint32_t groups = ARTISAN_ALL, ArtisanReadFailure *failure = nullptr);
+    const char *ArtisanReadFailureName(ArtisanReadFailureReason reason);
     bool ReadInactiveArtisan(const void *pop, int32_t *pop_id);
     bool CanWritePopMoney(const void *pop);
     bool CollectCountryFactories(const void *country, FactorySnapshot *snapshots,

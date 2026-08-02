@@ -66,6 +66,9 @@ namespace smedley::trace
     bool ExportProducerSalesCsv(const fs::path &input, const fs::path &output,
                                 const std::string &country, bool overwrite,
                                 std::string *error, std::string *warning = nullptr);
+    bool ExportPopCashFlowCsv(const fs::path &input, const fs::path &output,
+                              const std::string &country, bool overwrite,
+                              std::string *error, std::string *warning = nullptr);
     bool ExportCountryGdpCsv(const fs::path &input, const fs::path &output,
                              const std::string &country, std::optional<int> base_date,
                              std::optional<double> gold_to_cash_rate, bool overwrite,

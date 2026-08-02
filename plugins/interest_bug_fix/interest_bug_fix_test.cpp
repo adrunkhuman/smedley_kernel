@@ -973,6 +973,7 @@ TEST(InterestBugFixTest, ReadsValidatedPopDetailCandidates)
     std::array<std::byte, 0x280> pop{};
     std::array<std::byte, 0x60> province{};
     std::array<std::byte, 0x2c> pop_type{};
+    const int32_t pop_id = 12345;
     const int32_t type_id = 4;
     const int32_t province_id = 549;
     const int64_t money = 123456;
@@ -988,6 +989,7 @@ TEST(InterestBugFixTest, ReadsValidatedPopDetailCandidates)
     const void *type_pointer = pop_type.data();
     Write(&province, 0x58, province_id);
     Write(&pop_type, 0x28, type_id);
+    Write(&pop, 0x0c, pop_id);
     Write(&pop, 0x58, size);
     Write(&pop, 0x60, employed);
     Write(&pop, 0x64, province_pointer);
@@ -1002,6 +1004,7 @@ TEST(InterestBugFixTest, ReadsValidatedPopDetailCandidates)
 
     interest_probe::PopDetailSnapshot detail{};
     ASSERT_TRUE(interest_probe::ReadPopDetailSnapshot(pop.data(), &detail));
+    EXPECT_EQ(detail.pop_id, pop_id);
     EXPECT_EQ(detail.pop_type_id_candidate, type_id);
     EXPECT_EQ(detail.province_id_candidate, province_id);
     EXPECT_EQ(detail.size_candidate, size);
@@ -1096,7 +1099,18 @@ TEST(InterestBugFixTest, ReadsValidatedArtisanProductionAndInputs)
     EXPECT_EQ(inputs[0].need_raw, 98304);
 
     Write(&economy, 0xc8, int64_t{32769});
+    interest_probe::ArtisanReadFailure failure{};
     EXPECT_FALSE(interest_probe::ReadArtisanSnapshot(
+        pop.data(), &snapshot, inputs.data(), inputs.size(), &input_count,
+        interest_probe::ARTISAN_ALL, &failure));
+    EXPECT_EQ(failure.reason, interest_probe::ArtisanReadFailureReason::PercentAfforded);
+    EXPECT_EQ(failure.pop_id, pop_id);
+    EXPECT_EQ(failure.offending_raw, 32769);
+    EXPECT_STREQ(interest_probe::ArtisanReadFailureName(failure.reason), "percent_afforded");
+
+    Write(&economy, 0xc8, int64_t{32768});
+    Write(&economy, 0xd8, int64_t{118028});
+    EXPECT_TRUE(interest_probe::ReadArtisanSnapshot(
         pop.data(), &snapshot, inputs.data(), inputs.size(), &input_count));
 }
 
@@ -1158,7 +1172,7 @@ TEST(InterestBugFixTest, ReadsValidatedProvinceRgoRecord)
     const int64_t throughput = 17932;
     const int64_t income = 536724000;
     const int64_t percent_sold_domestic = 24576;
-    const int64_t percent_sold_export = 16384;
+    const int64_t percent_sold_export = 55702;
     const int64_t leftover = 32768;
     const int32_t owner_pop_type_ordinal = 1;
 

@@ -519,7 +519,8 @@ namespace smedley::telemetry
                 && rule.family != "province.rgo"
                 && rule.family != "pop.economy"
                 && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
-                && rule.family != "pop.artisan") {
+                && rule.family != "pop.artisan" && rule.family != "pop.cashflow"
+                && rule.family != "pop.cashflow.aggregate") {
                 *error = "telemetry capture rule contains an unknown family";
                 return false;
             }
@@ -595,6 +596,9 @@ namespace smedley::telemetry
                     return field == "pop_count" || field == "size_candidate"
                         || field == "employed_candidate" || field == "money_raw" || field == "savings_raw";
                 }
+                if (rule.family == "pop.cashflow" || rule.family == "pop.cashflow.aggregate") {
+                    return field == "summary" || field == "account" || field == "components";
+                }
                 return field == "health" || field == "capacity" || field == "holdings" || field == "credit";
             };
             for (size_t index = 0; index < rule.fields.size(); ++index) {
@@ -611,10 +615,20 @@ namespace smedley::telemetry
                 *error = "producer sales capture requires daily cadence";
                 return false;
             }
+            if ((rule.family == "pop.cashflow" || rule.family == "pop.cashflow.aggregate")
+                && rule.cadence != CaptureCadence::Daily) {
+                *error = "POP cash-flow capture requires daily cadence";
+                return false;
+            }
+            if (rule.family == "pop.cashflow" && rule.country_tags.empty() && rule.province_ids.empty()) {
+                *error = "individual POP cash-flow capture requires a country or province filter";
+                return false;
+            }
             if (rule.family != "country.daily" && rule.family != "country.metrics" && rule.family != "country.economy"
                 && rule.family != "country.military" && rule.family != "country.diplomacy"
                 && rule.family != "state.factory" && rule.family != "province.rgo"
                 && rule.family != "pop.artisan" && rule.family != "pop.aggregate"
+                && rule.family != "pop.cashflow" && rule.family != "pop.cashflow.aggregate"
                 && !rule.country_tags.empty()) {
                 *error = "telemetry capture country filters are only supported by country families";
                 return false;
@@ -630,7 +644,7 @@ namespace smedley::telemetry
             if (rule.family != "province.daily" && rule.family != "province.production" && rule.family != "province.rgo"
                 && rule.family != "pop.economy"
                 && rule.family != "pop.demographics" && rule.family != "pop.aggregate"
-                && rule.family != "pop.artisan"
+                && rule.family != "pop.artisan" && rule.family != "pop.cashflow"
                 && !rule.province_ids.empty()) {
                 *error = "telemetry capture province filters are only supported by province and POP families";
                 return false;

@@ -2000,7 +2000,7 @@ namespace smedley::trace
                 && (!IntegerField(record, "percent_sold_domestic_raw", &row.domestic_fraction)
                     || row.domestic_fraction < 0 || row.domestic_fraction > 32768
                     || !IntegerField(record, "percent_sold_export_raw", &row.export_fraction)
-                    || row.export_fraction < 0 || row.export_fraction > 32768)) {
+                    || row.export_fraction < 0)) {
                 *visitor_error = record.event + " has invalid market fractions";
                 return false;
             }
@@ -2019,6 +2019,243 @@ namespace smedley::trace
             return false;
         }
         if (complete_rows == 0) { *error = "trace contains no complete producer sales intervals"; return false; }
+        if (warning) *warning = summary.warning;
+        return Publish(&destination, error);
+    }
+
+    bool ExportPopCashFlowCsv(const fs::path &input, const fs::path &output,
+                              const std::string &country, bool overwrite,
+                              std::string *error, std::string *warning)
+    {
+        fs::path input_path, output_path;
+        if (!AbsolutePath(input, &input_path, error) || !AbsolutePath(output, &output_path, error)) return false;
+        if (!country.empty() && !IsTag(country)) { *error = "pop-cashflow country filter must be a normalized tag"; return false; }
+        constexpr std::array<const char *, 8> names{
+            "needs", "welfare", "salary", "expenses", "events", "projects", "bank", "interest"};
+        using Key = std::tuple<int, std::string, int64_t>;
+        struct Row {
+            bool summary_seen = false, opening_seen = false, reconciled = false, account_seen = false;
+            uint64_t sequence = 0;
+            int64_t opening_pop_count = 0, closing_pop_count = 0;
+            int64_t opening_money = 0, closing_money = 0, money_delta = 0, residual = 0;
+            std::array<int64_t, 8> posted{}, component_delta{};
+            std::array<bool, 8> component_seen{};
+        };
+        std::map<Key, Row> rows;
+        std::map<std::string, CaptureRuleMetadata> capture_metadata;
+        std::optional<int> active_date;
+        uint64_t terminal_health_sequence = 0;
+        bool family_health_seen = false;
+        size_t output_rows = 0;
+        Summary summary;
+        Output destination;
+        if (!StartOutput(input_path, output_path, L".csv", overwrite, &destination, error)) return false;
+        if (!Write(&destination,
+                "run_id,sequence,game_date_raw,country_tag,pop_type_id_candidate,opening_pop_count,closing_pop_count,"
+                "opening_money_raw,closing_money_raw,money_delta_raw,residual_raw,reconciled,"
+                "needs_posted_raw,needs_money_delta_raw,welfare_posted_raw,welfare_money_delta_raw,"
+                "salary_posted_raw,salary_money_delta_raw,expenses_posted_raw,expenses_money_delta_raw,"
+                "events_posted_raw,events_money_delta_raw,projects_posted_raw,projects_money_delta_raw,"
+                "bank_posted_raw,bank_money_delta_raw,interest_posted_raw,interest_money_delta_raw,quality\r\n",
+                error)) return false;
+        const auto flush = [&](std::string *flush_error) {
+            const auto add = [&](int64_t value, int64_t *sum) {
+                if ((value > 0 && *sum > (std::numeric_limits<int64_t>::max)() - value)
+                    || (value < 0 && *sum < (std::numeric_limits<int64_t>::min)() - value)) {
+                    *flush_error = "POP cash-flow aggregate arithmetic overflow";
+                    return false;
+                }
+                *sum += value;
+                return true;
+            };
+            std::map<std::string, Row> type_totals;
+            for (const auto &[key, row] : rows) {
+                if (!row.summary_seen || row.opening_seen != row.account_seen) {
+                    *flush_error = "POP cash-flow summary and account records are inconsistent";
+                    return false;
+                }
+                if (!row.opening_seen) continue;
+                const auto &[date, tag, pop_type] = key;
+                int64_t component_total = 0;
+                for (const int64_t value : row.component_delta) {
+                    if (!add(value, &component_total)) return false;
+                }
+                if (component_total != row.money_delta || row.reconciled != (row.residual == 0)) {
+                    *flush_error = "POP cash-flow components or reconciliation status contradict the account";
+                    return false;
+                }
+                if (pop_type >= 0) {
+                    auto &total = type_totals[tag];
+                    if (!add(row.opening_pop_count, &total.opening_pop_count)
+                        || !add(row.closing_pop_count, &total.closing_pop_count)
+                        || !add(row.opening_money, &total.opening_money)
+                        || !add(row.closing_money, &total.closing_money)
+                        || !add(row.money_delta, &total.money_delta)
+                        || !add(row.residual, &total.residual)) return false;
+                    for (size_t component = 0; component < names.size(); ++component) {
+                        if (!add(row.posted[component], &total.posted[component])
+                            || !add(row.component_delta[component], &total.component_delta[component])) return false;
+                    }
+                }
+            }
+            for (const auto &entry : type_totals) {
+                if (rows.find({*active_date, entry.first, -1}) == rows.end()) {
+                    *flush_error = "POP cash-flow type accounts are missing their country account";
+                    return false;
+                }
+            }
+            for (const auto &[key, row] : rows) {
+                const auto &[date, tag, pop_type] = key;
+                if (pop_type != -1 || !row.opening_seen) continue;
+                const auto total = type_totals.find(tag);
+                if (total == type_totals.end()
+                    || row.opening_pop_count != total->second.opening_pop_count
+                    || row.closing_pop_count != total->second.closing_pop_count
+                    || row.opening_money != total->second.opening_money
+                    || row.closing_money != total->second.closing_money
+                    || row.money_delta != total->second.money_delta || row.residual != total->second.residual
+                    || row.posted != total->second.posted || row.component_delta != total->second.component_delta) {
+                    *flush_error = "POP cash-flow country account does not equal its candidate type accounts";
+                    return false;
+                }
+            }
+            for (const auto &[key, row] : rows) {
+                if (!row.opening_seen) continue;
+                const auto &[date, tag, pop_type] = key;
+                std::string line = CsvText(summary.run_id) + ',' + std::to_string(row.sequence) + ','
+                    + std::to_string(date) + ',' + CsvText(tag) + ',' + std::to_string(pop_type) + ','
+                    + std::to_string(row.opening_pop_count) + ',' + std::to_string(row.closing_pop_count) + ','
+                    + std::to_string(row.opening_money) + ',' + std::to_string(row.closing_money) + ','
+                    + std::to_string(row.money_delta) + ',' + std::to_string(row.residual) + ','
+                    + (row.reconciled ? "true" : "false");
+                for (size_t component = 0; component < names.size(); ++component) {
+                    line += ',' + std::to_string(row.posted[component])
+                        + ',' + std::to_string(row.component_delta[component]);
+                }
+                line += ",\"provisional\"\r\n";
+                if (!Write(&destination, line, flush_error)) return false;
+                ++output_rows;
+            }
+            rows.clear();
+            return true;
+        };
+        if (!Stream(input_path, &summary, [&](const Record &record, std::string *visitor_error) {
+            if (record.event == "telemetry.capture.rule" || record.event == "telemetry.capture.field"
+                || record.event == "telemetry.capture.country") {
+                return CaptureGdpMetadata(record, &capture_metadata, visitor_error);
+            }
+            if (record.event == "telemetry.family.summary") {
+                const auto *family = Entity(record, "family");
+                if (family == nullptr || family->kind != JsonKind::String
+                    || family->text != "pop.cashflow.aggregate") return true;
+                int64_t dropped = -1, invalid = -1;
+                if (family_health_seen || record.category != "lifecycle" || record.mapping_id != "v2game-3.04"
+                    || record.quality != "verified-current" || record.game_date_raw
+                    || !IntegerField(record, "dropped", &dropped) || dropped != 0
+                    || !IntegerField(record, "invalid", &invalid) || invalid != 0) {
+                    *visitor_error = "POP cash-flow family health is missing, duplicated, or unhealthy";
+                    return false;
+                }
+                family_health_seen = true;
+                return true;
+            }
+            if (record.event == "telemetry.summary") {
+                return CaptureTerminalHealth(record, &terminal_health_sequence, visitor_error);
+            }
+            const bool type_event = record.event.rfind("pop.cashflow.aggregate.", 0) == 0;
+            const bool country_event = record.event.rfind("pop.cashflow.country.", 0) == 0;
+            if (!type_event && !country_event) return true;
+            if (record.category != "state" || record.mapping_id != "v2game-3.04"
+                || record.quality != "provisional" || !record.game_date_raw) {
+                *visitor_error = record.event + " has an unsupported envelope";
+                return false;
+            }
+            std::string tag;
+            int64_t pop_type = -1;
+            if (!CountryEntity(record, &tag, visitor_error)
+                || (type_event && (!IntegerEntity(record, "pop_type_id_candidate", &pop_type)
+                    || pop_type < 0 || pop_type > 127))) {
+                *visitor_error = record.event + " has an invalid aggregate identity";
+                return false;
+            }
+            if (!country.empty() && tag != country) return true;
+            if (active_date && *active_date != *record.game_date_raw) {
+                if (!flush(visitor_error)) return false;
+            }
+            active_date = *record.game_date_raw;
+            auto &row = rows[{*record.game_date_raw, tag, pop_type}];
+            const auto suffix = [&](std::string_view value) {
+                return record.event.size() >= value.size()
+                    && record.event.compare(record.event.size() - value.size(), value.size(), value) == 0;
+            };
+            if (suffix(".summary")) {
+                if (row.summary_seen
+                    || !IntegerField(record, "opening_pop_count", &row.opening_pop_count)
+                    || row.opening_pop_count < 0
+                    || !IntegerField(record, "closing_pop_count", &row.closing_pop_count)
+                    || row.closing_pop_count < 0
+                    || !BooleanField(record, "opening_money_seen", &row.opening_seen)
+                    || !BooleanField(record, "reconciled", &row.reconciled)
+                    || (row.reconciled && !row.opening_seen)) {
+                    *visitor_error = record.event + " is malformed or duplicated";
+                    return false;
+                }
+                row.summary_seen = true;
+                row.sequence = record.sequence;
+                return true;
+            }
+            if (suffix(".account")) {
+                if (row.account_seen
+                    || !IntegerField(record, "opening_money_raw", &row.opening_money) || row.opening_money < 0
+                    || !IntegerField(record, "closing_money_raw", &row.closing_money) || row.closing_money < 0
+                    || !IntegerField(record, "money_delta_raw", &row.money_delta)
+                    || !IntegerField(record, "residual_raw", &row.residual)) {
+                    *visitor_error = record.event + " is malformed or duplicated";
+                    return false;
+                }
+                const int64_t observed = row.closing_money - row.opening_money;
+                if ((row.residual > 0 && observed < (std::numeric_limits<int64_t>::min)() + row.residual)
+                    || (row.residual < 0 && observed > (std::numeric_limits<int64_t>::max)() + row.residual)
+                    || observed - row.residual != row.money_delta) {
+                    *visitor_error = record.event + " does not reconcile";
+                    return false;
+                }
+                row.account_seen = true;
+                return true;
+            }
+            if (!suffix(".component")) { *visitor_error = "unsupported POP cash-flow event"; return false; }
+            int64_t component = -1;
+            const auto *name = Entity(record, "component");
+            if (!IntegerEntity(record, "cash_flow_index", &component) || component < 0 || component >= 8
+                || name == nullptr || name->kind != JsonKind::String
+                || name->text != names[static_cast<size_t>(component)]
+                || row.component_seen[static_cast<size_t>(component)]
+                || !IntegerField(record, "posted_raw", &row.posted[static_cast<size_t>(component)])
+                || !IntegerField(record, "money_delta_raw", &row.component_delta[static_cast<size_t>(component)])) {
+                *visitor_error = record.event + " is malformed or duplicated";
+                return false;
+            }
+            row.component_seen[static_cast<size_t>(component)] = true;
+            return true;
+        }, error) || !flush(error)) return false;
+        if (!summary.warning.empty() || summary.gaps != 0 || summary.date_regressed) {
+            *error = "POP cash-flow export requires a complete trace without sequence or date gaps";
+            return false;
+        }
+        if (!family_health_seen || terminal_health_sequence == 0
+            || !summary.last_sequence || terminal_health_sequence != *summary.last_sequence) {
+            *error = "POP cash-flow export requires terminal aggregate and writer health summaries";
+            return false;
+        }
+        const auto contract = capture_metadata.find("pop.cashflow.aggregate");
+        if (contract == capture_metadata.end() || !contract->second.seen
+            || contract->second.cadence != "daily"
+            || (!contract->second.all_fields
+                && contract->second.fields != std::set<std::string>{"account", "components", "summary"})) {
+            *error = "POP cash-flow export requires daily summary, account, and component capture metadata";
+            return false;
+        }
+        if (output_rows == 0) { *error = "trace contains no complete POP cash-flow intervals"; return false; }
         if (warning) *warning = summary.warning;
         return Publish(&destination, error);
     }

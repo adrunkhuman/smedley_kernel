@@ -518,14 +518,17 @@ with zero invalid records. Consecutive leftover inventory and gross output
 reconciled every complete interval. Domestic and export fractions are retained
 as engine evidence, but telemetry does not derive a producer-attributed market
 split because their sequential clearing semantics are not independently proven.
+Annual diagnostic run `2301bee7-364f-49b7-ba53-dd74dc5fcab0` proved the export
+value is not bounded by 32,768: all 349 previously invalid artisan reads were
+nonnegative export values from 32,931 through 118,028. Telemetry therefore
+retains the raw value but does not label it a percentage.
 
 Final thirty-day run `dc58f6ce-369a-48c3-a1ad-fdae369b0193` produced 5,152 strict
-producer rows with zero family invalid records. Annual run
-`7212971a-f622-488a-9283-e02056e5c001` kept factory and RGO collection healthy
-and exposed 199 post-warm-up missing settlements for one Machine Parts factory.
-Its 44,881 emitted artisan accounts all reconciled, but 213 separate artisan
-collection attempts were invalid; strict annual export therefore remains
-unavailable pending mapping of those late-run artisan states.
+producer rows with zero family invalid records. Post-fix annual run
+`e2ae9961-4698-473e-840b-2dace5271dc0` completed 365 days with 385,929 records,
+zero sequence gaps, drops, writer failure, or family invalid records. Strict
+export produced 63,952 factory, RGO, and artisan accounts. This supersedes the
+earlier annual run whose false export-value bound rejected valid artisan states.
 
 Metz province 412 resolves `precious_metal_mine` and precious-metal ordinal 17.
 Run `962c2f5b-afb6-4ef2-b29d-eb579c480561` emitted gross output raw 262,128 and
@@ -620,6 +623,31 @@ and 10 province/type aggregates with no drops or invalid records. The initial
 bounded copy took 90,224 microseconds; the other two rules reused it and reported
 zero additional snapshot collection time. Type 2 grouped nine POPs with total
 size 60,020; types 7 and 8 grouped four and three POPs respectively.
+
+## POP cash-flow accounting
+
+`CPop::GiveMoney` at RVA `0x0055a5f0` is the verified mutation boundary. Seven
+direct callers establish `EAX=CPop*`, `ESI=cash-flow index`, a stack-passed
+64-bit amount, and `ret 8`. A reversible `+1000/-1000` runtime fixture verified
+the money field at `+0x180`, indexed cash flow at `+0x1d8`, total cash flow at
+`+0x218`, and exact restoration. Presentation callsites establish indices
+`0 needs`, `1 welfare`, `2 salary`, `3 expenses`, `4 events`, `5 projects`,
+`6 bank`, and `7 interest`.
+
+The observational hook records both the posted amount and the actual pre/post
+money delta, so engine clamping remains visible. Final run
+`f442f9c0-b2fc-47f6-9ad7-05ddfba38243` exercised the hook and strict exporter
+for five days and emitted 7,598 records with zero sequence gaps, drops, writer
+failures, or family invalid records. Earlier diagnostic run
+`eade1c13-e28f-4113-97b3-07410ece7f74` found exact reconciliation for 1,765 of
+1,799 opening-seen individual accounts. The 34 residuals formed equal-and-
+opposite redistribution evidence, and candidate POP-type residuals canceled at
+country scope. Promotion, demotion, split, merge, and direct redistribution are
+not proven to pass through `GiveMoney`; individual and type residuals therefore
+remain explicit rather than invalidating otherwise complete hook capture.
+
+No verified field or callsite independently attributes POP taxes or tariffs.
+They must not be inferred from the broader needs or expenses indices.
 
 ## Final batched paired ten-year observer benchmark
 

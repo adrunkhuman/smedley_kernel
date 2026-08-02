@@ -889,7 +889,8 @@ namespace interest_bug_fix
         PopDetailSnapshot value{};
         const void *province = nullptr;
         const void *pop_type = nullptr;
-        if (!ReadAt(pop, pop_size_offset, &value.size_candidate)
+        if (!ReadAt(pop, pop_id_offset, &value.pop_id)
+            || !ReadAt(pop, pop_size_offset, &value.size_candidate)
             || !ReadAt(pop, pop_employed_offset, &value.employed_candidate)
             || !ReadAt(pop, pop_province_offset, &province)
             || !ReadAt(pop, pop_type_offset, &pop_type)
@@ -902,7 +903,7 @@ namespace interest_bug_fix
             return false;
         }
 
-        if (value.province_id_candidate < 0 || value.pop_type_id_candidate < 0
+        if (value.pop_id < 0 || value.province_id_candidate < 0 || value.pop_type_id_candidate < 0
             || value.pop_type_id_candidate > 127 || value.size_candidate < 0
             || value.employed_candidate < 0 || value.employed_candidate > value.size_candidate) {
             return false;
@@ -913,9 +914,19 @@ namespace interest_bug_fix
 
     bool ReadArtisanSnapshot(const void *pop, ArtisanSnapshot *snapshot,
                               ArtisanInputSnapshot *inputs, size_t input_capacity, uint32_t *input_count,
-                              uint32_t groups)
+                              uint32_t groups, ArtisanReadFailure *failure)
     {
-        if (pop == nullptr || snapshot == nullptr || inputs == nullptr || input_count == nullptr) return false;
+        if (failure != nullptr) *failure = {};
+        const auto fail = [&](ArtisanReadFailureReason reason, int64_t raw = 0) {
+            if (failure != nullptr) {
+                failure->reason = reason;
+                failure->offending_raw = raw;
+            }
+            return false;
+        };
+        if (pop == nullptr || snapshot == nullptr || inputs == nullptr || input_count == nullptr) {
+            return fail(ArtisanReadFailureReason::InvalidArgument);
+        }
         *input_count = 0;
         const void *pop_type = nullptr;
         const void *economy = nullptr;
@@ -923,16 +934,21 @@ namespace interest_bug_fix
         char pop_type_key[64]{};
         ArtisanSnapshot value{};
         value.address = pop;
-        if (!ReadAt(pop, pop_id_offset, &value.pop_id) || value.pop_id < 0
-            || !ReadAt(pop, pop_type_offset, &pop_type)
+        if (!ReadAt(pop, pop_id_offset, &value.pop_id) || value.pop_id < 0) {
+            return fail(ArtisanReadFailureReason::PopHeader, value.pop_id);
+        }
+        if (failure != nullptr) failure->pop_id = value.pop_id;
+        if (!ReadAt(pop, pop_type_offset, &pop_type)
             || !ReadNormalizedKey(pop_type, pop_type_key_offset, pop_type_key, sizeof(pop_type_key))
             || std::strcmp(pop_type_key, "artisans") != 0
-            || !ReadAt(pop, pop_economy_offset, &economy) || economy == nullptr) return false;
+            || !ReadAt(pop, pop_economy_offset, &economy) || economy == nullptr) {
+            return fail(ArtisanReadFailureReason::PopHeader);
+        }
 
         const uint32_t recipe_groups = ARTISAN_IDENTITY | ARTISAN_PRODUCTION | ARTISAN_INPUTS;
         if ((groups & recipe_groups) != 0
             && (!ReadAt(economy, artisan_production_type_offset, &production_type)
-                || production_type == nullptr)) return false;
+                || production_type == nullptr)) return fail(ArtisanReadFailureReason::ProductionTypeMissing);
         if ((groups & ARTISAN_IDENTITY) != 0) {
             const void *output_good = nullptr;
             if (!ReadNormalizedKey(production_type, 0x08, value.production_type, sizeof(value.production_type))
@@ -940,40 +956,61 @@ namespace interest_bug_fix
                 || !ReadAt(output_good, goods_ordinal_offset, &value.output_good_ordinal)
                 || value.output_good_ordinal < 0 || value.output_good_ordinal >= 64
                 || !ReadNormalizedKey(output_good, goods_key_offset, value.output_good, sizeof(value.output_good))) {
-                return false;
+                return fail(ArtisanReadFailureReason::Identity);
             }
         }
-        if ((groups & ARTISAN_PRODUCTION) != 0
-            && (!ReadAt(production_type, production_type_base_output_offset, &value.base_output_raw)
+        if ((groups & ARTISAN_PRODUCTION) != 0) {
+            if (!ReadAt(production_type, production_type_base_output_offset, &value.base_output_raw)
                 || !ReadAt(economy, artisan_current_producing_offset, &value.current_producing_raw)
-                || !MultiplyFixed15(value.current_producing_raw, value.base_output_raw, &value.gross_output_raw)
-                || value.base_output_raw < 0 || value.current_producing_raw < 0 || value.gross_output_raw < 0)) {
-            return false;
+                || !MultiplyFixed15(value.current_producing_raw, value.base_output_raw, &value.gross_output_raw)) {
+                return fail(ArtisanReadFailureReason::ProductionRead);
+            }
+            if (value.base_output_raw < 0) return fail(ArtisanReadFailureReason::ProductionValue, value.base_output_raw);
+            if (value.current_producing_raw < 0) return fail(ArtisanReadFailureReason::ProductionValue, value.current_producing_raw);
+            if (value.gross_output_raw < 0) return fail(ArtisanReadFailureReason::ProductionValue, value.gross_output_raw);
         }
-        if ((groups & ARTISAN_FINANCE) != 0
-            && (!ReadAt(economy, artisan_last_spending_offset, &value.last_spending_raw)
+        if ((groups & ARTISAN_FINANCE) != 0) {
+            if (!ReadAt(economy, artisan_last_spending_offset, &value.last_spending_raw)
                 || !ReadAt(economy, artisan_percent_afforded_offset, &value.percent_afforded_raw)
                 || !ReadAt(economy, artisan_percent_sold_domestic_offset, &value.percent_sold_domestic_raw)
                 || !ReadAt(economy, artisan_percent_sold_export_offset, &value.percent_sold_export_raw)
                 || !ReadAt(economy, artisan_leftover_offset, &value.leftover_raw)
                 || !ReadAt(economy, artisan_throttle_offset, &value.throttle_raw)
                 || !ReadAt(economy, artisan_needs_cost_offset, &value.needs_cost_raw)
-                || !ReadAt(economy, artisan_production_income_offset, &value.production_income_raw)
-                || value.last_spending_raw < 0 || value.percent_afforded_raw < 0 || value.percent_afforded_raw > 32768
-                || value.percent_sold_domestic_raw < 0 || value.percent_sold_domestic_raw > 32768
-                || value.percent_sold_export_raw < 0 || value.percent_sold_export_raw > 32768
-                || value.leftover_raw < 0 || value.throttle_raw < 0 || value.throttle_raw > 32768
-                || value.needs_cost_raw < 0 || value.production_income_raw < 0)) return false;
+                || !ReadAt(economy, artisan_production_income_offset, &value.production_income_raw)) {
+                return fail(ArtisanReadFailureReason::FinanceRead);
+            }
+            if (value.last_spending_raw < 0) return fail(ArtisanReadFailureReason::LastSpending, value.last_spending_raw);
+            if (value.percent_afforded_raw < 0 || value.percent_afforded_raw > 32768) {
+                return fail(ArtisanReadFailureReason::PercentAfforded, value.percent_afforded_raw);
+            }
+            if (value.percent_sold_domestic_raw < 0 || value.percent_sold_domestic_raw > 32768) {
+                return fail(ArtisanReadFailureReason::PercentSoldDomestic, value.percent_sold_domestic_raw);
+            }
+            if (value.percent_sold_export_raw < 0) {
+                return fail(ArtisanReadFailureReason::PercentSoldExport, value.percent_sold_export_raw);
+            }
+            if (value.leftover_raw < 0) return fail(ArtisanReadFailureReason::Leftover, value.leftover_raw);
+            if (value.throttle_raw < 0 || value.throttle_raw > 32768) {
+                return fail(ArtisanReadFailureReason::Throttle, value.throttle_raw);
+            }
+            if (value.needs_cost_raw < 0) return fail(ArtisanReadFailureReason::NeedsCost, value.needs_cost_raw);
+            if (value.production_income_raw < 0) {
+                return fail(ArtisanReadFailureReason::ProductionIncome, value.production_income_raw);
+            }
+        }
 
         if ((groups & ARTISAN_INPUTS) != 0) {
             std::array<int64_t, 64> stockpile{}, need{};
             std::array<bool, 64> stockpile_present{}, need_present{};
             if (!ReadGoodsPool(economy, &stockpile, &stockpile_present)
                 || !ReadGoodsPool(static_cast<const uint8_t *>(economy) + artisan_need_pool_offset,
-                    &need, &need_present)) return false;
+                    &need, &need_present)) return fail(ArtisanReadFailureReason::Inputs);
             for (size_t ordinal = 0; ordinal < stockpile.size(); ++ordinal) {
                 if (!stockpile_present[ordinal] && !need_present[ordinal]) continue;
-                if (*input_count >= input_capacity || stockpile[ordinal] < 0 || need[ordinal] < 0) return false;
+                if (*input_count >= input_capacity || stockpile[ordinal] < 0 || need[ordinal] < 0) {
+                    return fail(ArtisanReadFailureReason::Inputs);
+                }
                 inputs[*input_count] = {
                     static_cast<int32_t>(ordinal), stockpile[ordinal], need[ordinal]};
                 ++*input_count;
@@ -981,6 +1018,30 @@ namespace interest_bug_fix
         }
         *snapshot = value;
         return true;
+    }
+
+    const char *ArtisanReadFailureName(ArtisanReadFailureReason reason)
+    {
+        switch (reason) {
+        case ArtisanReadFailureReason::None: return "none";
+        case ArtisanReadFailureReason::InvalidArgument: return "invalid_argument";
+        case ArtisanReadFailureReason::PopHeader: return "pop_header";
+        case ArtisanReadFailureReason::ProductionTypeMissing: return "production_type_missing";
+        case ArtisanReadFailureReason::Identity: return "identity";
+        case ArtisanReadFailureReason::ProductionRead: return "production_read";
+        case ArtisanReadFailureReason::ProductionValue: return "production_value";
+        case ArtisanReadFailureReason::FinanceRead: return "finance_read";
+        case ArtisanReadFailureReason::LastSpending: return "last_spending";
+        case ArtisanReadFailureReason::PercentAfforded: return "percent_afforded";
+        case ArtisanReadFailureReason::PercentSoldDomestic: return "percent_sold_domestic";
+        case ArtisanReadFailureReason::PercentSoldExport: return "percent_sold_export";
+        case ArtisanReadFailureReason::Leftover: return "leftover";
+        case ArtisanReadFailureReason::Throttle: return "throttle";
+        case ArtisanReadFailureReason::NeedsCost: return "needs_cost";
+        case ArtisanReadFailureReason::ProductionIncome: return "production_income";
+        case ArtisanReadFailureReason::Inputs: return "inputs";
+        }
+        return "unknown";
     }
 
     bool ReadInactiveArtisan(const void *pop, int32_t *pop_id)
@@ -1458,7 +1519,7 @@ namespace interest_bug_fix
                 || !ReadAt(record, state_employment_percent_sold_export_offset, &value.percent_sold_export_raw)
                 || !ReadAt(record, state_employment_leftover_offset, &value.leftover_raw)
                 || value.percent_sold_domestic_raw < 0 || value.percent_sold_domestic_raw > 32768
-                || value.percent_sold_export_raw < 0 || value.percent_sold_export_raw > 32768
+                || value.percent_sold_export_raw < 0
                 || value.leftover_raw < 0)) return false;
         *snapshot = value;
         return true;

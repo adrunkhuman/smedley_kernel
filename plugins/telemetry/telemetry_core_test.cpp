@@ -425,6 +425,33 @@ TEST(TelemetryConfigTest, AcceptsAggregatePopCapture)
     EXPECT_EQ(config.capture_rules[0].province_ids[0], 549);
 }
 
+TEST(TelemetryConfigTest, ValidatesDailyPopCashFlowCapture)
+{
+    const std::vector<std::wstring> base{
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0"};
+    auto arguments = base;
+    arguments.push_back(L"-smedley-telemetry-capture=pop.cashflow|daily|summary,account,components|PRU|||");
+    arguments.push_back(L"-smedley-telemetry-capture=pop.cashflow.aggregate|daily|summary,account,components||||");
+    telemetry::Config config;
+    std::string error;
+    ASSERT_TRUE(telemetry::ParseLaunchArguments(arguments, &config, &error)) << error;
+    ASSERT_EQ(config.capture_rules.size(), 2u);
+
+    config = {};
+    arguments = base;
+    arguments.push_back(L"-smedley-telemetry-capture=pop.cashflow|monthly|summary|PRU|||");
+    EXPECT_FALSE(telemetry::ParseLaunchArguments(arguments, &config, &error));
+    EXPECT_EQ(error, "POP cash-flow capture requires daily cadence");
+
+    config = {};
+    arguments = base;
+    arguments.push_back(L"-smedley-telemetry-capture=pop.cashflow|daily|summary||||");
+    EXPECT_FALSE(telemetry::ParseLaunchArguments(arguments, &config, &error));
+    EXPECT_EQ(error, "individual POP cash-flow capture requires a country or province filter");
+}
+
 TEST(TelemetryConfigTest, RejectsCaptureRulesWithoutStateCategory)
 {
     telemetry::Config config;

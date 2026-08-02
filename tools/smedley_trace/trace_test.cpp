@@ -397,6 +397,65 @@ TEST_F(TraceTest, ExportsStrictProducerSalesAccounts)
     EXPECT_EQ(error, "producer sales summary and detail records are inconsistent");
 }
 
+TEST_F(TraceTest, ExportsStrictPopCashFlowAccounts)
+{
+    const auto input = Path(L"pop-cashflow");
+    const auto output = Path(L"pop-cashflow", L".csv");
+    const std::string entities = "{\"country_tag\":\"FRA\",\"pop_type_id_candidate\":2}";
+    std::string trace_text;
+    trace_text += HealthLine(1, "telemetry.capture.rule", "{\"family\":\"pop.cashflow.aggregate\"}",
+        "{\"cadence\":\"daily\",\"all_fields\":false,\"country_filter_count\":1,"
+        "\"province_filter_count\":0,\"bounded_dates\":false}") + '\n';
+    trace_text += HealthLine(2, "telemetry.capture.field",
+        "{\"family\":\"pop.cashflow.aggregate\",\"field\":\"summary\"}", "{}") + '\n';
+    trace_text += HealthLine(3, "telemetry.capture.field",
+        "{\"family\":\"pop.cashflow.aggregate\",\"field\":\"account\"}", "{}") + '\n';
+    trace_text += HealthLine(4, "telemetry.capture.field",
+        "{\"family\":\"pop.cashflow.aggregate\",\"field\":\"components\"}", "{}") + '\n';
+    trace_text += StateLine(5, 48, "pop.cashflow.aggregate.summary", entities,
+        "{\"opening_pop_count\":10,\"closing_pop_count\":11,"
+        "\"opening_money_seen\":true,\"reconciled\":true}") + '\n';
+    trace_text += StateLine(6, 48, "pop.cashflow.aggregate.account", entities,
+        "{\"opening_money_raw\":1000,\"closing_money_raw\":1150,"
+        "\"money_delta_raw\":150,\"residual_raw\":0}") + '\n';
+    trace_text += StateLine(7, 48, "pop.cashflow.aggregate.component",
+        "{\"country_tag\":\"FRA\",\"pop_type_id_candidate\":2,"
+        "\"cash_flow_index\":2,\"component\":\"salary\"}",
+        "{\"posted_raw\":200,\"money_delta_raw\":150}") + '\n';
+    trace_text += StateLine(8, 48, "pop.cashflow.country.summary", "{\"country_tag\":\"FRA\"}",
+        "{\"opening_pop_count\":10,\"closing_pop_count\":11,"
+        "\"opening_money_seen\":true,\"reconciled\":true}") + '\n';
+    trace_text += StateLine(9, 48, "pop.cashflow.country.account", "{\"country_tag\":\"FRA\"}",
+        "{\"opening_money_raw\":1000,\"closing_money_raw\":1150,"
+        "\"money_delta_raw\":150,\"residual_raw\":0}") + '\n';
+    trace_text += StateLine(10, 48, "pop.cashflow.country.component",
+        "{\"country_tag\":\"FRA\",\"cash_flow_index\":2,\"component\":\"salary\"}",
+        "{\"posted_raw\":200,\"money_delta_raw\":150}") + '\n';
+    trace_text += HealthLine(11, "telemetry.family.summary",
+        "{\"family\":\"pop.cashflow.aggregate\"}", "{\"dropped\":0,\"invalid\":0}") + '\n';
+    trace_text += HealthLine(12, "telemetry.summary", "{}",
+        "{\"dropped\":0,\"write_failed\":false}") + '\n';
+    Write(input, trace_text);
+
+    std::string error;
+    ASSERT_TRUE(trace::ExportPopCashFlowCsv(input, output, "FRA", false, &error)) << error;
+    std::ifstream csv(output, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(csv)), {});
+    EXPECT_NE(contents.find("\"FRA\",2,10,11,1000,1150,150,0,true"), std::string::npos);
+    EXPECT_NE(contents.find("\"FRA\",-1,10,11,1000,1150,150,0,true"), std::string::npos);
+    EXPECT_NE(contents.find(",200,150,"), std::string::npos);
+
+    auto invalid = trace_text;
+    const auto residual = invalid.find("\"residual_raw\":0");
+    ASSERT_NE(residual, std::string::npos);
+    invalid.replace(residual, std::string("\"residual_raw\":0").size(), "\"residual_raw\":1");
+    const auto invalid_trace = Path(L"pop-cashflow-invalid");
+    Write(invalid_trace, invalid);
+    EXPECT_FALSE(trace::ExportPopCashFlowCsv(invalid_trace,
+        Path(L"pop-cashflow-invalid", L".csv"), "FRA", false, &error));
+    EXPECT_NE(error.find("does not reconcile"), std::string::npos);
+}
+
 TEST_F(TraceTest, ExportsStrictNominalRealAndPerCapitaCountryGdp)
 {
     const auto input = Path(L"country-gdp");

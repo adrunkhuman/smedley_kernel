@@ -544,6 +544,22 @@ TEST_F(LauncherCoreTest, ValidatesTelemetryPluginAndBuildsPerRunTraceCommand)
         return diagnostic.code == "telemetry.capture_cadence" && diagnostic.severity == launcher::Severity::Error;
     }));
 
+    auto cashflow = profile;
+    cashflow.telemetry_captures.push_back(
+        {"pop.cashflow", "daily", {"summary", "account", "components"}, {"PRU"}, {}, std::nullopt, std::nullopt});
+    cashflow.telemetry_captures.push_back(
+        {"pop.cashflow.aggregate", "daily", {"summary", "account", "components"}, {}, {}, std::nullopt, std::nullopt});
+    const auto cashflow_plan = launcher::BuildLaunchPlan(cashflow);
+    EXPECT_FALSE(std::any_of(cashflow_plan.diagnostics.begin(), cashflow_plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code.rfind("telemetry.capture", 0) == 0 && diagnostic.severity == launcher::Severity::Error;
+    }));
+
+    cashflow.telemetry_captures.back().cadence = "monthly";
+    const auto nondaily_cashflow_plan = launcher::BuildLaunchPlan(cashflow);
+    EXPECT_TRUE(std::any_of(nondaily_cashflow_plan.diagnostics.begin(), nondaily_cashflow_plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "telemetry.capture_cadence" && diagnostic.severity == launcher::Severity::Error;
+    }));
+
     profile.telemetry_output = root / L"trace.txt";
     const auto bad_extension_plan = launcher::BuildLaunchPlan(profile);
     EXPECT_TRUE(std::any_of(bad_extension_plan.diagnostics.begin(), bad_extension_plan.diagnostics.end(), [](const auto &diagnostic) {

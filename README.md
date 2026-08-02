@@ -131,7 +131,9 @@ snapshots are not AI decision reasoning.
 `smedley_trace` validates, summarizes, compares, filters, and exports telemetry
 traces without external dependencies. It derives verified daily factory value
 added and strict country nominal, real, and per-capita GDP from complete
-producer, market, and population captures. Run
+producer, market, and population captures. It also exports reconciled daily POP
+cash-flow accounts at country and candidate POP-type scope while retaining
+filtered individual detail in JSONL. Run
 `smedley_trace summary TRACE.jsonl` or
 see [`docs/telemetry.md`](docs/telemetry.md) for all commands.
 

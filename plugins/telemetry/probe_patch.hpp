@@ -48,7 +48,8 @@ namespace telemetry_plugin
                         found = Thread32Next(snapshot, &entry);
                         continue;
                     }
-                    HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_QUERY_LIMITED_INFORMATION,
+                    HANDLE thread = OpenThread(THREAD_SUSPEND_RESUME | THREAD_QUERY_LIMITED_INFORMATION
+                                                   | THREAD_GET_CONTEXT,
                                                FALSE, entry.th32ThreadID);
                     if (thread == nullptr) {
                         if (GetLastError() != ERROR_INVALID_PARAMETER) {
@@ -93,6 +94,47 @@ namespace telemetry_plugin
         ScopedThreadQuiescence &operator=(const ScopedThreadQuiescence &) = delete;
 
         explicit operator bool() const noexcept { return ready_; }
+
+        bool AnyInstructionPointerIn(uintptr_t address, size_t size, bool *found,
+                                     std::string *error) const noexcept
+        {
+            size_t count = 0;
+            if (!InstructionPointerCountIn(address, size, &count, error)) return false;
+            if (found == nullptr) {
+                if (error != nullptr) *error = "invalid suspended-thread instruction result";
+                return false;
+            }
+            *found = count != 0;
+            return true;
+        }
+
+        bool InstructionPointerCountIn(uintptr_t address, size_t size, size_t *count,
+                                       std::string *error) const noexcept
+        {
+            if (!ready_ || count == nullptr || size == 0 || address > UINTPTR_MAX - size) {
+                if (error != nullptr) *error = "invalid suspended-thread instruction range";
+                return false;
+            }
+            *count = 0;
+            for (size_t index = 0; index < suspended_count_; ++index) {
+                CONTEXT context{};
+                context.ContextFlags = CONTEXT_CONTROL;
+                if (!GetThreadContext(threads_[index], &context)) {
+                    if (WaitForSingleObject(threads_[index], 0) == WAIT_OBJECT_0) continue;
+                    if (error != nullptr) *error = "could not inspect a suspended game thread before patching telemetry probes";
+                    return false;
+                }
+#if defined(_M_IX86)
+                const uintptr_t instruction_pointer = context.Eip;
+#else
+#error Telemetry probes require the Win32 x86 build.
+#endif
+                if (instruction_pointer >= address && instruction_pointer < address + size) {
+                    ++*count;
+                }
+            }
+            return true;
+        }
 
         bool Release(std::string *error) noexcept
         {
