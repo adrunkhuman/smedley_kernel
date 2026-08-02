@@ -1829,6 +1829,200 @@ namespace smedley::trace
         return Publish(&destination, error);
     }
 
+    bool ExportProducerSalesCsv(const fs::path &input, const fs::path &output,
+                                const std::string &country, bool overwrite,
+                                std::string *error, std::string *warning)
+    {
+        fs::path input_path, output_path;
+        if (!AbsolutePath(input, &input_path, error) || !AbsolutePath(output, &output_path, error)) return false;
+        if (!country.empty() && !IsTag(country)) { *error = "producer-sales country filter must be a normalized tag"; return false; }
+        using SalesKey = std::tuple<int, std::string, std::string, int64_t, int64_t, int64_t, std::string>;
+        struct SalesRow {
+            bool summary_seen = false, complete = false, quantity_seen = false, revenue_seen = false;
+            uint64_t sequence = 0;
+            std::string quality;
+            int64_t output_good = -1, opening = 0, produced = 0, sold = 0, closing = 0, proceeds = 0;
+            int64_t domestic_fraction = -1, export_fraction = -1;
+        };
+        std::map<SalesKey, SalesRow> rows;
+        std::set<std::string> event_families, healthy_families;
+        uint64_t terminal_health_sequence = 0;
+        size_t complete_rows = 0;
+        std::optional<int> active_date;
+        Summary summary;
+        Output destination;
+        if (!StartOutput(input_path, output_path, L".csv", overwrite, &destination, error)) return false;
+        if (!Write(&destination, "run_id,sequence,game_date_raw,producer_family,country_tag,state_id,province_id,pop_id,producer_key,output_good_ordinal,opening_inventory_raw,produced_raw,sold_raw,closing_inventory_raw,proceeds_raw,percent_sold_domestic_raw,percent_sold_export_raw,quality\r\n", error)) return false;
+        const auto flush_rows = [&](std::string *flush_error) {
+            for (const auto &[key, row] : rows) {
+                if (!row.summary_seen
+                    || (row.complete && (!row.quantity_seen || !row.revenue_seen))
+                    || (!row.complete && (row.quantity_seen || row.revenue_seen))) {
+                    *flush_error = "producer sales summary and detail records are inconsistent";
+                    return false;
+                }
+                if (!row.complete) continue;
+                const auto &[date, family, tag, state_id, province_id, pop_id, producer_key] = key;
+                const auto optional_integer = [](int64_t value) {
+                    return value < 0 ? std::string{} : std::to_string(value);
+                };
+                const std::string line = CsvText(summary.run_id) + ',' + std::to_string(row.sequence) + ','
+                    + std::to_string(date) + ',' + CsvText(family) + ',' + CsvText(tag) + ','
+                    + optional_integer(state_id) + ',' + optional_integer(province_id) + ',' + optional_integer(pop_id)
+                    + ',' + CsvText(producer_key) + ',' + std::to_string(row.output_good) + ','
+                    + std::to_string(row.opening) + ',' + std::to_string(row.produced) + ',' + std::to_string(row.sold)
+                    + ',' + std::to_string(row.closing) + ',' + std::to_string(row.proceeds) + ','
+                    + optional_integer(row.domestic_fraction) + ',' + optional_integer(row.export_fraction)
+                    + ',' + CsvText(row.quality) + "\r\n";
+                if (!Write(&destination, line, flush_error)) return false;
+                ++complete_rows;
+            }
+            rows.clear();
+            return true;
+        };
+        if (!Stream(input_path, &summary, [&](const Record &record, std::string *visitor_error) {
+            if (record.event == "telemetry.family.summary") {
+                const auto *family = Entity(record, "family");
+                if (family == nullptr || family->kind != JsonKind::String) return true;
+                if (family->text != "state.factory" && family->text != "province.rgo"
+                    && family->text != "pop.artisan") return true;
+                int64_t dropped = -1, invalid = -1;
+                if (record.category != "lifecycle" || record.mapping_id != "v2game-3.04"
+                    || record.quality != "verified-current" || record.game_date_raw
+                    || !IntegerField(record, "dropped", &dropped) || dropped != 0
+                    || !IntegerField(record, "invalid", &invalid) || invalid != 0
+                    || !healthy_families.insert(family->text).second) {
+                    *visitor_error = "producer sales family health is missing, duplicated, or unhealthy";
+                    return false;
+                }
+                return true;
+            }
+            if (record.event == "telemetry.summary") {
+                return CaptureTerminalHealth(record, &terminal_health_sequence, visitor_error);
+            }
+            std::string family;
+            if (record.event.rfind("state.factory.sales.", 0) == 0) family = "state.factory";
+            else if (record.event.rfind("province.rgo.sales.", 0) == 0) family = "province.rgo";
+            else if (record.event.rfind("pop.artisan.sales.", 0) == 0) family = "pop.artisan";
+            else return true;
+            event_families.insert(family);
+            if (record.category != "state" || record.mapping_id != "v2game-3.04"
+                || record.quality != "provisional" || !record.game_date_raw) {
+                *visitor_error = record.event + " has an unsupported envelope";
+                return false;
+            }
+            std::string tag;
+            if (!CountryEntity(record, &tag, visitor_error)) return false;
+            if (!country.empty() && tag != country) return true;
+            if (active_date && *active_date != *record.game_date_raw) {
+                if (!flush_rows(visitor_error)) return false;
+            }
+            active_date = *record.game_date_raw;
+            int64_t state_id = -1, province_id = -1, pop_id = -1;
+            std::string producer_key;
+            if (family == "state.factory") {
+                const auto *type = Entity(record, "factory_type");
+                if (!IntegerEntity(record, "state_id", &state_id) || state_id < 0
+                    || type == nullptr || type->kind != JsonKind::String || !IsIdentifier(type->text)) {
+                    *visitor_error = record.event + " has invalid factory identity";
+                    return false;
+                }
+                producer_key = type->text;
+            } else if (family == "province.rgo") {
+                if (!IntegerEntity(record, "province_id", &province_id) || province_id < 0) {
+                    *visitor_error = record.event + " has invalid RGO identity";
+                    return false;
+                }
+            } else if (!IntegerEntity(record, "province_id", &province_id) || province_id < 0
+                || !IntegerEntity(record, "pop_id", &pop_id) || pop_id < 0) {
+                *visitor_error = record.event + " has invalid artisan identity";
+                return false;
+            }
+            auto &row = rows[{*record.game_date_raw, family, tag, state_id, province_id, pop_id, producer_key}];
+            row.quality = record.quality;
+            const auto has_suffix = [&](std::string_view suffix) {
+                return record.event.size() >= suffix.size()
+                    && record.event.compare(record.event.size() - suffix.size(), suffix.size(), suffix) == 0;
+            };
+            if (has_suffix(".summary")) {
+                bool settlement_seen = false, complete = false;
+                if (row.summary_seen || !BooleanField(record, "settlement_seen", &settlement_seen)
+                    || !BooleanField(record, "complete", &complete)) {
+                    *visitor_error = record.event + " is malformed or duplicated";
+                    return false;
+                }
+                if (family == "state.factory") {
+                    int64_t settlement_count = -1;
+                    if (!IntegerField(record, "settlement_count", &settlement_count) || settlement_count < 0
+                        || settlement_seen != (settlement_count != 0) || (complete && settlement_count != 1)) {
+                        *visitor_error = "state.factory.sales.summary does not reconcile";
+                        return false;
+                    }
+                } else {
+                    bool opening_inventory_seen = false;
+                    if (!settlement_seen
+                        || !BooleanField(record, "opening_inventory_seen", &opening_inventory_seen)
+                        || (complete && !opening_inventory_seen)) {
+                        *visitor_error = record.event + " has an invalid inventory-chain summary";
+                        return false;
+                    }
+                }
+                row.summary_seen = true;
+                row.complete = complete;
+                row.sequence = record.sequence;
+                return true;
+            }
+            if (has_suffix(".quantity")) {
+                if (row.quantity_seen || !IntegerField(record, "output_good_ordinal", &row.output_good)
+                    || row.output_good < 0 || row.output_good >= 64
+                    || !IntegerField(record, "opening_inventory_raw", &row.opening) || row.opening < 0
+                    || !IntegerField(record, "produced_raw", &row.produced) || row.produced < 0
+                    || !IntegerField(record, "sold_raw", &row.sold) || row.sold < 0
+                    || !IntegerField(record, "closing_inventory_raw", &row.closing) || row.closing < 0
+                    || row.opening > (std::numeric_limits<int64_t>::max)() - row.produced
+                    || row.closing > row.opening + row.produced
+                    || row.sold != row.opening + row.produced - row.closing) {
+                    *visitor_error = record.event + " is malformed, duplicated, or unreconciled";
+                    return false;
+                }
+                row.quantity_seen = true;
+                return true;
+            }
+            if (!has_suffix(".revenue")) {
+                *visitor_error = "unsupported producer sales event";
+                return false;
+            }
+            if (row.revenue_seen || !IntegerField(record, "proceeds_raw", &row.proceeds) || row.proceeds < 0) {
+                *visitor_error = record.event + " is malformed or duplicated";
+                return false;
+            }
+            if (family != "state.factory"
+                && (!IntegerField(record, "percent_sold_domestic_raw", &row.domestic_fraction)
+                    || row.domestic_fraction < 0 || row.domestic_fraction > 32768
+                    || !IntegerField(record, "percent_sold_export_raw", &row.export_fraction)
+                    || row.export_fraction < 0 || row.export_fraction > 32768)) {
+                *visitor_error = record.event + " has invalid market fractions";
+                return false;
+            }
+            row.revenue_seen = true;
+            return true;
+        }, error) || !flush_rows(error)) return false;
+        if (!summary.warning.empty() || summary.gaps != 0 || summary.date_regressed) {
+            *error = "producer sales requires a complete trace without sequence or date gaps";
+            return false;
+        }
+        if (event_families.empty()) { *error = "trace contains no producer sales records"; return false; }
+        if (!std::includes(healthy_families.begin(), healthy_families.end(),
+                event_families.begin(), event_families.end()) || terminal_health_sequence == 0
+            || !summary.last_sequence || terminal_health_sequence != *summary.last_sequence) {
+            *error = "producer sales requires terminal health for every captured producer family and the writer";
+            return false;
+        }
+        if (complete_rows == 0) { *error = "trace contains no complete producer sales intervals"; return false; }
+        if (warning) *warning = summary.warning;
+        return Publish(&destination, error);
+    }
+
     bool ExportCountryGdpCsv(const fs::path &input, const fs::path &output,
                              const std::string &country, std::optional<int> base_date,
                              std::optional<double> gold_to_cash_rate, bool overwrite,

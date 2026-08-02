@@ -221,6 +221,7 @@ namespace interest_bug_fix
         RGO_PRODUCTION = 1u << 2,
         RGO_FINANCE = 1u << 3,
         RGO_MODIFIERS = 1u << 4,
+        RGO_SALES = 1u << 5,
     };
 
     struct RgoSnapshot
@@ -240,6 +241,9 @@ namespace interest_bug_fix
         int32_t state_rgo_employment_capacity = 0;
         int64_t owner_output_modifier_raw = 0;
         int64_t income_raw = 0;
+        int64_t percent_sold_domestic_raw = 0;
+        int64_t percent_sold_export_raw = 0;
+        int64_t leftover_raw = 0;
     };
 
     using CountryResolver = const void *(*)(const void *context, int32_t ordinal);

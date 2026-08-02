@@ -120,6 +120,9 @@ namespace interest_bug_fix
         constexpr size_t state_employment_throughput_offset = 0x40;
         constexpr size_t state_employment_employed_offset = 0x58;
         constexpr size_t state_employment_income_offset = 0x80;
+        constexpr size_t state_employment_percent_sold_domestic_offset = 0x90;
+        constexpr size_t state_employment_percent_sold_export_offset = 0x98;
+        constexpr size_t state_employment_leftover_offset = 0xa0;
         constexpr size_t state_employment_base_size_offset = 0x88;
         constexpr int64_t pop_savings_state_scale = 1000;
 
@@ -1448,8 +1451,15 @@ namespace interest_bug_fix
                 || !ReadAt(record, state_employment_employed_offset, &value.employed)
                 || value.employment_capacity < 0 || value.employed < 0
                 || value.employed > value.employment_capacity)) return false;
-        if ((groups & RGO_FINANCE) != 0
+        if ((groups & (RGO_FINANCE | RGO_SALES)) != 0
             && (!ReadAt(record, state_employment_income_offset, &value.income_raw) || value.income_raw < 0)) return false;
+        if ((groups & RGO_SALES) != 0
+            && (!ReadAt(record, state_employment_percent_sold_domestic_offset, &value.percent_sold_domestic_raw)
+                || !ReadAt(record, state_employment_percent_sold_export_offset, &value.percent_sold_export_raw)
+                || !ReadAt(record, state_employment_leftover_offset, &value.leftover_raw)
+                || value.percent_sold_domestic_raw < 0 || value.percent_sold_domestic_raw > 32768
+                || value.percent_sold_export_raw < 0 || value.percent_sold_export_raw > 32768
+                || value.leftover_raw < 0)) return false;
         *snapshot = value;
         return true;
     }

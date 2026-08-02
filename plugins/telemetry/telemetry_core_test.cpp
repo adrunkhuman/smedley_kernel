@@ -504,11 +504,34 @@ TEST(TelemetryConfigTest, AcceptsStateFactoryGroups)
         L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
         L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
         L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
-        L"-smedley-telemetry-capture=state.factory|daily|identity,employment,production,finance,inputs,flows|PRU|||"},
+        L"-smedley-telemetry-capture=state.factory|daily|identity,employment,production,finance,inputs,flows,sales|PRU|||"},
         &config, &error)) << error;
     ASSERT_EQ(config.capture_rules.size(), 1u);
     EXPECT_EQ(config.capture_rules[0].family, "state.factory");
     EXPECT_EQ(config.capture_rules[0].country_tags, (std::vector<std::string>{"PRU"}));
+}
+
+TEST(TelemetryConfigTest, RejectsProducerSalesOutsideDailyCadence)
+{
+    telemetry::Config config;
+    std::string error;
+    EXPECT_FALSE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=province.rgo|monthly|sales|PRU|||"},
+        &config, &error));
+    EXPECT_EQ(error, "producer sales capture requires daily cadence");
+
+    error.clear();
+    config = {};
+    EXPECT_FALSE(telemetry::ParseLaunchArguments({
+        L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
+        L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
+        L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
+        L"-smedley-telemetry-capture=pop.artisan|weekly||PRU|||"},
+        &config, &error));
+    EXPECT_EQ(error, "producer sales capture requires daily cadence");
 }
 
 TEST(TelemetryConfigTest, AcceptsWorldMarketGroups)
@@ -533,7 +556,7 @@ TEST(TelemetryConfigTest, AcceptsProvinceRgoGroups)
         L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
         L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
         L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
-        L"-smedley-telemetry-capture=province.rgo|daily|identity,employment,production,finance,modifiers|PRU|549,687||"},
+        L"-smedley-telemetry-capture=province.rgo|daily|identity,employment,production,finance,modifiers,sales|PRU|549,687||"},
         &config, &error)) << error;
     ASSERT_EQ(config.capture_rules.size(), 1u);
     EXPECT_EQ(config.capture_rules[0].family, "province.rgo");
@@ -549,7 +572,7 @@ TEST(TelemetryConfigTest, AcceptsCountryScopedArtisanAndPopulationGroups)
         L"-smedley-run-id=run-1", L"-smedley-telemetry-output=C:\\trace.jsonl",
         L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
         L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
-        L"-smedley-telemetry-capture=pop.artisan|daily|identity,production,inputs,finance,flows|FRA|||",
+        L"-smedley-telemetry-capture=pop.artisan|daily|identity,production,inputs,finance,flows,sales|FRA|||",
         L"-smedley-telemetry-capture=pop.aggregate|daily|size_candidate|FRA|||"},
         &config, &error)) << error;
     ASSERT_EQ(config.capture_rules.size(), 2u);

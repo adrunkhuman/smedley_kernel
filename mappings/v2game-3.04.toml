@@ -358,6 +358,21 @@ signature = "e8 ee e9 ff ff"
 source = "opt-in factory flow hook observed post-consumption stock and reconciled it with deliveries at RVAs 0x0008369d/0x000836aa across 174 live intervals"
 
 [[symbols]]
+name = "Factory sales settlement callsite"
+rva = 0x00088710
+kind = "callsite"
+status = "verified-runtime"
+signature = "e8 1b c4 06 00"
+source = "the first stack argument is CStateBuilding* and the first 64-bit value argument exactly matches sales_income +0x160; live run 662343cc-fc1a-4ad9-a95a-4215541612c6 reconciled opening inventory, output +0xd8, closing inventory +0x1f8, and proceeds for all 21 captured factory settlements"
+
+[[symbols]]
+name = "Factory sales settlement"
+rva = 0x000f4b30
+kind = "function"
+status = "verified-runtime"
+source = "called at RVA 0x00088710 with CStateBuilding* and 64-bit proceeds; the callsite hook preserves the original call and live inventory chains reconcile across successive daily boundaries"
+
+[[symbols]]
 name = "Artisan settlement callsite"
 rva = 0x00086bff
 kind = "callsite"
@@ -768,6 +783,9 @@ fields = [
   { name = "employed", offset = 0x0058 },
   { name = "income", offset = 0x0080 },
   { name = "base_size", offset = 0x0088 },
+  { name = "percent_sold_domestic", offset = 0x0090 },
+  { name = "percent_sold_export", offset = 0x0098 },
+  { name = "leftover", offset = 0x00a0 },
 ]
 
 [[layouts]]
@@ -792,6 +810,7 @@ fields = [
   { name = "closed", offset = 0x0188 },
   { name = "injected_money", offset = 0x01d0 },
   { name = "injected_days", offset = 0x01d8 },
+  { name = "unsold_output", offset = 0x01f8 },
 ]
 
 [[layouts]]
@@ -826,6 +845,26 @@ fields = [
   { name = "cash_flow", offset = 0x01d8 },
   { name = "savings_in_bank", offset = 0x0250 },
   { name = "next", offset = 0x027c },
+]
+
+[[layouts]]
+name = "CPopArtisanEconomy"
+status = "verified-runtime"
+size = 0x0100
+source = "typed runtime and save correlation establish the object at CPop+0x1d4; live producer-sales run 662343cc-fc1a-4ad9-a95a-4215541612c6 reconciled gross output and consecutive leftover inventory for 498 complete artisan intervals"
+fields = [
+  { name = "stockpile", offset = 0x0000 },
+  { name = "recipe_need", offset = 0x0058 },
+  { name = "production_type", offset = 0x00b0 },
+  { name = "last_spending", offset = 0x00b8 },
+  { name = "current_producing", offset = 0x00c0 },
+  { name = "percent_afforded", offset = 0x00c8 },
+  { name = "percent_sold_domestic", offset = 0x00d0 },
+  { name = "percent_sold_export", offset = 0x00d8 },
+  { name = "leftover", offset = 0x00e0 },
+  { name = "throttle", offset = 0x00e8 },
+  { name = "needs_cost", offset = 0x00f0 },
+  { name = "production_income", offset = 0x00f8 },
 ]
 
 [[layouts]]

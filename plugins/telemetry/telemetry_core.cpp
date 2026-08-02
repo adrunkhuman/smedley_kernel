@@ -557,7 +557,8 @@ namespace smedley::telemetry
                 if (rule.family == "country.diplomacy") return field == "status" || field == "relations";
                 if (rule.family == "state.factory") {
                     return field == "identity" || field == "employment"
-                        || field == "production" || field == "finance" || field == "inputs" || field == "flows";
+                        || field == "production" || field == "finance" || field == "inputs" || field == "flows"
+                        || field == "sales";
                 }
                 if (rule.family == "world.market") {
                     return field == "price" || field == "supply"
@@ -574,7 +575,8 @@ namespace smedley::telemetry
                 }
                 if (rule.family == "province.rgo") {
                     return field == "identity" || field == "employment"
-                        || field == "production" || field == "finance" || field == "modifiers";
+                        || field == "production" || field == "finance" || field == "modifiers"
+                        || field == "sales";
                 }
                 if (rule.family == "pop.economy") {
                     return field == "money_raw" || field == "savings_raw"
@@ -582,7 +584,7 @@ namespace smedley::telemetry
                 }
                 if (rule.family == "pop.artisan") {
                     return field == "identity" || field == "production"
-                        || field == "inputs" || field == "finance" || field == "flows";
+                        || field == "inputs" || field == "finance" || field == "flows" || field == "sales";
                 }
                 if (rule.family == "pop.demographics") {
                     return field == "size_candidate" || field == "employed_candidate"
@@ -602,6 +604,12 @@ namespace smedley::telemetry
                     *error = "telemetry capture fields must be known and unique for their family";
                     return false;
                 }
+            }
+            if ((rule.family == "state.factory" || rule.family == "province.rgo" || rule.family == "pop.artisan")
+                && (rule.fields.empty() || std::find(rule.fields.begin(), rule.fields.end(), "sales") != rule.fields.end())
+                && rule.cadence != CaptureCadence::Daily) {
+                *error = "producer sales capture requires daily cadence";
+                return false;
             }
             if (rule.family != "country.daily" && rule.family != "country.metrics" && rule.family != "country.economy"
                 && rule.family != "country.military" && rule.family != "country.diplomacy"

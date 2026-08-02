@@ -3,6 +3,8 @@
 #include "country_economy_core.hpp"
 #include "economic_capture.hpp"
 #include "factory_consumption_probe.hpp"
+#include "factory_sales_probe.hpp"
+#include "producer_sales_core.hpp"
 
 #include <smedley/events/dailyupdate.hpp>
 #include <smedley/plugin.hpp>
@@ -56,6 +58,17 @@ namespace telemetry_plugin
             GoodsFlowAggregate aggregate;
             std::array<int64_t, 64> consumed_raw{};
             std::array<int64_t, 64> closing_raw{};
+        };
+
+        struct ProducerInventoryState
+        {
+            int32_t date_raw = 0;
+            int32_t good_ordinal = -1;
+            int32_t producer_id = -1;
+            int32_t province_id = -1;
+            uint32_t country_key = 0;
+            int64_t closing_inventory_raw = 0;
+            bool seen = false;
         };
 
         std::vector<std::wstring> CommandLineArguments()
@@ -126,7 +139,20 @@ namespace telemetry_plugin
                 throw std::runtime_error(error);
             }
             economic_capture_ = std::make_unique<EconomicCapture>();
+            if (const auto *rule = FindRule("pop.artisan"); rule != nullptr && HasField(*rule, "sales")) {
+                artisan_inventory_states_ = std::make_unique<
+                    std::array<ProducerInventoryState, interest_bug_fix::max_sample_pops>>();
+            }
             const auto *factory_rule = FindRule("state.factory");
+            if (factory_rule != nullptr && HasField(*factory_rule, "sales")) {
+                factory_sales_probe_records_ = std::make_unique<
+                    std::array<FactorySalesProbeRecord, max_factory_sales_records>>();
+                factory_sales_probe_installed_ = true;
+                if (!InstallFactorySalesProbe(&error)) {
+                    logger().Failure("factory sales probe did not start: " + error);
+                    throw std::runtime_error(error);
+                }
+            }
             if ((factory_rule != nullptr && HasField(*factory_rule, "flows")) || FindRule("country.economy") != nullptr) {
                 factory_probe_records_ = std::make_unique<std::array<FactorySettlementProbeRecord, max_factory_flow_records>>();
                 factory_probe_aggregates_ = std::make_unique<
@@ -137,6 +163,7 @@ namespace telemetry_plugin
                     std::array<DailyFactoryFlow, interest_bug_fix::max_sample_factories>>();
                 consumption_probe_installed_ = true;
                 if (!InstallFactoryConsumptionProbe(&error)) {
+                    StopConsumptionProbes(false);
                     logger().Failure("factory consumption probe did not start: " + error);
                     throw std::runtime_error(error);
                 }
@@ -451,6 +478,14 @@ namespace telemetry_plugin
         bool StopConsumptionProbes(bool report_errors) noexcept
         {
             bool stopped = true;
+            if (factory_sales_probe_installed_) {
+                std::string error;
+                if (UninstallFactorySalesProbe(&error)) factory_sales_probe_installed_ = false;
+                else {
+                    stopped = false;
+                    if (report_errors) logger().Failure(error);
+                }
+            }
             if (artisan_consumption_probe_installed_) {
                 std::string error;
                 if (UninstallArtisanConsumptionProbe(&error)) artisan_consumption_probe_installed_ = false;
@@ -683,6 +718,26 @@ namespace telemetry_plugin
                     UpdateFactoryDailyFlows(factory_rule_index);
                 }
             }
+            if (factory_sales_probe_installed_ && factory_sales_probe_date_ != raw_date) {
+                factory_sales_probe_record_count_ = 0;
+                factory_sales_probe_dropped_ = 0;
+                if (!DrainFactorySalesProbe(factory_sales_probe_records_->data(), factory_sales_probe_records_->size(),
+                        &factory_sales_probe_record_count_, &factory_sales_probe_dropped_)) {
+                    factory_sales_probe_dropped_ = 1;
+                }
+                std::sort(factory_sales_probe_records_->begin(),
+                    factory_sales_probe_records_->begin() + factory_sales_probe_record_count_,
+                    [](const FactorySalesProbeRecord &left, const FactorySalesProbeRecord &right) {
+                        return reinterpret_cast<uintptr_t>(left.factory) < reinterpret_cast<uintptr_t>(right.factory);
+                    });
+                factory_sales_probe_date_ = raw_date;
+                if (factory_sales_probe_dropped_ != 0) {
+                    size_t rule_index = 0;
+                    if (FindRule("state.factory", &rule_index) != nullptr) {
+                        family_stats_[rule_index].invalid += factory_sales_probe_dropped_;
+                    }
+                }
+            }
             if (artisan_consumption_probe_installed_ && artisan_probe_date_ != raw_date) {
                 artisan_probe_record_count_ = 0;
                 artisan_probe_dropped_ = 0;
@@ -708,6 +763,10 @@ namespace telemetry_plugin
             const std::optional<int> previous_date = last_observed_date_;
             int64_t delta = 0;
             const bool regressed = smedley::telemetry::ObserveDateRegression(*raw_date, &last_observed_date_, &delta);
+            if (regressed) {
+                rgo_inventory_states_ = {};
+                if (artisan_inventory_states_) artisan_inventory_states_->fill({});
+            }
             if (lifecycle_enabled && regressed) {
                 const SmedleyTelemetryFieldV1 payload[] = {
                     IntField("previous_date_raw", *previous_date), IntField("current_date_raw", *raw_date), IntField("delta_raw", delta)};
@@ -896,6 +955,10 @@ namespace telemetry_plugin
                     if (HasField(*rule, "production")) groups |= interest_bug_fix::RGO_PRODUCTION;
                     if (HasField(*rule, "finance")) groups |= interest_bug_fix::RGO_FINANCE;
                     if (HasField(*rule, "modifiers")) groups |= interest_bug_fix::RGO_MODIFIERS;
+                    if (HasField(*rule, "sales")) {
+                        groups |= interest_bug_fix::RGO_IDENTITY | interest_bug_fix::RGO_PRODUCTION
+                            | interest_bug_fix::RGO_FINANCE | interest_bug_fix::RGO_SALES;
+                    }
                     for (size_t id = 0; id < province_count; ++id) {
                         if (!HasProvinceId(*rule, static_cast<int>(id))) continue;
                         const auto *province = game_state->province(static_cast<int>(id));
@@ -967,6 +1030,49 @@ namespace telemetry_plugin
                             AccountResult(rule_index, EmitTyped("province.rgo.finance", "state", raw_date,
                                 entities, 2, &income, 1, false, reliable));
                         }
+                        if (HasField(*rule, "sales")) {
+                            auto &previous = rgo_inventory_states_[id];
+                            uint32_t country_key = 0;
+                            std::memcpy(&country_key, country_tag.data(), 3);
+                            ProducerSale sale{};
+                            const bool boundary_complete = previous.seen && previous.date_raw + 24 == *raw_date
+                                && previous.good_ordinal == snapshot.output_good_ordinal
+                                && previous.country_key == country_key;
+                            const bool complete = boundary_complete
+                                && ReconcileProducerSale(previous.closing_inventory_raw, snapshot.gross_output_raw,
+                                    snapshot.leftover_raw, snapshot.income_raw, &sale);
+                            const SmedleyTelemetryFieldV1 summary_payload[] = {
+                                BoolField("settlement_seen", true),
+                                BoolField("opening_inventory_seen", boundary_complete),
+                                BoolField("complete", complete),
+                            };
+                            AccountResult(rule_index, EmitTyped("province.rgo.sales.summary", "state", raw_date,
+                                entities, 2, summary_payload, 3, false, reliable));
+                            if (boundary_complete && !complete) ++family_stats_[rule_index].invalid;
+                            if (complete) {
+                                const SmedleyTelemetryFieldV1 quantity_payload[] = {
+                                    IntField("output_good_ordinal", snapshot.output_good_ordinal),
+                                    IntField("opening_inventory_raw", sale.opening_inventory_raw),
+                                    IntField("produced_raw", sale.produced_raw),
+                                    IntField("sold_raw", sale.sold_raw),
+                                    IntField("closing_inventory_raw", sale.closing_inventory_raw),
+                                };
+                                AccountResult(rule_index, EmitTyped("province.rgo.sales.quantity", "state", raw_date,
+                                    entities, 2, quantity_payload, 5, false, reliable));
+                                const SmedleyTelemetryFieldV1 revenue_payload[] = {
+                                    IntField("proceeds_raw", sale.proceeds_raw),
+                                    IntField("percent_sold_domestic_raw", snapshot.percent_sold_domestic_raw),
+                                    IntField("percent_sold_export_raw", snapshot.percent_sold_export_raw),
+                                };
+                                AccountResult(rule_index, EmitTyped("province.rgo.sales.revenue", "state", raw_date,
+                                    entities, 2, revenue_payload, 3, false, reliable));
+                            }
+                            previous.date_raw = *raw_date;
+                            previous.good_ordinal = snapshot.output_good_ordinal;
+                            previous.country_key = country_key;
+                            previous.closing_inventory_raw = snapshot.leftover_raw;
+                            previous.seen = true;
+                        }
                     }
                 }
                 constexpr std::array<std::string_view, 4> pop_families = {
@@ -1018,6 +1124,10 @@ namespace telemetry_plugin
                     if (HasField(*rule, "production")) groups |= interest_bug_fix::FACTORY_PRODUCTION;
                     if (HasField(*rule, "finance")) groups |= interest_bug_fix::FACTORY_FINANCE;
                     if (HasField(*rule, "inputs")) groups |= interest_bug_fix::FACTORY_INPUTS;
+                    if (HasField(*rule, "sales")) {
+                        groups |= interest_bug_fix::FACTORY_IDENTITY | interest_bug_fix::FACTORY_PRODUCTION
+                            | interest_bug_fix::FACTORY_FINANCE;
+                    }
                     if (!interest_bug_fix::CollectCountryFactories(country, factory_snapshots_.data(),
                             factory_snapshots_.size(), &factory_count, factory_input_snapshots_.data(),
                             factory_input_snapshots_.size(), &input_count, groups, &flags)) {
@@ -1122,6 +1232,54 @@ namespace telemetry_plugin
                                 };
                                 AccountResult(country_rule_index, EmitTyped("state.factory.finance", "state", raw_date,
                                     entities, 3, payload, 5, false, reliable));
+                            }
+                            if (HasField(*rule, "sales")) {
+                                const auto begin = factory_sales_probe_records_->begin();
+                                const auto end = begin + factory_sales_probe_record_count_;
+                                const auto match = std::lower_bound(begin, end, snapshot.address,
+                                    [](const FactorySalesProbeRecord &candidate, const void *address) {
+                                        return reinterpret_cast<uintptr_t>(candidate.factory)
+                                            < reinterpret_cast<uintptr_t>(address);
+                                    });
+                                const auto match_end = std::upper_bound(match, end, snapshot.address,
+                                    [](const void *address, const FactorySalesProbeRecord &candidate) {
+                                        return reinterpret_cast<uintptr_t>(address)
+                                            < reinterpret_cast<uintptr_t>(candidate.factory);
+                                    });
+                                const auto settlement_count = static_cast<int64_t>(match_end - match);
+                                ProducerSale sale{};
+                                const bool complete = settlement_count == 1
+                                    && ReconcileProducerSale(match->opening_inventory_raw, match->produced_raw,
+                                        match->closing_inventory_raw, match->proceeds_raw, &sale)
+                                    && match->produced_raw == snapshot.output_raw
+                                    && match->proceeds_raw == snapshot.sales_income_raw;
+                                const SmedleyTelemetryFieldV1 summary_payload[] = {
+                                    BoolField("settlement_seen", settlement_count != 0),
+                                    IntField("settlement_count", settlement_count),
+                                    BoolField("complete", complete),
+                                };
+                                ++family_stats_[country_rule_index].collection_attempts;
+                                AccountResult(country_rule_index, EmitTyped("state.factory.sales.summary", "state",
+                                    raw_date, entities, 3, summary_payload, 3, false, reliable));
+                                if (settlement_count > 1 || (settlement_count == 1 && !complete)) {
+                                    ++family_stats_[country_rule_index].invalid;
+                                }
+                                if (complete) {
+                                    const SmedleyTelemetryFieldV1 quantity_payload[] = {
+                                        IntField("output_good_ordinal", snapshot.output_good_ordinal),
+                                        IntField("opening_inventory_raw", sale.opening_inventory_raw),
+                                        IntField("produced_raw", sale.produced_raw),
+                                        IntField("sold_raw", sale.sold_raw),
+                                        IntField("closing_inventory_raw", sale.closing_inventory_raw),
+                                    };
+                                    ++family_stats_[country_rule_index].collection_attempts;
+                                    AccountResult(country_rule_index, EmitTyped("state.factory.sales.quantity", "state",
+                                        raw_date, entities, 3, quantity_payload, 5, false, reliable));
+                                    const auto proceeds = IntField("proceeds_raw", sale.proceeds_raw);
+                                    ++family_stats_[country_rule_index].collection_attempts;
+                                    AccountResult(country_rule_index, EmitTyped("state.factory.sales.revenue", "state",
+                                        raw_date, entities, 3, &proceeds, 1, false, reliable));
+                                }
                             }
                         }
                         if (HasField(*rule, "inputs")) {
@@ -1361,6 +1519,7 @@ namespace telemetry_plugin
         bool handler_registered_ = false;
         bool consumption_probe_installed_ = false;
         bool artisan_consumption_probe_installed_ = false;
+        bool factory_sales_probe_installed_ = false;
         std::shared_timed_mutex producer_mutex_;
         std::timed_mutex drain_mutex_;
         std::condition_variable_any drain_complete_cv_;
@@ -1384,6 +1543,12 @@ namespace telemetry_plugin
         uint32_t factory_flow_observed_dates_ = 0;
         uint64_t factory_probe_dropped_ = 0;
         std::optional<int> factory_probe_date_;
+        std::unique_ptr<std::array<FactorySalesProbeRecord, max_factory_sales_records>> factory_sales_probe_records_;
+        uint32_t factory_sales_probe_record_count_ = 0;
+        uint64_t factory_sales_probe_dropped_ = 0;
+        std::optional<int> factory_sales_probe_date_;
+        std::array<ProducerInventoryState, interest_bug_fix::max_sample_destination_provinces> rgo_inventory_states_{};
+        std::unique_ptr<std::array<ProducerInventoryState, interest_bug_fix::max_sample_pops>> artisan_inventory_states_;
         std::array<uint32_t, 16> artisan_country_keys_{};
         std::unique_ptr<std::array<ArtisanSettlementProbeRecord, max_artisan_flow_records>> artisan_probe_records_;
         uint32_t artisan_probe_record_count_ = 0;
@@ -1839,14 +2004,29 @@ namespace telemetry_plugin
             }
         }
 
+        ProducerInventoryState *ArtisanInventoryStateFor(int32_t pop_id, int32_t date_raw)
+        {
+            if (!artisan_inventory_states_ || pop_id < 0) return nullptr;
+            size_t slot = static_cast<uint32_t>(pop_id) * 2654435761u % artisan_inventory_states_->size();
+            ProducerInventoryState *stale = nullptr;
+            for (size_t attempt = 0; attempt < artisan_inventory_states_->size(); ++attempt) {
+                auto &state = (*artisan_inventory_states_)[slot];
+                if (state.seen && state.producer_id == pop_id) return &state;
+                if (!state.seen) return stale == nullptr ? &state : stale;
+                if (static_cast<int64_t>(state.date_raw) + 24 < date_raw && stale == nullptr) stale = &state;
+                slot = (slot + 1) % artisan_inventory_states_->size();
+            }
+            return stale;
+        }
+
 // MSVC's x86 optimizer exhausts its 32-bit heap on these field-heavy emitters.
 #pragma optimize("", off)
         __declspec(noinline) void EmitArtisanGroups(int32_t date_raw,
                                                     const smedley::telemetry::CaptureRule &rule,
-                                                    size_t rule_index,
-                                                    const char *country_tag,
-                                                    int32_t province_id,
-                                                    const interest_bug_fix::ArtisanSnapshot &artisan,
+                                                     size_t rule_index,
+                                                     const char *country_tag,
+                                                     int32_t province_id,
+                                                     const interest_bug_fix::ArtisanSnapshot &artisan,
                                                     const interest_bug_fix::ArtisanInputSnapshot *inputs,
                                                     uint32_t input_count,
                                                     const GoodsFlowAggregate &flow,
@@ -1901,6 +2081,58 @@ namespace telemetry_plugin
                 ++family_stats_[rule_index].collection_attempts;
                 AccountResult(rule_index, EmitTyped("pop.artisan.finance", "state", date_raw,
                     entities, 3, payload, 5, false, reliable));
+            }
+            if (HasField(rule, "sales")) {
+                auto *previous = ArtisanInventoryStateFor(artisan.pop_id, date_raw);
+                if (previous == nullptr) {
+                    ++family_stats_[rule_index].invalid;
+                } else {
+                    uint32_t country_key = 0;
+                    std::memcpy(&country_key, country_tag, 3);
+                    ProducerSale sale{};
+                    const bool boundary_complete = previous->seen && previous->date_raw + 24 == date_raw
+                        && previous->good_ordinal == artisan.output_good_ordinal
+                        && previous->province_id == province_id && previous->country_key == country_key;
+                    const bool complete = boundary_complete
+                        && ReconcileProducerSale(previous->closing_inventory_raw, artisan.gross_output_raw,
+                            artisan.leftover_raw, artisan.production_income_raw, &sale);
+                    const SmedleyTelemetryFieldV1 summary_payload[] = {
+                        BoolField("settlement_seen", true),
+                        BoolField("opening_inventory_seen", boundary_complete),
+                        BoolField("complete", complete),
+                    };
+                    ++family_stats_[rule_index].collection_attempts;
+                    AccountResult(rule_index, EmitTyped("pop.artisan.sales.summary", "state", date_raw,
+                        entities, 3, summary_payload, 3, false, reliable));
+                    if (boundary_complete && !complete) ++family_stats_[rule_index].invalid;
+                    if (complete) {
+                        const SmedleyTelemetryFieldV1 quantity_payload[] = {
+                            IntField("output_good_ordinal", artisan.output_good_ordinal),
+                            IntField("opening_inventory_raw", sale.opening_inventory_raw),
+                            IntField("produced_raw", sale.produced_raw),
+                            IntField("sold_raw", sale.sold_raw),
+                            IntField("closing_inventory_raw", sale.closing_inventory_raw),
+                        };
+                        ++family_stats_[rule_index].collection_attempts;
+                        AccountResult(rule_index, EmitTyped("pop.artisan.sales.quantity", "state", date_raw,
+                            entities, 3, quantity_payload, 5, false, reliable));
+                        const SmedleyTelemetryFieldV1 revenue_payload[] = {
+                            IntField("proceeds_raw", sale.proceeds_raw),
+                            IntField("percent_sold_domestic_raw", artisan.percent_sold_domestic_raw),
+                            IntField("percent_sold_export_raw", artisan.percent_sold_export_raw),
+                        };
+                        ++family_stats_[rule_index].collection_attempts;
+                        AccountResult(rule_index, EmitTyped("pop.artisan.sales.revenue", "state", date_raw,
+                            entities, 3, revenue_payload, 3, false, reliable));
+                    }
+                    previous->date_raw = date_raw;
+                    previous->good_ordinal = artisan.output_good_ordinal;
+                    previous->producer_id = artisan.pop_id;
+                    previous->province_id = province_id;
+                    previous->country_key = country_key;
+                    previous->closing_inventory_raw = artisan.leftover_raw;
+                    previous->seen = true;
+                }
             }
             if (HasField(rule, "flows")) {
                 const SmedleyTelemetryFieldV1 summary_payload[] = {
@@ -1964,6 +2196,10 @@ namespace telemetry_plugin
                     if (HasField(rule, "inputs")) groups |= interest_bug_fix::ARTISAN_INPUTS;
                     if (HasField(rule, "finance")) groups |= interest_bug_fix::ARTISAN_FINANCE;
                     if (HasField(rule, "flows")) groups |= interest_bug_fix::ARTISAN_FLOWS;
+                    if (HasField(rule, "sales")) {
+                        groups |= interest_bug_fix::ARTISAN_IDENTITY | interest_bug_fix::ARTISAN_PRODUCTION
+                            | interest_bug_fix::ARTISAN_FINANCE;
+                    }
                     if (!interest_bug_fix::ReadArtisanSnapshot(economic_capture_->population_candidate(index).address,
                             &artisan, inputs.data(), inputs.size(), &input_count, groups)) {
                         int32_t inactive_pop_id = -1;

@@ -616,7 +616,7 @@ namespace smedley::launcher
             if (rule.family == "state.factory") {
                 return field == "identity" || field == "employment"
                     || field == "production" || field == "finance" || field == "inputs"
-                    || field == "flows";
+                    || field == "flows" || field == "sales";
             }
             if (rule.family == "world.market") {
                 return field == "price" || field == "supply"
@@ -633,7 +633,8 @@ namespace smedley::launcher
             }
             if (rule.family == "province.rgo") {
                 return field == "identity" || field == "employment"
-                    || field == "production" || field == "finance" || field == "modifiers";
+                    || field == "production" || field == "finance" || field == "modifiers"
+                    || field == "sales";
             }
             if (rule.family == "pop.economy") {
                 return field == "money_raw" || field == "savings_raw"
@@ -641,7 +642,7 @@ namespace smedley::launcher
             }
             if (rule.family == "pop.artisan") {
                 return field == "identity" || field == "production"
-                    || field == "inputs" || field == "finance" || field == "flows";
+                    || field == "inputs" || field == "finance" || field == "flows" || field == "sales";
             }
             if (rule.family == "pop.demographics") {
                 return field == "size_candidate" || field == "employed_candidate"
@@ -753,6 +754,14 @@ namespace smedley::launcher
                         AddDiagnostic(diagnostics, "telemetry.capture_fields", prefix + "fields must be known and unique for the family", path);
                         return false;
                     }
+                }
+                if ((rule.family == "state.factory" || rule.family == "province.rgo" || rule.family == "pop.artisan")
+                    && (rule.fields.empty()
+                        || std::find(rule.fields.begin(), rule.fields.end(), "sales") != rule.fields.end())
+                    && rule.cadence != "daily") {
+                    AddDiagnostic(diagnostics, "telemetry.capture_cadence",
+                        prefix + "producer sales capture requires daily cadence", path);
+                    return false;
                 }
                 for (size_t tag_index = 0; tag_index < rule.country_tags.size(); ++tag_index) {
                     if (!IsTelemetryCountryTag(rule.country_tags[tag_index])

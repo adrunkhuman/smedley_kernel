@@ -21,6 +21,7 @@ namespace
                   << "  smedley_trace assert-benchmark TRACE (--completed [--days N] | --failed REASON)\n"
                   << "  smedley_trace export-csv TRACE OUTPUT [--overwrite] --event country.daily\n"
                   << "  smedley_trace factory-value-added TRACE OUTPUT [--country TAG] [--overwrite]\n"
+                  << "  smedley_trace producer-sales TRACE OUTPUT [--country TAG] [--overwrite]\n"
                   << "  smedley_trace country-gdp TRACE OUTPUT [--country TAG] [--base-date RAW]"
                      " [--gold-to-cash-rate RATE] [--overwrite]\n"
                   << "  smedley_trace export-trace TRACE OUTPUT [--event TYPE] [--category lifecycle|state] [--country TAG] [--overwrite]\n";
@@ -297,6 +298,25 @@ int wmain(int argc, wchar_t **argv)
         std::string warning;
         if (!ExportCountryGdpCsv(argv[2], argv[3], country, base_date, gold_to_cash_rate,
                 overwrite, &error, &warning)) {
+            std::cerr << "smedley_trace: " << error << '\n';
+            return 1;
+        }
+        if (!warning.empty()) std::cerr << "warning: " << warning << '\n';
+        return 0;
+    }
+
+    if (command == L"producer-sales" && argc >= 4) {
+        bool overwrite = false, country_seen = false;
+        std::string country;
+        for (int index = 4; index < argc; ++index) {
+            const std::wstring option = argv[index];
+            if (option == L"--overwrite" && !overwrite) overwrite = true;
+            else if (option == L"--country" && !country_seen && ++index < argc
+                && Utf8(argv[index], &country) && IsTag(country)) country_seen = true;
+            else { std::cerr << "smedley_trace: invalid producer-sales arguments\n"; return 2; }
+        }
+        std::string warning;
+        if (!ExportProducerSalesCsv(argv[2], argv[3], country, overwrite, &error, &warning)) {
             std::cerr << "smedley_trace: " << error << '\n';
             return 1;
         }

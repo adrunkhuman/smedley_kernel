@@ -82,11 +82,12 @@ filters.
 | `country.military` | `unit_count_candidate`, `mobilized_candidate`, `scheduled_mobilization_count_candidate`, `leadership_candidate_raw`, `military_ranking_candidate` |
 | `world.military` | `ongoing_war_count_candidate` |
 | `country.diplomacy` | record groups `status`, `relations` |
-| `state.factory` | record groups `identity`, `employment`, `production`, `finance`, `inputs`, `flows` |
+| `state.factory` | record groups `identity`, `employment`, `production`, `finance`, `inputs`, `flows`, `sales` |
 | `world.market` | record groups `price`, `supply`, `demand`, `sales` |
 | `province.daily` | `owner_tag_candidate`, `controller_tag_candidate`, `colonial_level_candidate`, `life_rating_candidate`, `infrastructure_candidate_raw` |
 | `province.production` | `building_slot_count_candidate`, `construction_count_candidate` |
-| `province.rgo` | record groups `identity`, `employment`, `production`, `finance`, `modifiers` |
+| `province.rgo` | record groups `identity`, `employment`, `production`, `finance`, `modifiers`, `sales` |
+| `pop.artisan` | record groups `identity`, `production`, `inputs`, `finance`, `flows`, `sales` |
 | `pop.economy` | `money_raw`, `savings_raw`, `interest_cash_flow_raw`, `total_cash_flow_raw` |
 | `pop.demographics` | `size_candidate`, `employed_candidate`, `consciousness_candidate_raw`, `militancy_candidate_raw`, `literacy_candidate_raw` |
 | `pop.aggregate` | `pop_count`, `size_candidate`, `employed_candidate`, `money_raw`, `savings_raw` |
@@ -97,6 +98,9 @@ Monthly and yearly capture emits on the first observed date in each Victoria II
 calendar period. The game calendar has 24 raw units per day, fixed 365-day
 years, no leap day, and epoch `-5000.1.1`; `1836.1.2` is raw `59883384`.
 Date regression resets each rule independently.
+Producer `sales` capture is daily only because realized quantity requires the
+previous day's closing inventory. Profiles selecting `sales` at another cadence
+are rejected before launch and again by the plugin parser.
 
 `country.economy` treats cadence as an accounting interval rather than a
 point-in-time sampling trigger. It reads daily factory, RGO, artisan,
@@ -358,6 +362,15 @@ unavailable until its referenced storage is correlated. Upgrade availability
 must not be inferred because policy, ownership, funds, level, and existing
 projects can prevent it.
 
+The optional factory `sales` group emits `state.factory.sales.summary` for every
+sampled factory. `settlement_seen`, `settlement_count`, and `complete` expose
+missing, duplicate, and invalid finance boundaries rather than silently omitting
+the factory. A complete summary has one paired `sales.quantity` and
+`sales.revenue` record. Quantity reports output-good ordinal, opening inventory,
+production, realized sold quantity, and closing inventory, all at the 32,768
+scale. Revenue reports settlement proceeds at the 32,768,000 money scale.
+The enforced identity is `sold = opening + produced - closing`.
+
 Vanilla run `40d36695-696f-408e-af64-df266a1cfcc8` emitted identity,
 employment, production, and finance records for all seven PRU factories on
 1836.1.3: four in the state anchored by Berlin 549, one anchored by province
@@ -397,11 +410,11 @@ recipe consumption, and resident POP sizes. Realized sales, worker
 compensation, capitalist income, inventory change, and subsidies remain
 separate distribution and financing measures rather than production value.
 
-Four-day run `a4edf016-5d61-40e0-83e7-37b9df278e2a` disproved both same-day and
-one-day-lag producer-sales derivation: inferred sold/output ratios ranged from
-0.14 to 2.16. Factory output, realized income, and market price therefore need a
-verified clearing phase or producer inventory field before joining. Across the
-same run, every factory and day satisfied the exact cash-flow identity
+Four-day run `a4edf016-5d61-40e0-83e7-37b9df278e2a` disproved deriving sales
+from output, income, and market price alone: inferred sold/output ratios ranged
+from 0.14 to 2.16. The later finance-boundary mapping resolves this with direct
+opening and closing output inventory. Across the earlier run, every factory and
+day satisfied the exact cash-flow identity
 `budget_delta = sales_income + investment_income - market_spending - paychecks`.
 
 `province.rgo` emits selected groups from the bounded global `CStateEmployment`
@@ -411,6 +424,14 @@ output per size, base size, output efficiency, throughput, and gross output;
 finance reports RGO income. Quantity fields and modifiers use the
 32,768 scale, while income uses the 32,768,000 money scale.
 `base_size_raw_candidate` remains as the v1 alias of verified `base_size_raw`.
+The daily `sales` group adds a settlement summary and, after one warm-up
+observation, paired quantity and revenue records. It reconciles previous
+leftover inventory plus current gross output against current leftover inventory.
+`opening_inventory_seen` distinguishes warm-up, date gaps, ownership changes,
+and output-good changes from a failed inventory reconciliation.
+Revenue retains the engine's domestic and export sold fractions as raw evidence;
+it does not claim that either fraction directly allocates the emitted total
+quantity.
 
 Berlin 549 resolved `orchard`/`fruit`, capacity 195,625, employment 110,896,
 output efficiency 1.90, and throughput 0.9703. Görlitz 687 resolved
@@ -452,6 +473,27 @@ legitimately replaces the input-good set between dates. A country-filtered
 three-day run emitted complete four-boundary settlements for all nine selected
 Berlin artisans after warm-up, with 40 flow records and no gaps, drops, or
 invalid records.
+
+Artisan `sales` uses the same summary, quantity, and revenue shape. POP ID,
+province, country, and output-good continuity are required across consecutive
+days. First observations, date gaps, and recipe switches emit `complete=false`
+without a quantity or revenue pair.
+
+Five-day run `662343cc-fc1a-4ad9-a95a-4215541612c6` emitted 21 factory,
+184 RGO, and 498 artisan quantity/revenue pairs, plus 230 RGO and 630 artisan
+summaries. All producer families reported zero invalid or dropped records. The
+missing first-day RGO and artisan pairs are explicit inventory warm-up, not
+zero sales. Final thirty-day run `dc58f6ce-369a-48c3-a1ad-fdae369b0193` exported
+5,152 strict rows: 196 factory, 1,334 RGO, and 3,622 artisan accounts, with zero
+gaps, drops, writer failures, family invalid records, or failed reconciliations.
+
+Annual run `7212971a-f622-488a-9283-e02056e5c001` captured 387,773 records.
+Factory and RGO remained healthy; a Machine Parts factory explicitly reported
+199 post-warm-up days without a settlement, exercising the incomplete/shutdown
+path without inventing zero sales. All 44,881 emitted artisan pairs reconciled,
+but the family reported 213 other invalid collection attempts later in the run,
+so strict export correctly rejected the annual trace. Producer events remain
+`provisional` until those long-run artisan collection failures are mapped.
 
 Metz 412 verifies the special precious-metal case. Its runtime RGO emitted
 gross output raw 262,128 (7.9995 units) and income raw 7,385,056,000, exactly
@@ -631,13 +673,14 @@ smedley_trace assert-benchmark run.jsonl --completed --days 365
 smedley_trace assert-benchmark timeout.jsonl --failed timeout
 smedley_trace export-csv run.jsonl treasury.csv --event country.daily
 smedley_trace factory-value-added run.jsonl factory-va.csv --country BEL
+smedley_trace producer-sales run.jsonl producer-sales.csv --country FRA
 smedley_trace country-gdp run.jsonl gdp.csv --country FRA --gold-to-cash-rate 0.5
 smedley_trace export-trace run.jsonl eng.jsonl --country ENG
 ```
 
 Malformed complete records, invalid envelopes, mixed run IDs, and non-increasing
 sequences fail validation. An incomplete final line is warned and ignored.
-Exports create a new file by default. Both export commands accept `--overwrite`:
+Exports create a new file by default. Export commands accept `--overwrite`:
 the tool writes and flushes a sibling temporary file, then atomically replaces
 the destination only after the complete source snapshot validates. It rejects
 reparse paths, hard-linked destinations, and input/output aliases. CSV text
@@ -670,6 +713,15 @@ executable and mapping.
 When a factory skips purchase settlement, the opening boundary is its previous
 post-consumption stock rather than a nonexistent delivery total. This preserves
 consumption across shutdown, input shortage, or other no-purchase days.
+
+`producer-sales` exports one row per complete factory, RGO, or artisan sales
+account. It requires reconciled quantity/revenue pairs, matching summaries,
+healthy terminal summaries for every captured producer family and the writer,
+monotonic dates, and no sequence gaps. Incomplete warm-up rows are checked but
+not exported. The CSV leaves inapplicable identity and market-fraction columns
+empty; it never converts an unavailable split to zero. Export retains only one
+game date in memory and spools validated rows to the transactional temporary
+file, so memory does not grow with campaign duration.
 
 `country-gdp` requires three consecutive daily snapshots and healthy terminal
 summaries for `world.market`, `state.factory`, `province.rgo`, `pop.artisan`,

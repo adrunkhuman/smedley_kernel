@@ -1157,6 +1157,9 @@ TEST(InterestBugFixTest, ReadsValidatedProvinceRgoRecord)
     const int64_t output_efficiency = 47513;
     const int64_t throughput = 17932;
     const int64_t income = 536724000;
+    const int64_t percent_sold_domestic = 24576;
+    const int64_t percent_sold_export = 16384;
+    const int64_t leftover = 32768;
     const int32_t owner_pop_type_ordinal = 1;
 
     Write(&province, 0x1ac, capacity);
@@ -1182,11 +1185,15 @@ TEST(InterestBugFixTest, ReadsValidatedProvinceRgoRecord)
     Write(&records[1], 0x58, employed);
     Write(&records[1], 0x80, income);
     Write(&records[1], 0x88, base_size);
+    Write(&records[1], 0x90, percent_sold_domestic);
+    Write(&records[1], 0x98, percent_sold_export);
+    Write(&records[1], 0xa0, leftover);
 
     interest_probe::RgoSnapshot snapshot{};
     ASSERT_TRUE(interest_probe::ReadProvinceRgo(registry.data(), province.data(), 1, records.size(),
         interest_probe::RGO_IDENTITY | interest_probe::RGO_EMPLOYMENT
-            | interest_probe::RGO_PRODUCTION | interest_probe::RGO_FINANCE | interest_probe::RGO_MODIFIERS,
+            | interest_probe::RGO_PRODUCTION | interest_probe::RGO_FINANCE | interest_probe::RGO_MODIFIERS
+            | interest_probe::RGO_SALES,
         &snapshot));
     EXPECT_EQ(snapshot.province_id, 1);
     EXPECT_STREQ(snapshot.production_type, production_key);
@@ -1203,6 +1210,15 @@ TEST(InterestBugFixTest, ReadsValidatedProvinceRgoRecord)
     EXPECT_EQ(snapshot.state_rgo_employment_capacity, capacity);
     EXPECT_EQ(snapshot.owner_output_modifier_raw, 463);
     EXPECT_EQ(snapshot.income_raw, income);
+    EXPECT_EQ(snapshot.percent_sold_domestic_raw, percent_sold_domestic);
+    EXPECT_EQ(snapshot.percent_sold_export_raw, percent_sold_export);
+    EXPECT_EQ(snapshot.leftover_raw, leftover);
+
+    const int64_t invalid_percent_sold = 32769;
+    Write(&records[1], 0x90, invalid_percent_sold);
+    EXPECT_FALSE(interest_probe::ReadProvinceRgo(registry.data(), province.data(), 1, records.size(),
+        interest_probe::RGO_SALES, &snapshot));
+    Write(&records[1], 0x90, percent_sold_domestic);
 
     const int32_t invalid_owner_pop_type_ordinal = 128;
     Write(&owner_modifier, 0x28, invalid_owner_pop_type_ordinal);

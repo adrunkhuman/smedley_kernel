@@ -296,6 +296,16 @@ spending `+0x158`, sales income `+0x160`, paychecks `+0x168`, and investment
 leftovers, while GFM overrides it to 0.3. The wiki does not establish payment
 cadence, and telemetry does not infer one.
 
+Factory finance settlement callsite RVA `0x00088710` calls RVA `0x000f4b30`.
+Its first argument is the live `CStateBuilding*`; the 64-bit value argument
+matches `sales_income +0x160`. At this boundary output is `+0xd8`, closing unsold
+output is `+0x1f8`, and the caller local at hook-stack `+0xc4` is opening unsold
+output. Run `662343cc-fc1a-4ad9-a95a-4215541612c6` captured 21 factory accounts
+with zero invalid records. Their closing inventory chained exactly into the next
+opening inventory, including the observed sequence 0, 10,479, 27,007, 42,396,
+and 52,866 raw units. This establishes realized sold quantity as
+`opening + produced - closing` and proceeds as the call's 64-bit amount.
+
 Small Arms save `injected_money=122750.09155` and `injected_days=7` correlate to
 `CStateBuilding+0x1d0` and `+0x1d8`. Four-day run
 `a4edf016-5d61-40e0-83e7-37b9df278e2a` balanced every factory budget exactly
@@ -416,6 +426,14 @@ showed previous closing stocks 47,132/47,132/117,830 and current residuals
 `verified-runtime` without relying on cross-date stock identity when artisans
 switch recipes.
 
+The artisan economy's sold fractions `+0xd0/+0xd8`, leftover output `+0xe0`,
+and production income `+0xf8` form a separate realized-sales account. Run
+`662343cc-fc1a-4ad9-a95a-4215541612c6` emitted 630 settlement summaries and 498
+complete quantity/revenue pairs with zero invalid records. The first observation
+for each POP is an explicit warm-up because no opening inventory exists; recipe
+changes also break the inventory chain rather than joining different output
+goods.
+
 The artisan market-settlement caller at RVA `0x00086bff` holds `CPop*` in EBX
 and calls RVA `0x00083aa0`. Primary and secondary goods additions occur at RVAs
 `0x00083fca` and `0x00083fda`, with `CPop*` retained in EDI and its economy
@@ -462,6 +480,9 @@ eight-byte prefix followed by a live `CStateEmployment` object.
 | `+0x58` | employed workers |
 | `+0x80` | income, 32,768,000 scale |
 | `+0x88` | base size, 32,768 scale |
+| `+0x90` | domestic sold fraction, 32,768 scale |
+| `+0x98` | export sold fraction, 32,768 scale |
+| `+0xa0` | closing leftover output, 32,768 scale |
 
 Berlin's record resolves `orchard` and fruit ordinal 33; Görlitz resolves
 `coal_mine` and coal ordinal 10. The record values reproduce both UI efficiency,
@@ -490,6 +511,21 @@ accepted records with zero invalid or dropped records.
 Run `e5f0655c-7a87-4342-a77a-96c2b2d47492` emitted production and separate
 modifier records with owner raw values 305 and 463. Its family summary reported
 ten accepted records with zero filtered, dropped, or invalid results.
+
+Producer-sales run `662343cc-fc1a-4ad9-a95a-4215541612c6` emitted 230 RGO
+settlement summaries and 184 complete quantity/revenue pairs over five dates,
+with zero invalid records. Consecutive leftover inventory and gross output
+reconciled every complete interval. Domestic and export fractions are retained
+as engine evidence, but telemetry does not derive a producer-attributed market
+split because their sequential clearing semantics are not independently proven.
+
+Final thirty-day run `dc58f6ce-369a-48c3-a1ad-fdae369b0193` produced 5,152 strict
+producer rows with zero family invalid records. Annual run
+`7212971a-f622-488a-9283-e02056e5c001` kept factory and RGO collection healthy
+and exposed 199 post-warm-up missing settlements for one Machine Parts factory.
+Its 44,881 emitted artisan accounts all reconciled, but 213 separate artisan
+collection attempts were invalid; strict annual export therefore remains
+unavailable pending mapping of those late-run artisan states.
 
 Metz province 412 resolves `precious_metal_mine` and precious-metal ordinal 17.
 Run `962c2f5b-afb6-4ef2-b29d-eb579c480561` emitted gross output raw 262,128 and

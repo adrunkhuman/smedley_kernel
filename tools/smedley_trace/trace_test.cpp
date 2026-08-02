@@ -310,6 +310,93 @@ TEST_F(TraceTest, RejectsIncompleteFactoryValueAddedIntervals)
     EXPECT_FALSE(fs::exists(output));
 }
 
+TEST_F(TraceTest, ExportsStrictProducerSalesAccounts)
+{
+    const auto input = Path(L"producer-sales");
+    const auto output = Path(L"producer-sales", L".csv");
+    const std::string factory =
+        "{\"country_tag\":\"FRA\",\"state_id\":1,\"factory_type\":\"cement_factory\"}";
+    const std::string rgo = "{\"country_tag\":\"FRA\",\"province_id\":2}";
+    const std::string artisan = "{\"country_tag\":\"FRA\",\"province_id\":3,\"pop_id\":4}";
+    uint64_t sequence = 0;
+    std::string trace_text;
+    auto append = [&](const std::string &line) { trace_text += line + '\n'; };
+    append(StateLine(++sequence, 48, "state.factory.sales.summary", factory,
+        "{\"settlement_seen\":true,\"settlement_count\":1,\"complete\":true}"));
+    append(StateLine(++sequence, 48, "state.factory.sales.quantity", factory,
+        "{\"output_good_ordinal\":1,\"opening_inventory_raw\":100,\"produced_raw\":50,"
+        "\"sold_raw\":120,\"closing_inventory_raw\":30}"));
+    append(StateLine(++sequence, 48, "state.factory.sales.revenue", factory,
+        "{\"proceeds_raw\":9000}"));
+    for (const auto &[family, entities] : std::vector<std::pair<std::string, std::string>>{
+             {"province.rgo", rgo}, {"pop.artisan", artisan}}) {
+        append(StateLine(++sequence, 48, family + ".sales.summary", entities,
+            "{\"settlement_seen\":true,\"opening_inventory_seen\":true,\"complete\":true}"));
+        append(StateLine(++sequence, 48, family + ".sales.quantity", entities,
+            "{\"output_good_ordinal\":2,\"opening_inventory_raw\":40,\"produced_raw\":20,"
+            "\"sold_raw\":45,\"closing_inventory_raw\":15}"));
+        append(StateLine(++sequence, 48, family + ".sales.revenue", entities,
+            "{\"proceeds_raw\":7000,\"percent_sold_domestic_raw\":24576,"
+            "\"percent_sold_export_raw\":16384}"));
+    }
+    for (const char *family : {"state.factory", "province.rgo", "pop.artisan"}) {
+        append(HealthLine(++sequence, "telemetry.family.summary",
+            std::string("{\"family\":\"") + family + "\"}", "{\"dropped\":0,\"invalid\":0}"));
+    }
+    append(HealthLine(++sequence, "telemetry.summary", "{}", "{\"dropped\":0,\"write_failed\":false}"));
+    Write(input, trace_text);
+
+    std::string error;
+    ASSERT_TRUE(trace::ExportProducerSalesCsv(input, output, "FRA", false, &error)) << error;
+    std::ifstream csv(output, std::ios::binary);
+    const std::string contents((std::istreambuf_iterator<char>(csv)), {});
+    EXPECT_NE(contents.find("\"state.factory\",\"FRA\",1,,,\"cement_factory\",1,100,50,120,30,9000,,,\"provisional\""),
+        std::string::npos);
+    EXPECT_NE(contents.find("\"province.rgo\",\"FRA\",,2,,\"\",2,40,20,45,15,7000,24576,16384,\"provisional\""),
+        std::string::npos);
+
+    auto unreconciled = trace_text;
+    const auto sold = unreconciled.find("\"sold_raw\":120");
+    ASSERT_NE(sold, std::string::npos);
+    unreconciled.replace(sold, std::string("\"sold_raw\":120").size(), "\"sold_raw\":121");
+    const auto invalid = Path(L"producer-sales-invalid");
+    Write(invalid, unreconciled);
+    EXPECT_FALSE(trace::ExportProducerSalesCsv(invalid, Path(L"producer-sales-invalid", L".csv"),
+        "FRA", false, &error));
+    EXPECT_NE(error.find("unreconciled"), std::string::npos);
+
+    auto orphan = trace_text;
+    const auto revenue = orphan.find("state.factory.sales.revenue");
+    ASSERT_NE(revenue, std::string::npos);
+    orphan.replace(revenue, std::string("state.factory.sales.revenue").size(), "state.factory.finance");
+    const auto orphan_trace = Path(L"producer-sales-orphan");
+    Write(orphan_trace, orphan);
+    const auto orphan_output = Path(L"producer-sales-orphan", L".csv");
+    EXPECT_FALSE(trace::ExportProducerSalesCsv(orphan_trace, orphan_output, "FRA", false, &error));
+    EXPECT_EQ(error, "producer sales summary and detail records are inconsistent");
+    EXPECT_FALSE(fs::exists(orphan_output));
+
+    auto revenue_only = trace_text;
+    const auto quantity = revenue_only.find("state.factory.sales.quantity");
+    ASSERT_NE(quantity, std::string::npos);
+    revenue_only.replace(quantity, std::string("state.factory.sales.quantity").size(), "state.factory.production");
+    const auto revenue_only_trace = Path(L"producer-sales-revenue-only");
+    Write(revenue_only_trace, revenue_only);
+    EXPECT_FALSE(trace::ExportProducerSalesCsv(revenue_only_trace,
+        Path(L"producer-sales-revenue-only", L".csv"), "FRA", false, &error));
+    EXPECT_EQ(error, "producer sales summary and detail records are inconsistent");
+
+    auto incomplete_with_details = trace_text;
+    const auto complete = incomplete_with_details.find("\"complete\":true");
+    ASSERT_NE(complete, std::string::npos);
+    incomplete_with_details.replace(complete, std::string("\"complete\":true").size(), "\"complete\":false");
+    const auto incomplete_trace = Path(L"producer-sales-incomplete-details");
+    Write(incomplete_trace, incomplete_with_details);
+    EXPECT_FALSE(trace::ExportProducerSalesCsv(incomplete_trace,
+        Path(L"producer-sales-incomplete-details", L".csv"), "FRA", false, &error));
+    EXPECT_EQ(error, "producer sales summary and detail records are inconsistent");
+}
+
 TEST_F(TraceTest, ExportsStrictNominalRealAndPerCapitaCountryGdp)
 {
     const auto input = Path(L"country-gdp");
