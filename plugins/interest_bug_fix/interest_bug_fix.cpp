@@ -4,7 +4,7 @@
 #include "pop_money_write.hpp"
 #include "telemetry_bridge.hpp"
 
-#include "../game_state/readers.hpp"
+#include <smedley/game_state/readers.hpp>
 
 #include <smedley/events/dailyinterest.hpp>
 #include <smedley/events/dailyupdate.hpp>

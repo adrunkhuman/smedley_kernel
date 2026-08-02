@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../game_state/readers.hpp"
+#include <smedley/game_state/readers.hpp>
 
 #include <array>
 #include <cstdint>

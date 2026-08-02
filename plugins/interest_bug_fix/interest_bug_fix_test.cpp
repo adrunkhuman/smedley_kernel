@@ -1,4 +1,4 @@
-#include "../game_state/readers.hpp"
+#include <smedley/game_state/readers.hpp>
 #include "interest_allocation.hpp"
 #include "interest_batch.hpp"
 #include "interest_reconciliation.hpp"
