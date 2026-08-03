@@ -22,7 +22,7 @@ namespace smedley::v2
 
         /*[[[cog
         from codegen import print_class_model_fns
-        print_class_model_fns('./models/v2/classes/CCultureDataBase.toml')
+        print_class_model_fns('./codegen/models/v2/classes/CCultureDataBase.toml')
         ]]]*/
         static CCultureDataBase * instance()
         {

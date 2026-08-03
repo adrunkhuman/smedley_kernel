@@ -18,7 +18,7 @@ namespace smedley::v2
     public:
         /*[[[cog
         from codegen import print_class_model_fns
-        print_class_model_fns('./models/v2/classes/CCountryDataBase.toml')
+        print_class_model_fns('./codegen/models/v2/classes/CCountryDataBase.toml')
         ]]]*/
         static CCountryDataBase * instance()
         {

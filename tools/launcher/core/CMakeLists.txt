@@ -1,6 +1,6 @@
 add_library(smedley_launcher_core STATIC src/launcher.cpp)
 target_compile_definitions(smedley_launcher_core PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
-target_include_directories(smedley_launcher_core PUBLIC "../../../include" PRIVATE "../../../include/toml")
+target_include_directories(smedley_launcher_core PUBLIC "../../../include" PRIVATE "../../../third_party/toml/include")
 target_link_libraries(smedley_launcher_core PRIVATE bcrypt shell32 ole32)
 
 if(BUILD_TESTING)
