@@ -36,9 +36,9 @@ directory.
 
 Run `smedley_launcher.exe` from the Victoria II directory. It automatically
 discovers the game, ordinary `.mod` descriptors, and Smedley plugin manifests.
-Choose a mod and trusted plugins, inspect the diagnostics, then launch. Safe
-mode starts the verified original game without injecting Smedley, which provides
-a recovery path for broken plugin configurations.
+Choose and order one or more mods and trusted plugins, inspect the diagnostics,
+then launch. Safe mode starts the verified original game without injecting
+Smedley, which provides a recovery path for broken plugin configurations.
 
 Profiles are documented TOML files shared by the GUI and CLI. They preserve the
 game directory, mod and plugin selections, campaign save, observer settings,

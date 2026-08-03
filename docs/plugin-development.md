@@ -151,6 +151,23 @@ The launcher accepts a module exporting either the v1 symbol or legacy
 `CreatePlugin`, verifies that it is an x86 PE image, and applies the ordinary
 manifest dependency and conflict checks before injection.
 
+### Launcher settings schema
+
+Manifest `[settings]` schema version 1 describes Options fields for `bool`,
+`integer`, `number`, `string`, `enum`, `multi_enum`, `file`, `directory`,
+`file_list`, `date`, and bounded `object_list` values. Fields require stable
+`key`, `label`, `help`, and `type` values and may declare defaults, bounds,
+choices, discovery roots/extensions, advanced placement, `visible_when`,
+`required_when`, and an `argv` option using `flag`, `bool_01`, `value`, `csv`,
+or `repeat` encoding. Constraints support `mutually_exclusive` and
+`requires_any`; notices describe unavailable editor capabilities.
+
+The launcher validates manifest size, field counts, references, value types,
+paths, and codec/type combinations before exposing a page. Built-in plugins
+have profile adapters and editable pages. Third-party schemas are currently
+read-only because arbitrary settings are not persisted in the profile; a
+schema alone does not authorize command-line generation.
+
 ## Daily event capability v1
 
 [`include/smedley/event_api.h`](../include/smedley/event_api.h) exposes the first

@@ -165,6 +165,8 @@ schema as the CLI. A loaded profile's `kernel` and `detach` values are preserved
 when saving; GUI launches themselves are always detached so the launcher stays
 responsive. **Recent runs** opens the shared local history rather than keeping a
 separate GUI-only list.
+Saving rewrites the canonical documented profile schema; unknown TOML keys are
+not preserved.
 
 **Options...** opens one page for every discovered plugin. Pages are generated
 from the manifest's `[settings]` schema, including labels, help, defaults,
@@ -186,13 +188,17 @@ that plugin is selected and Safe mode is off. A telemetry `enabled` value withou
 the selected telemetry plugin is therefore a visible preflight error, never a
 silent partial configuration. Each edit is applied through the launcher core's
 profile adapter; the GUI does not map built-in setting keys itself.
+Third-party settings schemas are displayed read-only until a profile adapter is
+available.
 
 Plugins with no fields state that selection enables the plugin and that it has
 no configurable settings. The telemetry capture-rule editor adds, edits, and
 removes the fixed `telemetry_capture_v1` rules. Rows summarize family, cadence,
 fields, country/province filters, and date bounds; shared preflight reports all
 family, category, cadence, and filter constraints. An empty telemetry output
-visibly resolves to `%LOCALAPPDATA%\Smedley\traces\<run-id>.jsonl` for that run.
+resolves during launch to `%LOCALAPPDATA%\Smedley\traces\<run-id>.jsonl`; the
+resolved path is recorded in run history and metadata rather than written into
+the Options field.
 The canonical draft profile preserves capture rules, kernel, detach,
 ordered multi-mod selections, and unavailable selected plugin paths.
 

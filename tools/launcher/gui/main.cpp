@@ -362,7 +362,7 @@ namespace
         void Layout()
         {
             const int label = 14, height = 22, list_height = 95, x = 12, width = 505; int y = 12;
-            // Child controls are created in label/input pairs; position by their creation order.
+            // Win32 enumerates children in reverse creation order; restore it before pairing labels and inputs.
             std::vector<HWND> children; for (HWND child = GetWindow(window_, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) children.push_back(child);
             std::reverse(children.begin(), children.end());
             for (size_t row = 0; row < 7; ++row) { MoveWindow(children[row * 2], x, y, width, label, TRUE); y += label; const int h = row == 2 ? list_height : height; MoveWindow(children[row * 2 + 1], x, y, width, h, TRUE); y += h + 8; }

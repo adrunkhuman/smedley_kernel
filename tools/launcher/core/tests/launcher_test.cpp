@@ -176,18 +176,18 @@ TEST_F(LauncherCoreTest, OverlaysMatchingDevelopmentSchemaWithoutHidingInstalled
 {
     fs::create_directories(root / L"source plugins" / L"example");
     Write(root / L"plugins" / L"example.dll", "module");
-    Write(root / L"plugins" / L"example.toml", "id = \"example\"\nname = \"Installed\"\nversion = \"1\"\nmodule = \"example.dll\"\n");
+    Write(root / L"plugins" / L"example.toml", "id = \"campaign_runner\"\nname = \"Installed\"\nversion = \"1\"\nmodule = \"example.dll\"\n");
     Write(root / L"plugins" / L"third_party.dll", "module");
     Write(root / L"plugins" / L"third_party.toml", "id = \"third_party\"\nname = \"Third party\"\nversion = \"1\"\nmodule = \"third_party.dll\"\n");
     Write(root / L"source plugins" / L"example" / L"example.toml",
-          "id = \"example\"\nname = \"Development\"\nversion = \"2\"\nmodule = \"example.dll\"\n"
+          "id = \"campaign_runner\"\nname = \"Development\"\nversion = \"2\"\nmodule = \"example.dll\"\n"
           "[settings]\nversion = 1\n[[settings.fields]]\nkey = \"enabled\"\ntype = \"bool\"\nlabel = \"Enabled\"\nhelp = \"x\"\ndefault = false\n");
 
     const auto discovery = launcher::DiscoverPlugins(root, root / L"source plugins");
 
     ASSERT_FALSE(launcher::HasErrors(discovery.diagnostics));
     ASSERT_EQ(discovery.plugins.size(), 2u);
-    const auto example = std::find_if(discovery.plugins.begin(), discovery.plugins.end(), [](const auto &plugin) { return plugin.id == "example"; });
+    const auto example = std::find_if(discovery.plugins.begin(), discovery.plugins.end(), [](const auto &plugin) { return plugin.id == "campaign_runner"; });
     const auto third_party = std::find_if(discovery.plugins.begin(), discovery.plugins.end(), [](const auto &plugin) { return plugin.id == "third_party"; });
     ASSERT_NE(example, discovery.plugins.end());
     ASSERT_NE(third_party, discovery.plugins.end());
@@ -210,13 +210,13 @@ TEST_F(LauncherCoreTest, DoesNotSynthesizeSourceOnlyDevelopmentManifest)
     EXPECT_FALSE(launcher::HasErrors(discovery.diagnostics));
 }
 
-TEST_F(LauncherCoreTest, DoesNotOverlayDevelopmentSchemaWhenIdentityMismatches)
+TEST_F(LauncherCoreTest, DoesNotOverlayDevelopmentSchemaForThirdPartyPlugin)
 {
     fs::create_directories(root / L"source plugins" / L"example");
     Write(root / L"plugins" / L"example.dll", "module");
     Write(root / L"plugins" / L"example.toml", "id = \"installed\"\nname = \"Installed\"\nversion = \"1\"\nmodule = \"example.dll\"\n");
     Write(root / L"source plugins" / L"example" / L"example.toml",
-          "id = \"source\"\nname = \"Development\"\nversion = \"1\"\nmodule = \"example.dll\"\n"
+          "id = \"installed\"\nname = \"Development\"\nversion = \"1\"\nmodule = \"example.dll\"\n"
           "[settings]\nversion = 1\n[[settings.fields]]\nkey = \"enabled\"\ntype = \"bool\"\nlabel = \"Enabled\"\nhelp = \"x\"\n");
 
     const auto discovery = launcher::DiscoverPlugins(root, root / L"source plugins");

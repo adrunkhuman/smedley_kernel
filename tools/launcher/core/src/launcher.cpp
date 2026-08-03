@@ -1785,7 +1785,7 @@ namespace smedley::launcher
         const bool use_development_manifests = !development_manifest_root.empty() && fs::is_directory(development_manifest_root, error);
         if (error) error.clear();
         const auto overlay_development_schema = [&](PluginManifest *installed) {
-            if (!use_development_manifests) return;
+            if (!use_development_manifests || !SupportsPluginSettings(*installed)) return;
             std::error_code source_error;
             for (fs::recursive_directory_iterator it(development_manifest_root, source_error), end;
                  it != end; it.increment(source_error)) {
