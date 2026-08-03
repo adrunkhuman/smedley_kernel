@@ -16,3 +16,12 @@ TEST(SStdStringTest, TerminatesInlineAndHeapStrings)
     ASSERT_EQ(heap_string.size(), 16);
     ASSERT_STREQ(heap_string.c_str(), "0123456789abcdef");
 }
+
+TEST(SStdStringTest, DifferentLengthsAreNotEqual)
+{
+    smedley::memory::Map::game_heap = GetProcessHeap();
+
+    const smedley::sstd::string short_string("a");
+    const smedley::sstd::string long_string("abcdefghijklmnopq");
+    ASSERT_FALSE(short_string == long_string);
+}

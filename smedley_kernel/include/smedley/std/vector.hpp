@@ -3,7 +3,9 @@
 #include "../memory.hpp"
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <memory>
+#include <new>
 #include <type_traits>
 
 namespace smedley::sstd
@@ -48,16 +50,9 @@ namespace smedley::sstd
             _end = new_vec + new_capacity;
         }
 
-        void _uninit_move(T *first, T *last, T *where)
+        void _uninit_copy(T *first, size_type count, T *where)
         {
-            for (T *cur = first; cur != last && where != nullptr; cur++, where++) {
-                *cur = std::move(T(*where));
-            }
-        }
-
-        void _uninit_copy(T *first, T *last, T *where)
-        {
-            std::memmove(where, first, (last - first) * sizeof(T));
+            if (count != 0) std::memcpy(where, first, count * sizeof(T));
         }
     public:
         vector() : _first(nullptr), _last(nullptr), _end(nullptr), _al_val(0)
@@ -67,24 +62,23 @@ namespace smedley::sstd
         /// @param n New capacity of the internal array.
         void reserve(size_t n)
         {
+            static_assert(std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>,
+                          "mutable engine vectors support only trivial element types");
             if (n > capacity()) {
+                if (n > (std::numeric_limits<size_type>::max)() / sizeof(T)) throw std::bad_alloc();
+                const size_type old_size = size();
                 T *new_vec = reinterpret_cast<T *>(HeapAlloc(memory::Map::game_heap, HEAP_ZERO_MEMORY, sizeof(T) * n));
+                if (new_vec == nullptr) throw std::bad_alloc();
 
-                _uninit_copy(_first, _last, new_vec);
-                    /*
-                if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
-                    _uninit_move(_first, _last, new_vec);
-                } else {
-                    _uninit_copy(_first, _last, new_vec);
-                }
-                */
-
-                _change_array(new_vec, size(), n);
+                _uninit_copy(_first, old_size, new_vec);
+                _change_array(new_vec, old_size, n);
             }
         }
 
         void push_back(const T &val)
         {
+            static_assert(std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>,
+                          "mutable engine vectors support only trivial element types");
             if (_last == _end) {
                 if (_first == nullptr) {
                     reserve(0x10);
@@ -93,19 +87,14 @@ namespace smedley::sstd
                 }
             }
 
-            /*
-            if constexpr (std::is_nothrow_move_constructible_v<T> || !std::is_copy_constructible_v<T>) {
-                *_last = std::move(T(val));
-            } else {
-                std::memmove(_last, &val, sizeof(T));
-            }
-            */
-            *_last = val;
+            ::new (static_cast<void *>(_last)) T(val);
             ++_last;
         }
 
         bool erase_value(const T &value)
         {
+            static_assert(std::is_trivially_copyable_v<T> && std::is_trivially_destructible_v<T>,
+                          "mutable engine vectors support only trivial element types");
             for (auto *current = _first; current != _last; ++current) {
                 if (*current != value) {
                     continue;
@@ -117,8 +106,8 @@ namespace smedley::sstd
             return false;
         }
 
-        inline size_type capacity() const noexcept { return _end - _first; }
-        inline size_type size() const noexcept { return _last - _first; }
+        inline size_type capacity() const noexcept { return _first == nullptr ? 0 : _end - _first; }
+        inline size_type size() const noexcept { return _first == nullptr ? 0 : _last - _first; }
         bool bounded_size(size_type maximum, size_type *result) const noexcept
         {
             if (result == nullptr) return false;

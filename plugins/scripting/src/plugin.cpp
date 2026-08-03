@@ -9,8 +9,10 @@
 #include <shellapi.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -19,6 +21,45 @@ namespace scripting_plugin
 {
     namespace
     {
+        bool IsReadable(const void *pointer, size_t size)
+        {
+            if (pointer == nullptr || size == 0) return false;
+            const uintptr_t begin = reinterpret_cast<uintptr_t>(pointer);
+            if (begin > (std::numeric_limits<uintptr_t>::max)() - size) return false;
+            const uintptr_t end = begin + size;
+            for (uintptr_t cursor = begin; cursor < end;) {
+                MEMORY_BASIC_INFORMATION region{};
+                if (VirtualQuery(reinterpret_cast<const void *>(cursor), &region, sizeof(region)) != sizeof(region)
+                    || region.State != MEM_COMMIT
+                    || (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0
+                    || (region.Protect & (PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY
+                        | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) == 0) return false;
+                const uintptr_t region_begin = reinterpret_cast<uintptr_t>(region.BaseAddress);
+                if (region_begin > (std::numeric_limits<uintptr_t>::max)() - region.RegionSize) return false;
+                const uintptr_t region_end = region_begin + region.RegionSize;
+                if (region_end <= cursor) return false;
+                cursor = (std::min)(end, region_end);
+            }
+            return true;
+        }
+
+        bool CopyReadable(void *destination, const void *source, size_t size)
+        {
+            if (!IsReadable(source, size)) return false;
+            __try {
+                std::memcpy(destination, source, size);
+                return true;
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                return false;
+            }
+        }
+
+        template <typename T>
+        bool ReadValue(uintptr_t address, T *value)
+        {
+            return value != nullptr && CopyReadable(value, reinterpret_cast<const void *>(address), sizeof(T));
+        }
+
         std::vector<std::wstring> CommandLineArguments()
         {
             int count = 0;
@@ -31,12 +72,20 @@ namespace scripting_plugin
 
         bool IsInGameIdler(const void *object)
         {
-            if (object == nullptr) return false;
-            const auto *vtable = *reinterpret_cast<const uintptr_t *const *>(object);
-            const auto locator = vtable[-1];
-            const auto type_descriptor = *reinterpret_cast<const uintptr_t *>(locator + 0x0c);
-            const auto *type_name = reinterpret_cast<const char *>(type_descriptor + 0x08);
-            return std::strcmp(type_name, ".?AVCInGameIdler@@") == 0;
+            constexpr char expected[] = ".?AVCInGameIdler@@";
+            uintptr_t vtable = 0;
+            uintptr_t locator = 0;
+            uintptr_t type_descriptor = 0;
+            std::array<char, sizeof(expected)> type_name{};
+            const uintptr_t object_address = reinterpret_cast<uintptr_t>(object);
+            if (!ReadValue(object_address, &vtable) || vtable < sizeof(uintptr_t)
+                || !ReadValue(vtable - sizeof(uintptr_t), &locator)
+                || locator > (std::numeric_limits<uintptr_t>::max)() - 0x0c
+                || !ReadValue(locator + 0x0c, &type_descriptor)
+                || type_descriptor > (std::numeric_limits<uintptr_t>::max)() - 0x08
+                || !CopyReadable(type_name.data(), reinterpret_cast<const void *>(type_descriptor + 0x08),
+                                 type_name.size())) return false;
+            return std::memcmp(type_name.data(), expected, sizeof(expected)) == 0;
         }
 
         bool PauseSignatureMatches()

@@ -34,6 +34,8 @@ namespace campaign_runner
         void CaptureConsoleCommandManager(smedley::v2::CConsoleCmdManager *manager);
         void CaptureFrontendController(void *controller);
         void CaptureMainMenuController(void *controller);
+        void ReleaseFrontendController(void *controller);
+        void ReleaseMainMenuController(void *controller);
         // Called before native Annex captures the player tag. Observer mode
         // changes only the view and logs failure if no healthy AI target exists.
         void PrepareObserverForAnnexation(int annexed_ordinal);
@@ -44,7 +46,7 @@ namespace campaign_runner
             const smedley::sstd::vector<smedley::sstd::string> &arguments);
 
     private:
-        static void CALLBACK SaveTimerCallback(HWND, UINT, UINT_PTR timer, DWORD);
+        static void CALLBACK SaveTimerCallback(HWND, UINT, UINT_PTR timer, DWORD) noexcept;
 
         bool ScheduleTimer(UINT delay, const char *failure_message);
         bool CheckSignatures() const;
@@ -108,5 +110,7 @@ namespace campaign_runner
         std::atomic<smedley::v2::CConsoleCmdManager *> console_manager_ = nullptr;
         std::atomic<void *> frontend_controller_ = nullptr;
         std::atomic<void *> main_menu_controller_ = nullptr;
+        std::atomic<DWORD> frontend_thread_id_ = 0;
+        std::atomic<DWORD> main_menu_thread_id_ = 0;
     };
 }

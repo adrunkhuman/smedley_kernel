@@ -437,6 +437,44 @@ signature = "55 8b ec 6a ff"
 source = "constructor hook captures object whose +0x704 GUI registry resolves mainmenu_panel/single_player_button"
 
 [[symbols]]
+name = "Single-player frontend controller primary vtable"
+rva = 0x00a14ed0
+kind = "data"
+status = "verified-static-callsites"
+source = "constructor RVA 0x36a2f0 installs VA 0x00e14ed0 after base construction; first slot is scalar deleting destructor RVA 0x36b030"
+
+[[symbols]]
+name = "Single-player frontend controller scalar deleting destructor"
+rva = 0x0036b030
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 56 8b f1"
+source = "first entry of primary vtable RVA 0xa14ed0; calls complete destructor RVA 0x36b060 and conditionally frees this"
+
+[[symbols]]
+name = "Main-menu controller primary vtable"
+rva = 0x00a13dbc
+kind = "data"
+status = "verified-static-callsites"
+source = "constructor RVA 0x354a00 installs VA 0x00e13dbc after base construction; first slot is scalar deleting destructor RVA 0x354df0"
+
+[[symbols]]
+name = "Main-menu controller scalar deleting destructor"
+rva = 0x00354df0
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 56 8b f1"
+source = "first entry of primary vtable RVA 0xa13dbc; calls complete destructor RVA 0x354e20 and conditionally frees this"
+
+[[symbols]]
+name = "Main-menu controller update"
+rva = 0x00354f90
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 83 e4 f8"
+source = "reads this+0x704, calls GUI registry vtable slot +0x6c with mainmenu_panel, then returned panel slot +0x34 with single_player_button"
+
+[[symbols]]
 name = "Single-player Play listener"
 rva = 0x00372300
 kind = "function"

@@ -9,15 +9,20 @@ handlers run; the harness dispatches native GUI signals rather than coordinates.
 1. The launcher starts Victoria 2 suspended, injects Smedley and
    `campaign_runner`, then resumes the game.
 2. Constructor hooks capture the main-menu controller (RVA `0x354a00`) and
-   Single Player controller (RVA `0x36a2f0`).
+   Single Player controller (RVA `0x36a2f0`). Their primary vtables are
+   `0xa13dbc` and `0xa14ed0`; scalar deleting destructors at `0x354df0` and
+   `0x36b030` invalidate the captures before object storage is released.
 3. Ten seconds after the Single Player controller appears, the plugin resolves
    `mainmenu_panel/single_player_button` through the main controller's GUI
-   registry at `+0x704`.
+   registry at `+0x704`. Native main-menu update RVA `0x354f90` independently
+   performs the same registry `+0x6c` and returned-panel `+0x34` lookups.
 4. Native press and release dispatchers at RVAs `0x5ee510` and `0x5ee550`
    enter the Single Player lobby.
 5. The plugin confirms the requested save filename is present at `+0x590`,
-   constructing it only when that game string is empty; it rejects a different
-   existing value. It then sets `+0x5bc=1` and `+0x5bd=0`.
+   constructing it only from the canonical empty inline-string state; it rejects
+   malformed metadata or a different existing value. The controller's GUI
+   registry and lookup target must also remain valid. It then sets `+0x5bc=1`
+   and `+0x5bd=0` and reads both fields back.
 6. Victoria 2's normal lobby update calls `CCurrentGameState::LoadSave` from
    call RVA `0x36f8b3`, performs its complete post-load contract, clears
    `+0x5bc`, and sets `+0x5bd`.
@@ -238,7 +243,15 @@ scheduler list.
 
 Structured telemetry can be loaded alongside `campaign_runner` when state
 output is needed. Do not call pause or speed functions based on a non-null
-pointer alone; verify the idler phase first.
+pointer alone; verify the idler phase first. Frontend work is refused unless
+the timer remains on the thread captured by the frontend constructor hook.
+Controller pointers are discarded after their known phase transition and at
+plugin shutdown. Destructor hooks also discard a matching capture before the
+native scalar deleting destructor releases storage. The related constructor,
+destructor, annexation, and message hooks install transactionally and roll back
+in reverse order on startup failure. The legacy loader retains plugin modules
+and has no thread-quiescence protocol, so shutdown makes callbacks inert instead
+of racing other game threads to rewrite live executable memory.
 
 ## Lifecycle Telemetry
 
@@ -246,9 +259,10 @@ With an already active optional telemetry plugin, the runner dynamically
 resolves its C ABI and emits `verified-runtime` records after the requested
 save filename is confirmed present and the save flags are written, `+0x5bd`
 observation, RTTI entry readback, observer postconditions,
-speed readback, and final pause readback above. The Win32 timer callback context
-is not independently established as a game UI thread, so telemetry makes no
-thread guarantee. `observer.configured` waits for an observed valid view after
+speed readback, and final pause readback above. The Win32 timer callback is
+required to match the frontend constructor thread, but that correlation does
+not independently identify the thread as the engine's general UI thread.
+`observer.configured` waits for an observed valid view after
 any requested switch. View tags are exactly three normalized uppercase ASCII
 alphanumeric characters, including dynamic tags such as `D01`.
 
