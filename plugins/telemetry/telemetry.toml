@@ -2,3 +2,115 @@ id = "telemetry"
 name = "Structured telemetry"
 version = "1.1"
 module = "telemetry.dll"
+
+[settings]
+version = 1
+
+[[settings.fields]]
+key = "enabled"
+type = "bool"
+label = "Enable structured telemetry"
+help = "Write opt-in structured telemetry when this plugin is selected."
+default = false
+
+[[settings.fields]]
+key = "output"
+type = "file"
+label = "Telemetry output"
+help = "Optional JSON Lines output path. When empty, each run writes %LOCALAPPDATA%\\Smedley\\traces\\<run-id>.jsonl."
+optional = true
+visible_when = { key = "enabled", equals = true }
+argv = { option = "-smedley-telemetry-output", codec = "value" }
+
+[[settings.fields]]
+key = "categories"
+type = "multi_enum"
+label = "Categories"
+help = "Lifecycle records describe Smedley startup, progress, and shutdown. State records observe game and economic state. Select either or both."
+default = ["lifecycle", "state"]
+choices = ["lifecycle", "state"]
+visible_when = { key = "enabled", equals = true }
+argv = { option = "-smedley-telemetry-categories", codec = "csv" }
+
+[[settings.fields]]
+key = "country_tags"
+type = "multi_enum"
+label = "Country filter"
+help = "Optional normalized three-character country tags, including dynamic tags such as D01."
+default = []
+visible_when = { key = "enabled", equals = true }
+advanced = true
+argv = { option = "-smedley-telemetry-country-tags", codec = "csv" }
+
+[[settings.fields]]
+key = "start_date_raw"
+type = "date"
+label = "Start date"
+help = "Optional inclusive lower bound in DD-MM-YYYY."
+optional = true
+visible_when = { key = "enabled", equals = true }
+advanced = true
+argv = { option = "-smedley-telemetry-start-date-raw", codec = "value" }
+
+[[settings.fields]]
+key = "end_date_raw"
+type = "date"
+label = "End date"
+help = "Optional inclusive upper bound in DD-MM-YYYY."
+optional = true
+visible_when = { key = "enabled", equals = true }
+advanced = true
+argv = { option = "-smedley-telemetry-end-date-raw", codec = "value" }
+
+[[settings.fields]]
+key = "sample_days"
+type = "integer"
+label = "Legacy sample interval (days)"
+help = "Legacy state sample interval from 1 through 365 game days. Explicit capture rules use their own cadence."
+default = 1
+min = 1
+max = 365
+visible_when = { key = "enabled", equals = true }
+argv = { option = "-smedley-telemetry-sample-days", codec = "value" }
+
+[[settings.fields]]
+key = "queue_capacity"
+type = "integer"
+label = "Queue capacity (record slots)"
+help = "Bounded queue from 64 through 32768 fixed record slots."
+default = 1024
+min = 64
+max = 32768
+visible_when = { key = "enabled", equals = true }
+advanced = true
+argv = { option = "-smedley-telemetry-queue-capacity", codec = "value" }
+
+[[settings.fields]]
+key = "overwrite"
+type = "bool"
+label = "Allow output overwrite"
+help = "Permit replacing an existing telemetry output file."
+default = false
+visible_when = { key = "enabled", equals = true }
+advanced = true
+argv = { option = "-smedley-telemetry-overwrite", codec = "bool_01" }
+
+[[settings.fields]]
+key = "gold_to_cash_rate"
+type = "number"
+label = "Gold-to-cash rate"
+help = "Required by country.economy captures; greater than 0 through 1000."
+optional = true
+min = 0.000001
+max = 1000.0
+visible_when = { key = "enabled", equals = true }
+advanced = true
+argv = { option = "-smedley-telemetry-gold-to-cash-rate", codec = "value" }
+
+[[settings.fields]]
+key = "captures"
+type = "object_list"
+item_schema = "telemetry_capture_v1"
+label = "Capture rules"
+help = "Explicit state capture rules. Each family is unique; daily-only families and required filters are validated before launch."
+visible_when = { key = "enabled", equals = true }

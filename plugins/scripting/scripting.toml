@@ -2,3 +2,52 @@ id = "scripting"
 name = "Lua scripting"
 version = "1.0"
 module = "scripting.dll"
+
+[settings]
+version = 1
+
+[[settings.fields]]
+key = "scripts"
+type = "file_list"
+label = "Lua scripts"
+help = "Lua source files under GAME_DIR/scripts. Select at most 16 non-empty .lua files no larger than 1 MiB."
+default = []
+discovery_root = "scripts"
+extensions = [".lua"]
+argv = { option = "-smedley-script", codec = "repeat" }
+
+[[settings.fields]]
+key = "instruction_budget"
+type = "integer"
+label = "Instruction budget (instructions)"
+help = "Maximum VM instructions in one Lua chunk or callback."
+default = 100000
+min = 1000
+max = 10000000
+visible_when = { key = "scripts", present = true }
+advanced = true
+argv = { option = "-smedley-script-instruction-budget", codec = "value" }
+
+[[settings.fields]]
+key = "memory_bytes"
+type = "integer"
+label = "Memory cap (bytes)"
+help = "Allocator cap in bytes for each independent Lua script state."
+default = 8388608
+min = 262144
+max = 67108864
+visible_when = { key = "scripts", present = true }
+advanced = true
+argv = { option = "-smedley-script-memory-bytes", codec = "value" }
+
+[[settings.fields]]
+key = "queue_capacity"
+type = "integer"
+label = "Queue capacity (event slots)"
+help = "Shared copied-event queue from 16 through 4096 event slots."
+default = 256
+min = 16
+max = 4096
+visible_when = { key = "scripts", present = true }
+advanced = true
+argv = { option = "-smedley-script-queue-capacity", codec = "value" }

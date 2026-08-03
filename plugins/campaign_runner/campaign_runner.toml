@@ -2,3 +2,99 @@ id = "campaign_runner"
 name = "Campaign runner"
 version = "0.1"
 module = "campaign_runner.dll"
+
+[settings]
+version = 1
+
+[[settings.fields]]
+key = "save"
+type = "file"
+label = "Save file"
+help = "Victoria II save to load. It must be in the selected user directory's save games folder."
+optional = true
+argv = { option = "-smedley-save", codec = "value" }
+
+[[settings.fields]]
+key = "observer"
+type = "bool"
+label = "Observer mode"
+help = "Return the player country to AI control after loading the save."
+default = false
+argv = { option = "-smedley-observe", codec = "flag" }
+
+[[settings.fields]]
+key = "view_tag"
+type = "string"
+label = "Perspective country"
+help = "Optional three-character country tag used as the initial observer view."
+optional = true
+argv = { option = "-smedley-view-tag", codec = "value" }
+
+[[settings.fields]]
+key = "speed"
+type = "integer"
+label = "Initial speed"
+help = "Campaign speed from 1 through 5."
+default = 5
+min = 1
+max = 5
+argv = { option = "-smedley-speed", codec = "value" }
+
+[[settings.fields]]
+key = "start_paused"
+type = "bool"
+label = "Start paused"
+help = "Leave the loaded campaign paused. Observer and bounded runs cannot start paused."
+default = false
+argv = { option = "-smedley-start-paused", codec = "flag" }
+
+[[settings.fields]]
+key = "run_days"
+type = "integer"
+label = "Run days"
+help = "Optionally stop after exactly this many game days."
+optional = true
+min = 1
+max = 1000000
+advanced = true
+argv = { option = "-smedley-run-days", codec = "value" }
+
+[[settings.fields]]
+key = "run_until_date_raw"
+type = "date"
+label = "Run until date"
+help = "Optionally stop on this absolute game date (DD-MM-YYYY)."
+optional = true
+advanced = true
+argv = { option = "-smedley-run-until-date-raw", codec = "value" }
+
+[[settings.fields]]
+key = "quit_after_run"
+type = "bool"
+label = "Quit after successful bounded run"
+help = "Quit only after a successful run with a day or date target."
+default = false
+advanced = true
+argv = { option = "-smedley-quit-after-run", codec = "flag" }
+
+[[settings.fields]]
+key = "run_timeout_seconds"
+type = "integer"
+label = "Run timeout seconds"
+help = "Bounded-run timeout from 1 through 86400 seconds; used only with a run target."
+default = 600
+min = 1
+max = 86400
+advanced = true
+argv = { option = "-smedley-run-timeout-seconds", codec = "value" }
+
+[[settings.constraints]]
+kind = "mutually_exclusive"
+keys = ["run_days", "run_until_date_raw"]
+message = "Run days and run-until date cannot both be set."
+
+[[settings.constraints]]
+kind = "requires_any"
+key = "quit_after_run"
+keys = ["run_days", "run_until_date_raw"]
+message = "Quit after run requires a day or date target."

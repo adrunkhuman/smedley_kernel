@@ -17,9 +17,9 @@ validation before launch.
 | `telemetry_output` | string, optional | per-run path | Must name a non-directory file. |
 | `telemetry_categories` | string array | `"lifecycle", "state"` | Non-empty, unique, values are `lifecycle` and/or `state`. |
 | `telemetry_country_tags` | string array | empty | Optional unique normalized three-character uppercase ASCII alphanumeric country tags, including dynamic tags such as `D01`. |
-| `telemetry_start_date_raw` | integer, optional | none | Inclusive raw game-date lower bound. |
-| `telemetry_end_date_raw` | integer, optional | none | Inclusive raw game-date upper bound; cannot precede start. |
-| `telemetry_sample_days` | integer | `1` | 1 through 365 game days. Applies before country extraction and formatting. |
+| `telemetry_start_date_raw` | integer, optional | none | Inclusive legacy raw lower bound. The GUI uses `DD-MM-YYYY`. |
+| `telemetry_end_date_raw` | integer, optional | none | Inclusive legacy raw upper bound; cannot precede start. The GUI uses `DD-MM-YYYY`. |
+| `telemetry_sample_days` | integer | `1` | Legacy sample interval in days, 1 through 365. Explicit capture rules use their own cadence. |
 | `telemetry_queue_capacity` | integer | `1024` | 64 through 32768 fixed record slots. |
 | `telemetry_overwrite` | boolean | `false` | Required to replace an existing output. |
 | `telemetry_gold_to_cash_rate` | number, optional | none | Required by `country.economy`; greater than 0 through 1000. Use the active mod's `GOLD_TO_CASH_RATE` (`0.5` in vanilla, `1.0` in GFM). |
@@ -75,7 +75,8 @@ province_ids = []
 ```
 
 Each rule accepts `family`, `cadence`, `fields`, `country_tags`, `province_ids`,
-and optional `start_date_raw` and `end_date_raw`. Empty `fields` selects every
+and optional legacy raw `start_date_raw` and `end_date_raw`. The GUI edits the
+fixed `telemetry_capture_v1` schema with human `DD-MM-YYYY` bounds. Empty `fields` selects every
 field in that family. Country filters are valid for all `country.*` families,
 `state.factory`, `province.rgo`, `pop.artisan`, `pop.economy`,
 `pop.demographics`, `pop.identity`, `pop.needs`, `pop.aggregate`, `pop.lifecycle`, `pop.cashflow`, and
@@ -113,7 +114,8 @@ filters.
 | `pop.cashflow` | record groups `summary`, `account`, `components` |
 | `pop.cashflow.aggregate` | record groups `summary`, `account`, `components` |
 
-Cadences are `daily`, `weekly`, `monthly`, and `yearly`. Weekly capture is
+The GUI's family and field choices come from the same bounded shared catalog
+used by launch validation. Cadences are `daily`, `weekly`, `monthly`, and `yearly`. Weekly capture is
 anchored to the first eligible observed date and repeats every seven game days.
 Monthly and yearly capture emits on the first observed date in each Victoria II
 calendar period. The game calendar has 24 raw units per day, fixed 365-day
@@ -227,7 +229,8 @@ an observed zero. Consumers must preserve all three states.
 For the supported executable, `game_date_raw` advances by 24 units per game
 day. Trace summaries divide raw-date deltas by 24 before reporting game-day
 spans or game-days per second. This is a verified runtime property recorded in
-`mappings/evidence/telemetry.md`; profile date bounds remain raw values.
+`mappings/evidence/telemetry.md`; profiles and plugin arguments retain raw values
+for compatibility, while end-user GUI bounds use human dates.
 
 Example:
 

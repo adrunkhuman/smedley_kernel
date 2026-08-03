@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <array>
 #include <fstream>
+#include <iterator>
+#include <limits>
 
 namespace launcher = smedley::launcher;
 namespace fs = std::filesystem;
@@ -38,6 +40,17 @@ namespace
             std::ofstream output(path);
             ASSERT_TRUE(output);
             output << content;
+        }
+
+        void CopyBundledManifest(const std::string &plugin, const std::string &module)
+        {
+            const auto source = fs::path(SMEDLEY_SOURCE_DIR) / L"plugins" / fs::u8path(plugin) / fs::u8path(plugin + ".toml");
+            std::ifstream input(source, std::ios::binary);
+            ASSERT_TRUE(input);
+            std::string manifest(std::istreambuf_iterator<char>(input), {});
+            manifest.erase(std::remove(manifest.begin(), manifest.end(), '\r'), manifest.end());
+            Write(root / L"plugins" / fs::u8path(plugin + ".toml"), manifest);
+            Write(root / L"plugins" / fs::u8path(module), "module");
         }
 
         fs::path BuiltCampaignPlugin() const
@@ -99,6 +112,271 @@ TEST_F(LauncherCoreTest, DiscoversSortedPluginsAndReportsDuplicateIds)
     EXPECT_EQ(z->conflicts, (std::vector<std::string>{"old"}));
 }
 
+TEST_F(LauncherCoreTest, ParsesSettingsSchemasAndRejectsUnsafeMetadata)
+{
+    Write(root / L"plugins" / L"valid.dll", "module");
+    Write(root / L"plugins" / L"valid.toml",
+          "id = \"valid\"\nname = \"Valid\"\nversion = \"1\"\nmodule = \"valid.dll\"\n"
+          "[settings]\nversion = 1\n"
+          "[[settings.fields]]\nkey = \"enabled\"\ntype = \"bool\"\nlabel = \"Enabled\"\nhelp = \"Turn it on.\"\ndefault = false\n"
+          "argv = { option = \"-smedley-valid\", codec = \"flag\" }\n"
+          "[[settings.fields]]\nkey = \"mode\"\ntype = \"enum\"\nlabel = \"Mode\"\nhelp = \"Select mode.\"\ndefault = \"safe\"\nchoices = [\"safe\", \"fast\"]\n"
+          "visible_when = { key = \"enabled\", equals = true }\n"
+          "[[settings.constraints]]\nkind = \"requires_any\"\nkey = \"enabled\"\nkeys = [\"enabled\", \"mode\"]\n"
+          "[[settings.notices]]\ncapability = \"object_list\"\nmessage = \"Deferred.\"\n");
+    Write(root / L"plugins" / L"codec.dll", "module");
+    Write(root / L"plugins" / L"codec.toml",
+          "id = \"codec\"\nname = \"Codec\"\nversion = \"1\"\nmodule = \"codec.dll\"\n[settings]\nversion = 1\n"
+          "[[settings.fields]]\nkey = \"enabled\"\ntype = \"bool\"\nlabel = \"Enabled\"\nhelp = \"x\"\nargv = { option = \"-smedley-codec\", codec = \"shell\" }\n");
+    Write(root / L"plugins" / L"malformed.dll", "module");
+    Write(root / L"plugins" / L"malformed.toml",
+          "id = \"malformed\"\nname = \"Malformed\"\nversion = \"1\"\nmodule = \"malformed.dll\"\n[settings]\nversion = 1\n"
+          "[[settings.fields]]\nkey = \"enabled\"\ntype = \"bool\"\nhelp = \"x\"\n");
+    Write(root / L"plugins" / L"overflow.dll", "module");
+    std::string overflow = "id = \"overflow\"\nname = \"Overflow\"\nversion = \"1\"\nmodule = \"overflow.dll\"\n[settings]\nversion = 1\n";
+    for (int index = 0; index < 65; ++index) {
+        overflow += "[[settings.fields]]\nkey = \"field" + std::to_string(index) + "\"\ntype = \"bool\"\nlabel = \"Field\"\nhelp = \"x\"\n";
+    }
+    Write(root / L"plugins" / L"overflow.toml", overflow);
+
+    const auto discovery = launcher::DiscoverPlugins(root);
+
+    ASSERT_EQ(discovery.plugins.size(), 1u);
+    const auto &schema = discovery.plugins.front().settings;
+    EXPECT_EQ(schema.version, 1);
+    ASSERT_EQ(schema.fields.size(), 2u);
+    EXPECT_EQ(schema.fields[1].type, launcher::PluginSettingType::Enum);
+    ASSERT_TRUE(schema.fields[1].visible_when);
+    EXPECT_EQ(schema.fields[1].visible_when->key, "enabled");
+    ASSERT_TRUE(schema.fields[0].argv);
+    EXPECT_EQ(schema.fields[0].argv->codec, launcher::PluginSettingArgvCodec::Flag);
+    ASSERT_EQ(schema.notices.size(), 1u);
+    EXPECT_EQ(schema.notices[0].capability, "object_list");
+    EXPECT_EQ(std::count_if(discovery.diagnostics.begin(), discovery.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "plugin.settings";
+    }), 3);
+}
+
+TEST(PluginSettingValueTest, PresentMatchesSchemaConditionSemantics)
+{
+    EXPECT_FALSE(launcher::IsPluginSettingValuePresent(std::nullopt));
+    EXPECT_FALSE(launcher::IsPluginSettingValuePresent(false));
+    EXPECT_TRUE(launcher::IsPluginSettingValuePresent(true));
+    EXPECT_TRUE(launcher::IsPluginSettingValuePresent(static_cast<std::int64_t>(0)));
+    EXPECT_TRUE(launcher::IsPluginSettingValuePresent(0.0));
+    EXPECT_FALSE(launcher::IsPluginSettingValuePresent(std::string{}));
+    EXPECT_FALSE(launcher::IsPluginSettingValuePresent(fs::path{}));
+    EXPECT_FALSE(launcher::IsPluginSettingValuePresent(std::vector<std::string>{}));
+    EXPECT_FALSE(launcher::IsPluginSettingValuePresent(std::vector<fs::path>{}));
+    EXPECT_FALSE(launcher::IsPluginSettingValuePresent(std::vector<launcher::TelemetryCaptureRule>{}));
+    EXPECT_TRUE(launcher::IsPluginSettingValuePresent(std::vector<launcher::TelemetryCaptureRule>{{}}));
+}
+
+TEST_F(LauncherCoreTest, OverlaysMatchingDevelopmentSchemaWithoutHidingInstalledPlugins)
+{
+    fs::create_directories(root / L"source plugins" / L"example");
+    Write(root / L"plugins" / L"example.dll", "module");
+    Write(root / L"plugins" / L"example.toml", "id = \"example\"\nname = \"Installed\"\nversion = \"1\"\nmodule = \"example.dll\"\n");
+    Write(root / L"plugins" / L"third_party.dll", "module");
+    Write(root / L"plugins" / L"third_party.toml", "id = \"third_party\"\nname = \"Third party\"\nversion = \"1\"\nmodule = \"third_party.dll\"\n");
+    Write(root / L"source plugins" / L"example" / L"example.toml",
+          "id = \"example\"\nname = \"Development\"\nversion = \"2\"\nmodule = \"example.dll\"\n"
+          "[settings]\nversion = 1\n[[settings.fields]]\nkey = \"enabled\"\ntype = \"bool\"\nlabel = \"Enabled\"\nhelp = \"x\"\ndefault = false\n");
+
+    const auto discovery = launcher::DiscoverPlugins(root, root / L"source plugins");
+
+    ASSERT_FALSE(launcher::HasErrors(discovery.diagnostics));
+    ASSERT_EQ(discovery.plugins.size(), 2u);
+    const auto example = std::find_if(discovery.plugins.begin(), discovery.plugins.end(), [](const auto &plugin) { return plugin.id == "example"; });
+    const auto third_party = std::find_if(discovery.plugins.begin(), discovery.plugins.end(), [](const auto &plugin) { return plugin.id == "third_party"; });
+    ASSERT_NE(example, discovery.plugins.end());
+    ASSERT_NE(third_party, discovery.plugins.end());
+    EXPECT_EQ(example->name, "Installed");
+    EXPECT_EQ(example->version, "1");
+    EXPECT_EQ(example->settings.fields.size(), 1u);
+    EXPECT_EQ(example->manifest_path, root / L"plugins" / L"example.toml");
+    EXPECT_TRUE(third_party->settings.fields.empty());
+}
+
+TEST_F(LauncherCoreTest, DoesNotSynthesizeSourceOnlyDevelopmentManifest)
+{
+    fs::create_directories(root / L"source plugins" / L"example");
+    Write(root / L"source plugins" / L"example" / L"example.toml",
+          "id = \"example\"\nname = \"Development\"\nversion = \"1\"\nmodule = \"example.dll\"\n");
+
+    const auto discovery = launcher::DiscoverPlugins(root, root / L"source plugins");
+
+    EXPECT_TRUE(discovery.plugins.empty());
+    EXPECT_FALSE(launcher::HasErrors(discovery.diagnostics));
+}
+
+TEST_F(LauncherCoreTest, DoesNotOverlayDevelopmentSchemaWhenIdentityMismatches)
+{
+    fs::create_directories(root / L"source plugins" / L"example");
+    Write(root / L"plugins" / L"example.dll", "module");
+    Write(root / L"plugins" / L"example.toml", "id = \"installed\"\nname = \"Installed\"\nversion = \"1\"\nmodule = \"example.dll\"\n");
+    Write(root / L"source plugins" / L"example" / L"example.toml",
+          "id = \"source\"\nname = \"Development\"\nversion = \"1\"\nmodule = \"example.dll\"\n"
+          "[settings]\nversion = 1\n[[settings.fields]]\nkey = \"enabled\"\ntype = \"bool\"\nlabel = \"Enabled\"\nhelp = \"x\"\n");
+
+    const auto discovery = launcher::DiscoverPlugins(root, root / L"source plugins");
+
+    ASSERT_FALSE(launcher::HasErrors(discovery.diagnostics));
+    ASSERT_EQ(discovery.plugins.size(), 1u);
+    EXPECT_EQ(discovery.plugins.front().id, "installed");
+    EXPECT_TRUE(discovery.plugins.front().settings.fields.empty());
+}
+
+TEST_F(LauncherCoreTest, ParsesBundledPluginSettingsSchemas)
+{
+    CopyBundledManifest("campaign_runner", "campaign_runner.dll");
+    CopyBundledManifest("telemetry", "telemetry.dll");
+    CopyBundledManifest("scripting", "scripting.dll");
+    CopyBundledManifest("interest_bug_fix", "interest_bug_fix.dll");
+
+    const auto discovery = launcher::DiscoverPlugins(root);
+    const auto find = [&](const char *id) {
+        return std::find_if(discovery.plugins.begin(), discovery.plugins.end(), [&](const auto &plugin) { return plugin.id == id; });
+    };
+
+    ASSERT_FALSE(launcher::HasErrors(discovery.diagnostics)) << (discovery.diagnostics.empty() ? "" : discovery.diagnostics.front().message);
+    const auto campaign = find("campaign_runner");
+    const auto telemetry = find("telemetry");
+    const auto scripting = find("scripting");
+    const auto interest = find("interest_bug_fix");
+    ASSERT_NE(campaign, discovery.plugins.end());
+    ASSERT_NE(telemetry, discovery.plugins.end());
+    ASSERT_NE(scripting, discovery.plugins.end());
+    ASSERT_NE(interest, discovery.plugins.end());
+    EXPECT_EQ(campaign->settings.version, 1);
+    EXPECT_EQ(campaign->settings.fields.size(), 9u);
+    const auto captures = std::find_if(telemetry->settings.fields.begin(), telemetry->settings.fields.end(), [](const auto &field) {
+        return field.key == "captures";
+    });
+    ASSERT_NE(captures, telemetry->settings.fields.end());
+    EXPECT_EQ(captures->type, launcher::PluginSettingType::ObjectList);
+    EXPECT_EQ(captures->item_schema, "telemetry_capture_v1");
+    EXPECT_EQ(scripting->settings.fields.front().type, launcher::PluginSettingType::FileList);
+    EXPECT_EQ(scripting->settings.fields.front().discovery_root, fs::path(L"scripts"));
+    EXPECT_TRUE(interest->settings.fields.empty());
+}
+
+TEST_F(LauncherCoreTest, BuiltinSettingsAdapterRoundTripsAndPreservesTelemetryCaptures)
+{
+    CopyBundledManifest("campaign_runner", "campaign_runner.dll");
+    CopyBundledManifest("telemetry", "telemetry.dll");
+    CopyBundledManifest("scripting", "scripting.dll");
+    CopyBundledManifest("interest_bug_fix", "interest_bug_fix.dll");
+    const auto discovery = launcher::DiscoverPlugins(root);
+    ASSERT_FALSE(launcher::HasErrors(discovery.diagnostics)) << (discovery.diagnostics.empty() ? "" : discovery.diagnostics.front().message);
+    const auto find = [&](const char *id) -> const launcher::PluginManifest & {
+        const auto found = std::find_if(discovery.plugins.begin(), discovery.plugins.end(), [&](const auto &plugin) { return plugin.id == id; });
+        EXPECT_NE(found, discovery.plugins.end());
+        return *found;
+    };
+    const auto &campaign = find("campaign_runner");
+    const auto &telemetry = find("telemetry");
+    const auto &scripting = find("scripting");
+    const auto &interest = find("interest_bug_fix");
+    launcher::Profile original;
+    original.save = root / L"save games" / L"campaign.v2";
+    original.observer = true;
+    original.view_tag = L"ENG";
+    original.speed = 3;
+    original.start_paused = false;
+    original.run_days = 365;
+    original.quit_after_run = true;
+    original.run_timeout_seconds = 900;
+    original.telemetry_enabled = true;
+    original.telemetry_output = root / L"traces" / L"trace.jsonl";
+    original.telemetry_categories = {"state"};
+    original.telemetry_country_tags = {"ENG"};
+    original.telemetry_start_date_raw = 7;
+    original.telemetry_end_date_raw = 12;
+    original.telemetry_sample_days = 7;
+    original.telemetry_queue_capacity = 512;
+    original.telemetry_overwrite = true;
+    original.telemetry_gold_to_cash_rate = 0.5;
+    original.telemetry_captures = {{"world.daily", "daily", {"country_slot_count"}, {}, {}, std::nullopt, std::nullopt}};
+    original.scripts = {root / L"scripts" / L"one.lua"};
+    original.script_instruction_budget = 200000;
+    original.script_memory_bytes = 4194304;
+    original.script_queue_capacity = 128;
+    launcher::Profile applied;
+    applied.telemetry_captures = original.telemetry_captures;
+    std::vector<launcher::Diagnostic> diagnostics;
+
+    ASSERT_TRUE(launcher::ApplyPluginSettings(campaign, launcher::ResolvePluginSettings(campaign, original), &applied, &diagnostics));
+    ASSERT_TRUE(launcher::ApplyPluginSettings(telemetry, launcher::ResolvePluginSettings(telemetry, original), &applied, &diagnostics));
+    ASSERT_TRUE(launcher::ApplyPluginSettings(scripting, launcher::ResolvePluginSettings(scripting, original), &applied, &diagnostics));
+    EXPECT_TRUE(launcher::ApplyPluginSettings(interest, launcher::ResolvePluginSettings(interest, original), &applied, &diagnostics));
+
+    EXPECT_EQ(applied.save, original.save);
+    EXPECT_EQ(applied.view_tag, original.view_tag);
+    EXPECT_EQ(applied.run_days, original.run_days);
+    EXPECT_EQ(applied.telemetry_output, original.telemetry_output);
+    EXPECT_EQ(applied.telemetry_categories, original.telemetry_categories);
+    EXPECT_EQ(applied.telemetry_country_tags, original.telemetry_country_tags);
+    EXPECT_EQ(applied.telemetry_gold_to_cash_rate, original.telemetry_gold_to_cash_rate);
+    EXPECT_EQ(applied.telemetry_captures.size(), 1u);
+    EXPECT_EQ(applied.telemetry_captures[0].family, "world.daily");
+    EXPECT_EQ(applied.scripts, original.scripts);
+    EXPECT_EQ(applied.script_instruction_budget, original.script_instruction_budget);
+    EXPECT_TRUE(diagnostics.empty());
+
+    launcher::PluginManifest unknown;
+    unknown.id = "third_party";
+    EXPECT_TRUE(launcher::ResolvePluginSettings(unknown, original).empty());
+    EXPECT_TRUE(launcher::ApplyPluginSettings(unknown, {}, &applied, &diagnostics));
+    EXPECT_FALSE(launcher::ApplyPluginSettings(unknown, {{"unknown", true}}, &applied, &diagnostics));
+}
+
+TEST_F(LauncherCoreTest, AppliesSchemaConditionsConstraintsAndDatesAtomically)
+{
+    Write(root / L"plugins" / L"campaign_runner.dll", "module");
+    Write(root / L"plugins" / L"campaign_runner.toml",
+          "id = \"campaign_runner\"\nname = \"Campaign Runner\"\nversion = \"1\"\nmodule = \"campaign_runner.dll\"\n"
+          "[settings]\nversion = 1\n"
+          "[[settings.fields]]\nkey = \"observer\"\ntype = \"bool\"\nlabel = \"Observer\"\nhelp = \"x\"\ndefault = false\n"
+          "[[settings.fields]]\nkey = \"view_tag\"\ntype = \"string\"\nlabel = \"View\"\nhelp = \"x\"\noptional = true\nrequired_when = { key = \"observer\", equals = true }\n"
+          "[[settings.fields]]\nkey = \"run_days\"\ntype = \"integer\"\nlabel = \"Days\"\nhelp = \"x\"\noptional = true\n"
+          "[[settings.fields]]\nkey = \"run_until_date_raw\"\ntype = \"date\"\nlabel = \"Date\"\nhelp = \"x\"\noptional = true\n"
+          "[[settings.fields]]\nkey = \"quit_after_run\"\ntype = \"bool\"\nlabel = \"Quit\"\nhelp = \"x\"\ndefault = false\n"
+          "[[settings.constraints]]\nkind = \"mutually_exclusive\"\nkeys = [\"run_days\", \"run_until_date_raw\"]\n"
+          "[[settings.constraints]]\nkind = \"requires_any\"\nkey = \"quit_after_run\"\nkeys = [\"run_days\", \"run_until_date_raw\"]\n");
+    const auto discovery = launcher::DiscoverPlugins(root);
+    ASSERT_FALSE(launcher::HasErrors(discovery.diagnostics));
+    ASSERT_EQ(discovery.plugins.size(), 1u);
+    const auto &manifest = discovery.plugins.front();
+    launcher::Profile profile;
+    std::vector<launcher::Diagnostic> diagnostics;
+
+    EXPECT_FALSE(launcher::ApplyPluginSettings(manifest, {{"quit_after_run", true}}, &profile, &diagnostics));
+    EXPECT_FALSE(profile.run_days);
+    EXPECT_FALSE(profile.quit_after_run);
+    EXPECT_EQ(diagnostics.back().code, "plugin.settings_constraint");
+
+    profile.run_days = 7;
+    diagnostics.clear();
+    EXPECT_FALSE(launcher::ApplyPluginSettings(manifest, {{"run_until_date_raw", static_cast<std::int64_t>(24)}}, &profile, &diagnostics));
+    EXPECT_EQ(profile.run_days, 7);
+    EXPECT_FALSE(profile.run_until_date_raw);
+    EXPECT_EQ(diagnostics.back().code, "plugin.settings_constraint");
+
+    profile.run_days.reset();
+    diagnostics.clear();
+    EXPECT_FALSE(launcher::ApplyPluginSettings(manifest, {{"observer", true}}, &profile, &diagnostics));
+    EXPECT_FALSE(profile.observer);
+    EXPECT_FALSE(profile.view_tag);
+    EXPECT_EQ(diagnostics.back().code, "plugin.settings_required");
+
+    diagnostics.clear();
+    EXPECT_FALSE(launcher::ApplyPluginSettings(manifest,
+        {{"run_until_date_raw", static_cast<std::int64_t>((std::numeric_limits<int>::max)()) + 1}}, &profile, &diagnostics));
+    EXPECT_FALSE(profile.run_until_date_raw);
+    EXPECT_EQ(diagnostics.back().code, "plugin.settings_apply");
+}
+
 TEST_F(LauncherCoreTest, DiscoversModDescriptorAndDependencies)
 {
     Write(root / L"mod" / L"Example.mod",
@@ -111,6 +389,39 @@ TEST_F(LauncherCoreTest, DiscoversModDescriptorAndDependencies)
     EXPECT_EQ(discovery.mods[0].name, "Example");
     EXPECT_EQ(discovery.mods[0].dependencies, (std::vector<std::string>{"Base", "Patch"}));
     EXPECT_EQ(discovery.mods[0].content_path, root / L"mod" / L"Example Content");
+}
+
+TEST(LauncherDateTest, ConvertsFixedClausewitzDatesAndRejectsInvalidInput)
+{
+    const launcher::ClausewitzDate epoch{-5000, 1, 1};
+    EXPECT_EQ(launcher::EncodeClausewitzDate(epoch), 0);
+    EXPECT_EQ(launcher::DecodeClausewitzDate(0)->year, -5000);
+    EXPECT_EQ(launcher::FormatClausewitzDate({1836, 1, 2}), "02-01-1836");
+    EXPECT_EQ(launcher::EncodeClausewitzDate({1836, 1, 2}), 59883384);
+    const auto parsed = launcher::ParseClausewitzDate("28-02-1900");
+    ASSERT_TRUE(parsed);
+    EXPECT_EQ(parsed->year, 1900);
+    EXPECT_EQ(parsed->month, 2u);
+    EXPECT_EQ(parsed->day, 28u);
+    EXPECT_FALSE(launcher::ParseClausewitzDate("29-02-1900"));
+    EXPECT_FALSE(launcher::ParseClausewitzDate("01-13-1836"));
+    EXPECT_FALSE(launcher::ParseClausewitzDate("1-01-1836"));
+    EXPECT_FALSE(launcher::DecodeClausewitzDate(1));
+    EXPECT_FALSE(launcher::EncodeClausewitzDate({(std::numeric_limits<int>::max)(), 1, 1}));
+}
+
+TEST_F(LauncherCoreTest, DiscoversContainedLuaFilesInStableRelativeOrder)
+{
+    fs::create_directories(root / L"scripts" / L"nested");
+    Write(root / L"scripts" / L"z.lua", "return true\n");
+    Write(root / L"scripts" / L"nested" / L"a.lua", "return true\n");
+    Write(root / L"scripts" / L"ignore.txt", "return true\n");
+
+    const auto discovery = launcher::DiscoverFiles(root, L"scripts", {".lua"});
+
+    EXPECT_TRUE(discovery.diagnostics.empty());
+    EXPECT_EQ(discovery.files, (std::vector<fs::path>{L"scripts/nested/a.lua", L"scripts/z.lua"}));
+    EXPECT_TRUE(launcher::DiscoverFiles(root, L"../scripts", {".lua"}).files.empty());
 }
 
 TEST_F(LauncherCoreTest, SavesAndLoadsProfileWithSpaces)
@@ -320,6 +631,13 @@ TEST_F(LauncherCoreTest, QuotesArgumentsAndBuildsModLaunchPlan)
     ASSERT_EQ(plan.mods.size(), 1u);
     EXPECT_NE(plan.command_line.find(L"-mod=mod/Example.mod"), std::wstring::npos);
     EXPECT_NE(plan.command_line.find(L"\"" + (game / L"v2game.exe").wstring() + L"\""), std::wstring::npos);
+
+    profile.mods = {L"mod/Example.mod", L"MOD/example.MOD"};
+    const auto duplicate = launcher::BuildLaunchPlan(profile);
+    EXPECT_EQ(duplicate.mods.size(), 1u);
+    EXPECT_TRUE(std::any_of(duplicate.diagnostics.begin(), duplicate.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "mod.duplicate";
+    }));
 }
 
 TEST(LauncherArgumentTest, QuotesEmptyEmbeddedAndTrailingSlashArguments)
