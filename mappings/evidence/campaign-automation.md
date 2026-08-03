@@ -284,3 +284,21 @@ phase-release observations before console initialization. The campaign then
 selected speed 5, unpaused, advanced one day, and exited through the native
 bounded-run path. The source save retained SHA-256
 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
+Compatibility acceptance on August 3, 2026 exercised the hardened path with
+structured telemetry enabled:
+
+- unmodded run `a2221287-f1f7-4dbb-95c2-d53aa50aa92d` produced 293 valid
+  records with no gaps, drops, or write failure;
+- observer run `0a1415cd-acd8-4962-867d-f2479028b753` produced 294 valid
+  records, including `observer.configured`, with no gaps, drops, or write
+  failure;
+- GFM run `df59cb6d-e112-43c3-8134-916519d26fea` produced 672 valid records
+  with no gaps, drops, or write failure from a native GFM save.
+
+Each run advanced exactly one game day and exited through the bounded native
+path. The unmodded and GFM source-save hashes remained unchanged. Destructor
+logging used to establish lifecycle evidence was removed after these probes;
+steady-state destructor callbacks only invalidate matching captures. No native
+return-to-menu operation is mapped, so repeated loads within one process remain
+outside the current acceptance boundary.
