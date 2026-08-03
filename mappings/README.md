@@ -49,7 +49,8 @@ but they do not yet identify the engine handlers behind each control.
 - [`research/ai-static-leads.md`](research/ai-static-leads.md) preserves static
   leads recovered from the untrusted Player Military AI package.
 
-`tools/find_xrefs.py` finds direct x86 references to ASCII strings, while
-`tools/find_calls.py` finds direct relative calls to a candidate RVA. Both are
+`tools/research/find_xrefs.py` finds direct x86 references to ASCII strings,
+while `tools/research/find_calls.py` finds direct relative calls to a candidate
+RVA. Both are
 lightweight triage tools; their nearest-prologue guesses still require manual
 disassembly review.
