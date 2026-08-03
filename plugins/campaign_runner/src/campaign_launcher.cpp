@@ -818,9 +818,8 @@ namespace campaign_runner
             return;
         }
         if (observer_command_manager_ != nullptr && observer_command_manager_ != manager) {
-            // The old manager is no longer active. Keep its command metadata in
-            // process-lifetime storage so late callbacks cannot reference
-            // destroyed data.
+            // A different manager was captured; keep old command metadata in
+            // process-lifetime storage so late callbacks cannot reference it.
             native_tag_command_ = nullptr;
             native_tag_handler_ = nullptr;
             observer_switch_command_ = nullptr;

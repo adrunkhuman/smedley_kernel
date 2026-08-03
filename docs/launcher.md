@@ -185,6 +185,11 @@ native Annex entry boundary and changes only the camera tag; player ownership
 and the AI scheduler remain unchanged. Other country disappearances use the
 timer-driven safe-switch fallback.
 
+Native frontend automation fails closed on controller identity, thread, GUI,
+string-layout, flag-state, or write-postcondition mismatches. It does not fall
+back to synthetic input. No return-to-menu operation is mapped, so repeated
+campaign loads in one process are unsupported.
+
 Observer monitoring also resumes an unexpected native pause after verifying
 the pause toggle. It stops monitoring if the game cannot resume or reports an
 invalid pause state; bounded benchmark runs defer this recovery to the observer

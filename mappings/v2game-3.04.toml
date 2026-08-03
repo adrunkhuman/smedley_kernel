@@ -692,6 +692,14 @@ fields = [
 ]
 
 [[layouts]]
+name = "MainMenuController"
+status = "verified-runtime"
+source = "constructor/destructor hooks and native Single Player dispatch; update RVA 0x354f90 statically confirms the lookup sequence"
+fields = [
+  { name = "gui_registry", offset = 0x0704 },
+]
+
+[[layouts]]
 name = "CCountry"
 status = "provisional"
 size = 0x1608

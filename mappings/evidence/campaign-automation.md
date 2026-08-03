@@ -185,13 +185,12 @@ exceed 100 percent because Windows sums process CPU time across threads. The
 source save again retained SHA-256
 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 
-GFM preflight resolves the installed descriptor's `user_dir = "GFM"` and accepts
-a save beneath that mod-specific `save games` directory. Runtime compatibility
-is not yet established: the only available candidate was a copied vanilla save,
-not a GFM-authored fixture, and runs `2ee97720-b85b-4616-9749-b59ad9e04e90` and
-`26e16827-a6a2-45e1-84f9-963ce6f80460` never reached the verified
-`CInGameIdler` transition. The source save retained SHA-256
-`662425a530dfacfb8e90fce73aa0555464cfd3803c036cb23c34423a252a571d`.
+Earlier GFM probes `2ee97720-b85b-4616-9749-b59ad9e04e90` and
+`26e16827-a6a2-45e1-84f9-963ce6f80460` used a copied vanilla save and never
+reached the verified `CInGameIdler` transition. They establish only that
+preflight resolved the descriptor's `user_dir = "GFM"`. The later GFM-authored
+fixture in the compatibility acceptance below establishes the current runtime
+boundary.
 
 ## Current boundary
 
@@ -243,8 +242,9 @@ scheduler list.
 
 Structured telemetry can be loaded alongside `campaign_runner` when state
 output is needed. Do not call pause or speed functions based on a non-null
-pointer alone; verify the idler phase first. Frontend work is refused unless
-the timer remains on the thread captured by the frontend constructor hook.
+pointer alone; verify the idler phase first. Frontend and main-menu native work
+are each refused unless execution remains on the thread captured by that
+controller's constructor hook.
 Controller pointers are discarded after their known phase transition and at
 plugin shutdown. Destructor hooks also discard a matching capture before the
 native scalar deleting destructor releases storage. The related constructor,
@@ -286,7 +286,10 @@ bounded-run path. The source save retained SHA-256
 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 
 Compatibility acceptance on August 3, 2026 exercised the hardened path with
-structured telemetry enabled:
+structured telemetry enabled against mapping `v2game-3.04` and executable
+SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648`.
+Every run selected `campaign_runner` and `telemetry`, speed 5, a one-day target,
+and native quit after success:
 
 - unmodded run `a2221287-f1f7-4dbb-95c2-d53aa50aa92d` produced 293 valid
   records with no gaps, drops, or write failure;
@@ -294,10 +297,14 @@ structured telemetry enabled:
   records, including `observer.configured`, with no gaps, drops, or write
   failure;
 - GFM run `df59cb6d-e112-43c3-8134-916519d26fea` produced 672 valid records
-  with no gaps, drops, or write failure from a native GFM save.
+  with no gaps, drops, or write failure from descriptor `mod/GFM.mod` (`Greater
+  Flavor Mod`; the descriptor declares no version) and a native GFM save with
+  SHA-256 `276a53c07afc713bb685ded48c64f6a8c5fa13c4539cc70a380fd4347c4f0dad`.
 
-Each run advanced exactly one game day and exited through the bounded native
-path. The unmodded and GFM source-save hashes remained unchanged. Destructor
+Each run exercised exact controller-vtable checks, bounded save-string metadata,
+save-flag preconditions and postconditions, destructor invalidation, and native
+GUI dispatch. Each advanced exactly one game day and exited through the bounded
+native path. The unmodded and GFM source-save hashes remained unchanged. Destructor
 logging used to establish lifecycle evidence was removed after these probes;
 steady-state destructor callbacks only invalidate matching captures. No native
 return-to-menu operation is mapped, so repeated loads within one process remain
