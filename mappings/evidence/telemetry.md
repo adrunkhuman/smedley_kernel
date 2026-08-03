@@ -50,7 +50,7 @@ SHA-256 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 ## Economic Snapshot Inventory
 
 `telemetry.dll` reuses the bounded state/province/POP traversal documented
-in `INTEREST_FIX.md`. It scans country ordinals 1 through `country_count - 1`
+in `interest-payout.md`. It scans country ordinals 1 through `country_count - 1`
 once on the first daily callback for each telemetry-selected sample date,
 retaining no raw pointers afterward. Complete snapshots require zero traversal
 flags and unique POP identities across every country.

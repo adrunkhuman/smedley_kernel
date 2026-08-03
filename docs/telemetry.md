@@ -227,7 +227,7 @@ an observed zero. Consumers must preserve all three states.
 For the supported executable, `game_date_raw` advances by 24 units per game
 day. Trace summaries divide raw-date deltas by 24 before reporting game-day
 spans or game-days per second. This is a verified runtime property recorded in
-`mappings/TELEMETRY.md`; profile date bounds remain raw values.
+`mappings/evidence/telemetry.md`; profile date bounds remain raw values.
 
 Example:
 

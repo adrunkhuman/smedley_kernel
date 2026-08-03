@@ -28,7 +28,7 @@ source = "smedley_kernel/include/smedley/events/dailyupdate.hpp"
 name = "CCountry::Update interest-fix hook"
 rva = 0x0010918a
 kind = "hook"
-status = "verified-historical"
+status = "historical-unverified"
 signature = "8b 4c 24 64 5f"
 source = "commit 794c98e plugins/v2up/plugin.cpp"
 
@@ -268,7 +268,7 @@ source = "runtime --observe test cleared JAN human control, attached AI 0x7133c5
 name = "CPop constructor candidate 1"
 rva = 0x00554a40
 kind = "function"
-status = "verified-historical"
+status = "historical-unverified"
 signature = "55 8b ec 6a ff 68 1f 04 b9 00"
 source = "parent of commit 967a1a4"
 
@@ -276,7 +276,7 @@ source = "parent of commit 967a1a4"
 name = "CPop constructor candidate 2"
 rva = 0x00554f40
 kind = "function"
-status = "verified-historical"
+status = "historical-unverified"
 signature = "55 8b ec 6a ff 68 8a 03 b9 00"
 source = "parent of commit 967a1a4"
 
@@ -284,7 +284,7 @@ source = "parent of commit 967a1a4"
 name = "CPop constructor candidate 3"
 rva = 0x00555450
 kind = "function"
-status = "verified-historical"
+status = "historical-unverified"
 signature = "55 8b ec 6a ff 68 34 a8 b4 00"
 source = "parent of commit 967a1a4"
 
@@ -292,7 +292,7 @@ source = "parent of commit 967a1a4"
 name = "CPop destructor candidate"
 rva = 0x00555ae0
 kind = "function"
-status = "verified-historical"
+status = "historical-unverified"
 signature = "55 8b ec 6a ff 68 86 f7 b9 00"
 source = "parent of commit 967a1a4"
 
@@ -324,7 +324,7 @@ source = "smedley_kernel/src/memory.cpp"
 name = "CCurrentGameState singleton pointer"
 rva = 0x00e588e8
 kind = "data"
-status = "current-unverified"
+status = "provisional"
 source = "smedley_kernel/include/smedley/v2/gamestate.hpp"
 
 [[symbols]]
@@ -553,81 +553,81 @@ name = "CAIKing land recruitment planner candidate"
 rva = 0x0041fb00
 kind = "function"
 status = "historical-unverified"
-source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/research/ai-static-leads.md"
 
 [[symbols]]
 name = "CAIKing naval recruitment planner candidate"
 rva = 0x00420760
 kind = "function"
 status = "historical-unverified"
-source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/research/ai-static-leads.md"
 
 [[symbols]]
 name = "CAIKing land cleanup candidate"
 rva = 0x0041e280
 kind = "function"
 status = "historical-unverified"
-source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/research/ai-static-leads.md"
 
 [[symbols]]
 name = "CAIKing naval cleanup candidate"
 rva = 0x0041e5b0
 kind = "function"
 status = "historical-unverified"
-source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/research/ai-static-leads.md"
 
 [[symbols]]
 name = "CAIKing railroad selector candidate"
 rva = 0x004582d0
 kind = "function"
 status = "historical-unverified"
-source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/research/ai-static-leads.md"
 
 [[symbols]]
 name = "CAIKing naval-base selector candidate"
 rva = 0x00458460
 kind = "function"
 status = "historical-unverified"
-source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/research/ai-static-leads.md"
 
 [[symbols]]
 name = "CAIKing fort selector candidate"
 rva = 0x00458560
 kind = "function"
 status = "historical-unverified"
-source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/research/ai-static-leads.md"
 
 [[symbols]]
 name = "Building-definition registry initializer candidate"
 rva = 0x000dad40
 kind = "function"
 status = "historical-unverified"
-source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/research/ai-static-leads.md"
 
 [[symbols]]
 name = "EAX-state random helper candidate"
 rva = 0x005b7610
 kind = "function"
 status = "historical-unverified"
-source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/research/ai-static-leads.md"
 
 [[symbols]]
 name = "Narrow Great Power sphere manager candidate"
 rva = 0x004363f0
 kind = "function"
 status = "historical-unverified"
-source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/research/ai-static-leads.md"
 
 [[symbols]]
 name = "Great Power sphere action selector candidate"
 rva = 0x00437330
 kind = "function"
 status = "historical-unverified"
-source = "static recovery from PMIA 1.9.0 DLL; see mappings/PMIA_STATIC_LEADS.md"
+source = "static recovery from PMIA 1.9.0 DLL; see mappings/research/ai-static-leads.md"
 
 [[layouts]]
 name = "CGameState"
-status = "current-unverified"
+status = "provisional"
 size = 0x0d08
 source = "smedley_kernel/include/smedley/v2/gamestate.hpp"
 fields = [
@@ -655,7 +655,7 @@ fields = [
 
 [[layouts]]
 name = "CCountry"
-status = "current-unverified"
+status = "provisional"
 size = 0x1608
 source = "smedley_kernel/include/smedley/v2/country.hpp"
 fields = [
@@ -815,7 +815,7 @@ fields = [
 
 [[layouts]]
 name = "CProvince"
-status = "current-unverified"
+status = "provisional"
 size = 0x0398
 source = "smedley_kernel/include/smedley/v2/province.hpp; +0x194 alone is verified-runtime as a vector of 16-byte POP-list records"
 fields = [
