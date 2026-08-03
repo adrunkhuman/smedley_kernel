@@ -183,7 +183,7 @@ TEST(PluginAbiV1Test, DiscoversAndRunsTheIndependentCDll)
 {
     wchar_t executable[MAX_PATH];
     ASSERT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
-    const auto fixture = std::filesystem::path(executable).parent_path() / L"smedley_plugin_abi_fixture.dll";
+    const auto fixture = std::filesystem::path(executable).parent_path() / L"smedley_plugin_abi_test_plugin.dll";
     HMODULE module = LoadLibraryW(fixture.c_str());
     ASSERT_NE(module, nullptr);
     const auto get_api = reinterpret_cast<SmedleyPluginGetApiV1Fn>(
