@@ -1039,21 +1039,27 @@ namespace campaign_runner
     void CampaignLauncher::ReleaseFrontendController(void *controller)
     {
         void *expected = controller;
-        frontend_controller_.compare_exchange_strong(
+        const bool invalidated_capture = frontend_controller_.compare_exchange_strong(
             expected,
             nullptr,
             std::memory_order_acq_rel,
             std::memory_order_relaxed);
+        logger_.Info(invalidated_capture
+            ? "frontend controller destructor invalidated the captured object"
+            : "frontend controller destructor observed after phase release");
     }
 
     void CampaignLauncher::ReleaseMainMenuController(void *controller)
     {
         void *expected = controller;
-        main_menu_controller_.compare_exchange_strong(
+        const bool invalidated_capture = main_menu_controller_.compare_exchange_strong(
             expected,
             nullptr,
             std::memory_order_acq_rel,
             std::memory_order_relaxed);
+        logger_.Info(invalidated_capture
+            ? "main-menu controller destructor invalidated the captured object"
+            : "main-menu controller destructor observed after phase release");
     }
 
     bool CampaignLauncher::CheckSignatures() const

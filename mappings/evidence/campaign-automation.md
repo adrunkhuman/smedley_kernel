@@ -274,3 +274,13 @@ trace `f2d403e1-82f8-46b8-8832-a136c822d38a` advanced 515 game days and
 validated 1,039 strictly ordered records with no sequence gaps, drops, write
 failure, or campaign-runner telemetry warning. This validates the emission
 points; it does not establish a general timer-callback thread contract.
+
+Runtime lifecycle acceptance on August 3, 2026 used run
+`bab8f3b3-e9dd-4eca-8c63-ac391a738637`, unmodded `benchmark.v2`, campaign runner
+only, speed 5, and a one-day bounded run. Exact primary-vtable checks passed for
+both controllers. After native Play dispatch, the frontend destructor hook at
+RVA `0x36b030` and main-menu destructor hook at RVA `0x354df0` both recorded
+phase-release observations before console initialization. The campaign then
+selected speed 5, unpaused, advanced one day, and exited through the native
+bounded-run path. The source save retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
