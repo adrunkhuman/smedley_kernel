@@ -7,8 +7,11 @@
 #include <shobjidl.h>
 
 #include <algorithm>
+#include <charconv>
 #include <cwctype>
 #include <filesystem>
+#include <limits>
+#include <map>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -30,7 +33,7 @@ namespace
         game_dir_edit,
         browse_game_button,
         refresh_button,
-        mod_combo,
+        mod_list,
         plugin_list,
         safe_mode_check,
         save_path_edit,
@@ -43,20 +46,13 @@ namespace
         launch_button,
         status_text,
         recent_runs_button,
-        telemetry_enabled_check,
-        telemetry_output_edit,
-        browse_telemetry_button,
-        telemetry_categories_combo,
-        telemetry_sample_days_edit,
-        telemetry_queue_capacity_edit,
-        telemetry_overwrite_check,
-        telemetry_country_tags_edit,
-        telemetry_start_date_edit,
-        telemetry_end_date_edit,
-        run_days_edit,
-        run_until_date_edit,
-        run_timeout_edit,
-        quit_after_run_check,
+        options_button,
+        options_close_button,
+        mod_move_up_button,
+        mod_move_down_button,
+        options_page_list,
+        options_show_advanced_check,
+        options_field_base = 1000,
     };
 
     std::wstring Utf8ToWide(const std::string &value)
@@ -100,6 +96,16 @@ namespace
     void SetText(HWND control, const std::wstring &value)
     {
         SetWindowTextW(control, value.c_str());
+    }
+
+    std::wstring FormatDouble(double value)
+    {
+        char buffer[64];
+        const auto result = std::to_chars(buffer, buffer + sizeof(buffer), value, std::chars_format::general,
+                                          std::numeric_limits<double>::max_digits10);
+        if (result.ec != std::errc{}) return {};
+        const std::string text(buffer, result.ptr);
+        return {text.begin(), text.end()};
     }
 
     fs::path AbsolutePath(const fs::path &path)
@@ -165,6 +171,222 @@ namespace
         *path = buffer.data();
         return true;
     }
+
+    struct CaptureEditResult
+    {
+        std::optional<size_t> index;
+        size_t generation = 0;
+        std::optional<launcher::TelemetryCaptureRule> original;
+        launcher::TelemetryCaptureRule replacement;
+    };
+
+    class CaptureEditorWindow
+    {
+    public:
+        static void Show(HWND owner, std::optional<size_t> index, size_t generation,
+                         const launcher::TelemetryCaptureRule &rule = {})
+        {
+            auto *self = new CaptureEditorWindow(owner, index, generation, rule);
+            WNDCLASSW window_class{};
+            window_class.hInstance = GetModuleHandleW(nullptr);
+            window_class.lpszClassName = L"SmedleyCaptureEditor";
+            window_class.lpfnWndProc = WindowProc;
+            window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+            window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+            RegisterClassW(&window_class);
+            self->modal_owner_ = GetAncestor(owner, GA_ROOTOWNER);
+            if (self->modal_owner_ && self->modal_owner_ != owner) EnableWindow(self->modal_owner_, FALSE);
+            EnableWindow(owner, FALSE);
+            const HWND window = CreateWindowExW(WS_EX_DLGMODALFRAME, window_class.lpszClassName, index ? L"Edit capture rule" : L"Add capture rule",
+                                                WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,
+                                                540, 480, owner, nullptr, window_class.hInstance, self);
+            if (!window) {
+                self->EnableOwners();
+                delete self;
+                return;
+            }
+            MSG message{};
+            while (IsWindow(window) && GetMessageW(&message, nullptr, 0, 0) > 0) {
+                if (!IsDialogMessageW(window, &message)) {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+            }
+            if (message.message == WM_QUIT) PostQuitMessage(static_cast<int>(message.wParam));
+        }
+
+    private:
+        enum : int { family = 1, cadence, fields, countries, provinces, start, end, save, cancel };
+        CaptureEditorWindow(HWND owner, std::optional<size_t> index, size_t generation,
+                            const launcher::TelemetryCaptureRule &rule)
+            : owner_(owner), index_(index), generation_(generation), rule_(rule)
+        {
+            if (index_) original_ = rule;
+        }
+
+        static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+        {
+            auto *self = reinterpret_cast<CaptureEditorWindow *>(GetWindowLongPtrW(window, GWLP_USERDATA));
+            if (message == WM_NCCREATE) {
+                self = static_cast<CaptureEditorWindow *>(reinterpret_cast<const CREATESTRUCTW *>(lparam)->lpCreateParams);
+                SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+                self->window_ = window;
+            }
+            if (!self) return DefWindowProcW(window, message, wparam, lparam);
+            if (message == WM_NCDESTROY) {
+                SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+                self->EnableOwners();
+                delete self;
+                return 0;
+            }
+            return self->Handle(message, wparam, lparam);
+        }
+
+        HWND Add(const wchar_t *class_name, const wchar_t *text, DWORD style, int id)
+        {
+            const HWND control = CreateWindowExW(0, class_name, text, WS_CHILD | WS_VISIBLE | style, 0, 0, 0, 0,
+                                                 window_, reinterpret_cast<HMENU>(id), nullptr, nullptr);
+            SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE);
+            return control;
+        }
+
+        void Create()
+        {
+            Add(L"STATIC", L"Family", SS_LEFT, 0); family_ = Add(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, family);
+            Add(L"STATIC", L"Cadence", SS_LEFT, 0); cadence_ = Add(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP, cadence);
+            Add(L"STATIC", L"Fields (none means all)", SS_LEFT, 0); fields_ = Add(L"LISTBOX", L"", LBS_MULTIPLESEL | WS_BORDER | WS_TABSTOP | WS_VSCROLL, fields);
+            Add(L"STATIC", L"Country tags (comma-separated)", SS_LEFT, 0); countries_ = Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, countries);
+            Add(L"STATIC", L"Province IDs (comma-separated)", SS_LEFT, 0); provinces_ = Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, provinces);
+            Add(L"STATIC", L"Start date (DD-MM-YYYY)", SS_LEFT, 0); start_ = Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, start);
+            Add(L"STATIC", L"End date (DD-MM-YYYY)", SS_LEFT, 0); end_ = Add(L"EDIT", L"", WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, end);
+            Add(L"BUTTON", L"Save", BS_DEFPUSHBUTTON | WS_TABSTOP, save); Add(L"BUTTON", L"Cancel", BS_PUSHBUTTON | WS_TABSTOP, cancel);
+            for (const auto &item : launcher::TelemetryCaptureFamilies()) {
+                const auto text = Utf8ToWide(item.id); SendMessageW(family_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
+            }
+            for (const auto *item : {L"daily", L"weekly", L"monthly", L"yearly"}) SendMessageW(cadence_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
+            const auto family_text = Utf8ToWide(rule_.family.empty() ? launcher::TelemetryCaptureFamilies().front().id : rule_.family);
+            SendMessageW(family_, CB_SELECTSTRING, -1, reinterpret_cast<LPARAM>(family_text.c_str()));
+            PopulateFields(rule_.fields);
+            const auto cadence_text = Utf8ToWide(rule_.cadence); SendMessageW(cadence_, CB_SELECTSTRING, -1, reinterpret_cast<LPARAM>(cadence_text.c_str()));
+            SetText(countries_, Join(rule_.country_tags)); SetText(provinces_, JoinNumbers(rule_.province_ids));
+            const auto set_date = [](HWND control, const std::optional<int> &raw) {
+                if (!raw) return;
+                if (const auto date = launcher::DecodeClausewitzDate(*raw)) SetText(control, Utf8ToWide(launcher::FormatClausewitzDate(*date)));
+                else SetText(control, L"raw: " + std::to_wstring(*raw));
+            };
+            set_date(start_, rule_.start_date_raw);
+            set_date(end_, rule_.end_date_raw);
+            Layout();
+        }
+
+        void PopulateFields(const std::vector<std::string> &selected)
+        {
+            SendMessageW(fields_, LB_RESETCONTENT, 0, 0);
+            const int selected_family = static_cast<int>(SendMessageW(family_, CB_GETCURSEL, 0, 0));
+            if (selected_family < 0) return;
+            const auto &item = launcher::TelemetryCaptureFamilies()[static_cast<size_t>(selected_family)];
+            for (const auto &field : item.fields) {
+                const auto text = Utf8ToWide(field); const auto row = SendMessageW(fields_, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
+                if (std::find(selected.begin(), selected.end(), field) != selected.end()) SendMessageW(fields_, LB_SETSEL, TRUE, row);
+            }
+        }
+
+        static std::wstring Join(const std::vector<std::string> &values)
+        {
+            std::wstring result; for (const auto &value : values) { if (!result.empty()) result += L","; result += Utf8ToWide(value); } return result;
+        }
+        static std::wstring JoinNumbers(const std::vector<int> &values)
+        {
+            std::wstring result; for (const auto value : values) { if (!result.empty()) result += L","; result += std::to_wstring(value); } return result;
+        }
+        static std::vector<std::string> SplitTags(const std::wstring &text, bool *valid)
+        {
+            std::vector<std::string> values; *valid = true; size_t begin = 0;
+            while (begin < text.size()) {
+                const auto end = text.find(L',', begin); std::wstring value = text.substr(begin, end == std::wstring::npos ? end : end - begin);
+                const auto first = value.find_first_not_of(L" \t"); value = first == std::wstring::npos ? L"" : value.substr(first, value.find_last_not_of(L" \t") - first + 1);
+                if (value.size() != 3) { *valid = false; return {}; }
+                for (auto &character : value) { if (!iswalnum(character)) { *valid = false; return {}; } character = towupper(character); }
+                values.push_back(WideToUtf8(value)); if (end == std::wstring::npos) break; begin = end + 1;
+            }
+            return values;
+        }
+        static std::vector<int> SplitNumbers(const std::wstring &text, bool *valid)
+        {
+            std::vector<int> values; *valid = true; size_t begin = 0;
+            while (begin < text.size()) {
+                const auto end = text.find(L',', begin); const auto value = text.substr(begin, end == std::wstring::npos ? end : end - begin);
+                try { size_t used = 0; const int number = std::stoi(value, &used); if (used != value.size()) throw std::invalid_argument("bad"); values.push_back(number); }
+                catch (const std::exception &) { *valid = false; return {}; }
+                if (end == std::wstring::npos) break; begin = end + 1;
+            }
+            return values;
+        }
+        std::vector<std::string> SelectedFields() const
+        {
+            std::vector<std::string> values; const auto count = SendMessageW(fields_, LB_GETSELCOUNT, 0, 0); std::vector<int> rows(static_cast<size_t>(std::max<LRESULT>(0, count)));
+            if (count > 0) SendMessageW(fields_, LB_GETSELITEMS, count, reinterpret_cast<LPARAM>(rows.data()));
+            for (const auto row : rows) { const auto length = SendMessageW(fields_, LB_GETTEXTLEN, row, 0); std::wstring value(static_cast<size_t>(length) + 1, L'\0'); SendMessageW(fields_, LB_GETTEXT, row, reinterpret_cast<LPARAM>(value.data())); value.resize(static_cast<size_t>(length)); values.push_back(WideToUtf8(value)); }
+            return values;
+        }
+        void Save()
+        {
+            const int family_index = static_cast<int>(SendMessageW(family_, CB_GETCURSEL, 0, 0)); const int cadence_index = static_cast<int>(SendMessageW(cadence_, CB_GETCURSEL, 0, 0));
+            bool valid_tags = false, valid_provinces = false;
+            auto tags = SplitTags(GetText(countries_), &valid_tags); auto provinces = SplitNumbers(GetText(provinces_), &valid_provinces);
+            const auto parse_date = [&](HWND control) -> std::optional<int> {
+                const auto text = GetText(control);
+                if (text.empty()) return 0;
+                try {
+                    if (text.rfind(L"raw: ", 0) == 0) {
+                        size_t used = 0;
+                        const auto raw = std::stoll(text.substr(5), &used);
+                        if (used != text.size() - 5 || raw < (std::numeric_limits<int>::min)()
+                            || raw > (std::numeric_limits<int>::max)()) return std::nullopt;
+                        return static_cast<int>(raw);
+                    }
+                } catch (const std::exception &) { return std::nullopt; }
+                const auto date = launcher::ParseClausewitzDate(WideToUtf8(text));
+                return date ? launcher::EncodeClausewitzDate(*date) : std::nullopt;
+            };
+            const auto start = parse_date(start_); const auto end = parse_date(end_);
+            if (family_index < 0 || cadence_index < 0 || !valid_tags || !valid_provinces || !start || !end) { MessageBoxW(window_, L"Use known values, comma-separated tags/IDs, and DD-MM-YYYY dates.", L"Capture rule", MB_OK | MB_ICONWARNING); return; }
+            launcher::TelemetryCaptureRule rule; rule.family = launcher::TelemetryCaptureFamilies()[static_cast<size_t>(family_index)].id;
+            static constexpr const char *cadences[] = {"daily", "weekly", "monthly", "yearly"};
+            rule.cadence = cadences[cadence_index]; rule.fields = SelectedFields(); rule.country_tags = std::move(tags); rule.province_ids = std::move(provinces);
+            if (*start != 0 || !GetText(start_).empty()) rule.start_date_raw = *start; if (*end != 0 || !GetText(end_).empty()) rule.end_date_raw = *end;
+            CaptureEditResult result{index_, generation_, original_, std::move(rule)};
+            if (IsWindow(owner_)) SendMessageW(owner_, WM_APP + 1, 0, reinterpret_cast<LPARAM>(&result));
+            DestroyWindow(window_);
+        }
+        void Layout()
+        {
+            const int label = 14, height = 22, list_height = 95, x = 12, width = 505; int y = 12;
+            // Win32 enumerates children in reverse creation order; restore it before pairing labels and inputs.
+            std::vector<HWND> children; for (HWND child = GetWindow(window_, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) children.push_back(child);
+            std::reverse(children.begin(), children.end());
+            for (size_t row = 0; row < 7; ++row) { MoveWindow(children[row * 2], x, y, width, label, TRUE); y += label; const int h = row == 2 ? list_height : height; MoveWindow(children[row * 2 + 1], x, y, width, h, TRUE); y += h + 8; }
+            MoveWindow(children[14], width - 150, y, 70, 26, TRUE); MoveWindow(children[15], width - 70, y, 70, 26, TRUE);
+        }
+        void EnableOwners()
+        {
+            if (IsWindow(owner_)) EnableWindow(owner_, TRUE);
+            if (modal_owner_ && modal_owner_ != owner_ && IsWindow(modal_owner_)) EnableWindow(modal_owner_, TRUE);
+        }
+        LRESULT Handle(UINT message, WPARAM wparam, LPARAM lparam)
+        {
+            if (message == WM_CREATE) { Create(); return 0; }
+            if (message == WM_COMMAND) { const auto id = LOWORD(wparam); if (id == family && HIWORD(wparam) == CBN_SELCHANGE) PopulateFields({}); else if (id == save) Save(); else if (id == cancel) DestroyWindow(window_); return 0; }
+            if (message == WM_CLOSE) { DestroyWindow(window_); return 0; }
+            return DefWindowProcW(window_, message, wparam, lparam);
+        }
+        HWND owner_ = nullptr, window_ = nullptr, family_ = nullptr, cadence_ = nullptr, fields_ = nullptr, countries_ = nullptr, provinces_ = nullptr, start_ = nullptr, end_ = nullptr;
+        HWND modal_owner_ = nullptr;
+        std::optional<size_t> index_;
+        size_t generation_ = 0;
+        launcher::TelemetryCaptureRule rule_;
+        std::optional<launcher::TelemetryCaptureRule> original_;
+    };
 
     class RecentRunsWindow
     {
@@ -456,7 +678,7 @@ namespace
 
             dpi_ = GetDeviceDpi();
             window_ = CreateWindowExW(WS_EX_CONTROLPARENT, window_class_name, L"Smedley Launcher", WS_OVERLAPPEDWINDOW,
-                                      CW_USEDEFAULT, CW_USEDEFAULT, Scale(900), Scale(790), nullptr, nullptr, instance, this);
+                                       CW_USEDEFAULT, CW_USEDEFAULT, Scale(900), Scale(620), nullptr, nullptr, instance, this);
             if (!window_) return false;
             CreateControls();
             RefreshDiscovery();
@@ -466,6 +688,7 @@ namespace
         }
 
         HWND window() const { return window_; }
+        HWND options_window() const { return options_window_; }
 
     private:
         static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
@@ -486,7 +709,7 @@ namespace
             case WM_GETMINMAXINFO: {
                 auto *info = reinterpret_cast<MINMAXINFO *>(lparam);
                 info->ptMinTrackSize.x = Scale(690);
-                info->ptMinTrackSize.y = Scale(690);
+                info->ptMinTrackSize.y = Scale(500);
                 return 0;
             }
             case WM_SIZE:
@@ -502,6 +725,11 @@ namespace
             }
             case WM_COMMAND:
                 OnCommand(LOWORD(wparam), HIWORD(wparam));
+                return 0;
+            case WM_CLOSE:
+                if (!ApplyPendingOptions()) return 0;
+                if (options_window_) SendMessageW(options_window_, WM_CLOSE, 0, 0);
+                DestroyWindow(window_);
                 return 0;
             case WM_NOTIFY:
                 OnNotify(reinterpret_cast<const NMHDR *>(lparam));
@@ -553,8 +781,15 @@ namespace
             AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"&Browse...", browse_game_button);
             AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"&Refresh", refresh_button);
 
-            mod_label_ = AddLabel(L"&Mod (optional):");
-            mods_ = AddControl(CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL, L"COMBOBOX", L"", mod_combo);
+            mod_label_ = AddLabel(L"&Mods (profile order):");
+            mods_ = AddControl(LVS_REPORT | LVS_SHOWSELALWAYS | LVS_SINGLESEL | WS_TABSTOP | WS_BORDER,
+                               WC_LISTVIEWW, L"", mod_list);
+            ListView_SetExtendedListViewStyle(mods_, LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+            AddModColumn(L"Mod", 220);
+            AddModColumn(L"Descriptor", 420);
+            mod_move_up_ = AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Move &Up", mod_move_up_button);
+            mod_move_down_ = AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Move &Down", mod_move_down_button);
+            UpdateModOrderButtons();
 
             plugin_label_ = AddLabel(L"&Native plugins (trusted DLLs):");
             plugins_ = AddControl(LVS_REPORT | LVS_SHOWSELALWAYS | LVS_SINGLESEL | WS_TABSTOP | WS_BORDER,
@@ -566,56 +801,12 @@ namespace
 
             safe_mode_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"&Safe mode (do not inject Smedley)", safe_mode_check);
 
-            telemetry_enabled_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"Enable structured &telemetry", telemetry_enabled_check);
-            telemetry_overwrite_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"Allow telemetry output &overwrite", telemetry_overwrite_check);
-            telemetry_output_label_ = AddLabel(L"Telemetry &output:");
-            telemetry_output_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", telemetry_output_edit);
-            AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Browse...", browse_telemetry_button);
-            telemetry_categories_label_ = AddLabel(L"Telemetry &categories:");
-            telemetry_categories_ = AddControl(CBS_DROPDOWNLIST | WS_TABSTOP, L"COMBOBOX", L"", telemetry_categories_combo);
-            SendMessageW(telemetry_categories_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Lifecycle + state"));
-            SendMessageW(telemetry_categories_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Lifecycle only"));
-            SendMessageW(telemetry_categories_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"State only"));
-            SendMessageW(telemetry_categories_, CB_SETCURSEL, 0, 0);
-            telemetry_sample_days_label_ = AddLabel(L"Sample &days:");
-            telemetry_sample_days_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"1", telemetry_sample_days_edit);
-            telemetry_queue_capacity_label_ = AddLabel(L"&Queue capacity:");
-            telemetry_queue_capacity_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"1024", telemetry_queue_capacity_edit);
-            telemetry_country_tags_label_ = AddLabel(L"Country &tags:");
-            telemetry_country_tags_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", telemetry_country_tags_edit);
-            telemetry_start_date_label_ = AddLabel(L"Start raw date:");
-            telemetry_start_date_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", telemetry_start_date_edit);
-            telemetry_end_date_label_ = AddLabel(L"End raw date:");
-            telemetry_end_date_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", telemetry_end_date_edit);
-
-            save_label_ = AddLabel(L"Campaign &save:");
-            save_path_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", save_path_edit);
-            AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Browse...", browse_save_button);
-
-            observer_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"&Observer mode", observer_check);
-            view_tag_label_ = AddLabel(L"View &tag:");
-            view_tag_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", view_tag_edit);
-            speed_label_ = AddLabel(L"&Speed:");
-            speed_ = AddControl(CBS_DROPDOWNLIST | WS_TABSTOP, L"COMBOBOX", L"", speed_combo);
-            for (int value = 1; value <= 5; ++value) {
-                const auto text = std::to_wstring(value);
-                SendMessageW(speed_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
-            }
-            SendMessageW(speed_, CB_SETCURSEL, 4, 0);
-            start_paused_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"Start &paused", start_paused_check);
-            run_days_label_ = AddLabel(L"Run days:");
-            run_days_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", run_days_edit);
-            run_until_date_label_ = AddLabel(L"Run target raw:");
-            run_until_date_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"", run_until_date_edit);
-            run_timeout_label_ = AddLabel(L"Timeout s:");
-            run_timeout_ = AddControl(WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP, L"EDIT", L"600", run_timeout_edit);
-            quit_after_run_ = AddControl(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"Quit after successful bounded run", quit_after_run_check);
-
             diagnostics_label_ = AddLabel(L"&Diagnostics:");
             diagnostics_ = AddControl(WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY | WS_VSCROLL | WS_TABSTOP,
-                                      L"EDIT", L"", diagnostics_edit);
+                                       L"EDIT", L"", diagnostics_edit);
             status_ = AddControl(SS_LEFT, L"STATIC", L"", status_text);
             AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"&Recent runs", recent_runs_button);
+            AddControl(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"&Options...", options_button);
             launch_ = AddControl(BS_DEFPUSHBUTTON | WS_TABSTOP, L"BUTTON", L"&Launch Victoria II", launch_button);
         }
 
@@ -628,14 +819,772 @@ namespace
             ListView_InsertColumn(plugins_, plugin_column_count_++, &column);
         }
 
+        void AddModColumn(const wchar_t *heading, int width)
+        {
+            LVCOLUMNW column{};
+            column.mask = LVCF_TEXT | LVCF_WIDTH;
+            column.pszText = const_cast<wchar_t *>(heading);
+            column.cx = Scale(width);
+            ListView_InsertColumn(mods_, mod_column_count_++, &column);
+        }
+
         void PlaceLabel(HWND label, int y, int label_width, int row, int margin)
         {
             MoveWindow(label, margin, y + Scale(4), label_width - Scale(4), row - Scale(4), TRUE);
         }
 
+        class OptionsWindow
+        {
+        public:
+            static void Show(LauncherWindow *owner)
+            {
+                if (owner->options_) {
+                    SetForegroundWindow(owner->options_->window_);
+                    return;
+                }
+                auto *options = new OptionsWindow(owner);
+                WNDCLASSW window_class{};
+                window_class.hInstance = GetModuleHandleW(nullptr);
+                window_class.lpszClassName = L"SmedleyLauncherOptionsWindow";
+                window_class.lpfnWndProc = WindowProc;
+                window_class.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+                window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+                RegisterClassW(&window_class);
+                options->window_ = CreateWindowExW(WS_EX_CONTROLPARENT | WS_EX_DLGMODALFRAME, window_class.lpszClassName,
+                                                    L"Smedley Launcher Options", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU |
+                                                    WS_THICKFRAME | WS_VSCROLL | WS_CLIPCHILDREN | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT, owner->Scale(800),
+                                                   owner->Scale(760), owner->window_, nullptr, window_class.hInstance, options);
+                if (!options->window_) delete options;
+            }
+
+            bool UpdateContext()
+            {
+                if (!current_) return false;
+                const bool supported = launcher::SupportsPluginSettings(*current_);
+                const bool editable = supported && owner_->IsPluginSelected(*current_) && owner_->BuildProfile().inject;
+                if (!editable) owner_->settings_diagnostics_.clear();
+                SetText(state_, !supported ? L"This third-party settings schema is read-only because no profile adapter is available."
+                                         : editable ? L"Settings are editable because this plugin is selected in the main window."
+                                                    : L"Select this plugin in the main window and turn off Safe mode to edit its settings.");
+                const bool has_advanced = std::any_of(fields_.begin(), fields_.end(), [](const auto &field) {
+                    return field.schema->advanced;
+                });
+                const bool advanced_changed = (IsWindowVisible(advanced_) != FALSE) != has_advanced;
+                Show(advanced_, has_advanced);
+                bool visibility_changed = advanced_changed;
+                for (auto &field : fields_) {
+                    const bool visible = !field.schema->advanced || (has_advanced && ShowAdvanced());
+                    const bool condition = !field.schema->visible_when || ConditionMatches(*field.schema->visible_when);
+                    const bool show = visible && condition;
+                    visibility_changed = visibility_changed || (IsWindowVisible(field.input) != FALSE) != show;
+                    Show(field.label, show);
+                    Show(field.input, show);
+                    Show(field.help, show);
+                    Show(field.action, show);
+                    Show(field.edit, show);
+                    Show(field.remove, show);
+                    EnableWindow(field.input, editable && show);
+                    EnableWindow(field.action, editable && show);
+                    EnableWindow(field.edit, editable && show);
+                    EnableWindow(field.remove, editable && show);
+                    const bool required = !field.schema->optional
+                        || (field.schema->required_when && ConditionMatches(*field.schema->required_when));
+                    SetText(field.label, Utf8ToWide(field.schema->label + (required ? " *" : "")));
+                }
+                return visibility_changed;
+            }
+
+            void Refresh()
+            {
+                RebuildPages();
+            }
+
+            bool ApplyPendingPage()
+            {
+                if (ApplyPage()) return true;
+                ShowWindow(window_, SW_RESTORE);
+                SetForegroundWindow(window_);
+                return false;
+            }
+
+        private:
+            struct FieldControl
+            {
+                const launcher::PluginSettingField *schema = nullptr;
+                int id = 0;
+                HWND label = nullptr;
+                HWND input = nullptr;
+                HWND help = nullptr;
+                HWND action = nullptr;
+                HWND edit = nullptr;
+                HWND remove = nullptr;
+            };
+
+            explicit OptionsWindow(LauncherWindow *owner) : owner_(owner) {}
+
+            static LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wparam, LPARAM lparam)
+            {
+                auto *self = reinterpret_cast<OptionsWindow *>(GetWindowLongPtrW(window, GWLP_USERDATA));
+                if (message == WM_NCCREATE) {
+                    self = static_cast<OptionsWindow *>(reinterpret_cast<const CREATESTRUCTW *>(lparam)->lpCreateParams);
+                    SetWindowLongPtrW(window, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+                    self->window_ = window;
+                }
+                if (!self) return DefWindowProcW(window, message, wparam, lparam);
+                if (message == WM_NCDESTROY) {
+                    SetWindowLongPtrW(window, GWLP_USERDATA, 0);
+                    self->owner_->options_ = nullptr;
+                    self->owner_->options_window_ = nullptr;
+                    delete self;
+                    return 0;
+                }
+                return self->HandleMessage(message, wparam, lparam);
+            }
+
+            LRESULT HandleMessage(UINT message, WPARAM wparam, LPARAM lparam)
+            {
+                switch (message) {
+                case WM_CREATE:
+                    owner_->options_ = this;
+                    owner_->options_window_ = window_;
+                    CreateControls();
+                    RebuildPages();
+                    return 0;
+                case WM_SIZE:
+                    Layout(LOWORD(lparam), HIWORD(lparam));
+                    return 0;
+                case WM_COMMAND:
+                    return OnCommand(LOWORD(wparam), HIWORD(wparam), reinterpret_cast<HWND>(lparam));
+                case WM_NOTIFY:
+                    return OnNotify(reinterpret_cast<const NMHDR *>(lparam));
+                case WM_VSCROLL:
+                    ScrollVertically(LOWORD(wparam));
+                    return 0;
+                case WM_MOUSEWHEEL:
+                    ScrollWheel(GET_WHEEL_DELTA_WPARAM(wparam));
+                    return 0;
+                case WM_APP + 1:
+                    if (lparam) CommitCaptureEdit(*reinterpret_cast<const CaptureEditResult *>(lparam));
+                    RefreshObjectLists();
+                    owner_->RefreshPlan();
+                    return 0;
+                case WM_CLOSE:
+                    if (!ApplyPage()) return 0;
+                    owner_->RefreshPlan();
+                    DestroyWindow(window_);
+                    return 0;
+                }
+                return DefWindowProcW(window_, message, wparam, lparam);
+            }
+
+            HWND Add(DWORD style, const wchar_t *class_name, const wchar_t *text, int id = 0)
+            {
+                if (wcscmp(class_name, L"BUTTON") == 0) style |= BS_NOTIFY;
+                const HWND control = CreateWindowExW(0, class_name, text, WS_CHILD | WS_VISIBLE | style, 0, 0, 0, 0,
+                                                      window_, reinterpret_cast<HMENU>(id), nullptr, nullptr);
+                SendMessageW(control, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE);
+                return control;
+            }
+
+            void CreateControls()
+            {
+                pages_ = Add(LBS_NOTIFY | WS_BORDER | WS_TABSTOP | WS_VSCROLL, L"LISTBOX", L"", options_page_list);
+                title_ = Add(SS_LEFT, L"STATIC", L"", 0);
+                state_ = Add(SS_LEFT, L"STATIC", L"", 0);
+                advanced_ = Add(BS_AUTOCHECKBOX | WS_TABSTOP, L"BUTTON", L"Show advanced settings", options_show_advanced_check);
+                notice_ = Add(SS_LEFT, L"STATIC", L"", 0);
+                empty_ = Add(SS_LEFT, L"STATIC", L"", 0);
+                close_ = Add(BS_DEFPUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Close", options_close_button);
+            }
+
+            void RebuildPages()
+            {
+                ++capture_generation_;
+                current_ = nullptr;
+                DestroyFields();
+                SendMessageW(pages_, LB_RESETCONTENT, 0, 0);
+                for (const auto &plugin : owner_->discovered_plugins_) {
+                    const auto name = Utf8ToWide(plugin.name);
+                    SendMessageW(pages_, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name.c_str()));
+                }
+                if (!owner_->discovered_plugins_.empty()) {
+                    SendMessageW(pages_, LB_SETCURSEL, 0, 0);
+                    SelectPage(0);
+                }
+                Layout(Scale(800), Scale(760), true);
+            }
+
+            void DestroyFields()
+            {
+                for (const auto &field : fields_) {
+                    for (const auto control : {field.label, field.input, field.help, field.action, field.edit, field.remove}) {
+                        if (control) DestroyWindow(control);
+                    }
+                }
+                fields_.clear();
+            }
+
+            void SelectPage(int index)
+            {
+                if (!ApplyPage()) return;
+                DestroyFields();
+                current_ = index >= 0 && static_cast<size_t>(index) < owner_->discovered_plugins_.size()
+                    ? &owner_->discovered_plugins_[index] : nullptr;
+                if (!current_) return;
+                SetText(title_, Utf8ToWide(current_->name));
+                SetText(empty_, current_->settings.fields.empty()
+                    ? L"Selecting this plugin enables it. This plugin has no configurable settings." : L"");
+                SetText(notice_, ObjectListNotice());
+                const auto settings = launcher::ResolvePluginSettings(*current_, owner_->draft_profile_);
+                creating_fields_ = true;
+                for (size_t index = 0; index < current_->settings.fields.size(); ++index) {
+                    const auto &schema = current_->settings.fields[index];
+                    FieldControl field;
+                    field.schema = &schema;
+                    field.id = options_field_base + static_cast<int>(index) * 4;
+                    field.label = Add(SS_LEFT, L"STATIC", L"", 0);
+                    const bool choice = schema.type == launcher::PluginSettingType::Enum;
+                    const bool multiple = schema.type == launcher::PluginSettingType::MultiEnum;
+                    const bool file_list = schema.type == launcher::PluginSettingType::FileList;
+                    const bool object_list = schema.type == launcher::PluginSettingType::ObjectList;
+                    const bool list = file_list || object_list;
+                    const bool check = schema.type == launcher::PluginSettingType::Bool;
+                    field.input = Add(check ? BS_AUTOCHECKBOX | WS_TABSTOP : choice ? CBS_DROPDOWNLIST | WS_TABSTOP
+                                           : multiple || file_list ? LVS_REPORT | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP
+                                           : object_list ? LBS_NOTIFY | WS_BORDER | WS_TABSTOP | WS_VSCROLL : WS_BORDER | ES_AUTOHSCROLL | WS_TABSTOP,
+                                       check ? L"BUTTON" : choice ? L"COMBOBOX" : multiple || file_list ? WC_LISTVIEWW : object_list ? L"LISTBOX" : L"EDIT", L"", field.id);
+                    if (multiple || file_list) {
+                        ListView_SetExtendedListViewStyle(field.input, LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+                        LVCOLUMNW column{}; column.mask = LVCF_TEXT | LVCF_WIDTH; column.pszText = const_cast<wchar_t *>(multiple ? L"Choices" : L"Files"); column.cx = Scale(560);
+                        ListView_InsertColumn(field.input, 0, &column);
+                    }
+                    if (choice || multiple) for (const auto &value : schema.choices) {
+                        const auto text = Utf8ToWide(value);
+                        if (choice) SendMessageW(field.input, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
+                        else AddCheckListItem(field.input, text, false);
+                    }
+                    if (schema.type == launcher::PluginSettingType::File || schema.type == launcher::PluginSettingType::Directory || list) {
+                        field.action = Add(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", list ? L"Add..." : L"Browse...", field.id + 1);
+                    }
+                    if (schema.type == launcher::PluginSettingType::ObjectList) field.edit = Add(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Edit...", field.id + 2);
+                    if (list) field.remove = Add(BS_PUSHBUTTON | WS_TABSTOP, L"BUTTON", L"Remove", field.id + 3);
+                    field.help = Add(SS_LEFT, L"STATIC", Utf8ToWide(schema.help).c_str(), 0);
+                    const auto setting = std::find_if(settings.begin(), settings.end(), [&](const auto &value) { return value.key == schema.key; });
+                    SetFieldValue(field, setting == settings.end() ? schema.default_value : setting->value);
+                    fields_.push_back(std::move(field));
+                }
+                creating_fields_ = false;
+                UpdateContext();
+                Layout(Scale(800), Scale(760), true);
+            }
+
+            void SetFieldValue(const FieldControl &field, const std::optional<launcher::PluginSettingValue> &value)
+            {
+                if (!value) return;
+                const auto type = field.schema->type;
+                if (type == launcher::PluginSettingType::Bool) SendMessageW(field.input, BM_SETCHECK, std::get<bool>(*value) ? BST_CHECKED : BST_UNCHECKED, 0);
+                else if (type == launcher::PluginSettingType::Integer) SetText(field.input, std::to_wstring(std::get<std::int64_t>(*value)));
+                else if (type == launcher::PluginSettingType::Date) {
+                    const auto raw = std::get<std::int64_t>(*value);
+                    if (raw >= (std::numeric_limits<int>::min)() && raw <= (std::numeric_limits<int>::max)()) {
+                        if (const auto date = launcher::DecodeClausewitzDate(static_cast<int>(raw))) {
+                            SetText(field.input, Utf8ToWide(launcher::FormatClausewitzDate(*date)));
+                            return;
+                        }
+                    }
+                    SetText(field.input, L"raw: " + std::to_wstring(raw));
+                }
+                else if (type == launcher::PluginSettingType::Number) SetText(field.input, FormatDouble(std::get<double>(*value)));
+                else if (type == launcher::PluginSettingType::String || type == launcher::PluginSettingType::File || type == launcher::PluginSettingType::Directory) {
+                    SetText(field.input, type == launcher::PluginSettingType::String ? Utf8ToWide(std::get<std::string>(*value)) : std::get<fs::path>(*value).wstring());
+                } else if (type == launcher::PluginSettingType::Enum) {
+                    const auto text = Utf8ToWide(std::get<std::string>(*value));
+                    SendMessageW(field.input, CB_SELECTSTRING, -1, reinterpret_cast<LPARAM>(text.c_str()));
+                } else if (type == launcher::PluginSettingType::MultiEnum) {
+                    for (const auto &choice : std::get<std::vector<std::string>>(*value)) {
+                        const auto text = Utf8ToWide(choice);
+                        int index = FindCheckListItem(field.input, text);
+                        if (index < 0) index = AddCheckListItem(field.input, text, false);
+                        ListView_SetCheckState(field.input, index, TRUE);
+                    }
+                } else if (type == launcher::PluginSettingType::FileList) {
+                    const auto selected = std::get<std::vector<fs::path>>(*value);
+                    std::vector<fs::path> available;
+                    if (field.schema->discovery_root) available = launcher::DiscoverFiles(owner_->BuildProfile().game_dir, *field.schema->discovery_root, field.schema->extensions).files;
+                    for (const auto &path : selected) if (std::find(available.begin(), available.end(), path) == available.end()) {
+                        const auto label = L"Unavailable selected: " + path.wstring();
+                        AddCheckListItem(field.input, label, true);
+                    }
+                    for (const auto &path : available) AddCheckListItem(field.input, path.wstring(), false);
+                    const auto count = ListView_GetItemCount(field.input);
+                    for (int row = 0; row < count; ++row) {
+                        const auto text = CheckListText(field.input, row);
+                        const auto path = text.rfind(L"Unavailable selected: ", 0) == 0 ? fs::path(text.substr(22)) : fs::path(text);
+                        if (std::find(selected.begin(), selected.end(), path) != selected.end()) ListView_SetCheckState(field.input, row, TRUE);
+                    }
+                } else if (type == launcher::PluginSettingType::ObjectList) {
+                    for (const auto &rule : std::get<std::vector<launcher::TelemetryCaptureRule>>(*value)) {
+                        std::wstring text = Utf8ToWide(rule.family + " | " + rule.cadence + " | fields=" + (rule.fields.empty() ? "all" : rule.fields.front()));
+                        for (size_t index = 1; index < rule.fields.size(); ++index) text += L"," + Utf8ToWide(rule.fields[index]);
+                        text += L" | countries=" + (rule.country_tags.empty() ? L"all" : Utf8ToWide(rule.country_tags.front()));
+                        for (size_t index = 1; index < rule.country_tags.size(); ++index) text += L"," + Utf8ToWide(rule.country_tags[index]);
+                        text += L" | provinces=" + (rule.province_ids.empty() ? L"all" : std::to_wstring(rule.province_ids.front()));
+                        for (size_t index = 1; index < rule.province_ids.size(); ++index) text += L"," + std::to_wstring(rule.province_ids[index]);
+                        const auto format_date = [](const std::optional<int> &raw) {
+                            if (!raw) return std::wstring(L"any");
+                            const auto date = launcher::DecodeClausewitzDate(*raw);
+                            return date ? Utf8ToWide(launcher::FormatClausewitzDate(*date)) : L"raw: " + std::to_wstring(*raw);
+                        };
+                        text += L" | dates=" + format_date(rule.start_date_raw) + L".." + format_date(rule.end_date_raw);
+                        SendMessageW(field.input, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
+                    }
+                }
+            }
+
+            std::optional<launcher::PluginSettingValue> ReadValue(const FieldControl &field) const
+            {
+                const auto type = field.schema->type;
+                if (type == launcher::PluginSettingType::Bool) return SendMessageW(field.input, BM_GETCHECK, 0, 0) == BST_CHECKED;
+                if (type == launcher::PluginSettingType::MultiEnum) return SelectedStrings(field.input);
+                if (type == launcher::PluginSettingType::FileList) return SelectedPaths(field.input);
+                if (type == launcher::PluginSettingType::ObjectList && field.schema->item_schema == "telemetry_capture_v1") return owner_->draft_profile_.telemetry_captures;
+                if (type == launcher::PluginSettingType::Enum) {
+                    const auto index = SendMessageW(field.input, CB_GETCURSEL, 0, 0);
+                    if (index == CB_ERR) return std::nullopt;
+                    return WideToUtf8(ComboText(field.input, static_cast<int>(index), true));
+                }
+                const auto text = GetText(field.input);
+                if (text.empty()) return std::nullopt;
+                try {
+                    if (type == launcher::PluginSettingType::Integer) {
+                        size_t used = 0;
+                        const auto value = std::stoll(text, &used);
+                        if (used != text.size()) return std::nullopt;
+                        return static_cast<std::int64_t>(value);
+                    }
+                    if (type == launcher::PluginSettingType::Date) {
+                        if (text.rfind(L"raw: ", 0) == 0) {
+                            size_t used = 0;
+                            const auto raw = std::stoll(text.substr(5), &used);
+                            if (used != text.size() - 5 || raw < (std::numeric_limits<int>::min)()
+                                || raw > (std::numeric_limits<int>::max)()) return std::nullopt;
+                            return static_cast<std::int64_t>(raw);
+                        }
+                        const auto date = launcher::ParseClausewitzDate(WideToUtf8(text));
+                        if (!date) return std::nullopt;
+                        const auto encoded = launcher::EncodeClausewitzDate(*date);
+                        return encoded ? std::optional<launcher::PluginSettingValue>(static_cast<std::int64_t>(*encoded)) : std::nullopt;
+                    }
+                    if (type == launcher::PluginSettingType::Number) {
+                        size_t used = 0;
+                        const auto value = std::stod(text, &used);
+                        if (used != text.size()) return std::nullopt;
+                        return value;
+                    }
+                } catch (const std::exception &) { return std::nullopt; }
+                if (type == launcher::PluginSettingType::File || type == launcher::PluginSettingType::Directory) return fs::path(text);
+                return WideToUtf8(text);
+            }
+
+            bool ConditionMatches(const launcher::PluginSettingCondition &condition) const
+            {
+                const auto found = std::find_if(fields_.begin(), fields_.end(), [&](const auto &field) { return field.schema->key == condition.key; });
+                if (found == fields_.end()) return false;
+                const auto value = ReadValue(*found);
+                if (condition.kind == launcher::PluginSettingConditionKind::Equals) return value && condition.value && *value == *condition.value;
+                return launcher::IsPluginSettingValuePresent(value);
+            }
+
+            bool ApplyPage()
+            {
+                if (!current_ || fields_.empty()) return true;
+                if (!launcher::SupportsPluginSettings(*current_) || !owner_->IsPluginSelected(*current_)
+                    || !owner_->BuildProfile().inject) {
+                    owner_->settings_diagnostics_.clear();
+                    return true;
+                }
+                launcher::PluginSettings settings;
+                for (const auto &field : fields_) {
+                    const auto value = ReadValue(field);
+                    const auto type = field.schema->type;
+                    if (!value && !GetText(field.input).empty()
+                        && (type == launcher::PluginSettingType::Integer || type == launcher::PluginSettingType::Number
+                            || type == launcher::PluginSettingType::Date)) {
+                        owner_->settings_diagnostics_ = {{launcher::Severity::Error, "settings.invalid_value",
+                                                          field.schema->label + " has an invalid value", {}}};
+                        owner_->RefreshPlan();
+                        EnsureVisible(field.input);
+                        SetFocus(field.input);
+                        return false;
+                    }
+                    settings.push_back({field.schema->key, value});
+                }
+                std::vector<launcher::Diagnostic> diagnostics;
+                if (!launcher::ApplyPluginSettings(*current_, settings, &owner_->draft_profile_, &diagnostics)) {
+                    owner_->settings_diagnostics_ = std::move(diagnostics);
+                    owner_->RefreshPlan();
+                    return false;
+                } else {
+                    owner_->settings_diagnostics_.clear();
+                    const auto enabled = std::find_if(settings.begin(), settings.end(), [](const auto &setting) {
+                        return setting.key == "enabled" && setting.value && std::holds_alternative<bool>(*setting.value)
+                            && std::get<bool>(*setting.value);
+                    });
+                    if (enabled != settings.end()) owner_->SelectPlugin(Utf8ToWide(current_->id).c_str());
+                }
+                return true;
+            }
+
+            LRESULT OnCommand(int id, int notification, HWND control)
+            {
+                if (creating_fields_) return 0;
+                if (id == options_close_button && notification == BN_CLICKED) {
+                    SendMessageW(window_, WM_CLOSE, 0, 0);
+                    return 0;
+                }
+                if (id == options_page_list && notification == LBN_SELCHANGE) {
+                    const int current_index = current_ ? static_cast<int>(current_ - owner_->discovered_plugins_.data()) : LB_ERR;
+                    SelectPage(static_cast<int>(SendMessageW(pages_, LB_GETCURSEL, 0, 0)));
+                    if (current_ && current_index == static_cast<int>(current_ - owner_->discovered_plugins_.data())) {
+                        SendMessageW(pages_, LB_SETCURSEL, current_index, 0);
+                    }
+                    return 0;
+                }
+                if (id == options_show_advanced_check && notification == BN_CLICKED) {
+                    UpdateContext();
+                    Layout(0, 0, true);
+                    return 0;
+                }
+                for (auto &field : fields_) {
+                    if ((id == field.id + 1 || id == field.id + 2 || id == field.id + 3) && notification == BN_CLICKED) {
+                        if (!ApplyPage()) return 0;
+                        if (id == field.id + 1) Browse(field);
+                        else if (id == field.id + 2) EditObject(field);
+                        else RemoveFile(field);
+                        UpdateContext();
+                        Layout(0, 0);
+                        owner_->RefreshPlan();
+                        return 0;
+                    }
+                }
+                ApplyPage();
+                const bool visibility_changed = UpdateContext();
+                Layout(0, 0, visibility_changed);
+                if (notification == BN_SETFOCUS || notification == CBN_SETFOCUS || notification == EN_SETFOCUS || notification == LBN_SETFOCUS) {
+                    EnsureVisible(control);
+                }
+                owner_->RefreshPlan();
+                return 0;
+            }
+
+            LRESULT OnNotify(const NMHDR *notification)
+            {
+                if (!notification || creating_fields_) return 0;
+                if (notification->code == NM_SETFOCUS) EnsureVisible(notification->hwndFrom);
+                const auto field = std::find_if(fields_.begin(), fields_.end(), [&](const auto &candidate) {
+                    return candidate.input == notification->hwndFrom;
+                });
+                if (field == fields_.end() || notification->code != LVN_ITEMCHANGED) return 0;
+                const auto *change = reinterpret_cast<const NMLISTVIEW *>(notification);
+                if (!(change->uChanged & LVIF_STATE)
+                    || !((change->uOldState ^ change->uNewState) & LVIS_STATEIMAGEMASK)) return 0;
+                ApplyPage();
+                const bool visibility_changed = UpdateContext();
+                Layout(0, 0, visibility_changed);
+                owner_->RefreshPlan();
+                return 0;
+            }
+
+            void Browse(const FieldControl &field)
+            {
+                if (field.schema->type == launcher::PluginSettingType::ObjectList && field.schema->item_schema == "telemetry_capture_v1") {
+                    CaptureEditorWindow::Show(window_, std::nullopt, capture_generation_);
+                    return;
+                }
+                std::wstring path = field.schema->type == launcher::PluginSettingType::FileList ? L"" : GetText(field.input);
+                const bool directory = field.schema->type == launcher::PluginSettingType::Directory;
+                if (!(directory ? BrowseForFolder(window_, &path) : BrowseForFile(window_, L"Select file", L"All files\0*.*\0", &path, false))) return;
+                if (field.schema->type == launcher::PluginSettingType::FileList) {
+                    const auto row = AddCheckListItem(field.input, path, false);
+                    ListView_SetCheckState(field.input, row, TRUE);
+                }
+                else SetText(field.input, path);
+            }
+
+            void EditObject(const FieldControl &field)
+            {
+                if (field.schema->item_schema != "telemetry_capture_v1") return;
+                const auto row = SendMessageW(field.input, LB_GETCURSEL, 0, 0);
+                if (row == LB_ERR || static_cast<size_t>(row) >= owner_->draft_profile_.telemetry_captures.size()) return;
+                CaptureEditorWindow::Show(window_, static_cast<size_t>(row), capture_generation_,
+                                          owner_->draft_profile_.telemetry_captures[static_cast<size_t>(row)]);
+            }
+
+            void RemoveFile(const FieldControl &field)
+            {
+                const auto selected = field.schema->type == launcher::PluginSettingType::FileList
+                    ? ListView_GetNextItem(field.input, -1, LVNI_SELECTED) : SendMessageW(field.input, LB_GETCURSEL, 0, 0);
+                if (selected == LB_ERR) return;
+                if (field.schema->type == launcher::PluginSettingType::ObjectList && field.schema->item_schema == "telemetry_capture_v1") {
+                    if (selected < 0 || static_cast<size_t>(selected) >= owner_->draft_profile_.telemetry_captures.size()) return;
+                    owner_->draft_profile_.telemetry_captures.erase(owner_->draft_profile_.telemetry_captures.begin() + selected);
+                    ++capture_generation_;
+                    RefreshObjectLists();
+                } else if (field.schema->type == launcher::PluginSettingType::FileList) ListView_DeleteItem(field.input, selected);
+                else SendMessageW(field.input, LB_DELETESTRING, selected, 0);
+            }
+
+            void CommitCaptureEdit(const CaptureEditResult &result)
+            {
+                auto &captures = owner_->draft_profile_.telemetry_captures;
+                if (!result.index) {
+                    if (result.generation == capture_generation_) {
+                        captures.push_back(result.replacement);
+                        ++capture_generation_;
+                    }
+                    return;
+                }
+                if (result.generation != capture_generation_ || !result.original
+                    || *result.index >= captures.size() || !(captures[*result.index] == *result.original)) return;
+                captures[*result.index] = result.replacement;
+                ++capture_generation_;
+            }
+
+            std::vector<std::string> SelectedStrings(HWND control) const
+            {
+                std::vector<std::string> values;
+                for (int row = 0; row < ListView_GetItemCount(control); ++row) if (ListView_GetCheckState(control, row)) values.push_back(WideToUtf8(CheckListText(control, row)));
+                return values;
+            }
+
+            std::vector<fs::path> SelectedPaths(HWND control) const
+            {
+                std::vector<fs::path> paths;
+                for (int row = 0; row < ListView_GetItemCount(control); ++row) if (ListView_GetCheckState(control, row)) {
+                    const auto text = CheckListText(control, row); paths.emplace_back(text.rfind(L"Unavailable selected: ", 0) == 0 ? text.substr(22) : text);
+                }
+                return paths;
+            }
+
+            static int AddCheckListItem(HWND control, const std::wstring &text, bool checked)
+            {
+                LVITEMW item{}; item.mask = LVIF_TEXT; item.iItem = ListView_GetItemCount(control); item.pszText = const_cast<wchar_t *>(text.c_str());
+                const int row = ListView_InsertItem(control, &item); ListView_SetCheckState(control, row, checked ? TRUE : FALSE); return row;
+            }
+
+            static std::wstring CheckListText(HWND control, int row)
+            {
+                std::vector<wchar_t> buffer(32768, L'\0');
+                LVITEMW item{}; item.iSubItem = 0; item.pszText = buffer.data(); item.cchTextMax = static_cast<int>(buffer.size());
+                SendMessageW(control, LVM_GETITEMTEXTW, row, reinterpret_cast<LPARAM>(&item));
+                return buffer.data();
+            }
+
+            static int FindCheckListItem(HWND control, const std::wstring &text)
+            {
+                for (int row = 0; row < ListView_GetItemCount(control); ++row) if (CheckListText(control, row) == text) return row;
+                return -1;
+            }
+
+            void RefreshObjectLists()
+            {
+                for (const auto &field : fields_) if (field.schema->type == launcher::PluginSettingType::ObjectList) {
+                    SendMessageW(field.input, LB_RESETCONTENT, 0, 0);
+                    SetFieldValue(field, launcher::PluginSettingValue(owner_->draft_profile_.telemetry_captures));
+                }
+            }
+
+            std::wstring ComboText(HWND control, int index, bool combo = false) const
+            {
+                const auto length = SendMessageW(control, combo ? CB_GETLBTEXTLEN : LB_GETTEXTLEN, index, 0);
+                std::wstring value(static_cast<size_t>(length) + 1, L'\0');
+                SendMessageW(control, combo ? CB_GETLBTEXT : LB_GETTEXT, index, reinterpret_cast<LPARAM>(value.data()));
+                value.resize(static_cast<size_t>(length));
+                return value;
+            }
+
+            bool ShowAdvanced() const { return SendMessageW(advanced_, BM_GETCHECK, 0, 0) == BST_CHECKED; }
+            void Show(HWND control, bool show) const { if (control) ShowWindow(control, show ? SW_SHOW : SW_HIDE); }
+            int Scale(int value) const { return owner_->Scale(value); }
+
+            std::wstring ObjectListNotice() const
+            {
+                if (!std::any_of(current_->settings.notices.begin(), current_->settings.notices.end(), [](const auto &notice) { return notice.capability == "object_list"; })) return {};
+                std::wstring text = L"Loaded capture rules: " + std::to_wstring(owner_->draft_profile_.telemetry_captures.size()) + L". Editing is not yet available. ";
+                for (const auto &rule : owner_->draft_profile_.telemetry_captures) {
+                    text += Utf8ToWide(rule.family + " / " + rule.cadence + " / fields=" + (rule.fields.empty() ? "all" : rule.fields.front()));
+                    for (size_t index = 1; index < rule.fields.size(); ++index) text += L"," + Utf8ToWide(rule.fields[index]);
+                    text += L" / countries=" + (rule.country_tags.empty() ? L"all" : Utf8ToWide(rule.country_tags.front()));
+                    for (size_t index = 1; index < rule.country_tags.size(); ++index) text += L"," + Utf8ToWide(rule.country_tags[index]);
+                    text += L" / provinces=" + (rule.province_ids.empty() ? L"all" : std::to_wstring(rule.province_ids.front()));
+                    for (size_t index = 1; index < rule.province_ids.size(); ++index) text += L"," + std::to_wstring(rule.province_ids[index]);
+                    text += L" / dates=" + (rule.start_date_raw ? std::to_wstring(*rule.start_date_raw) : L"any") + L".." + (rule.end_date_raw ? std::to_wstring(*rule.end_date_raw) : L"any") + L"; ";
+                }
+                return text;
+            }
+
+            void UpdateScrollBar(int height, bool reset)
+            {
+                const int maximum = std::max(0, content_height_ - height);
+                scroll_y_ = reset ? 0 : std::clamp(scroll_y_, 0, maximum);
+                SCROLLINFO info{};
+                info.cbSize = sizeof(info);
+                info.fMask = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
+                info.nMin = 0;
+                info.nMax = std::max(0, content_height_ - 1);
+                info.nPage = static_cast<UINT>(std::max(1, height));
+                info.nPos = scroll_y_;
+                SetScrollInfo(window_, SB_VERT, &info, TRUE);
+            }
+
+            void ScrollTo(int position)
+            {
+                RECT rect{};
+                GetClientRect(window_, &rect);
+                const int maximum = std::max(0, content_height_ - static_cast<int>(rect.bottom));
+                position = std::clamp(position, 0, maximum);
+                if (position == scroll_y_) return;
+                scroll_y_ = position;
+                Layout(0, 0);
+            }
+
+            void ScrollVertically(int command)
+            {
+                RECT rect{};
+                GetClientRect(window_, &rect);
+                const int line = Scale(24);
+                int position = scroll_y_;
+                if (command == SB_TOP) position = 0;
+                else if (command == SB_BOTTOM) position = content_height_;
+                else if (command == SB_LINEUP) position -= line;
+                else if (command == SB_LINEDOWN) position += line;
+                else if (command == SB_PAGEUP) position -= rect.bottom;
+                else if (command == SB_PAGEDOWN) position += rect.bottom;
+                else if (command == SB_THUMBPOSITION || command == SB_THUMBTRACK) {
+                    SCROLLINFO info{};
+                    info.cbSize = sizeof(info);
+                    info.fMask = SIF_TRACKPOS;
+                    GetScrollInfo(window_, SB_VERT, &info);
+                    position = info.nTrackPos;
+                } else return;
+                ScrollTo(position);
+            }
+
+            void ScrollWheel(short delta)
+            {
+                wheel_delta_ += delta;
+                const int steps = wheel_delta_ / WHEEL_DELTA;
+                wheel_delta_ -= steps * WHEEL_DELTA;
+                if (steps == 0) return;
+                UINT lines = 3;
+                SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &lines, 0);
+                RECT rect{};
+                GetClientRect(window_, &rect);
+                const int distance = lines == WHEEL_PAGESCROLL ? rect.bottom : static_cast<int>(lines) * Scale(24);
+                ScrollTo(scroll_y_ - steps * distance);
+            }
+
+            void EnsureVisible(HWND control)
+            {
+                if (!control || !IsWindowVisible(control)) return;
+                RECT bounds{};
+                GetWindowRect(control, &bounds);
+                MapWindowPoints(HWND_DESKTOP, window_, reinterpret_cast<POINT *>(&bounds), 2);
+                RECT client{};
+                GetClientRect(window_, &client);
+                if (bounds.top < 0) ScrollTo(scroll_y_ + bounds.top);
+                else if (bounds.bottom > client.bottom) ScrollTo(scroll_y_ + bounds.bottom - client.bottom);
+            }
+
+            void Layout(int width, int height, bool reset_scroll = false)
+            {
+                if (!width || !height) { RECT rect{}; GetClientRect(window_, &rect); width = rect.right; height = rect.bottom; }
+                const int margin = Scale(12), left = Scale(165), right = width - margin;
+                MoveWindow(pages_, margin, margin, left - margin * 2, std::max(Scale(80), height - margin * 2), TRUE);
+
+                int y = margin;
+                const auto content_y = [&]() { return y - scroll_y_; };
+                MoveWindow(title_, left, content_y(), right - left, Scale(22), TRUE);
+                y += Scale(26);
+                MoveWindow(state_, left, content_y(), right - left, Scale(34), TRUE);
+                y += Scale(38);
+                MoveWindow(notice_, left, content_y(), right - left, Scale(58), TRUE);
+                y += Scale(62);
+                MoveWindow(empty_, left, content_y(), right - left, Scale(34), TRUE);
+                y += Scale(38);
+
+                const auto place_fields = [&](bool advanced) {
+                    for (const auto &field : fields_) {
+                        if (field.schema->advanced != advanced || !IsWindowVisible(field.input)) continue;
+                        MoveWindow(field.label, left, content_y(), right - left, Scale(18), TRUE);
+                        if (field.schema->type == launcher::PluginSettingType::Bool) {
+                            MoveWindow(field.input, left, content_y() + Scale(18), right - left, Scale(22), TRUE);
+                        } else if (field.schema->type == launcher::PluginSettingType::MultiEnum || field.schema->type == launcher::PluginSettingType::FileList
+                                   || field.schema->type == launcher::PluginSettingType::ObjectList) {
+                            int button_x = right;
+                            const auto place_button = [&](HWND button) {
+                                if (!button) return;
+                                button_x -= Scale(70);
+                                MoveWindow(button, button_x, content_y() + Scale(18), Scale(70), Scale(22), TRUE);
+                                button_x -= Scale(6);
+                            };
+                            place_button(field.remove);
+                            place_button(field.edit);
+                            place_button(field.action);
+                            MoveWindow(field.input, left, content_y() + Scale(18), button_x - left + Scale(6), Scale(54), TRUE);
+                        } else {
+                            MoveWindow(field.input, left, content_y() + Scale(18), right - left - (field.action ? Scale(76) : 0), Scale(22), TRUE);
+                            if (field.action) MoveWindow(field.action, right - Scale(70), content_y() + Scale(18), Scale(70), Scale(22), TRUE);
+                        }
+                        const int help_offset = field.schema->type == launcher::PluginSettingType::MultiEnum
+                            || field.schema->type == launcher::PluginSettingType::FileList
+                            || field.schema->type == launcher::PluginSettingType::ObjectList ? 74 : 42;
+                        MoveWindow(field.help, left, content_y() + Scale(help_offset), right - left, Scale(28), TRUE);
+                        y += Scale(help_offset + 32);
+                    }
+                };
+                place_fields(false);
+                if (IsWindowVisible(advanced_)) {
+                    MoveWindow(advanced_, left, content_y(), Scale(180), Scale(22), TRUE);
+                    y += Scale(26);
+                }
+                place_fields(true);
+                MoveWindow(close_, right - Scale(80), content_y(), Scale(80), Scale(28), TRUE);
+                content_height_ = y + Scale(40);
+                const int previous_scroll_y = scroll_y_;
+                UpdateScrollBar(height, reset_scroll);
+                if (scroll_y_ != previous_scroll_y) Layout(width, height);
+            }
+
+            LauncherWindow *owner_;
+            HWND window_ = nullptr, pages_ = nullptr, title_ = nullptr, state_ = nullptr, advanced_ = nullptr, notice_ = nullptr, empty_ = nullptr, close_ = nullptr;
+            const launcher::PluginManifest *current_ = nullptr;
+            std::vector<FieldControl> fields_;
+            size_t capture_generation_ = 0;
+            int content_height_ = 0;
+            int scroll_y_ = 0;
+            int wheel_delta_ = 0;
+            bool creating_fields_ = false;
+        };
+
+        bool ApplyPendingOptions()
+        {
+            if (!options_ || applying_options_) return true;
+            applying_options_ = true;
+            const bool applied = options_->ApplyPendingPage();
+            applying_options_ = false;
+            if (!applied) SetForegroundWindow(options_window_);
+            return applied;
+        }
+
         void Layout(int width, int height)
         {
             if (!profile_path_) return;
+            LayoutLaunchControls(width, height);
+        }
+
+        void LayoutLaunchControls(int width, int height)
+        {
             const int margin = Scale(12);
             const int label_width = Scale(122);
             const int row = Scale(26);
@@ -643,140 +1592,161 @@ namespace
             const int small_button_width = Scale(76);
             const int right = std::max(width - margin, margin + Scale(500));
             int y = margin;
-
             PlaceLabel(profile_label_, y, label_width, row, margin);
             MoveWindow(profile_path_, margin + label_width, y, right - margin - label_width - button_width * 2 - Scale(8), Scale(22), TRUE);
             MoveWindow(GetDlgItem(window_, load_profile_button), right - button_width * 2 - Scale(4), y, button_width, Scale(22), TRUE);
             MoveWindow(GetDlgItem(window_, save_profile_button), right - button_width, y, button_width, Scale(22), TRUE);
             y += row;
-            PlaceLabel(telemetry_country_tags_label_, y, label_width, row, margin);
-            MoveWindow(telemetry_country_tags_, margin + label_width, y, Scale(150), Scale(22), TRUE);
-            PlaceLabel(telemetry_start_date_label_, y, Scale(100), row, margin + label_width + Scale(165));
-            MoveWindow(telemetry_start_date_, margin + label_width + Scale(265), y, Scale(85), Scale(22), TRUE);
-            PlaceLabel(telemetry_end_date_label_, y, Scale(90), row, margin + label_width + Scale(360));
-            MoveWindow(telemetry_end_date_, margin + label_width + Scale(450), y, Scale(85), Scale(22), TRUE);
-            y += row;
-
             PlaceLabel(name_label_, y, label_width, row, margin);
             MoveWindow(profile_name_, margin + label_width, y, right - margin - label_width, Scale(22), TRUE);
             y += row;
-
             PlaceLabel(game_label_, y, label_width, row, margin);
             MoveWindow(game_dir_, margin + label_width, y, right - margin - label_width - button_width - small_button_width - Scale(8), Scale(22), TRUE);
             MoveWindow(GetDlgItem(window_, browse_game_button), right - button_width - small_button_width - Scale(4), y, button_width, Scale(22), TRUE);
             MoveWindow(GetDlgItem(window_, refresh_button), right - small_button_width, y, small_button_width, Scale(22), TRUE);
             y += row;
-
             PlaceLabel(mod_label_, y, label_width, row, margin);
-            MoveWindow(mods_, margin + label_width, y, right - margin - label_width, Scale(300), TRUE);
+            MoveWindow(mod_move_up_, right - Scale(178), y, Scale(84), Scale(22), TRUE);
+            MoveWindow(mod_move_down_, right - Scale(88), y, Scale(88), Scale(22), TRUE);
             y += row;
-
+            const int mod_height = Scale(108);
+            MoveWindow(mods_, margin, y, right - margin, mod_height, TRUE);
+            ListView_SetColumnWidth(mods_, 0, Scale(220));
+            ListView_SetColumnWidth(mods_, 1, std::max(Scale(100), right - margin - Scale(220)));
+            y += mod_height + Scale(4);
             PlaceLabel(plugin_label_, y, label_width, row, margin);
             y += row;
-            const int bottom_fixed = Scale(26 * 12 + 30 + 130 + 44);
-            const int plugin_height = std::max(Scale(100), height - y - bottom_fixed);
+            const int fixed_height = Scale(26 + 30 + 26 + 70 + 34);
+            const int plugin_height = std::max(Scale(100), height - y - fixed_height - margin);
             MoveWindow(plugins_, margin, y, right - margin, plugin_height, TRUE);
             y += plugin_height + Scale(4);
-
-            MoveWindow(safe_mode_, margin, y, right - margin, Scale(22), TRUE);
+            MoveWindow(safe_mode_, margin, y, right - margin - Scale(100), Scale(22), TRUE);
+            MoveWindow(GetDlgItem(window_, options_button), right - Scale(92), y, Scale(92), Scale(22), TRUE);
             y += row;
-
-            MoveWindow(telemetry_enabled_, margin, y, right - margin, Scale(22), TRUE);
-            y += row;
-            MoveWindow(telemetry_overwrite_, margin, y, right - margin, Scale(22), TRUE);
-            y += row;
-            PlaceLabel(telemetry_output_label_, y, label_width, row, margin);
-            MoveWindow(telemetry_output_, margin + label_width, y, right - margin - label_width - button_width - Scale(4), Scale(22), TRUE);
-            MoveWindow(GetDlgItem(window_, browse_telemetry_button), right - button_width, y, button_width, Scale(22), TRUE);
-            y += row;
-            PlaceLabel(telemetry_categories_label_, y, label_width, row, margin);
-            MoveWindow(telemetry_categories_, margin + label_width, y, Scale(180), Scale(200), TRUE);
-            PlaceLabel(telemetry_sample_days_label_, y, Scale(90), row, margin + label_width + Scale(195));
-            MoveWindow(telemetry_sample_days_, margin + label_width + Scale(285), y, Scale(70), Scale(22), TRUE);
-            PlaceLabel(telemetry_queue_capacity_label_, y, Scale(100), row, margin + label_width + Scale(370));
-            MoveWindow(telemetry_queue_capacity_, margin + label_width + Scale(470), y, Scale(80), Scale(22), TRUE);
-            y += row;
-
-            PlaceLabel(save_label_, y, label_width, row, margin);
-            MoveWindow(save_path_, margin + label_width, y, right - margin - label_width - button_width - Scale(4), Scale(22), TRUE);
-            MoveWindow(GetDlgItem(window_, browse_save_button), right - button_width, y, button_width, Scale(22), TRUE);
-            y += row;
-
-            MoveWindow(observer_, margin, y, Scale(140), Scale(22), TRUE);
-            PlaceLabel(view_tag_label_, y, Scale(80), row, margin + Scale(150));
-            MoveWindow(view_tag_, margin + Scale(225), y, Scale(86), Scale(22), TRUE);
-            y += row;
-            PlaceLabel(speed_label_, y, Scale(60), row, margin);
-            MoveWindow(speed_, margin + Scale(62), y, Scale(70), Scale(300), TRUE);
-            MoveWindow(start_paused_, margin + Scale(145), y, Scale(150), Scale(22), TRUE);
-            y += row;
-            PlaceLabel(run_days_label_, y, Scale(60), row, margin);
-            MoveWindow(run_days_, margin + Scale(62), y, Scale(70), Scale(22), TRUE);
-            PlaceLabel(run_until_date_label_, y, Scale(92), row, margin + Scale(145));
-            MoveWindow(run_until_date_, margin + Scale(240), y, Scale(90), Scale(22), TRUE);
-            PlaceLabel(run_timeout_label_, y, Scale(62), row, margin + Scale(345));
-            MoveWindow(run_timeout_, margin + Scale(407), y, Scale(75), Scale(22), TRUE);
-            y += row;
-            MoveWindow(quit_after_run_, margin, y, right - margin, Scale(22), TRUE);
-            y += row;
-
             PlaceLabel(diagnostics_label_, y, label_width, row, margin);
             y += row;
-            const int button_height = Scale(28);
-            const int diagnostic_height = std::max(Scale(80), height - y - button_height - margin * 2);
-            MoveWindow(diagnostics_, margin, y, right - margin, diagnostic_height, TRUE);
-            y += diagnostic_height + Scale(5);
+            MoveWindow(diagnostics_, margin, y, right - margin, Scale(64), TRUE);
+            y += Scale(70);
             MoveWindow(status_, margin, y + Scale(5), right - margin - Scale(270), Scale(20), TRUE);
-            MoveWindow(GetDlgItem(window_, recent_runs_button), right - Scale(260), y, Scale(94), button_height, TRUE);
-            MoveWindow(launch_, right - Scale(160), y, Scale(160), button_height, TRUE);
+            MoveWindow(GetDlgItem(window_, recent_runs_button), right - Scale(260), y, Scale(94), Scale(28), TRUE);
+            MoveWindow(launch_, right - Scale(160), y, Scale(160), Scale(28), TRUE);
             ListView_SetColumnWidth(plugins_, 0, Scale(230));
             ListView_SetColumnWidth(plugins_, 1, Scale(85));
             ListView_SetColumnWidth(plugins_, 2, std::max(Scale(100), right - margin - Scale(315)));
+        }
+
+        bool HasSelectedPlugin(const wchar_t *id) const
+        {
+            for (size_t index = 0; index < discovered_plugins_.size(); ++index) {
+                if (Utf8ToWide(discovered_plugins_[index].id) == id && ListView_GetCheckState(plugins_, static_cast<int>(index))) return true;
+            }
+            return false;
+        }
+
+        void SelectPlugin(const wchar_t *id)
+        {
+            for (size_t index = 0; index < discovered_plugins_.size(); ++index) {
+                if (Utf8ToWide(discovered_plugins_[index].id) == id) {
+                    suppress_notifications_ = true;
+                    ListView_SetCheckState(plugins_, static_cast<int>(index), TRUE);
+                    suppress_notifications_ = false;
+                    return;
+                }
+            }
+        }
+
+        bool IsPluginSelected(const launcher::PluginManifest &plugin) const
+        {
+            return HasSelectedPlugin(Utf8ToWide(plugin.id).c_str());
+        }
+
+        void AddModItem(const std::wstring &name, const std::wstring &descriptor, const fs::path &path, bool checked)
+        {
+            LVITEMW item{};
+            item.mask = LVIF_TEXT;
+            item.iItem = ListView_GetItemCount(mods_);
+            item.pszText = const_cast<wchar_t *>(name.c_str());
+            ListView_InsertItem(mods_, &item);
+            ListView_SetItemText(mods_, item.iItem, 1, const_cast<wchar_t *>(descriptor.c_str()));
+            ListView_SetCheckState(mods_, item.iItem, checked ? TRUE : FALSE);
+            mod_paths_.push_back(path);
+        }
+
+        std::optional<int> SelectedModIndex() const
+        {
+            const int index = ListView_GetNextItem(mods_, -1, LVNI_SELECTED);
+            if (index < 0 || static_cast<size_t>(index) >= mod_paths_.size()) return std::nullopt;
+            return index;
+        }
+
+        void UpdateModOrderButtons()
+        {
+            const auto selected = SelectedModIndex();
+            const bool movable = selected && ListView_GetCheckState(mods_, *selected);
+            EnableWindow(mod_move_up_, movable && *selected > 0);
+            EnableWindow(mod_move_down_, movable && static_cast<size_t>(*selected + 1) < mod_paths_.size());
+        }
+
+        void MoveSelectedMod(int direction)
+        {
+            const auto selected = SelectedModIndex();
+            if (!selected || !ListView_GetCheckState(mods_, *selected)) return;
+            const int destination = *selected + direction;
+            if (destination < 0 || static_cast<size_t>(destination) >= mod_paths_.size()) return;
+
+            auto item_text = [&](int item, int subitem) {
+                std::vector<wchar_t> text(32768, L'\0');
+                ListView_GetItemText(mods_, item, subitem, text.data(), static_cast<int>(text.size()));
+                return std::wstring(text.data());
+            };
+            const bool selected_checked = ListView_GetCheckState(mods_, *selected);
+            const bool destination_checked = ListView_GetCheckState(mods_, destination);
+            suppress_notifications_ = true;
+            for (int subitem = 0; subitem < mod_column_count_; ++subitem) {
+                const auto selected_text = item_text(*selected, subitem);
+                const auto destination_text = item_text(destination, subitem);
+                ListView_SetItemText(mods_, *selected, subitem, const_cast<wchar_t *>(destination_text.c_str()));
+                ListView_SetItemText(mods_, destination, subitem, const_cast<wchar_t *>(selected_text.c_str()));
+            }
+            ListView_SetCheckState(mods_, *selected, destination_checked ? TRUE : FALSE);
+            ListView_SetCheckState(mods_, destination, selected_checked ? TRUE : FALSE);
+            std::swap(mod_paths_[*selected], mod_paths_[destination]);
+            ListView_SetItemState(mods_, *selected, 0, LVIS_SELECTED | LVIS_FOCUSED);
+            ListView_SetItemState(mods_, destination, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+            suppress_notifications_ = false;
+            UpdateModOrderButtons();
+            RefreshPlan();
         }
 
         void OnCommand(int id, int notification)
         {
             if (id == load_profile_button && notification == BN_CLICKED) LoadProfile();
             else if (id == save_profile_button && notification == BN_CLICKED) SaveProfile();
+            else if (id == options_button && notification == BN_CLICKED) OptionsWindow::Show(this);
             else if (id == browse_game_button && notification == BN_CLICKED) {
+                if (!ApplyPendingOptions()) return;
                 std::wstring path = GetText(game_dir_);
-                if (BrowseForFolder(window_, &path)) {
-                    SetText(game_dir_, path);
-                    RefreshDiscovery();
-                }
+                if (BrowseForFolder(window_, &path)) { SetText(game_dir_, path); RefreshDiscovery(); }
             } else if (id == refresh_button && notification == BN_CLICKED) RefreshDiscovery();
-            else if (id == browse_save_button && notification == BN_CLICKED) {
-                std::wstring path = GetText(save_path_);
-                if (BrowseForFile(window_, L"Select Victoria II save", L"Victoria II saves (*.v2)\0*.v2\0All files\0*.*\0", &path, false)) {
-                    SetText(save_path_, path);
-                    RefreshPlan();
-                }
-            } else if (id == browse_telemetry_button && notification == BN_CLICKED) {
-                std::wstring path = GetText(telemetry_output_);
-                if (BrowseForFile(window_, L"Save telemetry trace", L"JSON Lines traces (*.jsonl)\0*.jsonl\0All files\0*.*\0", &path, true, L"jsonl")) {
-                    SetText(telemetry_output_, path);
-                    RefreshPlan();
-                }
-            } else if (id == launch_button && notification == BN_CLICKED) LaunchGame();
+            else if (id == launch_button && notification == BN_CLICKED) LaunchGame();
             else if (id == recent_runs_button && notification == BN_CLICKED) RecentRunsWindow::Show(window_);
-            else if ((id == safe_mode_check || id == observer_check || id == start_paused_check || id == quit_after_run_check
-                      || id == telemetry_enabled_check || id == telemetry_overwrite_check) && notification == BN_CLICKED) RefreshPlan();
-            else if (id == mod_combo && notification == CBN_SELCHANGE) {
-                retained_mods_.clear();
-                unsupported_multi_mod_ = false;
-                RefreshPlan();
-            } else if ((id == speed_combo || id == telemetry_categories_combo) && notification == CBN_SELCHANGE) RefreshPlan();
-            else if ((id == game_dir_edit || id == save_path_edit || id == view_tag_edit || id == profile_name_edit || id == telemetry_output_edit
-                       || id == telemetry_sample_days_edit || id == telemetry_queue_capacity_edit || id == telemetry_country_tags_edit
-                       || id == telemetry_start_date_edit || id == telemetry_end_date_edit || id == run_days_edit
-                       || id == run_until_date_edit || id == run_timeout_edit) && notification == EN_KILLFOCUS) {
-                if (id == game_dir_edit) RefreshDiscovery();
-                else RefreshPlan();
+            else if (id == safe_mode_check && notification == BN_CLICKED) RefreshPlan();
+            else if (id == mod_move_up_button && notification == BN_CLICKED) MoveSelectedMod(-1);
+            else if (id == mod_move_down_button && notification == BN_CLICKED) MoveSelectedMod(1);
+            else if ((id == game_dir_edit || id == profile_name_edit) && notification == EN_KILLFOCUS) {
+                if (id == game_dir_edit) RefreshDiscovery(); else RefreshPlan();
             }
         }
 
         void OnNotify(const NMHDR *notification)
         {
+            if (!suppress_notifications_ && notification->idFrom == mod_list && notification->code == LVN_ITEMCHANGED) {
+                const auto *change = reinterpret_cast<const NMLISTVIEW *>(notification);
+                if ((change->uChanged & LVIF_STATE) != 0) {
+                    if (((change->uOldState ^ change->uNewState) & LVIS_STATEIMAGEMASK) != 0) RefreshPlan();
+                    if (((change->uOldState ^ change->uNewState) & LVIS_SELECTED) != 0) UpdateModOrderButtons();
+                }
+            }
             if (!suppress_notifications_ && notification->idFrom == plugin_list && notification->code == LVN_ITEMCHANGED) {
                 const auto *change = reinterpret_cast<const NMLISTVIEW *>(notification);
                 if ((change->uChanged & LVIF_STATE) != 0
@@ -788,87 +1758,15 @@ namespace
 
         launcher::Profile BuildProfile() const
         {
-            launcher::Profile profile;
+            auto profile = draft_profile_;
             profile.name = WideToUtf8(GetText(profile_name_));
             profile.game_dir = GetText(game_dir_);
             profile.kernel = retained_kernel_;
             profile.inject = SendMessageW(safe_mode_, BM_GETCHECK, 0, 0) != BST_CHECKED;
             profile.detach = retained_detach_;
-            if (const auto selected = SelectedMod()) profile.mods.push_back(*selected);
-            profile.mods.insert(profile.mods.end(), retained_mods_.begin(), retained_mods_.end());
+            profile.mods = SelectedMods();
             profile.plugins = SelectedPlugins();
             profile.plugins.insert(profile.plugins.end(), retained_plugins_.begin(), retained_plugins_.end());
-            profile.scripts = retained_scripts_;
-            profile.script_instruction_budget = retained_script_instruction_budget_;
-            profile.script_memory_bytes = retained_script_memory_bytes_;
-            profile.script_queue_capacity = retained_script_queue_capacity_;
-            profile.telemetry_captures = retained_telemetry_captures_;
-            const auto save = GetText(save_path_);
-            if (!save.empty()) profile.save = fs::path(save);
-            profile.observer = SendMessageW(observer_, BM_GETCHECK, 0, 0) == BST_CHECKED;
-            const auto view_tag = GetText(view_tag_);
-            if (!view_tag.empty()) profile.view_tag = view_tag;
-            profile.speed = static_cast<int>(SendMessageW(speed_, CB_GETCURSEL, 0, 0)) + 1;
-            profile.start_paused = SendMessageW(start_paused_, BM_GETCHECK, 0, 0) == BST_CHECKED;
-            auto parse_run = [&](HWND control, std::optional<int> *destination, const char *name, bool required) {
-                const auto value = GetText(control);
-                if (value.empty() && !required) return;
-                try {
-                    size_t used = 0;
-                    const int parsed = std::stoi(value, &used);
-                    if (used != value.size()) throw std::invalid_argument("trailing characters");
-                    *destination = parsed;
-                } catch (const std::exception &) {
-                    profile.run_parse_error = std::string(name) + " must be an integer";
-                }
-            };
-            parse_run(run_days_, &profile.run_days, "run_days", false);
-            parse_run(run_until_date_, &profile.run_until_date_raw, "run_until_date_raw", false);
-            std::optional<int> timeout;
-            parse_run(run_timeout_, &timeout, "run_timeout_seconds", true);
-            if (timeout) profile.run_timeout_seconds = *timeout;
-            profile.quit_after_run = SendMessageW(quit_after_run_, BM_GETCHECK, 0, 0) == BST_CHECKED;
-            profile.telemetry_enabled = SendMessageW(telemetry_enabled_, BM_GETCHECK, 0, 0) == BST_CHECKED;
-            profile.telemetry_overwrite = SendMessageW(telemetry_overwrite_, BM_GETCHECK, 0, 0) == BST_CHECKED;
-            const auto telemetry_output = GetText(telemetry_output_);
-            if (!telemetry_output.empty()) profile.telemetry_output = fs::path(telemetry_output);
-            const int category_selection = static_cast<int>(SendMessageW(telemetry_categories_, CB_GETCURSEL, 0, 0));
-            if (category_selection == 1) profile.telemetry_categories = {"lifecycle"};
-            else if (category_selection == 2) profile.telemetry_categories = {"state"};
-            else profile.telemetry_categories = {"lifecycle", "state"};
-            try {
-                profile.telemetry_sample_days = std::stoi(GetText(telemetry_sample_days_));
-                profile.telemetry_queue_capacity = std::stoi(GetText(telemetry_queue_capacity_));
-            } catch (const std::exception &) {
-                profile.telemetry_sample_days = 0;
-                profile.telemetry_queue_capacity = 0;
-            }
-            std::wstring tags = GetText(telemetry_country_tags_);
-            size_t begin = 0;
-            while (begin <= tags.size()) {
-                const size_t end = tags.find(L',', begin);
-                std::wstring tag = tags.substr(begin, end == std::wstring::npos ? end : end - begin);
-                const auto first = tag.find_first_not_of(L" \t");
-                tag = first == std::wstring::npos ? L"" : tag.substr(first, tag.find_last_not_of(L" \t") - first + 1);
-                if (!tag.empty()) { std::transform(tag.begin(), tag.end(), tag.begin(), towupper); profile.telemetry_country_tags.push_back(WideToUtf8(tag)); }
-                else if (end != std::wstring::npos) profile.telemetry_country_tags.push_back("");
-                if (end == std::wstring::npos) break;
-                begin = end + 1;
-            }
-            auto parse_date = [&](HWND control, std::optional<int> *destination, const wchar_t *name) {
-                const auto value = GetText(control);
-                if (value.empty()) return;
-                try {
-                    size_t used = 0;
-                    const int parsed = std::stoi(value, &used);
-                    if (used != value.size()) throw std::invalid_argument("trailing characters");
-                    *destination = parsed;
-                } catch (const std::exception &) {
-                    profile.telemetry_filter_parse_error = std::string("telemetry ") + WideToUtf8(name) + " must be an integer";
-                }
-            };
-            parse_date(telemetry_start_date_, &profile.telemetry_start_date_raw, L"start raw date");
-            parse_date(telemetry_end_date_, &profile.telemetry_end_date_raw, L"end raw date");
             return profile;
         }
 
@@ -884,23 +1782,24 @@ namespace
             return paths;
         }
 
-        std::optional<fs::path> SelectedMod() const
+        std::vector<fs::path> SelectedMods() const
         {
-            const int selected = static_cast<int>(SendMessageW(mods_, CB_GETCURSEL, 0, 0));
-            if (selected <= 0 || static_cast<size_t>(selected - 1) >= discovered_mods_.size()) return std::nullopt;
-            return discovered_mods_[selected - 1].descriptor_path;
+            std::vector<fs::path> paths;
+            for (size_t index = 0; index < mod_paths_.size(); ++index) {
+                if (ListView_GetCheckState(mods_, static_cast<int>(index))) paths.push_back(mod_paths_[index]);
+            }
+            return paths;
         }
 
-        void RefreshDiscovery(std::vector<fs::path> requested_mods = {},
-                               std::vector<fs::path> requested_plugins = {})
+        void RefreshDiscovery(std::optional<std::vector<fs::path>> requested_mods = std::nullopt,
+                              std::optional<std::vector<fs::path>> requested_plugins = std::nullopt,
+                              bool apply_options = true)
         {
-            if (requested_mods.empty()) {
-                if (const auto selected = SelectedMod()) requested_mods.push_back(*selected);
-                requested_mods.insert(requested_mods.end(), retained_mods_.begin(), retained_mods_.end());
-            }
-            if (requested_plugins.empty()) {
+            if (apply_options && !ApplyPendingOptions()) return;
+            if (!requested_mods) requested_mods = SelectedMods();
+            if (!requested_plugins) {
                 requested_plugins = SelectedPlugins();
-                requested_plugins.insert(requested_plugins.end(), retained_plugins_.begin(), retained_plugins_.end());
+                requested_plugins->insert(requested_plugins->end(), retained_plugins_.begin(), retained_plugins_.end());
             }
             const fs::path game_dir = GetText(game_dir_);
             discovery_diagnostics_.clear();
@@ -908,13 +1807,14 @@ namespace
             discovered_plugins_.clear();
             if (!game_dir.empty()) {
                 const auto mods = launcher::DiscoverMods(game_dir);
-                const auto plugins = launcher::DiscoverPlugins(game_dir);
+                const auto plugins = launcher::DiscoverPlugins(game_dir, fs::path(SMEDLEY_SOURCE_DIR) / L"plugins");
                 discovered_mods_ = mods.mods;
                 discovered_plugins_ = plugins.plugins;
                 discovery_diagnostics_.insert(discovery_diagnostics_.end(), mods.diagnostics.begin(), mods.diagnostics.end());
                 discovery_diagnostics_.insert(discovery_diagnostics_.end(), plugins.diagnostics.begin(), plugins.diagnostics.end());
             }
-            PopulateDiscovery(game_dir, requested_mods, requested_plugins);
+            PopulateDiscovery(game_dir, *requested_mods, *requested_plugins);
+            if (options_) options_->Refresh();
             RefreshPlan();
         }
 
@@ -922,21 +1822,28 @@ namespace
                                 const std::vector<fs::path> &requested_plugins)
         {
             suppress_notifications_ = true;
-            SendMessageW(mods_, CB_RESETCONTENT, 0, 0);
-            SendMessageW(mods_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"None"));
-            int selected_mod = 0;
-            retained_mods_ = requested_mods;
-            unsupported_multi_mod_ = requested_mods.size() > 1;
-            const auto selected_mod_path = requested_mods.empty() ? fs::path{} : ResolveSelectedPath(game_dir, requested_mods.front());
+            ListView_DeleteAllItems(mods_);
+            mod_paths_.clear();
+            std::vector<bool> discovered_selected(discovered_mods_.size(), false);
+            for (const auto &path : requested_mods) {
+                const auto selected = std::find_if(discovered_mods_.begin(), discovered_mods_.end(), [&](const auto &mod) {
+                    return ResolveSelectedPath(game_dir, path) == AbsolutePath(mod.descriptor_path);
+                });
+                if (selected == discovered_mods_.end()) {
+                    AddModItem(L"Unavailable selected mod", path.wstring(), path, true);
+                    continue;
+                }
+                const size_t index = static_cast<size_t>(selected - discovered_mods_.begin());
+                discovered_selected[index] = true;
+                AddModItem(Utf8ToWide(selected->name), selected->descriptor_path.wstring(), path, true);
+            }
             for (size_t index = 0; index < discovered_mods_.size(); ++index) {
-                const auto name = Utf8ToWide(discovered_mods_[index].name);
-                SendMessageW(mods_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(name.c_str()));
-                if (!requested_mods.empty() && AbsolutePath(discovered_mods_[index].descriptor_path) == selected_mod_path) {
-                    selected_mod = static_cast<int>(index + 1);
-                    retained_mods_.erase(retained_mods_.begin());
+                if (!discovered_selected[index]) {
+                    AddModItem(Utf8ToWide(discovered_mods_[index].name), discovered_mods_[index].descriptor_path.wstring(),
+                               discovered_mods_[index].descriptor_path, false);
                 }
             }
-            SendMessageW(mods_, CB_SETCURSEL, selected_mod, 0);
+            UpdateModOrderButtons();
 
             ListView_DeleteAllItems(plugins_);
             retained_plugins_ = requested_plugins;
@@ -959,26 +1866,19 @@ namespace
                     retained_plugins_.erase(selected);
                 }
             }
-            if (unsupported_multi_mod_) {
-                discovery_diagnostics_.push_back({
-                    launcher::Severity::Error,
-                    "gui.multiple_mods",
-                    "this launcher UI supports one mod; choose one mod to replace the loaded multi-mod selection",
-                    {}});
-            }
             suppress_notifications_ = false;
         }
 
         void RefreshPlan()
         {
-            operation_diagnostics_.clear();
             auto profile = BuildProfile();
             // The GUI always launches detached; retain the profile value only
             // when saving it again.
             profile.detach = true;
             plan_ = launcher::BuildLaunchPlan(profile);
+            if (options_) options_->UpdateContext();
             DisplayDiagnostics(plan_.diagnostics);
-            const bool has_errors = unsupported_multi_mod_ || launcher::HasErrors(plan_.diagnostics);
+            const bool has_errors = launcher::HasErrors(plan_.diagnostics) || launcher::HasErrors(settings_diagnostics_);
             EnableWindow(launch_, !has_errors);
             SetText(status_, has_errors ? L"Fix preflight errors before launching." : L"Ready. Launches detached.");
         }
@@ -996,6 +1896,7 @@ namespace
             };
             append(discovery_diagnostics_);
             append(current);
+            append(settings_diagnostics_);
             append(operation_diagnostics_);
             if (text.empty()) text = L"No diagnostics.";
             SetText(diagnostics_, text);
@@ -1003,6 +1904,7 @@ namespace
 
         void LoadProfile()
         {
+            if (!ApplyPendingOptions()) return;
             std::wstring path = GetText(profile_path_);
             if (!BrowseForFile(window_, L"Load Smedley profile", L"Smedley profiles (*.toml)\0*.toml\0All files\0*.*\0", &path, false)) return;
             launcher::Profile profile;
@@ -1013,52 +1915,23 @@ namespace
                 SetText(status_, L"Could not load profile.");
                 return;
             }
+            draft_profile_ = profile;
             SetText(profile_path_, path);
             SetText(profile_name_, Utf8ToWide(profile.name));
             SetText(game_dir_, profile.game_dir.wstring());
-            retained_kernel_ = profile.kernel;
-            SetText(save_path_, profile.save ? profile.save->wstring() : L"");
-            SetText(view_tag_, profile.view_tag.value_or(L""));
             SendMessageW(safe_mode_, BM_SETCHECK, profile.inject ? BST_UNCHECKED : BST_CHECKED, 0);
-            SendMessageW(observer_, BM_SETCHECK, profile.observer ? BST_CHECKED : BST_UNCHECKED, 0);
-            SendMessageW(speed_, CB_SETCURSEL, profile.speed >= 1 && profile.speed <= 5 ? profile.speed - 1 : -1, 0);
-            SendMessageW(start_paused_, BM_SETCHECK, profile.start_paused ? BST_CHECKED : BST_UNCHECKED, 0);
-            SendMessageW(telemetry_enabled_, BM_SETCHECK, profile.telemetry_enabled ? BST_CHECKED : BST_UNCHECKED, 0);
-            SendMessageW(telemetry_overwrite_, BM_SETCHECK, profile.telemetry_overwrite ? BST_CHECKED : BST_UNCHECKED, 0);
-            SetText(telemetry_output_, profile.telemetry_output ? profile.telemetry_output->wstring() : L"");
-            const int telemetry_categories = profile.telemetry_categories == std::vector<std::string>{"lifecycle"} ? 1
-                : profile.telemetry_categories == std::vector<std::string>{"state"} ? 2 : 0;
-            SendMessageW(telemetry_categories_, CB_SETCURSEL, telemetry_categories, 0);
-            SetText(telemetry_sample_days_, std::to_wstring(profile.telemetry_sample_days));
-            SetText(telemetry_queue_capacity_, std::to_wstring(profile.telemetry_queue_capacity));
-            std::wstring tags;
-            for (const auto &tag : profile.telemetry_country_tags) { if (!tags.empty()) tags += L","; tags.append(tag.begin(), tag.end()); }
-            SetText(telemetry_country_tags_, tags);
-            SetText(telemetry_start_date_, profile.telemetry_start_date_raw ? std::to_wstring(*profile.telemetry_start_date_raw) : L"");
-            SetText(telemetry_end_date_, profile.telemetry_end_date_raw ? std::to_wstring(*profile.telemetry_end_date_raw) : L"");
-            SetText(run_days_, profile.run_days ? std::to_wstring(*profile.run_days) : L"");
-            SetText(run_until_date_, profile.run_until_date_raw ? std::to_wstring(*profile.run_until_date_raw) : L"");
-            SetText(run_timeout_, std::to_wstring(profile.run_timeout_seconds));
-            SendMessageW(quit_after_run_, BM_SETCHECK, profile.quit_after_run ? BST_CHECKED : BST_UNCHECKED, 0);
+            retained_kernel_ = profile.kernel;
             retained_detach_ = profile.detach;
-            retained_scripts_ = profile.scripts;
-            retained_script_instruction_budget_ = profile.script_instruction_budget;
-            retained_script_memory_bytes_ = profile.script_memory_bytes;
-            retained_script_queue_capacity_ = profile.script_queue_capacity;
-            retained_telemetry_captures_ = profile.telemetry_captures;
-            // Loading a profile replaces the current selections; it does not
-            // merge them.
             discovered_mods_.clear();
             discovered_plugins_.clear();
-            retained_mods_.clear();
             retained_plugins_.clear();
-            RefreshDiscovery(profile.mods, profile.plugins);
             operation_diagnostics_ = std::move(diagnostics);
-            DisplayDiagnostics(plan_.diagnostics);
+            RefreshDiscovery(profile.mods, profile.plugins, false);
         }
 
         void SaveProfile()
         {
+            if (!ApplyPendingOptions()) return;
             std::wstring path = GetText(profile_path_);
             if (!BrowseForFile(window_, L"Save Smedley profile", L"Smedley profiles (*.toml)\0*.toml\0All files\0*.*\0", &path, true, L"toml")) return;
             std::vector<launcher::Diagnostic> diagnostics;
@@ -1075,8 +1948,9 @@ namespace
 
         void LaunchGame()
         {
+            if (!ApplyPendingOptions()) return;
             RefreshPlan();
-            if (unsupported_multi_mod_ || launcher::HasErrors(plan_.diagnostics)) return;
+            if (launcher::HasErrors(plan_.diagnostics) || launcher::HasErrors(settings_diagnostics_)) return;
             auto detached_plan = plan_;
             detached_plan.profile.detach = true;
             const auto result = launcher::Launch(detached_plan);
@@ -1095,61 +1969,32 @@ namespace
         HWND game_dir_ = nullptr;
         HWND mod_label_ = nullptr;
         HWND mods_ = nullptr;
+        HWND mod_move_up_ = nullptr;
+        HWND mod_move_down_ = nullptr;
         HWND plugin_label_ = nullptr;
         HWND plugins_ = nullptr;
         HWND safe_mode_ = nullptr;
-        HWND telemetry_enabled_ = nullptr;
-        HWND telemetry_overwrite_ = nullptr;
-        HWND telemetry_output_label_ = nullptr;
-        HWND telemetry_output_ = nullptr;
-        HWND telemetry_categories_label_ = nullptr;
-        HWND telemetry_categories_ = nullptr;
-        HWND telemetry_sample_days_label_ = nullptr;
-        HWND telemetry_sample_days_ = nullptr;
-        HWND telemetry_queue_capacity_label_ = nullptr;
-        HWND telemetry_queue_capacity_ = nullptr;
-        HWND telemetry_country_tags_label_ = nullptr;
-        HWND telemetry_country_tags_ = nullptr;
-        HWND telemetry_start_date_label_ = nullptr;
-        HWND telemetry_start_date_ = nullptr;
-        HWND telemetry_end_date_label_ = nullptr;
-        HWND telemetry_end_date_ = nullptr;
-        HWND save_label_ = nullptr;
-        HWND save_path_ = nullptr;
-        HWND observer_ = nullptr;
-        HWND view_tag_label_ = nullptr;
-        HWND view_tag_ = nullptr;
-        HWND speed_label_ = nullptr;
-        HWND speed_ = nullptr;
-        HWND start_paused_ = nullptr;
-        HWND run_days_label_ = nullptr;
-        HWND run_days_ = nullptr;
-        HWND run_until_date_label_ = nullptr;
-        HWND run_until_date_ = nullptr;
-        HWND run_timeout_label_ = nullptr;
-        HWND run_timeout_ = nullptr;
-        HWND quit_after_run_ = nullptr;
         HWND diagnostics_label_ = nullptr;
         HWND diagnostics_ = nullptr;
         HWND status_ = nullptr;
         HWND launch_ = nullptr;
         UINT dpi_ = 96;
+        int mod_column_count_ = 0;
         int plugin_column_count_ = 0;
         bool suppress_notifications_ = false;
-        bool unsupported_multi_mod_ = false;
+        bool applying_options_ = false;
         bool retained_detach_ = true;
+        OptionsWindow *options_ = nullptr;
+        HWND options_window_ = nullptr;
         launcher::LaunchPlan plan_;
+        launcher::Profile draft_profile_;
         std::optional<fs::path> retained_kernel_;
-        std::vector<fs::path> retained_mods_;
+        std::vector<fs::path> mod_paths_;
         std::vector<fs::path> retained_plugins_;
-        std::vector<fs::path> retained_scripts_;
-        std::vector<launcher::TelemetryCaptureRule> retained_telemetry_captures_;
-        int retained_script_instruction_budget_ = 100000;
-        int retained_script_memory_bytes_ = 8388608;
-        int retained_script_queue_capacity_ = 256;
         std::vector<launcher::ModDescriptor> discovered_mods_;
         std::vector<launcher::PluginManifest> discovered_plugins_;
         std::vector<launcher::Diagnostic> discovery_diagnostics_;
+        std::vector<launcher::Diagnostic> settings_diagnostics_;
         std::vector<launcher::Diagnostic> operation_diagnostics_;
     };
 }
@@ -1165,7 +2010,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     if (!launcher_window.Create(instance)) return 1;
     MSG message;
     while (GetMessageW(&message, nullptr, 0, 0) > 0) {
-        if (!IsDialogMessageW(launcher_window.window(), &message)) {
+        const HWND options = launcher_window.options_window();
+        if ((!options || !IsDialogMessageW(options, &message))
+            && !IsDialogMessageW(launcher_window.window(), &message)) {
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }

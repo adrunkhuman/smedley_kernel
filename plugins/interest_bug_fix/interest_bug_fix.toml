@@ -3,3 +3,6 @@ name = "Creditor POP interest bug fix"
 version = "0.1"
 module = "interest_bug_fix.dll"
 conflicts = ["v2up"]
+
+[settings]
+version = 1

@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <cctype>
 #include <cmath>
 #include <cstdio>
@@ -15,6 +16,7 @@
 #include <fstream>
 #include <limits>
 #include <sstream>
+#include <stdexcept>
 
 namespace smedley::launcher
 {
@@ -37,6 +39,12 @@ namespace smedley::launcher
         constexpr int script_max_queue_capacity = 4096;
         constexpr size_t script_max_count = 16;
         constexpr uintmax_t script_max_file_bytes = 1024 * 1024;
+        constexpr uintmax_t plugin_manifest_max_bytes = 128 * 1024;
+        constexpr size_t plugin_settings_max_fields = 64;
+        constexpr size_t plugin_settings_max_choices = 128;
+        constexpr size_t plugin_settings_max_constraints = 32;
+        constexpr size_t plugin_settings_max_notices = 16;
+        constexpr size_t plugin_settings_max_text = 1024;
         constexpr std::array<unsigned char, 32> supported_executable_hash = {
             0x62, 0xd4, 0x8c, 0x20, 0x43, 0x64, 0xdd, 0x70,
             0x65, 0x84, 0x77, 0x7c, 0x2e, 0x2b, 0x3c, 0x7a,
@@ -114,6 +122,15 @@ namespace smedley::launcher
             return fs::absolute(path).lexically_normal();
         }
 
+        bool PathsEqualCaseInsensitive(const fs::path &left, const fs::path &right)
+        {
+            const auto &left_value = left.native();
+            const auto &right_value = right.native();
+            return CompareStringOrdinal(left_value.data(), static_cast<int>(left_value.size()),
+                                        right_value.data(), static_cast<int>(right_value.size()), TRUE)
+                == CSTR_EQUAL;
+        }
+
         bool IsRegularFile(const fs::path &path)
         {
             std::error_code error;
@@ -145,10 +162,437 @@ namespace smedley::launcher
             return true;
         }
 
+        bool IsStableSettingKey(const std::string &key)
+        {
+            return !key.empty() && key.size() <= 64 && std::all_of(key.begin(), key.end(), [](unsigned char character) {
+                return (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '_';
+            });
+        }
+
+        bool IsBoundedText(const std::string &value, size_t maximum = plugin_settings_max_text)
+        {
+            return value.size() <= maximum && std::none_of(value.begin(), value.end(), [](unsigned char character) {
+                return character < 0x20 && character != '\n' && character != '\t';
+            });
+        }
+
+        std::optional<PluginSettingType> ParsePluginSettingType(const std::string &value)
+        {
+            if (value == "bool") return PluginSettingType::Bool;
+            if (value == "integer") return PluginSettingType::Integer;
+            if (value == "number") return PluginSettingType::Number;
+            if (value == "string") return PluginSettingType::String;
+            if (value == "enum") return PluginSettingType::Enum;
+            if (value == "multi_enum") return PluginSettingType::MultiEnum;
+            if (value == "file") return PluginSettingType::File;
+            if (value == "directory") return PluginSettingType::Directory;
+            if (value == "file_list") return PluginSettingType::FileList;
+            if (value == "date") return PluginSettingType::Date;
+            if (value == "object_list") return PluginSettingType::ObjectList;
+            return std::nullopt;
+        }
+
+        std::optional<PluginSettingArgvCodec> ParsePluginSettingArgvCodec(const std::string &value)
+        {
+            if (value == "flag") return PluginSettingArgvCodec::Flag;
+            if (value == "bool_01") return PluginSettingArgvCodec::Bool01;
+            if (value == "value") return PluginSettingArgvCodec::Value;
+            if (value == "csv") return PluginSettingArgvCodec::Csv;
+            if (value == "repeat") return PluginSettingArgvCodec::Repeat;
+            return std::nullopt;
+        }
+
+        bool IsSafePluginSettingOption(const std::string &option)
+        {
+            static constexpr const char prefix[] = "-smedley-";
+            return option.rfind(prefix, 0) == 0 && option.size() > sizeof(prefix) - 1
+                && std::all_of(option.begin() + sizeof(prefix) - 1, option.end(), [](unsigned char character) {
+                    return (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') || character == '-';
+                });
+        }
+
+        bool ReadSchemaStringArray(const toml::table &table, const char *key, std::vector<std::string> *values)
+        {
+            const auto *array = table[key].as_array();
+            if (array == nullptr || array->size() > plugin_settings_max_choices) return false;
+            for (const auto &node : *array) {
+                const auto value = node.value<std::string>();
+                if (!value || value->empty() || !IsBoundedText(*value)
+                    || std::find(values->begin(), values->end(), *value) != values->end()) return false;
+                values->push_back(*value);
+            }
+            return true;
+        }
+
+        bool ReadSchemaNumber(const toml::table &table, const char *key, std::optional<double> *result)
+        {
+            if (!table.contains(key)) return true;
+            if (const auto value = table[key].value<double>()) {
+                if (!std::isfinite(*value)) return false;
+                *result = *value;
+                return true;
+            }
+            if (const auto value = table[key].value<std::int64_t>()) {
+                *result = static_cast<double>(*value);
+                return true;
+            }
+            return false;
+        }
+
+        bool ReadSchemaValue(const toml::table &table, const char *key, PluginSettingType type,
+                             std::optional<PluginSettingValue> *result)
+        {
+            if (!table.contains(key)) return true;
+            switch (type) {
+            case PluginSettingType::Bool: {
+                const auto value = table[key].value<bool>();
+                if (!value) return false;
+                *result = *value;
+                return true;
+            }
+            case PluginSettingType::Integer: {
+                const auto value = table[key].value<std::int64_t>();
+                if (!value) return false;
+                *result = *value;
+                return true;
+            }
+            case PluginSettingType::Date: {
+                const auto value = table[key].value<std::int64_t>();
+                if (!value) return false;
+                *result = *value;
+                return true;
+            }
+            case PluginSettingType::Number: {
+                std::optional<double> value;
+                if (!ReadSchemaNumber(table, key, &value)) return false;
+                *result = *value;
+                return true;
+            }
+            case PluginSettingType::String:
+            case PluginSettingType::Enum: {
+                const auto value = table[key].value<std::string>();
+                if (!value || !IsBoundedText(*value)) return false;
+                *result = *value;
+                return true;
+            }
+            case PluginSettingType::File:
+            case PluginSettingType::Directory: {
+                const auto value = table[key].value<std::string>();
+                if (!value || value->empty() || !IsBoundedText(*value)) return false;
+                *result = fs::u8path(*value);
+                return true;
+            }
+            case PluginSettingType::MultiEnum: {
+                std::vector<std::string> values;
+                if (!ReadSchemaStringArray(table, key, &values)) return false;
+                *result = std::move(values);
+                return true;
+            }
+            case PluginSettingType::FileList: {
+                const auto *array = table[key].as_array();
+                if (array == nullptr || array->size() > plugin_settings_max_choices) return false;
+                std::vector<fs::path> values;
+                for (const auto &node : *array) {
+                    const auto value = node.value<std::string>();
+                    if (!value || value->empty() || !IsBoundedText(*value)) return false;
+                    values.push_back(fs::u8path(*value));
+                }
+                *result = std::move(values);
+                return true;
+            }
+            case PluginSettingType::ObjectList:
+                return false;
+            }
+            return false;
+        }
+
+        bool SettingValueMatchesType(const PluginSettingValue &value, PluginSettingType type)
+        {
+            switch (type) {
+            case PluginSettingType::Bool: return std::holds_alternative<bool>(value);
+            case PluginSettingType::Integer:
+            case PluginSettingType::Date: return std::holds_alternative<std::int64_t>(value);
+            case PluginSettingType::Number: return std::holds_alternative<double>(value);
+            case PluginSettingType::String:
+            case PluginSettingType::Enum: return std::holds_alternative<std::string>(value);
+            case PluginSettingType::MultiEnum: return std::holds_alternative<std::vector<std::string>>(value);
+            case PluginSettingType::File:
+            case PluginSettingType::Directory: return std::holds_alternative<fs::path>(value);
+            case PluginSettingType::FileList: return std::holds_alternative<std::vector<fs::path>>(value);
+            case PluginSettingType::ObjectList: return std::holds_alternative<std::vector<TelemetryCaptureRule>>(value);
+            }
+            return false;
+        }
+
+        bool ValidateSettingValue(const PluginSettingField &field, const PluginSettingValue &value)
+        {
+            if (!SettingValueMatchesType(value, field.type)) return false;
+            if (field.type == PluginSettingType::Integer || field.type == PluginSettingType::Date) {
+                const auto number = static_cast<double>(std::get<std::int64_t>(value));
+                if ((field.minimum && number < *field.minimum) || (field.maximum && number > *field.maximum)) return false;
+            }
+            if (field.type == PluginSettingType::Number) {
+                const auto number = std::get<double>(value);
+                if (!std::isfinite(number) || (field.minimum && number < *field.minimum) || (field.maximum && number > *field.maximum)) return false;
+            }
+            if (field.type == PluginSettingType::Enum && std::find(field.choices.begin(), field.choices.end(), std::get<std::string>(value)) == field.choices.end()) return false;
+            if (field.type == PluginSettingType::MultiEnum) {
+                for (const auto &choice : std::get<std::vector<std::string>>(value)) {
+                    if (!field.choices.empty() && std::find(field.choices.begin(), field.choices.end(), choice) == field.choices.end()) return false;
+                }
+            }
+            return true;
+        }
+
+        bool ParsePluginSettingsSchema(const toml::table &manifest_table, PluginManifest *manifest,
+                                       std::vector<Diagnostic> *diagnostics, const fs::path &manifest_path)
+        {
+            if (!manifest_table.contains("settings")) return true;
+            const auto *settings = manifest_table["settings"].as_table();
+            if (settings == nullptr) {
+                AddDiagnostic(diagnostics, "plugin.settings", "settings must be a table", manifest_path);
+                return false;
+            }
+            const auto version = (*settings)["version"].value<int>();
+            if (!version || *version != 1) {
+                AddDiagnostic(diagnostics, "plugin.settings", "settings requires supported version 1", manifest_path);
+                return false;
+            }
+            PluginSettingsSchema schema;
+            schema.version = *version;
+            if (settings->contains("fields")) {
+                const auto *fields = (*settings)["fields"].as_array();
+                if (fields == nullptr || fields->size() > plugin_settings_max_fields) {
+                    AddDiagnostic(diagnostics, "plugin.settings", "settings fields must contain at most 64 tables", manifest_path);
+                    return false;
+                }
+                for (const auto &node : *fields) {
+                    const auto *field_table = node.as_table();
+                    if (field_table == nullptr) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "settings fields must be tables", manifest_path);
+                        return false;
+                    }
+                    const auto key = (*field_table)["key"].value<std::string>();
+                    const auto type = (*field_table)["type"].value<std::string>();
+                    const auto label = (*field_table)["label"].value<std::string>();
+                    const auto help = (*field_table)["help"].value<std::string>();
+                    const auto parsed_type = type ? ParsePluginSettingType(*type) : std::nullopt;
+                    if (!key || !IsStableSettingKey(*key) || !parsed_type || !label || label->empty() || !IsBoundedText(*label)
+                        || !help || !IsBoundedText(*help)
+                        || std::any_of(schema.fields.begin(), schema.fields.end(), [&](const auto &field) { return field.key == *key; })) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "settings fields require unique stable key, type, label, and help", manifest_path);
+                        return false;
+                    }
+                    PluginSettingField field;
+                    field.key = *key;
+                    field.type = *parsed_type;
+                    field.label = *label;
+                    field.help = *help;
+                    if (field_table->contains("optional")) {
+                        const auto optional = (*field_table)["optional"].value<bool>();
+                        if (!optional) {
+                            AddDiagnostic(diagnostics, "plugin.settings", "settings optional must be a boolean", manifest_path);
+                            return false;
+                        }
+                        field.optional = *optional;
+                    }
+                    if (field_table->contains("advanced")) {
+                        const auto advanced = (*field_table)["advanced"].value<bool>();
+                        if (!advanced) {
+                            AddDiagnostic(diagnostics, "plugin.settings", "settings advanced must be a boolean", manifest_path);
+                            return false;
+                        }
+                        field.advanced = *advanced;
+                    }
+                    if (!ReadSchemaNumber(*field_table, "min", &field.minimum)
+                        || !ReadSchemaNumber(*field_table, "max", &field.maximum)
+                        || (field.minimum && field.maximum && *field.minimum > *field.maximum)
+                        || ((field.minimum || field.maximum) && field.type != PluginSettingType::Integer && field.type != PluginSettingType::Number)) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "settings min and max apply only to ordered numeric fields", manifest_path);
+                        return false;
+                    }
+                    if (field_table->contains("choices") && !ReadSchemaStringArray(*field_table, "choices", &field.choices)) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "settings choices must be unique bounded strings", manifest_path);
+                        return false;
+                    }
+                    if (!field.choices.empty() && field.type != PluginSettingType::Enum && field.type != PluginSettingType::MultiEnum) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "settings choices apply only to enum fields", manifest_path);
+                        return false;
+                    }
+                    if (field.type == PluginSettingType::Enum && field.choices.empty()) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "enum settings require choices", manifest_path);
+                        return false;
+                    }
+                    if (field_table->contains("discovery_root")) {
+                        const auto root = (*field_table)["discovery_root"].value<std::string>();
+                        const auto relative = root ? fs::u8path(*root) : fs::path{};
+                        if (field.type != PluginSettingType::FileList || !root || root->empty() || relative.is_absolute()
+                            || relative.has_root_directory() || relative.has_root_name() || ContainsParentTraversal(relative)) {
+                            AddDiagnostic(diagnostics, "plugin.settings", "file-list discovery_root must be a safe relative path", manifest_path);
+                            return false;
+                        }
+                        field.discovery_root = relative;
+                    }
+                    if (field_table->contains("extensions")) {
+                        if (field.type != PluginSettingType::FileList || !ReadSchemaStringArray(*field_table, "extensions", &field.extensions)
+                            || field.extensions.empty() || std::any_of(field.extensions.begin(), field.extensions.end(), [](const auto &extension) {
+                                return extension.size() < 2 || extension.front() != '.'
+                                    || !std::all_of(extension.begin() + 1, extension.end(), [](unsigned char character) {
+                                        return (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9');
+                                    });
+                            })) {
+                            AddDiagnostic(diagnostics, "plugin.settings", "file-list extensions must be safe lowercase extensions", manifest_path);
+                            return false;
+                        }
+                    }
+                    if (field_table->contains("item_schema")) {
+                        const auto item_schema = (*field_table)["item_schema"].value<std::string>();
+                        if (field.type != PluginSettingType::ObjectList || !item_schema || *item_schema != "telemetry_capture_v1") {
+                            AddDiagnostic(diagnostics, "plugin.settings", "object-list item_schema must name a supported versioned schema", manifest_path);
+                            return false;
+                        }
+                        field.item_schema = *item_schema;
+                    }
+                    if (field.type == PluginSettingType::ObjectList && field.item_schema.empty()) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "object-list fields require item_schema", manifest_path);
+                        return false;
+                    }
+                    if (!ReadSchemaValue(*field_table, "default", field.type, &field.default_value)
+                        || (field.default_value && !ValidateSettingValue(field, *field.default_value))) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "settings default does not match its field", manifest_path);
+                        return false;
+                    }
+                    if (const auto *argv = (*field_table)["argv"].as_table()) {
+                        const auto option = (*argv)["option"].value<std::string>();
+                        const auto codec = (*argv)["codec"].value<std::string>();
+                        const auto parsed_codec = codec ? ParsePluginSettingArgvCodec(*codec) : std::nullopt;
+                        const bool compatible = parsed_codec
+                            && ((*parsed_codec == PluginSettingArgvCodec::Flag && field.type == PluginSettingType::Bool)
+                                || (*parsed_codec == PluginSettingArgvCodec::Bool01 && field.type == PluginSettingType::Bool)
+                                || (*parsed_codec == PluginSettingArgvCodec::Value && field.type != PluginSettingType::MultiEnum && field.type != PluginSettingType::FileList && field.type != PluginSettingType::ObjectList)
+                                || (*parsed_codec == PluginSettingArgvCodec::Csv && field.type == PluginSettingType::MultiEnum)
+                                || (*parsed_codec == PluginSettingArgvCodec::Repeat && field.type == PluginSettingType::FileList));
+                        if (!option || !IsSafePluginSettingOption(*option) || !compatible) {
+                            AddDiagnostic(diagnostics, "plugin.settings", "settings argv requires a safe fixed option and compatible known codec", manifest_path);
+                            return false;
+                        }
+                        field.argv = PluginSettingArgv{*option, *parsed_codec};
+                    } else if (field_table->contains("argv")) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "settings argv must be a table", manifest_path);
+                        return false;
+                    }
+                    schema.fields.push_back(std::move(field));
+                }
+                for (const auto &node : *fields) {
+                    const auto &field_table = *node.as_table();
+                    auto parse_condition = [&](const char *key, std::optional<PluginSettingCondition> *destination) {
+                        if (!field_table.contains(key)) return true;
+                        const auto *condition_table = field_table[key].as_table();
+                        if (condition_table == nullptr) return false;
+                        const auto condition_key = (*condition_table)["key"].value<std::string>();
+                        if (!condition_key || !IsStableSettingKey(*condition_key)) return false;
+                        const auto target = std::find_if(schema.fields.begin(), schema.fields.end(), [&](const auto &field) {
+                            return field.key == *condition_key;
+                        });
+                        if (target == schema.fields.end()) return false;
+                        PluginSettingCondition condition;
+                        condition.key = *condition_key;
+                        if (condition_table->contains("present")) {
+                            const auto present = (*condition_table)["present"].value<bool>();
+                            if (!present || !*present || condition_table->contains("equals")) return false;
+                            condition.kind = PluginSettingConditionKind::Present;
+                        } else {
+                            if (!ReadSchemaValue(*condition_table, "equals", target->type, &condition.value) || !condition.value
+                                || !ValidateSettingValue(*target, *condition.value)) return false;
+                        }
+                        *destination = std::move(condition);
+                        return true;
+                    };
+                    const auto field = std::find_if(schema.fields.begin(), schema.fields.end(), [&](const auto &candidate) {
+                        return candidate.key == *field_table["key"].value<std::string>();
+                    });
+                    if (field == schema.fields.end() || !parse_condition("visible_when", &field->visible_when)
+                        || !parse_condition("required_when", &field->required_when)) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "settings conditions must reference a known field with equals or present", manifest_path);
+                        return false;
+                    }
+                }
+            }
+            if (settings->contains("constraints")) {
+                const auto *constraints = (*settings)["constraints"].as_array();
+                if (constraints == nullptr || constraints->size() > plugin_settings_max_constraints) {
+                    AddDiagnostic(diagnostics, "plugin.settings", "settings constraints must contain at most 32 tables", manifest_path);
+                    return false;
+                }
+                for (const auto &node : *constraints) {
+                    const auto *constraint_table = node.as_table();
+                    const auto kind = constraint_table ? (*constraint_table)["kind"].value<std::string>() : std::nullopt;
+                    if (!kind || (*kind != "mutually_exclusive" && *kind != "requires_any")) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "settings constraint has an unknown kind", manifest_path);
+                        return false;
+                    }
+                    PluginSettingConstraint constraint;
+                    constraint.kind = *kind == "mutually_exclusive" ? PluginSettingConstraintKind::MutuallyExclusive : PluginSettingConstraintKind::RequiresAny;
+                    if (constraint.kind == PluginSettingConstraintKind::RequiresAny) {
+                        const auto key = (*constraint_table)["key"].value<std::string>();
+                        if (!key || !IsStableSettingKey(*key)) {
+                            AddDiagnostic(diagnostics, "plugin.settings", "requires_any requires a stable key", manifest_path);
+                            return false;
+                        }
+                        constraint.key = *key;
+                    }
+                    if (!ReadSchemaStringArray(*constraint_table, "keys", &constraint.keys) || constraint.keys.size() < 2) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "settings constraints require at least two unique keys", manifest_path);
+                        return false;
+                    }
+                    if (const auto message = (*constraint_table)["message"].value<std::string>()) {
+                        if (!IsBoundedText(*message)) {
+                            AddDiagnostic(diagnostics, "plugin.settings", "settings constraint message is too large or unsafe", manifest_path);
+                            return false;
+                        }
+                        constraint.message = *message;
+                    }
+                    const auto known = [&](const std::string &key) {
+                        return std::any_of(schema.fields.begin(), schema.fields.end(), [&](const auto &field) { return field.key == key; });
+                    };
+                    if ((constraint.kind == PluginSettingConstraintKind::RequiresAny && !known(constraint.key))
+                        || std::any_of(constraint.keys.begin(), constraint.keys.end(), [&](const auto &key) { return !known(key); })) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "settings constraints must reference known fields", manifest_path);
+                        return false;
+                    }
+                    schema.constraints.push_back(std::move(constraint));
+                }
+            }
+            if (settings->contains("notices")) {
+                const auto *notices = (*settings)["notices"].as_array();
+                if (notices == nullptr || notices->size() > plugin_settings_max_notices) {
+                    AddDiagnostic(diagnostics, "plugin.settings", "settings notices must contain at most 16 tables", manifest_path);
+                    return false;
+                }
+                for (const auto &node : *notices) {
+                    const auto *notice = node.as_table();
+                    const auto capability = notice ? (*notice)["capability"].value<std::string>() : std::nullopt;
+                    const auto message = notice ? (*notice)["message"].value<std::string>() : std::nullopt;
+                    if (!capability || !IsStableSettingKey(*capability) || !message || message->empty() || !IsBoundedText(*message)) {
+                        AddDiagnostic(diagnostics, "plugin.settings", "settings notices require capability and message", manifest_path);
+                        return false;
+                    }
+                    schema.notices.push_back({*capability, *message});
+                }
+            }
+            manifest->settings = std::move(schema);
+            return true;
+        }
+
         bool ParsePluginManifest(const fs::path &manifest_path, const fs::path &plugin_root,
                                  PluginManifest *manifest, std::vector<Diagnostic> *diagnostics)
         {
             try {
+                std::error_code size_error;
+                if (fs::file_size(manifest_path, size_error) > plugin_manifest_max_bytes || size_error) {
+                    AddDiagnostic(diagnostics, "plugin.manifest_size", "plugin manifest exceeds 128 KiB or could not be measured", manifest_path);
+                    return false;
+                }
                 const auto table = toml::parse_file(manifest_path.wstring());
                 const auto id = table["id"].value<std::string>();
                 const auto name = table["name"].value<std::string>();
@@ -177,6 +621,7 @@ namespace smedley::launcher
                 };
                 if (!read_ids("dependencies", &manifest->dependencies)
                     || !read_ids("conflicts", &manifest->conflicts)) return false;
+                if (!ParsePluginSettingsSchema(table, manifest, diagnostics, manifest_path)) return false;
                 manifest->manifest_path = Absolute(manifest_path);
                 const auto module_path = fs::u8path(*module);
                 manifest->module_path = Absolute(plugin_root / module_path);
@@ -1319,11 +1764,7 @@ namespace smedley::launcher
             if (!IsSafeModUserDirectory(mod.user_dir)) return std::nullopt;
             const auto candidate = (base / fs::u8path(mod.user_dir)).lexically_normal();
             const auto duplicate = std::find_if(selected.begin(), selected.end(), [&](const fs::path &existing) {
-                const auto &existing_value = existing.native();
-                const auto &candidate_value = candidate.native();
-                return CompareStringOrdinal(existing_value.data(), static_cast<int>(existing_value.size()),
-                                            candidate_value.data(), static_cast<int>(candidate_value.size()), TRUE)
-                    == CSTR_EQUAL;
+                return PathsEqualCaseInsensitive(existing, candidate);
             });
             if (duplicate == selected.end()) selected.push_back(candidate);
         }
@@ -1332,7 +1773,7 @@ namespace smedley::launcher
         return std::nullopt;
     }
 
-    PluginDiscovery DiscoverPlugins(const fs::path &game_dir)
+    PluginDiscovery DiscoverPlugins(const fs::path &game_dir, const fs::path &development_manifest_root)
     {
         PluginDiscovery result;
         const auto root = Absolute(game_dir) / L"plugins";
@@ -1341,15 +1782,47 @@ namespace smedley::launcher
             AddDiagnostic(&result.diagnostics, "plugin.directory_missing", "GAME_DIR/plugins does not exist", root);
             return result;
         }
-        for (const auto &entry : fs::directory_iterator(root, error)) {
+        const bool use_development_manifests = !development_manifest_root.empty() && fs::is_directory(development_manifest_root, error);
+        if (error) error.clear();
+        const auto overlay_development_schema = [&](PluginManifest *installed) {
+            if (!use_development_manifests || !SupportsPluginSettings(*installed)) return;
+            std::error_code source_error;
+            for (fs::recursive_directory_iterator it(development_manifest_root, source_error), end;
+                 it != end; it.increment(source_error)) {
+                if (source_error) {
+                    source_error.clear();
+                    continue;
+                }
+                if (!it->is_regular_file(source_error) || it->path().filename() != installed->manifest_path.filename()) continue;
+                PluginManifest source;
+                std::vector<Diagnostic> source_diagnostics;
+                if (!ParsePluginManifest(it->path(), root, &source, &source_diagnostics)) {
+                    for (auto &diagnostic : source_diagnostics) {
+                        diagnostic.severity = Severity::Warning;
+                        diagnostic.code = "plugin.development_schema";
+                        result.diagnostics.push_back(std::move(diagnostic));
+                    }
+                    return;
+                }
+                if (source.id == installed->id && source.module == installed->module) installed->settings = std::move(source.settings);
+                return;
+            }
+        };
+        const auto visit = [&](const auto &entry) {
             if (error) {
                 AddDiagnostic(&result.diagnostics, "plugin.directory", error.message(), root);
-                break;
+                return;
             }
-            if (!entry.is_regular_file() || entry.path().extension() != L".toml") continue;
+            if (!entry.is_regular_file() || entry.path().extension() != L".toml") return;
             PluginManifest manifest;
-            if (ParsePluginManifest(entry.path(), root, &manifest, &result.diagnostics)) result.plugins.push_back(std::move(manifest));
-        }
+            if (ParsePluginManifest(entry.path(), root, &manifest, &result.diagnostics)) {
+                // Installed manifests decide what is selectable. Development source
+                // may update only the matching bundled schema.
+                overlay_development_schema(&manifest);
+                result.plugins.push_back(std::move(manifest));
+            }
+        };
+        for (const auto &entry : fs::directory_iterator(root, error)) visit(entry);
         std::sort(result.plugins.begin(), result.plugins.end(), [](const auto &left, const auto &right) { return left.id < right.id; });
         for (size_t i = 1; i < result.plugins.size(); ++i) {
             if (result.plugins[i - 1].id == result.plugins[i].id) {
@@ -1380,6 +1853,127 @@ namespace smedley::launcher
         }
         std::sort(result.mods.begin(), result.mods.end(), [](const auto &left, const auto &right) { return left.descriptor_path.filename() < right.descriptor_path.filename(); });
         return result;
+    }
+
+    std::optional<int> EncodeClausewitzDate(const ClausewitzDate &date)
+    {
+        static constexpr std::array<unsigned, 12> days_in_month = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+        if (date.month < 1 || date.month > days_in_month.size() || date.day < 1 || date.day > days_in_month[date.month - 1]) return std::nullopt;
+        int64_t days = (static_cast<int64_t>(date.year) + 5000) * 365;
+        for (unsigned month = 1; month < date.month; ++month) days += days_in_month[month - 1];
+        days += date.day - 1;
+        const int64_t raw = days * 24;
+        if (raw < (std::numeric_limits<int>::min)() || raw > (std::numeric_limits<int>::max)()) return std::nullopt;
+        return static_cast<int>(raw);
+    }
+
+    std::optional<ClausewitzDate> DecodeClausewitzDate(int raw_date)
+    {
+        if (raw_date % 24 != 0) return std::nullopt;
+        static constexpr std::array<unsigned, 12> days_in_month = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+        int64_t days = raw_date / 24;
+        int64_t year_offset = days / 365;
+        if (days < 0 && days % 365 != 0) --year_offset;
+        const int64_t day_of_year = days - year_offset * 365;
+        const int64_t year = year_offset - 5000;
+        if (year < (std::numeric_limits<int>::min)() || year > (std::numeric_limits<int>::max)()) return std::nullopt;
+        unsigned month = 1;
+        int64_t remaining = day_of_year;
+        for (const auto length : days_in_month) {
+            if (remaining < length) return ClausewitzDate{static_cast<int>(year), month, static_cast<unsigned>(remaining + 1)};
+            remaining -= length;
+            ++month;
+        }
+        return std::nullopt;
+    }
+
+    std::optional<ClausewitzDate> ParseClausewitzDate(const std::string &text)
+    {
+        if (text.size() < 10 || text[2] != '-' || text[5] != '-') return std::nullopt;
+        const auto decimal = [](char character) { return character >= '0' && character <= '9'; };
+        if (!decimal(text[0]) || !decimal(text[1]) || !decimal(text[3]) || !decimal(text[4])) return std::nullopt;
+        int year = 0;
+        const auto result = std::from_chars(text.data() + 6, text.data() + text.size(), year);
+        if (result.ec != std::errc{} || result.ptr != text.data() + text.size()) return std::nullopt;
+        const ClausewitzDate date{year, static_cast<unsigned>((text[3] - '0') * 10 + text[4] - '0'),
+                                  static_cast<unsigned>((text[0] - '0') * 10 + text[1] - '0')};
+        return EncodeClausewitzDate(date) ? std::optional<ClausewitzDate>(date) : std::nullopt;
+    }
+
+    std::string FormatClausewitzDate(const ClausewitzDate &date)
+    {
+        if (!EncodeClausewitzDate(date)) return {};
+        char result[32];
+        std::snprintf(result, sizeof(result), "%02u-%02u-%d", date.day, date.month, date.year);
+        return result;
+    }
+
+    FileDiscovery DiscoverFiles(const fs::path &game_dir, const fs::path &relative_root,
+                                const std::vector<std::string> &extensions)
+    {
+        FileDiscovery result;
+        const auto game_root = Absolute(game_dir);
+        if (relative_root.empty() || relative_root.is_absolute() || relative_root.has_root_directory()
+            || relative_root.has_root_name() || ContainsParentTraversal(relative_root)) {
+            AddDiagnostic(&result.diagnostics, "file.discovery_root", "discovery root must be a safe path below GAME_DIR", relative_root);
+            return result;
+        }
+        const auto root = Absolute(game_root / relative_root);
+        if (!IsPathContained(game_root, root)) {
+            AddDiagnostic(&result.diagnostics, "file.discovery_root", "discovery root must be inside GAME_DIR", root);
+            return result;
+        }
+        std::error_code error;
+        if (!fs::is_directory(root, error)) {
+            AddWarning(&result.diagnostics, "file.discovery_missing", "configured discovery directory does not exist", root);
+            return result;
+        }
+        for (fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, error), end; it != end; it.increment(error)) {
+            if (error) {
+                AddWarning(&result.diagnostics, "file.discovery", error.message(), root);
+                error.clear();
+                continue;
+            }
+            const auto path = it->path();
+            const DWORD attributes = GetFileAttributesW(path.c_str());
+            if (attributes == INVALID_FILE_ATTRIBUTES || (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 || !it->is_regular_file(error)) continue;
+            const auto extension = path.extension().u8string();
+            if (std::find(extensions.begin(), extensions.end(), extension) == extensions.end()) continue;
+            if (!IsPathContained(root, Absolute(path))) continue;
+            result.files.push_back(fs::relative(path, game_root, error).lexically_normal());
+            if (error) error.clear();
+        }
+        std::sort(result.files.begin(), result.files.end(), [](const auto &left, const auto &right) { return left.generic_u8string() < right.generic_u8string(); });
+        return result;
+    }
+
+    const std::vector<TelemetryCaptureFamily> &TelemetryCaptureFamilies()
+    {
+        static const std::vector<TelemetryCaptureFamily> families = {
+            {"world.daily", {"country_slot_count", "ai_scheduler_entry_count", "human_control_present"}},
+            {"world.economy", {"health", "capacity", "holdings", "credit"}},
+            {"world.military", {"ongoing_war_count_candidate"}},
+            {"country.daily", {"treasury_raw", "treasury"}, true},
+            {"country.metrics", {"power", "politics"}, true},
+            {"country.economy", {"totals", "components", "per_capita"}, true},
+            {"country.military", {"unit_count_candidate", "mobilized_candidate", "scheduled_mobilization_count_candidate", "leadership_candidate_raw", "military_ranking_candidate"}, true},
+            {"country.diplomacy", {"status", "relations"}, true},
+            {"state.factory", {"identity", "employment", "production", "finance", "inputs", "flows", "sales"}, true},
+            {"world.market", {"price", "supply", "demand", "sales"}},
+            {"province.daily", {"owner_tag_candidate", "controller_tag_candidate", "colonial_level_candidate", "life_rating_candidate", "infrastructure_candidate_raw"}, true, true},
+            {"province.production", {"building_slot_count_candidate", "construction_count_candidate"}, false, true},
+            {"province.rgo", {"identity", "employment", "production", "finance", "modifiers", "sales"}, true, true},
+            {"pop.artisan", {"identity", "production", "inputs", "finance", "flows", "sales"}, true, true},
+            {"pop.economy", {"money_raw", "savings_raw", "interest_cash_flow_raw", "total_cash_flow_raw"}, true, true},
+            {"pop.demographics", {"size_candidate", "employed_candidate", "consciousness_candidate_raw", "militancy_candidate_raw", "literacy_candidate_raw"}, true, true},
+            {"pop.identity", {"pop_type_tag_candidate", "culture_tag_candidate", "religion_tag_candidate"}, true, true},
+            {"pop.needs", {"life_satisfaction_candidate_raw", "everyday_satisfaction_candidate_raw", "luxury_satisfaction_candidate_raw"}, true, true},
+            {"pop.aggregate", {"pop_count", "size_candidate", "employed_candidate", "money_raw", "savings_raw"}, true, true},
+            {"pop.lifecycle", {"summary", "appeared", "disappeared", "scope_changed"}, true, true, true},
+            {"pop.cashflow", {"summary", "account", "components"}, true, true, true},
+            {"pop.cashflow.aggregate", {"summary", "account", "components"}, true, false, true},
+        };
+        return families;
     }
 
     bool LoadProfile(const fs::path &path, Profile *profile, std::vector<Diagnostic> *diagnostics)
@@ -1734,6 +2328,223 @@ namespace smedley::launcher
         return true;
     }
 
+    PluginSettings ResolvePluginSettings(const PluginManifest &manifest, const Profile &profile)
+    {
+        PluginSettings settings;
+        if (!SupportsPluginSettings(manifest)) return settings;
+        for (const auto &field : manifest.settings.fields) {
+            PluginSetting setting{field.key, std::nullopt};
+            if (manifest.id == "campaign_runner") {
+                if (field.key == "save" && profile.save) setting.value = *profile.save;
+                else if (field.key == "observer") setting.value = profile.observer;
+                else if (field.key == "view_tag" && profile.view_tag) setting.value = WideToUtf8(*profile.view_tag);
+                else if (field.key == "speed") setting.value = static_cast<std::int64_t>(profile.speed);
+                else if (field.key == "start_paused") setting.value = profile.start_paused;
+                else if (field.key == "run_days" && profile.run_days) setting.value = static_cast<std::int64_t>(*profile.run_days);
+                else if (field.key == "run_until_date_raw" && profile.run_until_date_raw) setting.value = static_cast<std::int64_t>(*profile.run_until_date_raw);
+                else if (field.key == "quit_after_run") setting.value = profile.quit_after_run;
+                else if (field.key == "run_timeout_seconds") setting.value = static_cast<std::int64_t>(profile.run_timeout_seconds);
+            } else if (manifest.id == "telemetry") {
+                if (field.key == "enabled") setting.value = profile.telemetry_enabled;
+                else if (field.key == "output" && profile.telemetry_output) setting.value = *profile.telemetry_output;
+                else if (field.key == "categories") setting.value = profile.telemetry_categories;
+                else if (field.key == "country_tags") setting.value = profile.telemetry_country_tags;
+                else if (field.key == "start_date_raw" && profile.telemetry_start_date_raw) setting.value = static_cast<std::int64_t>(*profile.telemetry_start_date_raw);
+                else if (field.key == "end_date_raw" && profile.telemetry_end_date_raw) setting.value = static_cast<std::int64_t>(*profile.telemetry_end_date_raw);
+                else if (field.key == "sample_days") setting.value = static_cast<std::int64_t>(profile.telemetry_sample_days);
+                else if (field.key == "queue_capacity") setting.value = static_cast<std::int64_t>(profile.telemetry_queue_capacity);
+                else if (field.key == "overwrite") setting.value = profile.telemetry_overwrite;
+                else if (field.key == "gold_to_cash_rate" && profile.telemetry_gold_to_cash_rate) setting.value = *profile.telemetry_gold_to_cash_rate;
+                else if (field.key == "captures") setting.value = profile.telemetry_captures;
+            } else if (manifest.id == "scripting") {
+                if (field.key == "scripts") setting.value = profile.scripts;
+                else if (field.key == "instruction_budget") setting.value = static_cast<std::int64_t>(profile.script_instruction_budget);
+                else if (field.key == "memory_bytes") setting.value = static_cast<std::int64_t>(profile.script_memory_bytes);
+                else if (field.key == "queue_capacity") setting.value = static_cast<std::int64_t>(profile.script_queue_capacity);
+            }
+            settings.push_back(std::move(setting));
+        }
+        return settings;
+    }
+
+    bool SupportsPluginSettings(const PluginManifest &manifest)
+    {
+        return manifest.id == "campaign_runner" || manifest.id == "telemetry" || manifest.id == "scripting"
+            || manifest.id == "interest_bug_fix";
+    }
+
+    bool IsPluginSettingValuePresent(const std::optional<PluginSettingValue> &value)
+    {
+        if (!value) return false;
+        if (const auto boolean = std::get_if<bool>(&*value)) return *boolean;
+        if (const auto text = std::get_if<std::string>(&*value)) return !text->empty();
+        if (const auto path = std::get_if<fs::path>(&*value)) return !path->empty();
+        if (const auto strings = std::get_if<std::vector<std::string>>(&*value)) return !strings->empty();
+        if (const auto paths = std::get_if<std::vector<fs::path>>(&*value)) return !paths->empty();
+        if (const auto rules = std::get_if<std::vector<TelemetryCaptureRule>>(&*value)) return !rules->empty();
+        return true;
+    }
+
+    bool ApplyPluginSettings(const PluginManifest &manifest, const PluginSettings &settings, Profile *profile,
+                             std::vector<Diagnostic> *diagnostics)
+    {
+        if (profile == nullptr) {
+            AddDiagnostic(diagnostics, "plugin.settings_apply", "profile is required");
+            return false;
+        }
+        if (!SupportsPluginSettings(manifest)) {
+            if (settings.empty()) return true;
+            AddDiagnostic(diagnostics, "plugin.settings_unsupported", "profile settings adapter is unavailable for this plugin", manifest.manifest_path);
+            return false;
+        }
+        Profile updated = *profile;
+        Profile *const destination = profile;
+        profile = &updated;
+        for (size_t index = 0; index < settings.size(); ++index) {
+            const auto &setting = settings[index];
+            const auto field = std::find_if(manifest.settings.fields.begin(), manifest.settings.fields.end(), [&](const auto &candidate) {
+                return candidate.key == setting.key;
+            });
+            if (setting.key.empty() || field == manifest.settings.fields.end()
+                || std::any_of(settings.begin(), settings.begin() + index, [&](const auto &earlier) { return earlier.key == setting.key; })
+                || (!setting.value && !field->optional)
+                || (setting.value && !ValidateSettingValue(*field, *setting.value))
+                || (setting.value && (field->type == PluginSettingType::Integer || field->type == PluginSettingType::Date)
+                    && (std::get<std::int64_t>(*setting.value) < (std::numeric_limits<int>::min)()
+                        || std::get<std::int64_t>(*setting.value) > (std::numeric_limits<int>::max)()))) {
+                AddDiagnostic(diagnostics, "plugin.settings_apply", "setting key or typed value is invalid", manifest.manifest_path);
+                return false;
+            }
+        }
+        const auto resolved = ResolvePluginSettings(manifest, updated);
+        const auto value_for = [&](const PluginSettingField &field) -> std::optional<PluginSettingValue> {
+            const auto supplied = std::find_if(settings.begin(), settings.end(), [&](const auto &setting) {
+                return setting.key == field.key;
+            });
+            if (supplied != settings.end()) return supplied->value;
+            const auto existing = std::find_if(resolved.begin(), resolved.end(), [&](const auto &setting) {
+                return setting.key == field.key;
+            });
+            return existing == resolved.end() || !existing->value ? field.default_value : existing->value;
+        };
+        const auto condition_matches = [&](const PluginSettingCondition &condition) {
+            const auto field = std::find_if(manifest.settings.fields.begin(), manifest.settings.fields.end(), [&](const auto &candidate) {
+                return candidate.key == condition.key;
+            });
+            if (field == manifest.settings.fields.end()) return false;
+            const auto value = value_for(*field);
+            return condition.kind == PluginSettingConditionKind::Present
+                ? IsPluginSettingValuePresent(value) : value && condition.value && *value == *condition.value;
+        };
+        for (const auto &field : manifest.settings.fields) {
+            if ((!field.optional || (field.required_when && condition_matches(*field.required_when))) && !value_for(field)) {
+                AddDiagnostic(diagnostics, "plugin.settings_required", "a required setting is missing", manifest.manifest_path);
+                return false;
+            }
+        }
+        for (const auto &constraint : manifest.settings.constraints) {
+            const auto key_value = [&](const std::string &key) -> std::optional<PluginSettingValue> {
+                const auto field = std::find_if(manifest.settings.fields.begin(), manifest.settings.fields.end(), [&](const auto &candidate) {
+                    return candidate.key == key;
+                });
+                return field == manifest.settings.fields.end() ? std::nullopt : value_for(*field);
+            };
+            const auto message = constraint.message.empty() ? "plugin settings constraint is not satisfied" : constraint.message;
+            if (constraint.kind == PluginSettingConstraintKind::MutuallyExclusive) {
+                const auto count = std::count_if(constraint.keys.begin(), constraint.keys.end(), [&](const auto &key) {
+                    return IsPluginSettingValuePresent(key_value(key));
+                });
+                if (count > 1) {
+                    AddDiagnostic(diagnostics, "plugin.settings_constraint", message, manifest.manifest_path);
+                    return false;
+                }
+            } else if (IsPluginSettingValuePresent(key_value(constraint.key)) && !std::any_of(constraint.keys.begin(), constraint.keys.end(), [&](const auto &key) {
+                return IsPluginSettingValuePresent(key_value(key));
+            })) {
+                AddDiagnostic(diagnostics, "plugin.settings_constraint", message, manifest.manifest_path);
+                return false;
+            }
+        }
+        for (size_t index = 0; index < settings.size(); ++index) {
+            const auto &setting = settings[index];
+            const auto field = std::find_if(manifest.settings.fields.begin(), manifest.settings.fields.end(), [&](const auto &candidate) {
+                return candidate.key == setting.key;
+            });
+            if (setting.key.empty() || field == manifest.settings.fields.end()
+                || std::any_of(settings.begin(), settings.begin() + index, [&](const auto &earlier) { return earlier.key == setting.key; })
+                || (!setting.value && !field->optional)
+                || (setting.value && !ValidateSettingValue(*field, *setting.value))
+                || (setting.value && (field->type == PluginSettingType::Integer || field->type == PluginSettingType::Date)
+                    && (std::get<std::int64_t>(*setting.value) < (std::numeric_limits<int>::min)()
+                        || std::get<std::int64_t>(*setting.value) > (std::numeric_limits<int>::max)()))) {
+                AddDiagnostic(diagnostics, "plugin.settings_apply", "setting key or typed value is invalid", manifest.manifest_path);
+                return false;
+            }
+            if (!setting.value) {
+                if (manifest.id == "campaign_runner") {
+                    if (setting.key == "save") profile->save.reset();
+                    else if (setting.key == "view_tag") profile->view_tag.reset();
+                    else if (setting.key == "run_days") profile->run_days.reset();
+                    else if (setting.key == "run_until_date_raw") profile->run_until_date_raw.reset();
+                } else if (manifest.id == "telemetry") {
+                    if (setting.key == "output") profile->telemetry_output.reset();
+                    else if (setting.key == "start_date_raw") profile->telemetry_start_date_raw.reset();
+                    else if (setting.key == "end_date_raw") profile->telemetry_end_date_raw.reset();
+                    else if (setting.key == "gold_to_cash_rate") profile->telemetry_gold_to_cash_rate.reset();
+                }
+                continue;
+            }
+            const auto &value = *setting.value;
+            bool applied = false;
+            if (manifest.id == "campaign_runner") {
+                if (setting.key == "save") { profile->save = std::get<fs::path>(value); applied = true; }
+                else if (setting.key == "observer") { profile->observer = std::get<bool>(value); applied = true; }
+                else if (setting.key == "view_tag") {
+                    const auto tag = Utf8ToWide(std::get<std::string>(value));
+                    if (tag.empty() && !std::get<std::string>(value).empty()) {
+                        AddDiagnostic(diagnostics, "plugin.settings_apply", "view_tag must be valid UTF-8", manifest.manifest_path);
+                        return false;
+                    }
+                    profile->view_tag = tag;
+                    applied = true;
+                } else if (setting.key == "speed") { profile->speed = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
+                else if (setting.key == "start_paused") { profile->start_paused = std::get<bool>(value); applied = true; }
+                else if (setting.key == "run_days") { profile->run_days = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
+                else if (setting.key == "run_until_date_raw") { profile->run_until_date_raw = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
+                else if (setting.key == "quit_after_run") { profile->quit_after_run = std::get<bool>(value); applied = true; }
+                else if (setting.key == "run_timeout_seconds") { profile->run_timeout_seconds = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
+            } else if (manifest.id == "telemetry") {
+                if (setting.key == "enabled") { profile->telemetry_enabled = std::get<bool>(value); applied = true; }
+                else if (setting.key == "output") { profile->telemetry_output = std::get<fs::path>(value); applied = true; }
+                else if (setting.key == "categories") { profile->telemetry_categories = std::get<std::vector<std::string>>(value); applied = true; }
+                else if (setting.key == "country_tags") { profile->telemetry_country_tags = std::get<std::vector<std::string>>(value); applied = true; }
+                else if (setting.key == "start_date_raw") { profile->telemetry_start_date_raw = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
+                else if (setting.key == "end_date_raw") { profile->telemetry_end_date_raw = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
+                else if (setting.key == "sample_days") { profile->telemetry_sample_days = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
+                else if (setting.key == "queue_capacity") { profile->telemetry_queue_capacity = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
+                else if (setting.key == "overwrite") { profile->telemetry_overwrite = std::get<bool>(value); applied = true; }
+                else if (setting.key == "gold_to_cash_rate") { profile->telemetry_gold_to_cash_rate = std::get<double>(value); applied = true; }
+                else if (setting.key == "captures") { profile->telemetry_captures = std::get<std::vector<TelemetryCaptureRule>>(value); applied = true; }
+            } else if (manifest.id == "scripting") {
+                if (setting.key == "scripts") { profile->scripts = std::get<std::vector<fs::path>>(value); applied = true; }
+                else if (setting.key == "instruction_budget") { profile->script_instruction_budget = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
+                else if (setting.key == "memory_bytes") { profile->script_memory_bytes = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
+                else if (setting.key == "queue_capacity") { profile->script_queue_capacity = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
+            }
+            if (!applied) {
+                AddDiagnostic(diagnostics, "plugin.settings_unsupported", "setting is not mapped by this built-in profile adapter", manifest.manifest_path);
+                return false;
+            }
+        }
+        if ((manifest.id == "campaign_runner" && !ValidateRunProfile(updated, diagnostics, manifest.manifest_path))
+            || (manifest.id == "telemetry" && !ValidateTelemetryProfile(updated, diagnostics, manifest.manifest_path))
+            || (manifest.id == "scripting" && !ValidateScriptingProfile(updated, diagnostics, manifest.manifest_path))) {
+            return false;
+        }
+        *destination = std::move(updated);
+        return true;
+    }
+
     std::wstring QuoteWindowsArgument(const std::wstring &argument)
     {
         if (!argument.empty() && argument.find_first_of(L" \t\n\v\"") == std::wstring::npos) return argument;
@@ -1807,7 +2618,9 @@ namespace smedley::launcher
                     AddDiagnostic(&plan.diagnostics, "mod.descriptor_missing", "selected mod descriptor does not exist", descriptor_path);
                     continue;
                 }
-                if (std::find(selected_descriptors.begin(), selected_descriptors.end(), descriptor_path) != selected_descriptors.end()) {
+                if (std::any_of(selected_descriptors.begin(), selected_descriptors.end(), [&](const auto &existing) {
+                    return PathsEqualCaseInsensitive(existing, descriptor_path);
+                })) {
                     AddDiagnostic(&plan.diagnostics, "mod.duplicate", "mod descriptor was selected more than once", descriptor_path);
                     continue;
                 }

@@ -27,14 +27,14 @@ speed = 5 # optional; 1 through 5, applied after unattended save loading
 start_paused = false # optional; requires a save and campaign_runner; incompatible with observer
 detach = false
 run_days = 365 # optional; 1 through 1000000, mutually exclusive with run_until_date_raw
-run_until_date_raw = 123456 # optional signed int raw-date target
+run_until_date_raw = 123456 # optional legacy raw-date target; GUI displays DD-MM-YYYY
 quit_after_run = false # optional; native exit only after successful exact-target completion
 run_timeout_seconds = 600 # persisted default; used only when a run target exists, 1 through 86400
 telemetry_enabled = false
 telemetry_output = "C:\\traces\\gfm.jsonl" # optional; default is per-run under %LOCALAPPDATA%
 telemetry_categories = ["lifecycle", "state"] # lifecycle, state, or both
-telemetry_sample_days = 1 # 1 through 365
-telemetry_queue_capacity = 1024 # 64 through 32768
+telemetry_sample_days = 1 # legacy state sample interval, 1 through 365
+telemetry_queue_capacity = 1024 # 64 through 32768 fixed record slots
 telemetry_gold_to_cash_rate = 0.5 # required by country.economy
 telemetry_overwrite = false # required to replace an existing .jsonl file
 scripts = ["scripts/examples/country_log.lua"] # optional Lua source under GAME_DIR/scripts
@@ -140,21 +140,23 @@ as a history diagnostic without hiding other records.
 
 `smedley_launcher.exe` is installed beside the other Smedley binaries when
 `cmake --install` targets the configured game directory. It provides file and
-folder browse dialogs for profile, game, and save paths; a single optional mod;
-and a checkable list of discovered native plugins. `Refresh` rediscovers mods
-and plugins while preserving valid selections. The diagnostics panel contains
-both discovery and preflight messages, and Launch remains disabled while the
-shared preflight reports an error.
+folder browse dialogs for profile and game paths; an ordered, checkable list of
+mods; and a checkable list of discovered native plugins. The main window is
+intentionally launch-focused: profile file/name, game directory, mods, trusted
+plugin list, safe mode, compact diagnostics, recent runs, and Launch. `Refresh`
+rediscovers mods and plugins while preserving selections and mod order. Launch
+remains disabled while shared preflight reports an error.
 
 Installation provides four bundled plugin manifests: `campaign_runner`,
 `interest_bug_fix`, `telemetry`, and `scripting`. It removes retired bundled
 plugin DLLs and manifests rather than leaving them discoverable. The native
 plugin build contains no standalone POP-money probe.
 
-The profile schema and CLI can represent multiple mods, but the current GUI
-offers one mod selector. Loading a multi-mod profile preserves every path and
-blocks launch until the user explicitly replaces that selection with one mod;
-it never silently drops hidden mod or plugin paths.
+The mod list shows each mod's name and descriptor. Checked entries launch in
+displayed order; use **Move Up** and **Move Down** to choose the profile order,
+because the launcher core emits Victoria II mod arguments in that order.
+Unavailable selected descriptors remain checked and visible until they are
+unchecked, so loading or refreshing never silently drops them.
 
 Safe mode starts the verified game without injection. Plugin DLLs are native
 code and are not sandboxed. GUI launches are detached and report either the
@@ -163,18 +165,50 @@ schema as the CLI. A loaded profile's `kernel` and `detach` values are preserved
 when saving; GUI launches themselves are always detached so the launcher stays
 responsive. **Recent runs** opens the shared local history rather than keeping a
 separate GUI-only list.
+Saving rewrites the canonical documented profile schema; unknown TOML keys are
+not preserved.
 
-The GUI includes telemetry enablement, an optional JSON Lines output browse
-field, a compact category selector (`Lifecycle + state`, `Lifecycle only`, or
-`State only`), sample-days input, queue-capacity input, and overwrite checkbox.
-These controls build the same profile and use the same preflight as the CLI.
-The GUI preserves explicit capture rules loaded from a profile and launches
-them, but it does not yet provide a rule editor. Edit rules in TOML or replace
-them with CLI `--telemetry-capture` options.
+**Options...** opens one page for every discovered plugin. Pages are generated
+from the manifest's `[settings]` schema, including labels, help, defaults,
+numeric bounds, choices, visibility and required conditions. The window renders
+boolean, integer, number, string, enum, multi-enum, file, directory, human date,
+file-list, and bounded object-list fields. Human dates use `DD-MM-YYYY`; profile
+and plugin command-line raw integers remain compatible. A raw integer that cannot
+be decoded as a calendar date is shown as `raw: <value>` and remains unchanged
+unless it is edited or cleared. File and directory fields
+have browse controls. Script lists discover regular `.lua` files recursively under
+`GAME_DIR/scripts`, retain unavailable selected entries visibly, and permit manual
+addition. The page content has a vertical scrollbar; basic visible fields appear
+before **Show advanced settings**, followed by advanced fields when selected.
+Plugins without advanced fields do not show that control.
 
-The GUI preserves and launches script paths and limits loaded from a profile.
-Adding or removing scripts currently uses the profile file or CLI; the GUI does
-not yet provide a script list editor.
+Plugin selection remains in the main window because selecting a native DLL is a
+separate trust decision. Options explains this inline and disables a page until
+that plugin is selected and Safe mode is off. A telemetry `enabled` value without
+the selected telemetry plugin is therefore a visible preflight error, never a
+silent partial configuration. Each edit is applied through the launcher core's
+profile adapter; the GUI does not map built-in setting keys itself.
+Third-party settings schemas are displayed read-only until a profile adapter is
+available.
+
+Plugins with no fields state that selection enables the plugin and that it has
+no configurable settings. The telemetry capture-rule editor adds, edits, and
+removes the fixed `telemetry_capture_v1` rules. Rows summarize family, cadence,
+fields, country/province filters, and date bounds; shared preflight reports all
+family, category, cadence, and filter constraints. An empty telemetry output
+resolves during launch to `%LOCALAPPDATA%\Smedley\traces\<run-id>.jsonl`; the
+resolved path is recorded in run history and metadata rather than written into
+the Options field.
+The canonical draft profile preserves capture rules, kernel, detach,
+ordered multi-mod selections, and unavailable selected plugin paths.
+
+Development builds discover installed `GAME_DIR/plugins/*.toml` manifests first.
+For an installed bundled manifest with the same stable ID and module name, the
+source-tree manifest may supply the newer Options schema. Third-party manifests
+remain installed-authoritative and visible, and source-only manifests are never
+made selectable. `cmake --install` installs each bundled manifest with its DLL;
+rerun it after updating Smedley so the game's runtime manifest schema matches
+the launcher and plugin binaries.
 
 The current profile API supports unattended save loading, observer mode, an
 optional observer view tag, an initial speed from 1 through 5, and a
@@ -198,13 +232,13 @@ watchdog instead of reporting `unexpected_pause` first.
 | Control | Requirements and behavior |
 | --- | --- |
 | Non-default run controls | Require a save and the `campaign_runner` plugin. |
-| `run_days` or `run_until_date_raw` | Request a bounded benchmark interval. Require injection, a selected save, `campaign_runner`, `start_paused = false`, and `detach = true`. Safe mode warns that stale targets are ignored. |
+| `run_days` or run-until date | Request a bounded benchmark interval. Require injection, a selected save, `campaign_runner`, `start_paused = false`, and `detach = true`. Safe mode warns that stale targets are ignored. |
 | `quit_after_run` | Requires a bounded run target. After exact-target completion, attempts to queue `benchmark.completed`, then invokes the optional telemetry drain with one five-second deadline. Completed telemetry permits Victoria II's verified native quit. Unavailable telemetry also permits quit for absent or legacy sinks, without a final-summary or durability guarantee. Busy, timeout, drain failure, native-request validation failure, or request-state readback failure leaves the campaign paused and open. It never applies to failed runs. See [telemetry lifecycle](telemetry.md#native-extension-abi-and-lifecycle). |
 | `view_tag` with a run target | Rejected because the view switch is asynchronous after simulation resumes. Observer mode itself remains optional. |
 | Custom timeout without a target | Inert and produces a preflight warning. It neither requires campaign automation nor reaches the plugin. |
 
-The GUI exposes Run days, Run target raw, Timeout seconds, and **Quit after
-successful bounded run** through the same preflight.
+The campaign page exposes Run days, Run until date (`DD-MM-YYYY`), Timeout seconds, and
+**Quit after successful bounded run** through the same preflight.
 
 When one selected mod declares a safe `user_dir`, save preflight and run-record
 links use that mod-specific `save games` and log directory. Multiple distinct
@@ -222,9 +256,9 @@ absent telemetry does not block native exit.
 ## Current limits
 
 The core resolves exact plugin IDs listed in optional `dependencies` and
-`conflicts` arrays. It does not yet resolve version ranges, write plugin
-settings beyond the built-in telemetry and scripting contracts, or validate
-game/mod runtime behavior.
+`conflicts` arrays. It does not yet resolve version ranges or validate game/mod
+runtime behavior. A third-party settings page can render any supported schema,
+but it needs a profile adapter before edits can be persisted and launched.
 It only accepts the one verified executable identity and x86 PE kernel/plugin
 DLLs. No-injection and injected launches still require the same verified game.
 The pre-annexation observer handoff is mapped only for that supported

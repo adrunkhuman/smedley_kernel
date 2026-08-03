@@ -44,11 +44,12 @@ than 1 MiB. At most 16 scripts may be selected. The limits apply as follows:
 | `script_memory_bytes` | 262,144 to 67,108,864 | Allocator cap for each independent script state |
 | `script_queue_capacity` | 16 to 4,096 | Shared copied-event slots between the game and script worker |
 
-The equivalent CLI options are `--script`,
+The launcher Options page discovers regular `.lua` files recursively under
+`GAME_DIR/scripts` in deterministic relative-path order. It preserves selected
+files that have become unavailable visibly, and its normal selection list is
+checkable; **Add** remains available for an allowed file. The equivalent CLI options are `--script`,
 `--script-instruction-budget`, `--script-memory-bytes`, and
-`--script-queue-capacity`. `--script` may be repeated. The native GUI preserves
-script fields loaded from a profile; edit the profile or use the CLI to add and
-remove scripts in this first scripting release.
+`--script-queue-capacity`. `--script` may be repeated.
 
 Preflight rejects traversal, missing files, duplicate paths, wrong extensions,
 oversized files, invalid limits, or scripts selected without the `scripting`
