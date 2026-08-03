@@ -222,6 +222,34 @@ the speed-5 application-service interval.
   and lifetime are proven.
 - Keep observational hooks non-mutating until their semantics are verified.
 
+## Foreign Engine Objects
+
+- A code signature validates a code location, not the identity, layout, or
+  lifetime of data reached through that code. Never use a matching hook
+  signature as the sole justification for an object-field mutation.
+- Before accessing a field through a mapped offset, establish the supported
+  executable, current object identity, lifecycle phase, owning thread,
+  readable or writable span, and field-specific invariants. A readable pointer
+  is not proof that it names the expected object.
+- Validate foreign container and string metadata from a bounded raw snapshot
+  before calling methods such as `size()`, `c_str()`, iterators, or virtual
+  functions. Treat malformed but readable metadata as invalid.
+- Treat ABI mirror types as non-owning views unless ownership is explicitly
+  established. Do not add general destructors or copy semantics that could
+  release engine-owned memory.
+- Do not placement-construct over a live engine object unless a native mutation
+  function is unavailable, the previous state is proven not to own resources,
+  and all potentially failing preparation completes before the old lifetime
+  ends.
+- Mutation must fail closed. Validate preconditions before the first write,
+  perform the smallest possible mutation, verify semantic postconditions, and
+  stop automation if identity or state changes during the operation.
+- Retained engine pointers require a verified invalidation boundary, such as a
+  destructor hook or observable phase transition. Clear them before native
+  storage is released.
+- Separate borrowed engine-layout views from locally owned argument objects.
+  Never use an ABI container mirror as a general-purpose C++ container.
+
 Make `DllMain` minimal. Perform initialization through an explicit exported
 entry point after the loader lock is released. Catch plugin failures at the
 kernel boundary and preserve a useful diagnostic whenever safe recovery is
