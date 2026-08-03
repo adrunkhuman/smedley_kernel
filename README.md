@@ -78,6 +78,9 @@ country, and verifies each transition against live game state. If that country
 is annexed, the supported 3.04 executable moves the camera to another living AI
 country before game-over evaluation without changing country ownership or AI
 scheduling. A timer-driven fallback handles other country disappearances.
+Frontend validation failures stop automation rather than guessing at object
+state or falling back to synthetic input. Automated return to menu and repeated
+campaign loads within one process are not currently supported.
 
 It also has bounded fixed-date benchmark runs: `--run-days 365 --detach` resumes
 a configured campaign, pauses it at the exact target date, and reports typed

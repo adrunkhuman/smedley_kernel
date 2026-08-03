@@ -6,6 +6,17 @@
 
 namespace
 {
+    class SingleArgument final : public smedley::sstd::vector<smedley::sstd::string>
+    {
+    public:
+        explicit SingleArgument(smedley::sstd::string *argument)
+        {
+            _first = argument;
+            _last = argument + 1;
+            _end = _last;
+        }
+    };
+
     smedley::v2::CConsoleCmd::SResult HandleTestCommand(
         const smedley::sstd::vector<smedley::sstd::string> &arguments)
     {
@@ -29,8 +40,8 @@ TEST(ConsoleCommandManagerTest, FindsAndExecutesNativeCommandMetadata)
     ASSERT_EQ(manager.FindCommand("switch"), &command);
     ASSERT_EQ(manager.FindCommand("missing"), nullptr);
 
-    smedley::sstd::vector<smedley::sstd::string> arguments;
-    arguments.push_back(smedley::sstd::string("ENG"));
+    smedley::sstd::string argument("ENG");
+    SingleArgument arguments(&argument);
     const auto result = manager.ExecuteCommand("tag", arguments);
     ASSERT_TRUE(result.success);
     ASSERT_STREQ(result.message.c_str(), "ok");

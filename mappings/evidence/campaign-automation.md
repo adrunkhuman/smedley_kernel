@@ -9,15 +9,20 @@ handlers run; the harness dispatches native GUI signals rather than coordinates.
 1. The launcher starts Victoria 2 suspended, injects Smedley and
    `campaign_runner`, then resumes the game.
 2. Constructor hooks capture the main-menu controller (RVA `0x354a00`) and
-   Single Player controller (RVA `0x36a2f0`).
+   Single Player controller (RVA `0x36a2f0`). Their primary vtables are
+   `0xa13dbc` and `0xa14ed0`; scalar deleting destructors at `0x354df0` and
+   `0x36b030` invalidate the captures before object storage is released.
 3. Ten seconds after the Single Player controller appears, the plugin resolves
    `mainmenu_panel/single_player_button` through the main controller's GUI
-   registry at `+0x704`.
+   registry at `+0x704`. Native main-menu update RVA `0x354f90` independently
+   performs the same registry `+0x6c` and returned-panel `+0x34` lookups.
 4. Native press and release dispatchers at RVAs `0x5ee510` and `0x5ee550`
    enter the Single Player lobby.
 5. The plugin confirms the requested save filename is present at `+0x590`,
-   constructing it only when that game string is empty; it rejects a different
-   existing value. It then sets `+0x5bc=1` and `+0x5bd=0`.
+   constructing it only from the canonical empty inline-string state; it rejects
+   malformed metadata or a different existing value. The controller's GUI
+   registry and lookup target must also remain valid. It then sets `+0x5bc=1`
+   and `+0x5bd=0` and reads both fields back.
 6. Victoria 2's normal lobby update calls `CCurrentGameState::LoadSave` from
    call RVA `0x36f8b3`, performs its complete post-load contract, clears
    `+0x5bc`, and sets `+0x5bd`.
@@ -180,13 +185,12 @@ exceed 100 percent because Windows sums process CPU time across threads. The
 source save again retained SHA-256
 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 
-GFM preflight resolves the installed descriptor's `user_dir = "GFM"` and accepts
-a save beneath that mod-specific `save games` directory. Runtime compatibility
-is not yet established: the only available candidate was a copied vanilla save,
-not a GFM-authored fixture, and runs `2ee97720-b85b-4616-9749-b59ad9e04e90` and
-`26e16827-a6a2-45e1-84f9-963ce6f80460` never reached the verified
-`CInGameIdler` transition. The source save retained SHA-256
-`662425a530dfacfb8e90fce73aa0555464cfd3803c036cb23c34423a252a571d`.
+Earlier GFM probes `2ee97720-b85b-4616-9749-b59ad9e04e90` and
+`26e16827-a6a2-45e1-84f9-963ce6f80460` used a copied vanilla save and never
+reached the verified `CInGameIdler` transition. They establish only that
+preflight resolved the descriptor's `user_dir = "GFM"`. The later GFM-authored
+fixture in the compatibility acceptance below establishes the current runtime
+boundary.
 
 ## Current boundary
 
@@ -238,7 +242,16 @@ scheduler list.
 
 Structured telemetry can be loaded alongside `campaign_runner` when state
 output is needed. Do not call pause or speed functions based on a non-null
-pointer alone; verify the idler phase first.
+pointer alone; verify the idler phase first. Frontend and main-menu native work
+are each refused unless execution remains on the thread captured by that
+controller's constructor hook.
+Controller pointers are discarded after their known phase transition and at
+plugin shutdown. Destructor hooks also discard a matching capture before the
+native scalar deleting destructor releases storage. The related constructor,
+destructor, annexation, and message hooks install transactionally and roll back
+in reverse order on startup failure. The legacy loader retains plugin modules
+and has no thread-quiescence protocol, so shutdown makes callbacks inert instead
+of racing other game threads to rewrite live executable memory.
 
 ## Lifecycle Telemetry
 
@@ -246,9 +259,10 @@ With an already active optional telemetry plugin, the runner dynamically
 resolves its C ABI and emits `verified-runtime` records after the requested
 save filename is confirmed present and the save flags are written, `+0x5bd`
 observation, RTTI entry readback, observer postconditions,
-speed readback, and final pause readback above. The Win32 timer callback context
-is not independently established as a game UI thread, so telemetry makes no
-thread guarantee. `observer.configured` waits for an observed valid view after
+speed readback, and final pause readback above. The Win32 timer callback is
+required to match the frontend constructor thread, but that correlation does
+not independently identify the thread as the engine's general UI thread.
+`observer.configured` waits for an observed valid view after
 any requested switch. View tags are exactly three normalized uppercase ASCII
 alphanumeric characters, including dynamic tags such as `D01`.
 
@@ -260,3 +274,38 @@ trace `f2d403e1-82f8-46b8-8832-a136c822d38a` advanced 515 game days and
 validated 1,039 strictly ordered records with no sequence gaps, drops, write
 failure, or campaign-runner telemetry warning. This validates the emission
 points; it does not establish a general timer-callback thread contract.
+
+Runtime lifecycle acceptance on August 3, 2026 used run
+`bab8f3b3-e9dd-4eca-8c63-ac391a738637`, unmodded `benchmark.v2`, campaign runner
+only, speed 5, and a one-day bounded run. Exact primary-vtable checks passed for
+both controllers. After native Play dispatch, the frontend destructor hook at
+RVA `0x36b030` and main-menu destructor hook at RVA `0x354df0` both recorded
+phase-release observations before console initialization. The campaign then
+selected speed 5, unpaused, advanced one day, and exited through the native
+bounded-run path. The source save retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
+Compatibility acceptance on August 3, 2026 exercised the hardened path with
+structured telemetry enabled against mapping `v2game-3.04` and executable
+SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648`.
+Every run selected `campaign_runner` and `telemetry`, speed 5, a one-day target,
+and native quit after success:
+
+- unmodded run `a2221287-f1f7-4dbb-95c2-d53aa50aa92d` produced 293 valid
+  records with no gaps, drops, or write failure;
+- observer run `0a1415cd-acd8-4962-867d-f2479028b753` produced 294 valid
+  records, including `observer.configured`, with no gaps, drops, or write
+  failure;
+- GFM run `df59cb6d-e112-43c3-8134-916519d26fea` produced 672 valid records
+  with no gaps, drops, or write failure from descriptor `mod/GFM.mod` (`Greater
+  Flavor Mod`; the descriptor declares no version) and a native GFM save with
+  SHA-256 `276a53c07afc713bb685ded48c64f6a8c5fa13c4539cc70a380fd4347c4f0dad`.
+
+Each run exercised exact controller-vtable checks, bounded save-string metadata,
+save-flag preconditions and postconditions, destructor invalidation, and native
+GUI dispatch. Each advanced exactly one game day and exited through the bounded
+native path. The unmodded and GFM source-save hashes remained unchanged. Destructor
+logging used to establish lifecycle evidence was removed after these probes;
+steady-state destructor callbacks only invalidate matching captures. No native
+return-to-menu operation is mapped, so repeated loads within one process remain
+outside the current acceptance boundary.

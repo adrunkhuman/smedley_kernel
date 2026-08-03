@@ -437,6 +437,44 @@ signature = "55 8b ec 6a ff"
 source = "constructor hook captures object whose +0x704 GUI registry resolves mainmenu_panel/single_player_button"
 
 [[symbols]]
+name = "Single-player frontend controller primary vtable"
+rva = 0x00a14ed0
+kind = "data"
+status = "verified-runtime"
+source = "constructor RVA 0x36a2f0 installs VA 0x00e14ed0 after base construction; runtime run bab8f3b3-e9dd-4eca-8c63-ac391a738637 passed exact vtable validation through save selection and Play"
+
+[[symbols]]
+name = "Single-player frontend controller scalar deleting destructor"
+rva = 0x0036b030
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 56 8b f1"
+source = "first entry of primary vtable RVA 0xa14ed0; run bab8f3b3-e9dd-4eca-8c63-ac391a738637 observed the hook after Play, then entered and advanced the campaign normally"
+
+[[symbols]]
+name = "Main-menu controller primary vtable"
+rva = 0x00a13dbc
+kind = "data"
+status = "verified-runtime"
+source = "constructor RVA 0x354a00 installs VA 0x00e13dbc after base construction; runtime run bab8f3b3-e9dd-4eca-8c63-ac391a738637 passed exact vtable validation before native Single Player dispatch"
+
+[[symbols]]
+name = "Main-menu controller scalar deleting destructor"
+rva = 0x00354df0
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 56 8b f1"
+source = "first entry of primary vtable RVA 0xa13dbc; run bab8f3b3-e9dd-4eca-8c63-ac391a738637 observed the hook after Play, then entered and advanced the campaign normally"
+
+[[symbols]]
+name = "Main-menu controller update"
+rva = 0x00354f90
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 83 e4 f8"
+source = "reads this+0x704, calls GUI registry vtable slot +0x6c with mainmenu_panel, then returned panel slot +0x34 with single_player_button"
+
+[[symbols]]
 name = "Single-player Play listener"
 rva = 0x00372300
 kind = "function"
@@ -651,6 +689,14 @@ fields = [
   { name = "selected_save", offset = 0x0590 },
   { name = "selection_pending", offset = 0x05bc },
   { name = "save_loaded", offset = 0x05bd },
+]
+
+[[layouts]]
+name = "MainMenuController"
+status = "verified-runtime"
+source = "constructor/destructor hooks and native Single Player dispatch; update RVA 0x354f90 statically confirms the lookup sequence"
+fields = [
+  { name = "gui_registry", offset = 0x0704 },
 ]
 
 [[layouts]]

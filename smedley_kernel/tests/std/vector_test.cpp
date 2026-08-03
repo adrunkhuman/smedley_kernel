@@ -38,6 +38,8 @@ TEST(SStdVectorTest, TestPushBack)
     memory::Map::game_heap = GetProcessHeap();
 
     sstd::vector<int> test_vec;
+    ASSERT_EQ(test_vec.size(), 0);
+    ASSERT_EQ(test_vec.capacity(), 0);
     test_vec.push_back(1);
     test_vec.push_back(2);
 

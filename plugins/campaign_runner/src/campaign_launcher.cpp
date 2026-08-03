@@ -10,13 +10,20 @@
 
 #include <psapi.h>
 
+#include <algorithm>
+#include <array>
 #include <cstring>
 #include <cctype>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
+#include <mutex>
 #include <new>
 #include <sstream>
+#include <stdexcept>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace campaign_runner
 {
@@ -25,8 +32,11 @@ namespace campaign_runner
         namespace fs = std::filesystem;
 
         CampaignLauncher *launcher_instance = nullptr;
+        std::recursive_mutex launcher_callback_mutex;
         uintptr_t frontend_constructor_return_address = 0;
         uintptr_t main_menu_return_address = 0;
+        uintptr_t frontend_destructor_return_address = 0;
+        uintptr_t main_menu_destructor_return_address = 0;
         uintptr_t country_annex_return_address = 0;
         uintptr_t message_dispatch_return_address = 0;
         uintptr_t message_dispatch_popup_address = 0;
@@ -57,6 +67,229 @@ namespace campaign_runner
         uintptr_t message_dispatch_9_suppressed_address = 0;
         volatile bool suppress_message_popups = false;
         volatile long suppressed_message_count = 0;
+
+        constexpr size_t selected_save_offset = 0x590;
+        constexpr size_t save_request_offset = 0x5bc;
+        constexpr size_t save_complete_offset = 0x5bd;
+        constexpr size_t frontend_gui_offset = 0x278;
+        constexpr size_t main_menu_gui_offset = 0x704;
+        constexpr size_t control_signal_offset = 0x54;
+        constexpr size_t maximum_save_basename = MAX_PATH - 1;
+        constexpr uintptr_t frontend_vtable_rva = 0xa14ed0;
+        constexpr uintptr_t main_menu_vtable_rva = 0xa13dbc;
+        static_assert(save_complete_offset == save_request_offset + 1);
+
+        bool IsAccessible(const void *pointer, size_t size, bool require_writable)
+        {
+            if (pointer == nullptr || size == 0) return false;
+            const uintptr_t begin = reinterpret_cast<uintptr_t>(pointer);
+            if (begin > (std::numeric_limits<uintptr_t>::max)() - size) return false;
+            const uintptr_t end = begin + size;
+            for (uintptr_t cursor = begin; cursor < end;) {
+                MEMORY_BASIC_INFORMATION region{};
+                if (VirtualQuery(reinterpret_cast<const void *>(cursor), &region, sizeof(region)) != sizeof(region)
+                    || region.State != MEM_COMMIT
+                    || (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) return false;
+                const DWORD allowed = require_writable
+                    ? PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
+                    : PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY
+                        | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+                if ((region.Protect & allowed) == 0) return false;
+                const uintptr_t region_begin = reinterpret_cast<uintptr_t>(region.BaseAddress);
+                if (region_begin > (std::numeric_limits<uintptr_t>::max)() - region.RegionSize) return false;
+                const uintptr_t region_end = region_begin + region.RegionSize;
+                if (region_end <= cursor) return false;
+                cursor = (std::min)(end, region_end);
+            }
+            return true;
+        }
+
+        bool CopyReadable(void *destination, const void *source, size_t size)
+        {
+            if (!IsAccessible(source, size, false)) return false;
+            __try {
+                std::memcpy(destination, source, size);
+                return true;
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                return false;
+            }
+        }
+
+        bool CopyWritable(void *destination, const void *source, size_t size)
+        {
+            if (!IsAccessible(destination, size, true)) return false;
+            __try {
+                std::memcpy(destination, source, size);
+                return true;
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                return false;
+            }
+        }
+
+        template <typename T>
+        bool ReadValue(const void *source, T *value)
+        {
+            return value != nullptr && CopyReadable(value, source, sizeof(T));
+        }
+
+        const void *OffsetAddress(const void *base, size_t offset)
+        {
+            const uintptr_t address = reinterpret_cast<uintptr_t>(base);
+            if (address > (std::numeric_limits<uintptr_t>::max)() - offset) return nullptr;
+            return reinterpret_cast<const void *>(address + offset);
+        }
+
+        void *OffsetAddress(void *base, size_t offset)
+        {
+            return const_cast<void *>(OffsetAddress(static_cast<const void *>(base), offset));
+        }
+
+        bool IsGameCodeAddress(uintptr_t address)
+        {
+            MODULEINFO module{};
+            if (address == 0
+                || !GetModuleInformation(GetCurrentProcess(), GetModuleHandle(nullptr), &module, sizeof(module))) return false;
+            const uintptr_t begin = reinterpret_cast<uintptr_t>(module.lpBaseOfDll);
+            if (begin > (std::numeric_limits<uintptr_t>::max)() - module.SizeOfImage) return false;
+            if (address < begin || address >= begin + module.SizeOfImage) return false;
+            MEMORY_BASIC_INFORMATION region{};
+            if (VirtualQuery(reinterpret_cast<const void *>(address), &region, sizeof(region)) != sizeof(region)) return false;
+            return region.State == MEM_COMMIT
+                && (region.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ
+                    | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0
+                && (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)) == 0;
+        }
+
+        bool ReadVirtualTarget(const void *object, size_t slot_offset, uintptr_t *target)
+        {
+            uintptr_t vtable = 0;
+            if (!ReadValue(object, &vtable) || vtable == 0) return false;
+            const void *slot = OffsetAddress(reinterpret_cast<const void *>(vtable), slot_offset);
+            return slot != nullptr && ReadValue(slot, target) && IsGameCodeAddress(*target);
+        }
+
+        struct RawEngineString
+        {
+            union {
+                char buffer[16];
+                const char *pointer;
+            } storage;
+            uint32_t size;
+            uint32_t capacity;
+            uint32_t allocator;
+        };
+
+        static_assert(sizeof(RawEngineString) == sizeof(smedley::sstd::string));
+
+        bool ReadMappedString(const void *address, size_t maximum_size, std::string *value,
+                              RawEngineString *metadata = nullptr)
+        {
+            if (value == nullptr) return false;
+            RawEngineString snapshot{};
+            if (!ReadValue(address, &snapshot) || snapshot.size > maximum_size
+                || snapshot.capacity < snapshot.size
+                || snapshot.capacity < 0xf) return false;
+            const char *source = snapshot.capacity > 0xf ? snapshot.storage.pointer : snapshot.storage.buffer;
+            std::string copy(snapshot.size, '\0');
+            if (snapshot.size != 0 && !CopyReadable(copy.data(), source, snapshot.size)) return false;
+            char terminator = 0;
+            if (!ReadValue(source + snapshot.size, &terminator) || terminator != '\0') return false;
+            *value = std::move(copy);
+            if (metadata != nullptr) *metadata = snapshot;
+            return true;
+        }
+
+        class InlineEngineString final : public smedley::sstd::string
+        {
+        public:
+            bool Assign(std::string_view value)
+            {
+                if (value.size() > default_capacity) return false;
+                std::fill(std::begin(_impl.buf), std::end(_impl.buf), '\0');
+                std::memcpy(_impl.buf, value.data(), value.size());
+                _size = value.size();
+                _capacity = default_capacity;
+                return true;
+            }
+        };
+
+        class SingleConsoleArgument final : public smedley::sstd::vector<smedley::sstd::string>
+        {
+        public:
+            explicit SingleConsoleArgument(std::string_view value)
+            {
+                if (!argument_.Assign(value)) return;
+                _first = &argument_;
+                _last = _first + 1;
+                _end = _last;
+                valid_ = true;
+            }
+
+            bool valid() const noexcept { return valid_; }
+
+        private:
+            InlineEngineString argument_;
+            bool valid_ = false;
+        };
+
+        class EngineStringArgument final : public smedley::sstd::string
+        {
+        public:
+            explicit EngineStringArgument(std::string_view value)
+            {
+                _size = value.size();
+                if (value.size() <= default_capacity) {
+                    std::fill(std::begin(_impl.buf), std::end(_impl.buf), '\0');
+                    std::memcpy(_impl.buf, value.data(), value.size());
+                    _capacity = default_capacity;
+                } else {
+                    _impl.ptr = const_cast<char *>(value.data());
+                    _capacity = value.size();
+                }
+            }
+        };
+
+        void *InvokeFindControl(void *object, uintptr_t target, const smedley::sstd::string *name)
+        {
+            using FindControl = void *(__thiscall *)(void *, const smedley::sstd::string *);
+            __try {
+                return reinterpret_cast<FindControl>(target)(object, name);
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                return nullptr;
+            }
+        }
+
+        bool DispatchNativeSignal(void *signal)
+        {
+            if (!IsAccessible(signal, sizeof(uintptr_t), true)) return false;
+            const auto press = smedley::memory::Map::base_addr + 0x5ee510;
+            const auto release = smedley::memory::Map::base_addr + 0x5ee550;
+            __try {
+                __asm mov eax, signal
+                __asm call press
+                __asm mov eax, signal
+                __asm call release
+                return true;
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                return false;
+            }
+        }
+
+        bool ValidateGuiRegistry(void *controller, size_t registry_offset, size_t lookup_slot)
+        {
+            void *registry = nullptr;
+            uintptr_t lookup = 0;
+            return ReadValue(OffsetAddress(controller, registry_offset), &registry)
+                && registry != nullptr
+                && ReadVirtualTarget(registry, lookup_slot, &lookup);
+        }
+
+        bool ControllerVtableMatches(const void *controller, uintptr_t expected_rva)
+        {
+            uintptr_t vtable = 0;
+            return ReadValue(controller, &vtable)
+                && vtable == smedley::memory::Map::base_addr + expected_rva;
+        }
 
         uint64_t MonotonicMicroseconds()
         {
@@ -105,35 +338,63 @@ namespace campaign_runner
 
         bool IsInGameIdler(const void *object)
         {
-            if (object == nullptr) {
-                return false;
-            }
-            const auto *vtable = *reinterpret_cast<const uintptr_t *const *>(object);
-            const auto locator = vtable[-1];
-            const auto type_descriptor = *reinterpret_cast<const uintptr_t *>(locator + 0x0c);
-            const auto *type_name = reinterpret_cast<const char *>(type_descriptor + 0x08);
-            return std::strcmp(type_name, ".?AVCInGameIdler@@") == 0;
+            constexpr char expected[] = ".?AVCInGameIdler@@";
+            uintptr_t vtable = 0;
+            uintptr_t locator = 0;
+            uintptr_t type_descriptor = 0;
+            std::array<char, sizeof(expected)> type_name{};
+            const void *locator_slot = nullptr;
+            const void *descriptor_slot = nullptr;
+            const void *name = nullptr;
+            if (!ReadValue(object, &vtable) || vtable < sizeof(uintptr_t)) return false;
+            locator_slot = reinterpret_cast<const void *>(vtable - sizeof(uintptr_t));
+            if (!ReadValue(locator_slot, &locator) || locator == 0) return false;
+            descriptor_slot = OffsetAddress(reinterpret_cast<const void *>(locator), 0x0c);
+            if (descriptor_slot == nullptr || !ReadValue(descriptor_slot, &type_descriptor)
+                || type_descriptor == 0) return false;
+            name = OffsetAddress(reinterpret_cast<const void *>(type_descriptor), 0x08);
+            return name != nullptr && CopyReadable(type_name.data(), name, type_name.size())
+                && std::memcmp(type_name.data(), expected, sizeof(expected)) == 0;
         }
 
-        void __stdcall CaptureFrontendController(void *controller)
+        void __stdcall CaptureFrontendController(void *controller) noexcept
         {
-            if (launcher_instance != nullptr) {
-                launcher_instance->CaptureFrontendController(controller);
-            }
+            try {
+                const std::lock_guard<std::recursive_mutex> lock(launcher_callback_mutex);
+                if (launcher_instance != nullptr) launcher_instance->CaptureFrontendController(controller);
+            } catch (...) {}
         }
 
-        void __stdcall CaptureMainMenuController(void *controller)
+        void __stdcall CaptureMainMenuController(void *controller) noexcept
         {
-            if (launcher_instance != nullptr) {
-                launcher_instance->CaptureMainMenuController(controller);
-            }
+            try {
+                const std::lock_guard<std::recursive_mutex> lock(launcher_callback_mutex);
+                if (launcher_instance != nullptr) launcher_instance->CaptureMainMenuController(controller);
+            } catch (...) {}
         }
 
-        void __stdcall PrepareObserverForAnnexation(int annexed_ordinal)
+        void __stdcall ReleaseFrontendController(void *controller) noexcept
         {
-            if (launcher_instance != nullptr) {
-                launcher_instance->PrepareObserverForAnnexation(annexed_ordinal);
-            }
+            try {
+                const std::lock_guard<std::recursive_mutex> lock(launcher_callback_mutex);
+                if (launcher_instance != nullptr) launcher_instance->ReleaseFrontendController(controller);
+            } catch (...) {}
+        }
+
+        void __stdcall ReleaseMainMenuController(void *controller) noexcept
+        {
+            try {
+                const std::lock_guard<std::recursive_mutex> lock(launcher_callback_mutex);
+                if (launcher_instance != nullptr) launcher_instance->ReleaseMainMenuController(controller);
+            } catch (...) {}
+        }
+
+        void __stdcall PrepareObserverForAnnexation(int annexed_ordinal) noexcept
+        {
+            try {
+                const std::lock_guard<std::recursive_mutex> lock(launcher_callback_mutex);
+                if (launcher_instance != nullptr) launcher_instance->PrepareObserverForAnnexation(annexed_ordinal);
+            } catch (...) {}
         }
 
         __declspec(naked) void FrontendConstructorTrampoline()
@@ -169,6 +430,42 @@ namespace campaign_runner
                 mov ebp, esp
                 push 0xffffffff
                 jmp main_menu_return_address
+            }
+        }
+
+        __declspec(naked) void FrontendDestructorTrampoline()
+        {
+            __asm {
+                pushfd
+                pushad
+                push ecx
+                call ReleaseFrontendController
+                popad
+                popfd
+
+                push ebp
+                mov ebp, esp
+                push esi
+                mov esi, ecx
+                jmp frontend_destructor_return_address
+            }
+        }
+
+        __declspec(naked) void MainMenuDestructorTrampoline()
+        {
+            __asm {
+                pushfd
+                pushad
+                push ecx
+                call ReleaseMainMenuController
+                popad
+                popfd
+
+                push ebp
+                mov ebp, esp
+                push esi
+                mov esi, ecx
+                jmp main_menu_destructor_return_address
             }
         }
 
@@ -403,6 +700,7 @@ namespace campaign_runner
         bool quit_after_run,
         CampaignRunCondition condition)
     {
+        const std::lock_guard<std::recursive_mutex> lock(launcher_callback_mutex);
         save_path_ = std::move(save_path);
         observe_ = observe;
         target_speed_ = speed;
@@ -469,6 +767,7 @@ namespace campaign_runner
 
     void CampaignLauncher::Stop()
     {
+        const std::lock_guard<std::recursive_mutex> lock(launcher_callback_mutex);
         auto *game_state = smedley::v2::CCurrentGameState::instance();
         if (observer_view_switch_pending_ && game_state != nullptr) {
             auto *target = game_state->country(observer_target_ordinal_);
@@ -483,6 +782,10 @@ namespace campaign_runner
             KillTimer(nullptr, save_timer_);
             save_timer_ = 0;
         }
+        frontend_controller_.store(nullptr, std::memory_order_release);
+        main_menu_controller_.store(nullptr, std::memory_order_release);
+        frontend_thread_id_.store(0, std::memory_order_release);
+        main_menu_thread_id_.store(0, std::memory_order_release);
         suppress_message_popups = false;
         if (native_tag_command_ != nullptr
             && native_tag_command_->handler == &CampaignLauncher::RejectNativeTag) {
@@ -496,6 +799,8 @@ namespace campaign_runner
         observer_switch_command_ = nullptr;
         observer_command_manager_ = nullptr;
         observer_console_ready_ = false;
+        // Legacy plugin modules remain loaded. Leave callbacks inert rather than
+        // rewriting executable memory without a process-wide quiescence protocol.
         launcher_instance = nullptr;
     }
 
@@ -513,9 +818,8 @@ namespace campaign_runner
             return;
         }
         if (observer_command_manager_ != nullptr && observer_command_manager_ != manager) {
-            // The old manager is no longer active. Keep its command metadata in
-            // process-lifetime storage so late callbacks cannot reference
-            // destroyed data.
+            // A different manager was captured; keep old command metadata in
+            // process-lifetime storage so late callbacks cannot reference it.
             native_tag_command_ = nullptr;
             native_tag_handler_ = nullptr;
             observer_switch_command_ = nullptr;
@@ -584,6 +888,7 @@ namespace campaign_runner
     smedley::v2::CConsoleCmd::SResult CampaignLauncher::RejectNativeTag(
         const smedley::sstd::vector<smedley::sstd::string> &)
     {
+        const std::lock_guard<std::recursive_mutex> lock(launcher_callback_mutex);
         if (launcher_instance != nullptr) {
             launcher_instance->logger_.Warn("blocked native tag command in observer mode");
         }
@@ -593,6 +898,7 @@ namespace campaign_runner
     smedley::v2::CConsoleCmd::SResult CampaignLauncher::HandleObserverSwitch(
         const smedley::sstd::vector<smedley::sstd::string> &arguments)
     {
+        const std::lock_guard<std::recursive_mutex> lock(launcher_callback_mutex);
         if (launcher_instance == nullptr) {
             return smedley::v2::CConsoleCmd::SResult("observer unavailable", false);
         }
@@ -666,8 +972,11 @@ namespace campaign_runner
         observer_ai_count_before_switch_ = game_state->country_ai_count();
         observer_view_switch_pending_ = true;
         observer_attempts_ = 0;
-        smedley::sstd::vector<smedley::sstd::string> native_arguments;
-        native_arguments.push_back(smedley::sstd::string(requested_tag.c_str()));
+        SingleConsoleArgument native_arguments(requested_tag);
+        if (!native_arguments.valid()) {
+            observer_view_switch_pending_ = false;
+            return smedley::v2::CConsoleCmd::SResult("TAG exceeds the native inline-string limit", false);
+        }
         const auto result = native_tag_handler_(native_arguments);
         if (!result.success) {
             observer_view_switch_pending_ = false;
@@ -702,6 +1011,7 @@ namespace campaign_runner
             return;
         }
         const auto previous = frontend_controller_.exchange(controller, std::memory_order_acq_rel);
+        frontend_thread_id_.store(GetCurrentThreadId(), std::memory_order_release);
         if (previous == controller) {
             return;
         }
@@ -721,11 +1031,27 @@ namespace campaign_runner
         if (controller == nullptr) {
             return;
         }
-        void *expected = nullptr;
+        main_menu_controller_.store(controller, std::memory_order_release);
+        main_menu_thread_id_.store(GetCurrentThreadId(), std::memory_order_release);
+    }
+
+    void CampaignLauncher::ReleaseFrontendController(void *controller)
+    {
+        void *expected = controller;
+        frontend_controller_.compare_exchange_strong(
+            expected,
+            nullptr,
+            std::memory_order_acq_rel,
+            std::memory_order_relaxed);
+    }
+
+    void CampaignLauncher::ReleaseMainMenuController(void *controller)
+    {
+        void *expected = controller;
         main_menu_controller_.compare_exchange_strong(
             expected,
-            controller,
-            std::memory_order_release,
+            nullptr,
+            std::memory_order_acq_rel,
             std::memory_order_relaxed);
     }
 
@@ -863,6 +1189,10 @@ namespace campaign_runner
         constexpr unsigned char frontend_expected[] = {0x55, 0x8b, 0xec, 0x6a, 0xff};
         const auto main_menu_constructor = smedley::memory::Map::base_addr + 0x354a00;
         constexpr unsigned char main_menu_expected[] = {0x55, 0x8b, 0xec, 0x6a, 0xff};
+        const auto frontend_destructor = smedley::memory::Map::base_addr + 0x36b030;
+        constexpr unsigned char frontend_destructor_expected[] = {0x55, 0x8b, 0xec, 0x56, 0x8b, 0xf1};
+        const auto main_menu_destructor = smedley::memory::Map::base_addr + 0x354df0;
+        constexpr unsigned char main_menu_destructor_expected[] = {0x55, 0x8b, 0xec, 0x56, 0x8b, 0xf1};
         const auto country_annex = smedley::memory::Map::base_addr + 0x118620;
         constexpr unsigned char country_annex_expected[] = {0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8};
         const auto message_dispatch = smedley::memory::Map::base_addr + 0x2bc68;
@@ -969,6 +1299,14 @@ namespace campaign_runner
                 main_menu_expected,
                 sizeof(main_menu_expected)) != 0
             || std::memcmp(
+                reinterpret_cast<const void *>(frontend_destructor),
+                frontend_destructor_expected,
+                sizeof(frontend_destructor_expected)) != 0
+            || std::memcmp(
+                reinterpret_cast<const void *>(main_menu_destructor),
+                main_menu_destructor_expected,
+                sizeof(main_menu_destructor_expected)) != 0
+            || std::memcmp(
                 reinterpret_cast<const void *>(country_annex),
                 country_annex_expected,
                 sizeof(country_annex_expected)) != 0
@@ -978,6 +1316,8 @@ namespace campaign_runner
         }
         frontend_constructor_return_address = frontend_constructor + sizeof(frontend_expected);
         main_menu_return_address = main_menu_constructor + sizeof(main_menu_expected);
+        frontend_destructor_return_address = frontend_destructor + sizeof(frontend_destructor_expected);
+        main_menu_destructor_return_address = main_menu_destructor + sizeof(main_menu_destructor_expected);
         country_annex_return_address = country_annex + sizeof(country_annex_expected);
         message_dispatch_return_address = message_dispatch + sizeof(message_dispatch_expected);
         message_dispatch_popup_address = smedley::memory::Map::base_addr + 0x2bc91;
@@ -1006,66 +1346,40 @@ namespace campaign_runner
         message_dispatch_9_return_address = message_dispatch_9 + sizeof(message_dispatch_expected);
         message_dispatch_9_popup_address = smedley::memory::Map::base_addr + 0x53d841;
         message_dispatch_9_suppressed_address = message_suppressed_9;
-        smedley::memory::Hook(
-            frontend_constructor,
-            reinterpret_cast<void *>(&FrontendConstructorTrampoline),
-            sizeof(frontend_expected),
-            nullptr);
-        smedley::memory::Hook(
-            main_menu_constructor,
-            reinterpret_cast<void *>(&MainMenuTrampoline),
-            sizeof(main_menu_expected),
-            nullptr);
-        smedley::memory::Hook(
-            country_annex,
-            reinterpret_cast<void *>(&CountryAnnexTrampoline),
-            sizeof(country_annex_expected),
-            nullptr);
-        smedley::memory::Hook(
-            message_dispatch,
-            reinterpret_cast<void *>(&MessageDispatchTrampoline),
-            sizeof(message_dispatch_expected),
-            nullptr);
-        smedley::memory::Hook(
-            message_dispatch_2,
-            reinterpret_cast<void *>(&MessageDispatch2Trampoline),
-            sizeof(message_dispatch_ebx_expected),
-            nullptr);
-        smedley::memory::Hook(
-            message_dispatch_3,
-            reinterpret_cast<void *>(&MessageDispatch3Trampoline),
-            sizeof(message_dispatch_expected),
-            nullptr);
-        smedley::memory::Hook(
-            message_dispatch_4,
-            reinterpret_cast<void *>(&MessageDispatch4Trampoline),
-            sizeof(message_dispatch_expected),
-            nullptr);
-        smedley::memory::Hook(
-            message_dispatch_5,
-            reinterpret_cast<void *>(&MessageDispatch5Trampoline),
-            sizeof(message_dispatch_ebx_expected),
-            nullptr);
-        smedley::memory::Hook(
-            message_dispatch_6,
-            reinterpret_cast<void *>(&MessageDispatch6Trampoline),
-            sizeof(message_dispatch_expected),
-            nullptr);
-        smedley::memory::Hook(
-            message_dispatch_7,
-            reinterpret_cast<void *>(&MessageDispatch7Trampoline),
-            sizeof(message_dispatch_expected),
-            nullptr);
-        smedley::memory::Hook(
-            message_dispatch_8,
-            reinterpret_cast<void *>(&MessageDispatch8Trampoline),
-            sizeof(message_dispatch_expected),
-            nullptr);
-        smedley::memory::Hook(
-            message_dispatch_9,
-            reinterpret_cast<void *>(&MessageDispatch9Trampoline),
-            sizeof(message_dispatch_expected),
-            nullptr);
+        std::vector<std::pair<uintptr_t, std::vector<uint8_t>>> installed_hooks;
+        const auto install = [&installed_hooks](uintptr_t address, void *trampoline, size_t size) {
+            std::vector<uint8_t> original;
+            smedley::memory::Hook(address, trampoline, static_cast<int>(size), &original);
+            installed_hooks.emplace_back(address, std::move(original));
+        };
+        try {
+            installed_hooks.reserve(14);
+            install(frontend_constructor, reinterpret_cast<void *>(&FrontendConstructorTrampoline), sizeof(frontend_expected));
+            install(main_menu_constructor, reinterpret_cast<void *>(&MainMenuTrampoline), sizeof(main_menu_expected));
+            install(frontend_destructor, reinterpret_cast<void *>(&FrontendDestructorTrampoline), sizeof(frontend_destructor_expected));
+            install(main_menu_destructor, reinterpret_cast<void *>(&MainMenuDestructorTrampoline), sizeof(main_menu_destructor_expected));
+            install(country_annex, reinterpret_cast<void *>(&CountryAnnexTrampoline), sizeof(country_annex_expected));
+            install(message_dispatch, reinterpret_cast<void *>(&MessageDispatchTrampoline), sizeof(message_dispatch_expected));
+            install(message_dispatch_2, reinterpret_cast<void *>(&MessageDispatch2Trampoline), sizeof(message_dispatch_ebx_expected));
+            install(message_dispatch_3, reinterpret_cast<void *>(&MessageDispatch3Trampoline), sizeof(message_dispatch_expected));
+            install(message_dispatch_4, reinterpret_cast<void *>(&MessageDispatch4Trampoline), sizeof(message_dispatch_expected));
+            install(message_dispatch_5, reinterpret_cast<void *>(&MessageDispatch5Trampoline), sizeof(message_dispatch_ebx_expected));
+            install(message_dispatch_6, reinterpret_cast<void *>(&MessageDispatch6Trampoline), sizeof(message_dispatch_expected));
+            install(message_dispatch_7, reinterpret_cast<void *>(&MessageDispatch7Trampoline), sizeof(message_dispatch_expected));
+            install(message_dispatch_8, reinterpret_cast<void *>(&MessageDispatch8Trampoline), sizeof(message_dispatch_expected));
+            install(message_dispatch_9, reinterpret_cast<void *>(&MessageDispatch9Trampoline), sizeof(message_dispatch_expected));
+        } catch (const std::exception &error) {
+            bool restored = true;
+            for (auto hook = installed_hooks.rbegin(); hook != installed_hooks.rend(); ++hook) {
+                restored = smedley::memory::RestoreHook(hook->first, hook->second) && restored;
+            }
+            if (!restored) {
+                throw std::runtime_error(std::string("campaign automation hook installation and rollback failed: ")
+                                         + error.what());
+            }
+            logger_.Failure(std::string("campaign automation hook installation failed: ") + error.what());
+            return false;
+        }
         return true;
     }
 
@@ -1226,10 +1540,19 @@ namespace campaign_runner
         return true;
     }
 
-    void CALLBACK CampaignLauncher::SaveTimerCallback(HWND, UINT, UINT_PTR timer, DWORD)
+    void CALLBACK CampaignLauncher::SaveTimerCallback(HWND, UINT, UINT_PTR timer, DWORD) noexcept
     {
+        try {
+        const std::lock_guard<std::recursive_mutex> lock(launcher_callback_mutex);
         auto *launcher = launcher_instance;
         if (launcher == nullptr || timer != launcher->save_timer_) {
+            return;
+        }
+        const DWORD frontend_thread = launcher->frontend_thread_id_.load(std::memory_order_acquire);
+        if (frontend_thread == 0 || frontend_thread != GetCurrentThreadId()) {
+            KillTimer(nullptr, timer);
+            launcher->save_timer_ = 0;
+            launcher->logger_.Failure("campaign automation left the captured frontend thread");
             return;
         }
         if (!launcher->observer_monitoring_ && !launcher->benchmark_.active()) {
@@ -1311,11 +1634,11 @@ namespace campaign_runner
                 };
                 if (!launcher->initial_observer_view_tag_.empty()
                     && !launcher->observer_view_switch_pending_) {
-                    smedley::sstd::vector<smedley::sstd::string> arguments;
-                    arguments.push_back(
-                        smedley::sstd::string(launcher->initial_observer_view_tag_.c_str()));
+                    SingleConsoleArgument arguments(launcher->initial_observer_view_tag_);
                     auto *command_manager = launcher->console_manager_.load(std::memory_order_acquire);
-                    const auto result = command_manager == nullptr
+                    const auto result = !arguments.valid()
+                        ? smedley::v2::CConsoleCmd::SResult("observer tag exceeds the native inline-string limit", false)
+                        : command_manager == nullptr
                         ? smedley::v2::CConsoleCmd::SResult("console unavailable", false)
                         : command_manager->ExecuteCommand("switch", arguments);
                     launcher->initial_observer_view_tag_.clear();
@@ -1373,8 +1696,12 @@ namespace campaign_runner
                         launcher->observer_ai_count_before_switch_ = game_state->country_ai_count();
                         launcher->observer_view_switch_pending_ = true;
                         launcher->observer_attempts_ = 0;
-                        smedley::sstd::vector<smedley::sstd::string> arguments;
-                        arguments.push_back(smedley::sstd::string(launcher->observer_target_tag_.c_str()));
+                        SingleConsoleArgument arguments(launcher->observer_target_tag_);
+                        if (!arguments.valid()) {
+                            launcher->observer_view_switch_pending_ = false;
+                            stop_monitoring("observer tag exceeds the native inline-string limit", false);
+                            return;
+                        }
                         const auto result = launcher->native_tag_handler_(arguments);
                         if (!result.success) {
                             launcher->observer_view_switch_pending_ = false;
@@ -1518,8 +1845,7 @@ namespace campaign_runner
                         launcher->logger_.Failure("native FOW command handler does not match the supported executable");
                         return;
                     }
-                    smedley::sstd::vector<smedley::sstd::string> arguments;
-                    arguments.push_back(smedley::sstd::string("fow"));
+                    SingleConsoleArgument arguments("fow");
                     const auto result = command_manager->ExecuteCommand("debug", arguments);
                     if (!result.success || *fog_enabled != 0) {
                         launcher->logger_.Failure("native FOW command did not enable full map visibility");
@@ -1602,8 +1928,8 @@ namespace campaign_runner
             return;
         }
         auto *controller = launcher->frontend_controller_.load(std::memory_order_acquire);
-        if (controller == nullptr) {
-            launcher->logger_.Failure("frontend controller is unavailable for save selection");
+        if (controller == nullptr || !ControllerVtableMatches(controller, frontend_vtable_rva)) {
+            launcher->logger_.Failure("frontend controller identity failed runtime validation");
             return;
         }
         if (!launcher->lobby_requested_) {
@@ -1619,30 +1945,83 @@ namespace campaign_runner
             return;
         }
         if (!launcher->save_selection_requested_) {
-            auto *selected_save = reinterpret_cast<smedley::sstd::string *>(
-                reinterpret_cast<unsigned char *>(controller) + 0x590);
             const auto filename = fs::path(launcher->save_path_).filename().string();
-            const std::string existing(selected_save->c_str(), selected_save->size());
+            void *selected_save_address = OffsetAddress(controller, selected_save_offset);
+            auto *selected_save = static_cast<smedley::sstd::string *>(selected_save_address);
+            std::string existing;
+            RawEngineString selected_save_metadata{};
+            unsigned char flags[2]{};
+            const void *flags_address = OffsetAddress(controller, save_request_offset);
+            if (filename.empty() || filename.size() > maximum_save_basename
+                || !ValidateGuiRegistry(controller, frontend_gui_offset, 0x34)
+                || selected_save == nullptr || flags_address == nullptr
+                || !ReadMappedString(selected_save, maximum_save_basename, &existing, &selected_save_metadata)
+                || !CopyReadable(flags, flags_address, sizeof(flags))) {
+                launcher->logger_.Failure("frontend save-selection fields failed runtime validation");
+                return;
+            }
+            if (flags[0] != 0 || flags[1] != 0) {
+                launcher->logger_.Failure("frontend save-selection flags were not idle");
+                return;
+            }
             if (!CanSelectRequestedSave(filename, existing)) {
                 launcher->logger_.Failure("frontend save selection already names a different save; automation stopped");
                 return;
             }
-            if (selected_save->size() == 0) {
-                new (selected_save) smedley::sstd::string(filename.c_str());
+            if (existing.empty()) {
+                if (selected_save_metadata.capacity != 0xf || selected_save_metadata.storage.buffer[0] != '\0'
+                    || !IsAccessible(selected_save, sizeof(*selected_save), true)) {
+                    launcher->logger_.Failure("frontend selected-save string is not a canonical empty engine string");
+                    return;
+                }
+                try {
+                    // Allocate before ending the verified empty object's lifetime. The ABI mirror has
+                    // no destructor, so the shallow placement copy transfers the buffer to the engine.
+                    const smedley::sstd::string prepared(filename.c_str());
+                    new (selected_save) smedley::sstd::string(prepared);
+                } catch (const std::bad_alloc &) {
+                    launcher->logger_.Failure("could not allocate the native selected-save string");
+                    return;
+                }
+                std::string selected;
+                if (!ReadMappedString(selected_save, maximum_save_basename, &selected) || selected != filename) {
+                    launcher->logger_.Failure("frontend selected-save string failed postcondition validation");
+                    return;
+                }
             }
-            *(reinterpret_cast<unsigned char *>(controller) + 0x5bc) = 1;
-            *(reinterpret_cast<unsigned char *>(controller) + 0x5bd) = 0;
+            constexpr unsigned char request_flags[] = {1, 0};
+            if (!CopyWritable(OffsetAddress(controller, save_request_offset), request_flags, sizeof(request_flags))) {
+                launcher->logger_.Failure("frontend save-selection flags are not writable");
+                return;
+            }
+            unsigned char written_flags[2]{};
+            if (!CopyReadable(written_flags, OffsetAddress(controller, save_request_offset), sizeof(written_flags))
+                || written_flags[0] != request_flags[0] || written_flags[1] != request_flags[1]) {
+                launcher->logger_.Failure("frontend save-selection request failed postcondition validation");
+                return;
+            }
             launcher->save_selection_requested_ = true;
             launcher->ReportTelemetryResult(launcher->telemetry_.SaveSelectionRequested());
             launcher->ScheduleTimer(5'000, "failed to schedule save-selection check");
             return;
         }
-        if (*(reinterpret_cast<unsigned char *>(controller) + 0x5bd) != 0) {
+        unsigned char flags[2]{};
+        if (!CopyReadable(flags, OffsetAddress(controller, save_request_offset), sizeof(flags))
+            || flags[0] > 1 || flags[1] > 1) {
+            launcher->logger_.Failure("frontend save-selection status failed runtime validation");
+            return;
+        }
+        if (flags[1] != 0) {
+            if (flags[0] != 0) {
+                launcher->logger_.Failure("frontend reported save completion while the request remained active");
+                return;
+            }
             launcher->ReportTelemetryResult(launcher->telemetry_.SaveLoadCompleted());
             if (!launcher->DispatchControlSignal("play_button")) {
                 return;
             }
             launcher->play_requested_ = true;
+            launcher->frontend_controller_.store(nullptr, std::memory_order_release);
             launcher->ScheduleTimer(1'000, "failed to schedule campaign unpause");
             return;
         }
@@ -1652,44 +2031,52 @@ namespace campaign_runner
         } else {
             launcher->logger_.Failure("save selection did not finish within 120 seconds");
         }
+        } catch (...) {}
     }
 
     bool CampaignLauncher::DispatchMainMenuSinglePlayer()
     {
         auto *controller = main_menu_controller_.load(std::memory_order_acquire);
-        auto *gui = controller == nullptr
-            ? nullptr
-            : *reinterpret_cast<void **>(reinterpret_cast<unsigned char *>(controller) + 0x704);
+        if (controller == nullptr
+            || !ControllerVtableMatches(controller, main_menu_vtable_rva)
+            || main_menu_thread_id_.load(std::memory_order_acquire) != GetCurrentThreadId()) {
+            logger_.Failure("main-menu controller is unavailable on the captured thread");
+            return false;
+        }
+        void *gui = nullptr;
+        if (!ReadValue(OffsetAddress(controller, main_menu_gui_offset), &gui)) gui = nullptr;
         if (gui == nullptr) {
             logger_.Failure("main-menu GUI registry is unavailable");
             return false;
         }
-        const smedley::sstd::string panel_name("mainmenu_panel");
-        const smedley::sstd::string button_name("single_player_button");
-        using FindControl = void *(__thiscall *)(void *, const smedley::sstd::string *);
-        const auto gui_vtable = *reinterpret_cast<uintptr_t **>(gui);
-        auto *panel = reinterpret_cast<FindControl>(gui_vtable[0x6c / sizeof(uintptr_t)])(
-            gui,
-            &panel_name);
+        EngineStringArgument panel_name("mainmenu_panel");
+        EngineStringArgument button_name("single_player_button");
+        uintptr_t find_panel = 0;
+        if (!ReadVirtualTarget(gui, 0x6c, &find_panel)) {
+            logger_.Failure("main-menu GUI lookup target failed runtime validation");
+            return false;
+        }
+        auto *panel = InvokeFindControl(gui, find_panel, &panel_name);
         if (panel == nullptr) {
             logger_.Failure("mainmenu_panel is unavailable for native dispatch");
             return false;
         }
-        const auto panel_vtable = *reinterpret_cast<uintptr_t **>(panel);
-        auto *button = reinterpret_cast<FindControl>(panel_vtable[0x34 / sizeof(uintptr_t)])(
-            panel,
-            &button_name);
+        uintptr_t find_button = 0;
+        if (!ReadVirtualTarget(panel, 0x34, &find_button)) {
+            logger_.Failure("main-menu panel lookup target failed runtime validation");
+            return false;
+        }
+        auto *button = InvokeFindControl(panel, find_button, &button_name);
         if (button == nullptr) {
             logger_.Failure("single_player_button is unavailable for native dispatch");
             return false;
         }
-        auto *signal = reinterpret_cast<unsigned char *>(button) + 0x54;
-        const auto press = smedley::memory::Map::base_addr + 0x5ee510;
-        const auto release = smedley::memory::Map::base_addr + 0x5ee550;
-        __asm mov eax, signal
-        __asm call press
-        __asm mov eax, signal
-        __asm call release
+        auto *signal = OffsetAddress(button, control_signal_offset);
+        if (!DispatchNativeSignal(signal)) {
+            logger_.Failure("main-menu Single Player signal failed runtime validation");
+            return false;
+        }
+        main_menu_controller_.store(nullptr, std::memory_order_release);
         logger_.Info("dispatched native main-menu Single Player signal");
         return true;
     }
@@ -1697,36 +2084,45 @@ namespace campaign_runner
     bool CampaignLauncher::DispatchControlSignal(const char *name)
     {
         auto *controller = frontend_controller_.load(std::memory_order_acquire);
-        auto *gui = controller == nullptr
-            ? nullptr
-            : *reinterpret_cast<void **>(reinterpret_cast<unsigned char *>(controller) + 0x278);
+        if (controller == nullptr
+            || !ControllerVtableMatches(controller, frontend_vtable_rva)
+            || frontend_thread_id_.load(std::memory_order_acquire) != GetCurrentThreadId()) {
+            logger_.Failure("frontend controller is unavailable on the captured thread");
+            return false;
+        }
+        void *gui = nullptr;
+        if (!ReadValue(OffsetAddress(controller, frontend_gui_offset), &gui)) gui = nullptr;
         if (gui == nullptr) {
             logger_.Failure("frontend GUI registry is unavailable for control dispatch");
             return false;
         }
-        const smedley::sstd::string control_name(name);
-        const auto vtable = *reinterpret_cast<uintptr_t **>(gui);
-        using FindControl = void *(__thiscall *)(void *, const smedley::sstd::string *);
-        auto *control = reinterpret_cast<FindControl>(vtable[0x34 / sizeof(uintptr_t)])(
-            gui,
-            &control_name);
+        EngineStringArgument control_name(name);
+        uintptr_t find_control = 0;
+        if (!ReadVirtualTarget(gui, 0x34, &find_control)) {
+            logger_.Failure("frontend GUI lookup target failed runtime validation");
+            return false;
+        }
+        auto *control = InvokeFindControl(gui, find_control, &control_name);
         if (control == nullptr) {
             logger_.Failure(std::string(name) + " is unavailable for native dispatch");
             return false;
         }
-        auto *signal = reinterpret_cast<unsigned char *>(control) + 0x54;
+        auto *signal = OffsetAddress(control, control_signal_offset);
+        uintptr_t control_vtable = 0;
+        if (!ReadValue(control, &control_vtable)) {
+            logger_.Failure(std::string(name) + " control vtable is unreadable");
+            return false;
+        }
         std::ostringstream message;
         message << "dispatching native control signal: " << name
                 << " control=" << control
-                << " vtable=" << *reinterpret_cast<void **>(control)
+                << " vtable=" << reinterpret_cast<void *>(control_vtable)
                 << " signal=" << static_cast<void *>(signal);
         logger_.Info(message.str());
-        const auto press = smedley::memory::Map::base_addr + 0x5ee510;
-        const auto release = smedley::memory::Map::base_addr + 0x5ee550;
-        __asm mov eax, signal
-        __asm call press
-        __asm mov eax, signal
-        __asm call release
+        if (!DispatchNativeSignal(signal)) {
+            logger_.Failure(std::string(name) + " native signal dispatch failed runtime validation");
+            return false;
+        }
         logger_.Info(std::string("dispatched native control signal: ") + name);
         return true;
     }

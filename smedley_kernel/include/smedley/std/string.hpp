@@ -4,7 +4,9 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <memory>
+#include <new>
 #include <string>
 
 namespace smedley::sstd
@@ -40,8 +42,13 @@ namespace smedley::sstd
         {
             size_type n = Traits::length(str);
             if (n > default_capacity) {
+                if (n == (std::numeric_limits<size_type>::max)()
+                    || n + 1 > (std::numeric_limits<size_type>::max)() / sizeof(T)) {
+                    throw std::bad_alloc();
+                }
                 _impl.ptr = reinterpret_cast<T *>(
                     HeapAlloc(memory::Map::game_heap, 0, (n + 1) * sizeof(T)));
+                if (_impl.ptr == nullptr) throw std::bad_alloc();
                 std::memcpy(_impl.ptr, str, n * sizeof(T));
                 _impl.ptr[n] = static_cast<T>(0);
                 _capacity = n;
@@ -82,7 +89,8 @@ namespace smedley::sstd
 
         friend bool operator==(const basic_string<T> &lhs, const basic_string<T> &rhs)
         {
-            return Traits::compare(lhs.c_str(), rhs.c_str(), (std::max)(lhs.size(), rhs.size())) == 0;
+            return lhs.size() == rhs.size()
+                && Traits::compare(lhs.c_str(), rhs.c_str(), lhs.size()) == 0;
         }
     };
 
