@@ -36,9 +36,8 @@ if(BUILD_TESTING)
   FetchContent_MakeAvailable(googletest)
 endif()
 
-include_directories("include/lua" "include/toml")
-
 add_subdirectory ("smedley_kernel")
+add_subdirectory ("game_state")
 add_subdirectory ("plugins")
 add_subdirectory ("tools/launcher_core")
 add_subdirectory ("tools/smedley_cli")

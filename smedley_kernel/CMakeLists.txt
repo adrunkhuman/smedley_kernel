@@ -2,12 +2,15 @@
 
 FILE(GLOB_RECURSE kernel_sources src/*.cpp)
 
-include_directories("include/smedley")
-
 add_library (smedley_kernel SHARED ${kernel_sources})
 target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL SMEDLEY_EVENT_BUILD LUA_BUILD_AS_DLL LUA_LIB)
 target_link_libraries(smedley_kernel PRIVATE shell32)
-target_include_directories(smedley_kernel PUBLIC "${PROJECT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(smedley_kernel PUBLIC
+  "${PROJECT_SOURCE_DIR}/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/smedley"
+  "${PROJECT_SOURCE_DIR}/include/lua"
+  "${PROJECT_SOURCE_DIR}/include/toml")
 
 if(BUILD_TESTING)
   FILE(GLOB_RECURSE test_sources tests/*.cpp)

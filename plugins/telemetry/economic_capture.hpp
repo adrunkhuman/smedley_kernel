@@ -1,7 +1,7 @@
 #pragma once
 
 #include "economic_capture_core.hpp"
-#include "../game_state/readers.hpp"
+#include <smedley/game_state/readers.hpp>
 
 #include <smedley/v2/gamestate.hpp>
 
