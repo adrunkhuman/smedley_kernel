@@ -61,16 +61,15 @@ namespace interest_bug_fix
     }
 
     BatchAddStatus DailyInterestBatch::AddDebtor(int32_t debtor_ordinal,
-                                                  const InterestTransfer *transfers,
-                                                  uint32_t transfer_count,
-                                                  int64_t private_sink_raw)
+                                                   const InterestTransfer *transfers,
+                                                   uint32_t transfer_count)
     {
         if (!started_) return BatchAddStatus::not_started;
         if (debtor_ordinal <= 0 || static_cast<uint32_t>(debtor_ordinal) >= country_count_) {
             return BatchAddStatus::invalid_debtor;
         }
         if (seen_debtors_[debtor_ordinal]) return BatchAddStatus::duplicate_debtor;
-        if ((transfer_count != 0 && transfers == nullptr) || private_sink_raw < 0) {
+        if (transfer_count != 0 && transfers == nullptr) {
             return BatchAddStatus::invalid_amount;
         }
 
@@ -97,8 +96,6 @@ namespace interest_bug_fix
                 return BatchAddStatus::overflow;
             }
         }
-        if (!CanAdd(private_sink_raw_, private_sink_raw)) return BatchAddStatus::overflow;
-
         for (uint32_t index = 0; index < transfer_count; ++index) {
             const InterestTransfer &transfer = transfers[index];
             DailyRecipient &recipient = recipients_[transfer.recipient_ordinal];
@@ -115,7 +112,6 @@ namespace interest_bug_fix
             }
             ++recipient.source_count;
         }
-        private_sink_raw_ += private_sink_raw;
         seen_debtors_[debtor_ordinal] = true;
         ++seen_count_;
         return BatchAddStatus::success;
@@ -141,7 +137,6 @@ namespace interest_bug_fix
         expected_debtors_ = 0;
         seen_count_ = 0;
         rejected_debtors_ = 0;
-        private_sink_raw_ = 0;
         started_ = false;
         seen_debtors_.fill(false);
         recipients_.fill({});

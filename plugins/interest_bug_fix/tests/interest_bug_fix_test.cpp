@@ -39,9 +39,10 @@ namespace
     }
 
 }
-TEST(InterestBugFixTest, ComputesExactPerDestinationTransfers)
+TEST(InterestBugFixTest, ComputesNamedTransfersDespiteArbitraryTreasuryChanges)
 {
     game_state::CountryEconomySnapshot before{};
+    before.treasury_raw = -500;
     before.creditor_destinations = 2;
     before.destination_bank_interest_raw = 400;
     before.destination_ordinals[0] = 7;
@@ -50,6 +51,7 @@ TEST(InterestBugFixTest, ComputesExactPerDestinationTransfers)
     before.destination_bank_interests_raw[1] = 300;
 
     game_state::CountryEconomySnapshot after = before;
+    after.treasury_raw = (std::numeric_limits<int64_t>::max)();
     after.destination_bank_interest_raw = 475;
     after.destination_bank_interests_raw[0] = 125;
     after.destination_bank_interests_raw[1] = 350;
@@ -76,7 +78,9 @@ TEST(InterestBugFixTest, RejectsChangedDestinationOrder)
     summary.transfers_raw[0] = 1;
     summary.transfer_count = 1;
     summary.transfer_raw = 1;
-    EXPECT_FALSE(interest_bug_fix::ComputeDestinationTransfers(before, after, &summary));
+    interest_bug_fix::ReconciliationFailure failure = interest_bug_fix::ReconciliationFailure::none;
+    EXPECT_FALSE(interest_bug_fix::ComputeDestinationTransfers(before, after, &summary, &failure));
+    EXPECT_EQ(failure, interest_bug_fix::ReconciliationFailure::destination_identity_changed);
     EXPECT_EQ(after.flags, 0u);
     EXPECT_EQ(summary.transfers_raw[0], 0);
     EXPECT_EQ(summary.transfer_count, 0u);
@@ -97,7 +101,9 @@ TEST(InterestBugFixTest, RejectsChangedDestinationIdentity)
     summary.transfers_raw[0] = 1;
     summary.transfer_count = 1;
     summary.transfer_raw = 1;
-    EXPECT_FALSE(interest_bug_fix::ComputeDestinationTransfers(before, after, &summary));
+    interest_bug_fix::ReconciliationFailure failure = interest_bug_fix::ReconciliationFailure::none;
+    EXPECT_FALSE(interest_bug_fix::ComputeDestinationTransfers(before, after, &summary, &failure));
+    EXPECT_EQ(failure, interest_bug_fix::ReconciliationFailure::destination_identity_changed);
     EXPECT_EQ(after.flags, 0u);
     EXPECT_EQ(summary.transfers_raw[0], 0);
     EXPECT_EQ(summary.transfer_count, 0u);
@@ -145,24 +151,7 @@ TEST(InterestBugFixTest, CompletesTransferAfterCreditorEntryDisappears)
     EXPECT_EQ(summary.transfer_raw, 25);
 }
 
-TEST(InterestBugFixTest, AcceptsResidualTreasurySinkBeyondDestinationTransfer)
-{
-    EXPECT_TRUE(interest_bug_fix::TreasuryLossCoversTransfer(100, 75, 25));
-    EXPECT_TRUE(interest_bug_fix::TreasuryLossCoversTransfer(100, 70, 25));
-    EXPECT_FALSE(interest_bug_fix::TreasuryLossCoversTransfer(100, 80, 25));
-    EXPECT_FALSE(interest_bug_fix::TreasuryLossCoversTransfer(100, 101, 0));
-    EXPECT_FALSE(interest_bug_fix::TreasuryLossCoversTransfer(100, 75, -1));
-    EXPECT_FALSE(interest_bug_fix::TreasuryLossCoversTransfer(
-        (std::numeric_limits<int64_t>::min)(), (std::numeric_limits<int64_t>::min)(), 1));
-    int64_t residual = -1;
-    EXPECT_TRUE(interest_bug_fix::ComputeTreasuryResidual(100, 70, 25, &residual));
-    EXPECT_EQ(residual, 5);
-    EXPECT_FALSE(interest_bug_fix::ComputeTreasuryResidual(100, 80, 25, &residual));
-    EXPECT_FALSE(interest_bug_fix::ComputeTreasuryResidual(
-        (std::numeric_limits<int64_t>::max)(), (std::numeric_limits<int64_t>::min)(), 0, &residual));
-}
-
-TEST(InterestBatchTest, AggregatesDomesticForeignAndPrivateAmounts)
+TEST(InterestBatchTest, AggregatesNamedDomesticAndForeignAmounts)
 {
     interest_bug_fix::DailyInterestBatch batch;
     ASSERT_TRUE(batch.Begin(2400, 4));
@@ -174,14 +163,13 @@ TEST(InterestBatchTest, AggregatesDomesticForeignAndPrivateAmounts)
     std::array<interest_bug_fix::InterestTransfer, 1> second{{
         {2, {'B', 'B', 'B', '\0'}, 5},
     }};
-    EXPECT_EQ(batch.AddDebtor(1, first.data(), first.size(), 3),
+    EXPECT_EQ(batch.AddDebtor(1, first.data(), first.size()),
         interest_bug_fix::BatchAddStatus::success);
-    EXPECT_EQ(batch.AddDebtor(2, second.data(), second.size(), 0),
+    EXPECT_EQ(batch.AddDebtor(2, second.data(), second.size()),
         interest_bug_fix::BatchAddStatus::success);
-    EXPECT_EQ(batch.AddDebtor(3, nullptr, 0, 7), interest_bug_fix::BatchAddStatus::success);
+    EXPECT_EQ(batch.AddDebtor(3, nullptr, 0), interest_bug_fix::BatchAddStatus::success);
 
     EXPECT_TRUE(batch.complete());
-    EXPECT_EQ(batch.private_sink_raw(), 10);
     EXPECT_EQ(batch.recipient(1).transfer_raw, 10);
     EXPECT_EQ(batch.recipient(1).domestic_transfer_raw, 10);
     EXPECT_EQ(batch.recipient(1).foreign_transfer_raw, 0);
@@ -199,9 +187,9 @@ TEST(InterestBatchTest, RejectsInvalidDebtorsAtomically)
         (std::numeric_limits<int64_t>::max)()};
     const interest_bug_fix::InterestTransfer overflow{2, {'B', 'B', 'B', '\0'}, 1};
 
-    EXPECT_EQ(batch.AddDebtor(1, &maximum, 1, 0), interest_bug_fix::BatchAddStatus::success);
-    EXPECT_EQ(batch.AddDebtor(1, nullptr, 0, 0), interest_bug_fix::BatchAddStatus::duplicate_debtor);
-    EXPECT_EQ(batch.AddDebtor(2, &overflow, 1, 0), interest_bug_fix::BatchAddStatus::overflow);
+    EXPECT_EQ(batch.AddDebtor(1, &maximum, 1), interest_bug_fix::BatchAddStatus::success);
+    EXPECT_EQ(batch.AddDebtor(1, nullptr, 0), interest_bug_fix::BatchAddStatus::duplicate_debtor);
+    EXPECT_EQ(batch.AddDebtor(2, &overflow, 1), interest_bug_fix::BatchAddStatus::overflow);
     EXPECT_TRUE(batch.RejectDebtor(2));
     EXPECT_TRUE(batch.complete());
     EXPECT_EQ(batch.rejected_debtors(), 1u);
@@ -234,7 +222,9 @@ TEST(InterestBugFixTest, RejectsFlaggedBeforeSample)
     summary.transfers_raw[0] = 1;
     summary.transfer_count = 1;
     summary.transfer_raw = 1;
-    EXPECT_FALSE(interest_bug_fix::ComputeDestinationTransfers(before, after, &summary));
+    interest_bug_fix::ReconciliationFailure failure = interest_bug_fix::ReconciliationFailure::none;
+    EXPECT_FALSE(interest_bug_fix::ComputeDestinationTransfers(before, after, &summary, &failure));
+    EXPECT_EQ(failure, interest_bug_fix::ReconciliationFailure::before_flags);
     EXPECT_FALSE(interest_bug_fix::ComputeDestinationTransfers(before, after, nullptr));
     EXPECT_EQ(after.flags, 0u);
     EXPECT_EQ(summary.transfers_raw[0], 0);

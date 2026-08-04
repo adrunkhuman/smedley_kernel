@@ -65,7 +65,7 @@ namespace interest_bug_fix
     public:
         bool Begin(int32_t date_raw, uint32_t country_count);
         BatchAddStatus AddDebtor(int32_t debtor_ordinal, const InterestTransfer *transfers,
-                                 uint32_t transfer_count, int64_t private_sink_raw);
+                                  uint32_t transfer_count);
         bool RejectDebtor(int32_t debtor_ordinal);
         void Reset();
 
@@ -75,7 +75,6 @@ namespace interest_bug_fix
         uint32_t expected_debtors() const { return expected_debtors_; }
         uint32_t seen_count() const { return seen_count_; }
         uint32_t rejected_debtors() const { return rejected_debtors_; }
-        int64_t private_sink_raw() const { return private_sink_raw_; }
         const DailyRecipient &recipient(uint32_t ordinal) const { return recipients_[ordinal]; }
 
     private:
@@ -84,7 +83,6 @@ namespace interest_bug_fix
         uint32_t expected_debtors_ = 0;
         uint32_t seen_count_ = 0;
         uint32_t rejected_debtors_ = 0;
-        int64_t private_sink_raw_ = 0;
         bool started_ = false;
         std::array<bool, max_batch_countries> seen_debtors_{};
         std::array<DailyRecipient, max_batch_countries> recipients_{};

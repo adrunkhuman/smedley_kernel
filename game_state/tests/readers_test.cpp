@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <vector>
 
 namespace smedley::game_state
 {
@@ -55,6 +56,18 @@ namespace smedley::game_state
             const void *province = nullptr;
         };
 
+        struct CountryLookupTable
+        {
+            const CountryLookup *entries;
+            size_t count;
+        };
+
+        struct CreditorDestination
+        {
+            std::array<std::byte, 0xe9c> country{};
+            std::array<std::byte, 0x28> bank{};
+        };
+
         struct FactoryNode
         {
             std::array<std::byte, 0x220> data{};
@@ -74,6 +87,54 @@ namespace smedley::game_state
         {
             const auto *lookup = static_cast<const CountryLookup *>(context);
             return id == lookup->province_id ? lookup->province : nullptr;
+        }
+
+        const void *ResolveCountryFromTable(const void *context, int32_t ordinal)
+        {
+            const auto *table = static_cast<const CountryLookupTable *>(context);
+            for (size_t index = 0; index < table->count; ++index) {
+                if (table->entries[index].ordinal == ordinal) return table->entries[index].country;
+            }
+            return nullptr;
+        }
+
+        CountryEconomySnapshot ReadResolvedCreditorDestinations(const std::vector<int32_t> &ordinals)
+        {
+            std::array<std::byte, 0xe9c> debtor{};
+            std::array<std::byte, 0x28> debtor_bank{};
+            std::vector<CreditorDestination> destinations(ordinals.size());
+            std::vector<std::array<std::byte, 0x28>> creditors(ordinals.size());
+            std::vector<void *> creditor_pointers;
+            std::vector<CountryLookup> lookup_entries;
+            const char debtor_tag[4] = {'S', 'W', 'E', '\0'};
+            const char destination_tag[4] = {'E', 'N', 'G', '\0'};
+            const void *debtor_bank_pointer = debtor_bank.data();
+
+            creditor_pointers.reserve(creditors.size());
+            lookup_entries.reserve(destinations.size());
+            for (size_t index = 0; index < ordinals.size(); ++index) {
+                const int32_t ordinal = ordinals[index];
+                const int64_t bank_interest = static_cast<int64_t>(ordinal) * 10;
+                const void *destination_bank = destinations[index].bank.data();
+                Write(&destinations[index].country, 0x1c, destination_tag);
+                Write(&destinations[index].country, 0x20, ordinal);
+                Write(&destinations[index].country, 0xe88, destination_bank);
+                Write(&destinations[index].bank, 0x20, bank_interest);
+                Write(&creditors[index], 0x08, destination_tag);
+                Write(&creditors[index], 0x0c, ordinal);
+                creditor_pointers.push_back(creditors[index].data());
+                lookup_entries.push_back({ordinal, destinations[index].country.data()});
+            }
+
+            const void *creditor_begin = creditor_pointers.data();
+            const void *creditor_end = creditor_pointers.data() + creditor_pointers.size();
+            Write(&debtor, 0x1c, debtor_tag);
+            Write(&debtor, 0xe88, debtor_bank_pointer);
+            Write(&debtor, 0xe8c, creditor_begin);
+            Write(&debtor, 0xe90, creditor_end);
+            Write(&debtor, 0xe94, creditor_end);
+            const CountryLookupTable table{lookup_entries.data(), lookup_entries.size()};
+            return ReadCountryCreditors(debtor.data(), 1234, ResolveCountryFromTable, &table);
         }
     }
 
@@ -295,6 +356,96 @@ namespace smedley::game_state
             debtor.data(), 1234, ResolveCountry, ResolveProvince, &lookup);
         EXPECT_NE(duplicate.flags & SAMPLE_DUPLICATE_PROVINCE, 0u);
         EXPECT_NE(duplicate.flags & SAMPLE_DUPLICATE_POP, 0u);
+    }
+
+    TEST(GameStateReadersTest, ReadsCreditorDestinationBankWithoutStateTraversal)
+    {
+        std::array<std::byte, 0xe9c> debtor{};
+        std::array<std::byte, 0xe9c> destination{};
+        std::array<std::byte, 0x28> creditor{};
+        std::array<std::byte, 0x28> debtor_bank{};
+        std::array<std::byte, 0x28> destination_bank{};
+        std::array<void *, 1> creditors{creditor.data()};
+        const char debtor_tag[4] = {'S', 'W', 'E', '\0'};
+        const char destination_tag[4] = {'E', 'N', 'G', '\0'};
+        const int32_t destination_ordinal = 7;
+        const int64_t destination_bank_interest = 40;
+        const void *debtor_bank_pointer = debtor_bank.data();
+        const void *destination_bank_pointer = destination_bank.data();
+        const void *creditor_begin = creditors.data();
+        const void *creditor_end = creditors.data() + creditors.size();
+        const void *invalid_state = reinterpret_cast<const void *>(1);
+
+        Write(&debtor, 0x1c, debtor_tag);
+        Write(&debtor, 0xe88, debtor_bank_pointer);
+        Write(&debtor, 0xe8c, creditor_begin);
+        Write(&debtor, 0xe90, creditor_end);
+        Write(&debtor, 0xe94, creditor_end);
+        Write(&destination, 0x1c, destination_tag);
+        Write(&destination, 0x20, destination_ordinal);
+        Write(&destination, 0xe44, invalid_state);
+        Write(&destination, 0xe48, invalid_state);
+        Write(&destination, 0xe4c, int32_t{1});
+        Write(&destination, 0xe88, destination_bank_pointer);
+        Write(&destination_bank, 0x20, destination_bank_interest);
+        Write(&creditor, 0x08, destination_tag);
+        Write(&creditor, 0x0c, destination_ordinal);
+        const CountryLookup lookup{destination_ordinal, destination.data()};
+
+        const auto sample = ReadCountryCreditors(debtor.data(), 1234, ResolveCountry, &lookup);
+        ASSERT_EQ(sample.creditor_destinations, 1u);
+        EXPECT_EQ(sample.destination_ordinals[0], destination_ordinal);
+        EXPECT_EQ(sample.destination_bank_interests_raw[0], destination_bank_interest);
+        EXPECT_EQ(sample.destination_bank_interest_raw, destination_bank_interest);
+        EXPECT_EQ(sample.flags, 0u);
+    }
+
+    TEST(GameStateReadersTest, DeduplicatesHashCollidingCreditorDestinations)
+    {
+        const auto sample = ReadResolvedCreditorDestinations({1, 1025, 1});
+
+        ASSERT_EQ(sample.creditor_destinations, 2u);
+        EXPECT_EQ(sample.destination_ordinals[0], 1);
+        EXPECT_EQ(sample.destination_ordinals[1], 1025);
+        EXPECT_EQ(sample.destination_bank_interests_raw[0], 10);
+        EXPECT_EQ(sample.destination_bank_interests_raw[1], 10250);
+        EXPECT_EQ(sample.destination_bank_interest_raw, 10260);
+        EXPECT_NE(sample.flags & SAMPLE_CREDITOR_DUPLICATE_DESTINATION, 0u);
+        EXPECT_EQ(sample.flags & SAMPLE_CREDITOR_DESTINATION_LIMIT, 0u);
+    }
+
+    TEST(GameStateReadersTest, AcceptsExactlyMaximumUniqueCreditorDestinations)
+    {
+        std::vector<int32_t> ordinals;
+        ordinals.reserve(max_sample_creditor_destinations);
+        for (uint32_t ordinal = 1; ordinal <= max_sample_creditor_destinations; ++ordinal) {
+            ordinals.push_back(static_cast<int32_t>(ordinal));
+        }
+
+        const auto sample = ReadResolvedCreditorDestinations(ordinals);
+        ASSERT_EQ(sample.creditor_destinations, max_sample_creditor_destinations);
+        EXPECT_EQ(sample.flags & SAMPLE_CREDITOR_DESTINATION_LIMIT, 0u);
+        for (uint32_t index = 0; index < max_sample_creditor_destinations; ++index) {
+            EXPECT_EQ(sample.destination_ordinals[index], static_cast<int32_t>(index + 1));
+            EXPECT_EQ(sample.destination_bank_interests_raw[index], static_cast<int64_t>(index + 1) * 10);
+        }
+    }
+
+    TEST(GameStateReadersTest, LimitsThe513thUniqueCreditorDestinationWithoutOverwritingArrays)
+    {
+        std::vector<int32_t> ordinals;
+        ordinals.reserve(max_sample_creditor_destinations + 1);
+        for (uint32_t ordinal = 1; ordinal <= max_sample_creditor_destinations + 1; ++ordinal) {
+            ordinals.push_back(static_cast<int32_t>(ordinal));
+        }
+
+        const auto sample = ReadResolvedCreditorDestinations(ordinals);
+        ASSERT_EQ(sample.creditor_destinations, max_sample_creditor_destinations);
+        EXPECT_NE(sample.flags & SAMPLE_CREDITOR_DESTINATION_LIMIT, 0u);
+        for (uint32_t index = 0; index < max_sample_creditor_destinations; ++index) {
+            EXPECT_EQ(sample.destination_ordinals[index], static_cast<int32_t>(index + 1));
+            EXPECT_EQ(sample.destination_bank_interests_raw[index], static_cast<int64_t>(index + 1) * 10);
+        }
     }
 
     TEST(GameStateReadersTest, RejectsSelfReferentialStateList)
