@@ -3,6 +3,8 @@
 #include <array>
 #include <cstdint>
 
+#include <smedley/game_state/references.hpp>
+
 namespace smedley::game_state
 {
     constexpr uint32_t max_sample_creditor_destinations = 512;
@@ -84,7 +86,7 @@ namespace smedley::game_state
 
     struct PopCandidate
     {
-        const void *address = nullptr;
+        PopRef address{};
         int64_t savings_raw = 0;
     };
 
@@ -117,7 +119,7 @@ namespace smedley::game_state
 
     struct ArtisanSnapshot
     {
-        const void *address = nullptr;
+        PopRef address{};
         int32_t pop_id = -1;
         char production_type[64]{};
         int32_t output_good_ordinal = -1;
@@ -207,7 +209,7 @@ namespace smedley::game_state
 
     struct FactorySnapshot
     {
-        const void *address = nullptr;
+        FactoryRef address{};
         uint32_t state_index = 0;
         uint32_t factory_index = 0;
         int32_t state_id = -1;
@@ -285,43 +287,43 @@ namespace smedley::game_state
         int64_t leftover_raw = 0;
     };
 
-    using CountryResolver = const void *(*)(const void *context, int32_t ordinal);
-    using ProvinceResolver = const void *(*)(const void *context, int32_t id);
+    using CountryResolver = CountryRef (*)(const void *context, int32_t ordinal);
+    using ProvinceResolver = ProvinceRef (*)(const void *context, int32_t id);
 
-    CountryEconomySnapshot ReadCountryEconomy(const void *country, int32_t date_raw,
-                                              CountryResolver country_resolver = nullptr,
-                                              ProvinceResolver province_resolver = nullptr,
-                                              const void *resolver_context = nullptr,
-                                              const void **immediate_pop = nullptr);
-    CountryEconomySnapshot ReadCountryCreditors(const void *country, int32_t date_raw,
-                                                CountryResolver country_resolver,
-                                                const void *resolver_context);
+    CountryEconomySnapshot ReadCountryEconomy(CountryRef country, int32_t date_raw,
+                                               CountryResolver country_resolver = nullptr,
+                                               ProvinceResolver province_resolver = nullptr,
+                                               const void *resolver_context = nullptr,
+                                               PopRef *immediate_pop = nullptr);
+    CountryEconomySnapshot ReadCountryCreditors(CountryRef country, int32_t date_raw,
+                                                 CountryResolver country_resolver,
+                                                 const void *resolver_context);
     CountryEconomySnapshot ReadCountryCreditorBalances(const CountryEconomySnapshot &before,
-                                                        const void *country, int32_t date_raw,
-                                                        CountryResolver country_resolver,
-                                                        const void *resolver_context);
-    bool CollectCountryPops(const void *country, int32_t date_raw,
-                            ProvinceResolver province_resolver, const void *resolver_context,
-                            PopCandidate *candidates, size_t candidate_capacity,
-                            uint32_t province_attempt_capacity, uint32_t *candidate_count,
-                             CountryEconomySnapshot *quality);
-    bool ReadPopMoneySnapshot(const void *pop, PopMoneySnapshot *snapshot);
-    bool ReadPopDetailSnapshot(const void *pop, PopDetailSnapshot *snapshot);
-    bool ReadPopIdentityDimensions(const void *pop, PopIdentityDimensions *identity);
-    bool ReadPopNeedsSnapshot(const void *pop, PopNeedsSnapshot *snapshot);
-    bool ReadArtisanSnapshot(const void *pop, ArtisanSnapshot *snapshot,
-                             ArtisanInputSnapshot *inputs, size_t input_capacity, uint32_t *input_count,
-                             uint32_t groups = ARTISAN_ALL, ArtisanReadFailure *failure = nullptr);
+                                                         CountryRef country, int32_t date_raw,
+                                                         CountryResolver country_resolver,
+                                                         const void *resolver_context);
+    bool CollectCountryPops(CountryRef country, int32_t date_raw,
+                             ProvinceResolver province_resolver, const void *resolver_context,
+                             PopCandidate *candidates, size_t candidate_capacity,
+                             uint32_t province_attempt_capacity, uint32_t *candidate_count,
+                              CountryEconomySnapshot *quality);
+    bool ReadPopMoneySnapshot(PopRef pop, PopMoneySnapshot *snapshot);
+    bool ReadPopDetailSnapshot(PopRef pop, PopDetailSnapshot *snapshot);
+    bool ReadPopIdentityDimensions(PopRef pop, PopIdentityDimensions *identity);
+    bool ReadPopNeedsSnapshot(PopRef pop, PopNeedsSnapshot *snapshot);
+    bool ReadArtisanSnapshot(PopRef pop, ArtisanSnapshot *snapshot,
+                              ArtisanInputSnapshot *inputs, size_t input_capacity, uint32_t *input_count,
+                              uint32_t groups = ARTISAN_ALL, ArtisanReadFailure *failure = nullptr);
     const char *ArtisanReadFailureName(ArtisanReadFailureReason reason);
-    bool ReadInactiveArtisan(const void *pop, int32_t *pop_id);
-    bool CollectCountryFactories(const void *country, FactorySnapshot *snapshots,
-                                 size_t snapshot_capacity, uint32_t *snapshot_count,
-                                 FactoryInputSnapshot *inputs, size_t input_capacity,
-                                 uint32_t *input_count, uint32_t groups, uint32_t *flags,
-                                 uint32_t loaded_goods_count_override = 0);
-    bool CollectWorldMarket(const void *game_state, WorldMarketSnapshot *snapshots,
-                            size_t snapshot_capacity, uint32_t *snapshot_count);
-    const void *ResolveStateEmploymentRegistry();
-    bool ReadProvinceRgo(const void *registry, const void *province, int32_t province_id,
-                         size_t province_count, uint32_t groups, RgoSnapshot *snapshot);
+    bool ReadInactiveArtisan(PopRef pop, int32_t *pop_id);
+    bool CollectCountryFactories(CountryRef country, FactorySnapshot *snapshots,
+                                  size_t snapshot_capacity, uint32_t *snapshot_count,
+                                  FactoryInputSnapshot *inputs, size_t input_capacity,
+                                  uint32_t *input_count, uint32_t groups, uint32_t *flags,
+                                  uint32_t loaded_goods_count_override = 0);
+    bool CollectWorldMarket(GameStateRef game_state, WorldMarketSnapshot *snapshots,
+                             size_t snapshot_capacity, uint32_t *snapshot_count);
+    EmploymentRegistryRef ResolveStateEmploymentRegistry();
+    bool ReadProvinceRgo(EmploymentRegistryRef registry, ProvinceRef province, int32_t province_id,
+                          size_t province_count, uint32_t groups, RgoSnapshot *snapshot);
 }

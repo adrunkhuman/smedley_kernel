@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <type_traits>
 #include <vector>
 
 namespace smedley::game_state
@@ -77,25 +78,68 @@ namespace smedley::game_state
             uint8_t padding[3]{};
         };
 
-        const void *ResolveCountry(const void *context, int32_t ordinal)
+        CountryRef Country(const void *pointer) { return CountryRef{pointer}; }
+        ProvinceRef Province(const void *pointer) { return ProvinceRef{pointer}; }
+        PopRef Pop(const void *pointer) { return PopRef{pointer}; }
+        FactoryRef Factory(const void *pointer) { return FactoryRef{pointer}; }
+        GameStateRef GameState(const void *pointer) { return GameStateRef{pointer}; }
+        EmploymentRegistryRef EmploymentRegistry(const void *pointer) { return EmploymentRegistryRef{pointer}; }
+
+        static_assert(sizeof(CountryRef) == sizeof(const void *));
+        static_assert(sizeof(ProvinceRef) == sizeof(const void *));
+        static_assert(sizeof(PopRef) == sizeof(const void *));
+        static_assert(sizeof(FactoryRef) == sizeof(const void *));
+        static_assert(sizeof(GameStateRef) == sizeof(const void *));
+        static_assert(sizeof(EmploymentRegistryRef) == sizeof(const void *));
+        static_assert(std::is_trivially_copyable_v<CountryRef>);
+        static_assert(std::is_trivially_copyable_v<ProvinceRef>);
+        static_assert(std::is_trivially_copyable_v<PopRef>);
+        static_assert(std::is_trivially_copyable_v<FactoryRef>);
+        static_assert(std::is_trivially_copyable_v<GameStateRef>);
+        static_assert(std::is_trivially_copyable_v<EmploymentRegistryRef>);
+        static_assert(!std::is_convertible_v<const void *, CountryRef>);
+        static_assert(!std::is_convertible_v<const void *, ProvinceRef>);
+        static_assert(!std::is_convertible_v<const void *, PopRef>);
+        static_assert(!std::is_convertible_v<const void *, FactoryRef>);
+        static_assert(!std::is_convertible_v<const void *, GameStateRef>);
+        static_assert(!std::is_convertible_v<const void *, EmploymentRegistryRef>);
+        static_assert(!std::is_convertible_v<CountryRef, ProvinceRef>);
+        static_assert(!std::is_convertible_v<ProvinceRef, PopRef>);
+        static_assert(!std::is_convertible_v<PopRef, FactoryRef>);
+        static_assert(!std::is_convertible_v<FactoryRef, GameStateRef>);
+        static_assert(!std::is_convertible_v<GameStateRef, EmploymentRegistryRef>);
+
+        TEST(GameStateReferencesTest, SupportsNullAndSyntheticAddresses)
         {
-            const auto *lookup = static_cast<const CountryLookup *>(context);
-            return ordinal == lookup->ordinal ? lookup->country : nullptr;
+            CountryRef empty{};
+            EXPECT_FALSE(empty);
+            EXPECT_EQ(empty.address(), 0u);
+
+            std::array<std::byte, 1> bytes{};
+            const PopRef pop{bytes.data()};
+            EXPECT_TRUE(pop);
+            EXPECT_EQ(pop.address(), reinterpret_cast<uintptr_t>(bytes.data()));
         }
 
-        const void *ResolveProvince(const void *context, int32_t id)
+        CountryRef ResolveCountry(const void *context, int32_t ordinal)
         {
             const auto *lookup = static_cast<const CountryLookup *>(context);
-            return id == lookup->province_id ? lookup->province : nullptr;
+            return ordinal == lookup->ordinal ? Country(lookup->country) : CountryRef{};
         }
 
-        const void *ResolveCountryFromTable(const void *context, int32_t ordinal)
+        ProvinceRef ResolveProvince(const void *context, int32_t id)
+        {
+            const auto *lookup = static_cast<const CountryLookup *>(context);
+            return id == lookup->province_id ? Province(lookup->province) : ProvinceRef{};
+        }
+
+        CountryRef ResolveCountryFromTable(const void *context, int32_t ordinal)
         {
             const auto *table = static_cast<const CountryLookupTable *>(context);
             for (size_t index = 0; index < table->count; ++index) {
-                if (table->entries[index].ordinal == ordinal) return table->entries[index].country;
+                if (table->entries[index].ordinal == ordinal) return Country(table->entries[index].country);
             }
-            return nullptr;
+            return {};
         }
 
         CountryEconomySnapshot ReadResolvedCreditorDestinations(const std::vector<int32_t> &ordinals)
@@ -134,7 +178,7 @@ namespace smedley::game_state
             Write(&debtor, 0xe90, creditor_end);
             Write(&debtor, 0xe94, creditor_end);
             const CountryLookupTable table{lookup_entries.data(), lookup_entries.size()};
-            return ReadCountryCreditors(debtor.data(), 1234, ResolveCountryFromTable, &table);
+            return ReadCountryCreditors(Country(debtor.data()), 1234, ResolveCountryFromTable, &table);
         }
     }
 
@@ -199,7 +243,7 @@ namespace smedley::game_state
         Write(&creditor_b, 0x18, creditor_b_debt);
         Write(&creditor_b, 0x20, creditor_b_paid);
 
-        const auto sample = ReadCountryEconomy(country.data(), 1234);
+        const auto sample = ReadCountryEconomy(Country(country.data()), 1234);
         EXPECT_STREQ(sample.country_tag, "ENG");
         EXPECT_EQ(sample.date_raw, 1234);
         EXPECT_EQ(sample.state_count_reported, 1);
@@ -287,9 +331,9 @@ namespace smedley::game_state
         Write(&creditor, 0x20, was_paid);
         const CountryLookup lookup{destination_ordinal, destination.data(), province_ids[0], destination_province.data()};
 
-        const void *immediate_pop = nullptr;
+        PopRef immediate_pop{};
         const auto sample = ReadCountryEconomy(
-            debtor.data(), 1234, ResolveCountry, ResolveProvince, &lookup, &immediate_pop);
+            Country(debtor.data()), 1234, ResolveCountry, ResolveProvince, &lookup, &immediate_pop);
         EXPECT_EQ(sample.creditor_count, 1u);
         EXPECT_EQ(sample.creditor_destinations, 1u);
         EXPECT_EQ(sample.creditors_was_paid, 1u);
@@ -306,9 +350,9 @@ namespace smedley::game_state
         EXPECT_EQ(sample.destination_pop_savings_raw, destination_pop_savings);
         EXPECT_EQ(sample.destination_pop_savings_state_scale_raw, destination_state_savings);
         EXPECT_EQ(sample.flags, 0u);
-        EXPECT_EQ(immediate_pop, destination_pop.data());
+        EXPECT_EQ(immediate_pop.address(), reinterpret_cast<uintptr_t>(destination_pop.data()));
 
-        const auto aggregate_only = ReadCountryEconomy(debtor.data(), 1234);
+        const auto aggregate_only = ReadCountryEconomy(Country(debtor.data()), 1234);
         EXPECT_EQ(aggregate_only.creditor_count, 1u);
         EXPECT_EQ(aggregate_only.creditors_was_paid, 1u);
         EXPECT_EQ(aggregate_only.creditor_interest_raw, creditor_interest);
@@ -322,27 +366,27 @@ namespace smedley::game_state
         EXPECT_EQ(snapshot.interest_cash_flow_raw, destination_pop_interest_cash_flow);
         EXPECT_EQ(snapshot.total_cash_flow_raw, destination_pop_total_cash_flow);
         EXPECT_EQ(snapshot.savings_raw, destination_pop_savings);
-        EXPECT_FALSE(ReadPopMoneySnapshot(nullptr, &snapshot));
+        EXPECT_FALSE(ReadPopMoneySnapshot({}, &snapshot));
 
         std::array<PopCandidate, 1> candidates{};
         uint32_t candidate_count = 0;
         CountryEconomySnapshot pop_quality{};
-        ASSERT_TRUE(CollectCountryPops(destination.data(), 1234, ResolveProvince, &lookup,
+        ASSERT_TRUE(CollectCountryPops(Country(destination.data()), 1234, ResolveProvince, &lookup,
             candidates.data(), candidates.size(), max_sample_destination_provinces,
             &candidate_count, &pop_quality));
         EXPECT_EQ(candidate_count, 1u);
-        EXPECT_EQ(candidates[0].address, destination_pop.data());
+        EXPECT_EQ(candidates[0].address.address(), reinterpret_cast<uintptr_t>(destination_pop.data()));
         EXPECT_EQ(candidates[0].savings_raw, destination_pop_savings);
         EXPECT_EQ(pop_quality.flags, 0u);
 
         pop_lists[0].count = 2;
         const auto mismatched = ReadCountryEconomy(
-            debtor.data(), 1234, ResolveCountry, ResolveProvince, &lookup);
+            Country(debtor.data()), 1234, ResolveCountry, ResolveProvince, &lookup);
         EXPECT_NE(mismatched.flags & SAMPLE_POP_LIST_INVALID, 0u);
 
         pop_lists[0].count = 100001;
         const auto limited = ReadCountryEconomy(
-            debtor.data(), 1234, ResolveCountry, ResolveProvince, &lookup);
+            Country(debtor.data()), 1234, ResolveCountry, ResolveProvince, &lookup);
         EXPECT_NE(limited.flags & SAMPLE_POP_LIMIT, 0u);
 
         pop_lists[0].count = 1;
@@ -353,7 +397,7 @@ namespace smedley::game_state
         Write(&destination_state, 0x4c, duplicate_end);
         Write(&destination_state, 0x50, duplicate_end);
         const auto duplicate = ReadCountryEconomy(
-            debtor.data(), 1234, ResolveCountry, ResolveProvince, &lookup);
+            Country(debtor.data()), 1234, ResolveCountry, ResolveProvince, &lookup);
         EXPECT_NE(duplicate.flags & SAMPLE_DUPLICATE_PROVINCE, 0u);
         EXPECT_NE(duplicate.flags & SAMPLE_DUPLICATE_POP, 0u);
     }
@@ -392,7 +436,7 @@ namespace smedley::game_state
         Write(&creditor, 0x0c, destination_ordinal);
         const CountryLookup lookup{destination_ordinal, destination.data()};
 
-        const auto sample = ReadCountryCreditors(debtor.data(), 1234, ResolveCountry, &lookup);
+        const auto sample = ReadCountryCreditors(Country(debtor.data()), 1234, ResolveCountry, &lookup);
         ASSERT_EQ(sample.creditor_destinations, 1u);
         EXPECT_EQ(sample.destination_ordinals[0], destination_ordinal);
         EXPECT_EQ(sample.destination_bank_interests_raw[0], destination_bank_interest);
@@ -460,7 +504,7 @@ namespace smedley::game_state
         Write(&country, 0xe48, head);
         Write(&country, 0xe4c, state_count);
 
-        const auto sample = ReadCountryEconomy(country.data(), 0);
+        const auto sample = ReadCountryEconomy(Country(country.data()), 0);
         EXPECT_EQ(sample.states_walked, 1u);
         EXPECT_NE(sample.flags & SAMPLE_STATE_LIST_INVALID, 0u);
         EXPECT_NE(sample.flags & SAMPLE_STATE_COUNT_MISMATCH, 0u);
@@ -483,7 +527,7 @@ namespace smedley::game_state
         Write(&state, 0x4c, end);
         Write(&state, 0x50, begin);
 
-        const auto sample = ReadCountryEconomy(country.data(), 0);
+        const auto sample = ReadCountryEconomy(Country(country.data()), 0);
         EXPECT_NE(sample.flags & SAMPLE_STATE_VECTOR_INVALID, 0u);
     }
 
@@ -510,7 +554,7 @@ namespace smedley::game_state
         Write(&creditor, 0x18, debt);
         Write(&creditor, 0x20, was_paid);
 
-        const auto aggregate = ReadCountryEconomy(country.data(), 1234);
+        const auto aggregate = ReadCountryEconomy(Country(country.data()), 1234);
         EXPECT_EQ(aggregate.creditor_count, 1u);
         EXPECT_EQ(aggregate.creditors_was_paid, 1u);
         EXPECT_EQ(aggregate.creditor_interest_raw, interest);
@@ -518,7 +562,7 @@ namespace smedley::game_state
         EXPECT_EQ(aggregate.flags, 0u);
 
         const CountryLookup lookup{};
-        const auto resolved = ReadCountryEconomy(country.data(), 1234, ResolveCountry, nullptr, &lookup);
+        const auto resolved = ReadCountryEconomy(Country(country.data()), 1234, ResolveCountry, nullptr, &lookup);
         EXPECT_EQ(resolved.creditor_count, 1u);
         EXPECT_EQ(resolved.creditor_destinations, 0u);
         EXPECT_EQ(resolved.creditors_was_paid, 1u);
@@ -534,7 +578,7 @@ namespace smedley::game_state
         Write(&country, 0xe90, malformed_creditor_end);
         uint32_t candidate_count = 0;
         CountryEconomySnapshot quality{};
-        EXPECT_TRUE(CollectCountryPops(country.data(), 1234, ResolveProvince, &lookup,
+        EXPECT_TRUE(CollectCountryPops(Country(country.data()), 1234, ResolveProvince, &lookup,
             nullptr, 0, max_sample_destination_provinces, &candidate_count, &quality));
         EXPECT_EQ(candidate_count, 0u);
         EXPECT_EQ(quality.creditor_count, 0u);
@@ -567,7 +611,7 @@ namespace smedley::game_state
         Write(&creditor, 0x0c, destination_ordinal);
         const CountryLookup lookup{destination_ordinal, destination.data()};
 
-        const auto sample = ReadCountryEconomy(debtor.data(), 1234, ResolveCountry, nullptr, &lookup);
+        const auto sample = ReadCountryEconomy(Country(debtor.data()), 1234, ResolveCountry, nullptr, &lookup);
         EXPECT_EQ(sample.creditor_destinations, 0u);
         EXPECT_NE(sample.flags & SAMPLE_CREDITOR_DESTINATION_INVALID, 0u);
     }
@@ -658,7 +702,7 @@ namespace smedley::game_state
         uint32_t captured = 0;
         uint32_t input_count = 0;
         uint32_t flags = 0;
-        ASSERT_TRUE(CollectCountryFactories(country.data(), snapshots.data(), snapshots.size(), &captured,
+        ASSERT_TRUE(CollectCountryFactories(Country(country.data()), snapshots.data(), snapshots.size(), &captured,
             inputs.data(), inputs.size(), &input_count,
             FACTORY_IDENTITY | FACTORY_EMPLOYMENT | FACTORY_PRODUCTION | FACTORY_FINANCE | FACTORY_INPUTS,
             &flags, 48));
@@ -678,34 +722,34 @@ namespace smedley::game_state
 
         const void *null_pointer = nullptr;
         Write(&definition, 0x12c, null_pointer);
-        ASSERT_TRUE(CollectCountryFactories(country.data(), snapshots.data(), snapshots.size(), &captured,
+        ASSERT_TRUE(CollectCountryFactories(Country(country.data()), snapshots.data(), snapshots.size(), &captured,
             inputs.data(), inputs.size(), &input_count, FACTORY_IDENTITY, &flags));
         EXPECT_EQ(captured, 1u); Write(&definition, 0x12c, production_type_pointer);
         Write(&state, 0x48, null_pointer); Write(&state, 0x4c, null_pointer); Write(&state, 0x50, null_pointer);
-        ASSERT_TRUE(CollectCountryFactories(country.data(), snapshots.data(), snapshots.size(), &captured,
+        ASSERT_TRUE(CollectCountryFactories(Country(country.data()), snapshots.data(), snapshots.size(), &captured,
             inputs.data(), inputs.size(), &input_count, FACTORY_FINANCE, &flags));
         EXPECT_EQ(captured, 1u); Write(&state, 0x48, province_begin); Write(&state, 0x4c, province_end); Write(&state, 0x50, province_end);
         factory_node.data[0x31] = std::byte{1};
-        EXPECT_FALSE(CollectCountryFactories(country.data(), snapshots.data(), snapshots.size(), &captured,
+        EXPECT_FALSE(CollectCountryFactories(Country(country.data()), snapshots.data(), snapshots.size(), &captured,
             inputs.data(), inputs.size(), &input_count, FACTORY_INPUTS, &flags, 48)); EXPECT_NE(flags & FACTORY_UNREADABLE, 0u);
         factory_node.data[0x31] = std::byte{0}; requested_values[0] = 1;
-        EXPECT_FALSE(CollectCountryFactories(country.data(), snapshots.data(), snapshots.size(), &captured,
+        EXPECT_FALSE(CollectCountryFactories(Country(country.data()), snapshots.data(), snapshots.size(), &captured,
             inputs.data(), inputs.size(), &input_count, FACTORY_INPUTS, &flags, 48)); EXPECT_NE(flags & FACTORY_REQUESTED_INPUT_SENTINEL_INVALID, 0u);
         requested_values[0] = 0; factory_node.data[0x89] = std::byte{1};
-        EXPECT_FALSE(CollectCountryFactories(country.data(), snapshots.data(), snapshots.size(), &captured,
+        EXPECT_FALSE(CollectCountryFactories(Country(country.data()), snapshots.data(), snapshots.size(), &captured,
             inputs.data(), inputs.size(), &input_count, FACTORY_INPUTS, &flags, 48)); EXPECT_NE(flags & FACTORY_REQUESTED_INPUT_INDEX_INVALID, 0u);
         factory_node.data[0x89] = std::byte{0xff};
-        EXPECT_FALSE(CollectCountryFactories(country.data(), snapshots.data(), snapshots.size(), &captured,
+        EXPECT_FALSE(CollectCountryFactories(Country(country.data()), snapshots.data(), snapshots.size(), &captured,
             inputs.data(), inputs.size(), &input_count, FACTORY_INPUTS, &flags, 48)); EXPECT_NE(flags & FACTORY_REQUESTED_INPUT_INDEX_INVALID, 0u);
         factory_node.data[0x89] = std::byte{2};
-        EXPECT_FALSE(CollectCountryFactories(country.data(), snapshots.data(), snapshots.size(), &captured,
+        EXPECT_FALSE(CollectCountryFactories(Country(country.data()), snapshots.data(), snapshots.size(), &captured,
             inputs.data(), inputs.size(), &input_count, FACTORY_INPUTS, &flags, 65)); EXPECT_NE(flags & FACTORY_GOODS_REGISTRY_INVALID, 0u);
         factory_node.next = &factory_node;
         const int malformed_factory_count = 2; Write(&state, 0x68, malformed_factory_count);
-        EXPECT_FALSE(CollectCountryFactories(country.data(), snapshots.data(), snapshots.size(), &captured,
+        EXPECT_FALSE(CollectCountryFactories(Country(country.data()), snapshots.data(), snapshots.size(), &captured,
             inputs.data(), inputs.size(), &input_count, FACTORY_IDENTITY, &flags)); EXPECT_NE(flags & FACTORY_LIST_INVALID, 0u);
         factory_node.next = nullptr; Write(&state, 0x68, factory_count);
-        EXPECT_FALSE(CollectCountryFactories(country.data(), snapshots.data(), 0, &captured,
+        EXPECT_FALSE(CollectCountryFactories(Country(country.data()), snapshots.data(), 0, &captured,
             inputs.data(), inputs.size(), &input_count, FACTORY_IDENTITY, &flags)); EXPECT_NE(flags & FACTORY_LIMIT, 0u);
     }
 
@@ -724,11 +768,11 @@ namespace smedley::game_state
             Write(&world_market, offsets[index] + 0x48, begin); Write(&world_market, offsets[index] + 0x4c, end); Write(&world_market, offsets[index] + 0x50, end);
         }
         std::array<WorldMarketSnapshot, 4> snapshots{}; uint32_t captured = 0;
-        ASSERT_TRUE(CollectWorldMarket(game_state.data(), snapshots.data(), snapshots.size(), &captured)); ASSERT_EQ(captured, 1u);
+        ASSERT_TRUE(CollectWorldMarket(GameState(game_state.data()), snapshots.data(), snapshots.size(), &captured)); ASSERT_EQ(captured, 1u);
         EXPECT_EQ(snapshots[0].good_ordinal, 0); EXPECT_EQ(snapshots[0].supply_raw, 100); EXPECT_EQ(snapshots[0].last_supply_raw, 200);
         EXPECT_EQ(snapshots[0].worldmarket_stock_raw, 300); EXPECT_EQ(snapshots[0].demand_raw, 400); EXPECT_EQ(snapshots[0].real_demand_raw, 500);
         EXPECT_EQ(snapshots[0].price_raw, 600); EXPECT_EQ(snapshots[0].last_price_raw, 700); EXPECT_EQ(snapshots[0].actual_sold_raw, 800); EXPECT_EQ(snapshots[0].actual_sold_world_raw, 900);
-        world_market[offsets[5] + 0x09] = std::byte{1}; EXPECT_FALSE(CollectWorldMarket(game_state.data(), snapshots.data(), snapshots.size(), &captured));
+        world_market[offsets[5] + 0x09] = std::byte{1}; EXPECT_FALSE(CollectWorldMarket(GameState(game_state.data()), snapshots.data(), snapshots.size(), &captured));
         std::array<std::array<int64_t, 65>, 9> dense_values{};
         for (size_t pool = 0; pool < offsets.size(); ++pool) {
             for (size_t ordinal = 0; ordinal < 64; ++ordinal) { dense_values[pool][ordinal + 1] = static_cast<int64_t>(ordinal + 1); world_market[offsets[pool] + 0x08 + ordinal] = static_cast<std::byte>(ordinal + 1); }
@@ -736,7 +780,7 @@ namespace smedley::game_state
             Write(&world_market, offsets[pool] + 0x48, begin); Write(&world_market, offsets[pool] + 0x4c, end); Write(&world_market, offsets[pool] + 0x50, end);
         }
         std::array<WorldMarketSnapshot, 64> dense_snapshots{};
-        ASSERT_TRUE(CollectWorldMarket(game_state.data(), dense_snapshots.data(), dense_snapshots.size(), &captured));
+        ASSERT_TRUE(CollectWorldMarket(GameState(game_state.data()), dense_snapshots.data(), dense_snapshots.size(), &captured));
         EXPECT_EQ(captured, 64u); EXPECT_EQ(dense_snapshots.back().good_ordinal, 63);
     }
 
@@ -756,18 +800,18 @@ namespace smedley::game_state
         Write(&pop, 0x118, consciousness); Write(&pop, 0x120, militancy); Write(&pop, 0x128, literacy);
         Write(&pop, 0x130, life_needs); Write(&pop, 0x138, everyday_needs); Write(&pop, 0x140, luxury_needs);
         Write(&pop, 0x180, money); Write(&pop, 0x210, interest); Write(&pop, 0x218, cash_flow); Write(&pop, 0x250, savings);
-        PopDetailSnapshot detail{}; ASSERT_TRUE(ReadPopDetailSnapshot(pop.data(), &detail));
+        PopDetailSnapshot detail{}; ASSERT_TRUE(ReadPopDetailSnapshot(Pop(pop.data()), &detail));
         EXPECT_EQ(detail.pop_id, pop_id); EXPECT_EQ(detail.pop_type_id_candidate, type_id); EXPECT_EQ(detail.province_id_candidate, province_id);
         EXPECT_EQ(detail.size_candidate, size); EXPECT_EQ(detail.employed_candidate, employed); EXPECT_EQ(detail.consciousness_candidate_raw, consciousness);
         EXPECT_EQ(detail.militancy_candidate_raw, militancy); EXPECT_EQ(detail.literacy_candidate_raw, literacy);
         EXPECT_EQ(detail.economy.money_raw, money); EXPECT_EQ(detail.economy.savings_raw, savings);
         EXPECT_EQ(detail.economy.interest_cash_flow_raw, interest); EXPECT_EQ(detail.economy.total_cash_flow_raw, cash_flow);
-        PopIdentityDimensions identity{}; ASSERT_TRUE(ReadPopIdentityDimensions(pop.data(), &identity));
+        PopIdentityDimensions identity{}; ASSERT_TRUE(ReadPopIdentityDimensions(Pop(pop.data()), &identity));
         EXPECT_STREQ(identity.pop_type_tag_candidate, "clergymen"); EXPECT_STREQ(identity.culture_tag_candidate, "polish"); EXPECT_STREQ(identity.religion_tag_candidate, "catholic");
-        Write(&pop, 0x60, size + 1); EXPECT_FALSE(ReadPopDetailSnapshot(pop.data(), &detail));
-        Write(&pop, 0x60, employed); Write(&pop, 0x138, int64_t{32769}); EXPECT_TRUE(ReadPopDetailSnapshot(pop.data(), &detail));
-        PopNeedsSnapshot needs{}; EXPECT_FALSE(ReadPopNeedsSnapshot(pop.data(), &needs));
-        Write(&pop, 0x138, everyday_needs); ASSERT_TRUE(ReadPopNeedsSnapshot(pop.data(), &needs));
+        Write(&pop, 0x60, size + 1); EXPECT_FALSE(ReadPopDetailSnapshot(Pop(pop.data()), &detail));
+        Write(&pop, 0x60, employed); Write(&pop, 0x138, int64_t{32769}); EXPECT_TRUE(ReadPopDetailSnapshot(Pop(pop.data()), &detail));
+        PopNeedsSnapshot needs{}; EXPECT_FALSE(ReadPopNeedsSnapshot(Pop(pop.data()), &needs));
+        Write(&pop, 0x138, everyday_needs); ASSERT_TRUE(ReadPopNeedsSnapshot(Pop(pop.data()), &needs));
         EXPECT_EQ(needs.life_satisfaction_candidate_raw, life_needs); EXPECT_EQ(needs.everyday_satisfaction_candidate_raw, everyday_needs); EXPECT_EQ(needs.luxury_satisfaction_candidate_raw, luxury_needs);
     }
 
@@ -796,15 +840,15 @@ namespace smedley::game_state
         Write(&economy, 0x48, stock_begin); Write(&economy, 0x4c, stock_end); Write(&economy, 0x50, stock_end);
         Write(&economy, 0x58 + 0x48, need_begin); Write(&economy, 0x58 + 0x4c, need_end); Write(&economy, 0x58 + 0x50, need_end);
         ArtisanSnapshot snapshot{}; std::array<ArtisanInputSnapshot, 4> inputs{}; uint32_t input_count = 0;
-        ASSERT_TRUE(ReadArtisanSnapshot(pop.data(), &snapshot, inputs.data(), inputs.size(), &input_count));
+        ASSERT_TRUE(ReadArtisanSnapshot(Pop(pop.data()), &snapshot, inputs.data(), inputs.size(), &input_count));
         EXPECT_EQ(snapshot.pop_id, pop_id); EXPECT_STREQ(snapshot.production_type, production_key); EXPECT_STREQ(snapshot.output_good, output_key);
         EXPECT_EQ(snapshot.output_good_ordinal, output_ordinal); EXPECT_EQ(snapshot.current_producing_raw, current_producing); EXPECT_EQ(snapshot.gross_output_raw, 9348);
         ASSERT_EQ(input_count, 1u); EXPECT_EQ(inputs[0].good_ordinal, output_ordinal); EXPECT_EQ(inputs[0].stockpile_raw, 65536); EXPECT_EQ(inputs[0].need_raw, 98304);
         Write(&economy, 0xc8, int64_t{32769}); ArtisanReadFailure failure{};
-        EXPECT_FALSE(ReadArtisanSnapshot(pop.data(), &snapshot, inputs.data(), inputs.size(), &input_count, ARTISAN_ALL, &failure));
+        EXPECT_FALSE(ReadArtisanSnapshot(Pop(pop.data()), &snapshot, inputs.data(), inputs.size(), &input_count, ARTISAN_ALL, &failure));
         EXPECT_EQ(failure.reason, ArtisanReadFailureReason::PercentAfforded); EXPECT_EQ(failure.pop_id, pop_id); EXPECT_EQ(failure.offending_raw, 32769);
         EXPECT_STREQ(ArtisanReadFailureName(failure.reason), "percent_afforded");
-        Write(&economy, 0xc8, int64_t{32768}); Write(&economy, 0xd8, int64_t{118028}); EXPECT_TRUE(ReadArtisanSnapshot(pop.data(), &snapshot, inputs.data(), inputs.size(), &input_count));
+        Write(&economy, 0xc8, int64_t{32768}); Write(&economy, 0xd8, int64_t{118028}); EXPECT_TRUE(ReadArtisanSnapshot(Pop(pop.data()), &snapshot, inputs.data(), inputs.size(), &input_count));
     }
 
     TEST(GameStateReadersTest, RecognizesArtisanWithoutActiveProductionType)
@@ -813,8 +857,8 @@ namespace smedley::game_state
         const void *pop_type_pointer = pop_type.data(); const void *economy_pointer = economy.data(); const char artisan_key[] = "artisans";
         std::memcpy(pop_type.data() + 0x08, artisan_key, sizeof(artisan_key)); Write(&pop_type, 0x18, static_cast<uint32_t>(sizeof(artisan_key) - 1)); Write(&pop_type, 0x1c, uint32_t{15});
         Write(&pop, 0x0c, int32_t{42}); Write(&pop, 0x68, pop_type_pointer); Write(&pop, 0x1d4, economy_pointer);
-        int32_t pop_id = -1; EXPECT_TRUE(ReadInactiveArtisan(pop.data(), &pop_id)); EXPECT_EQ(pop_id, 42);
-        const void *active_production = pop_type.data(); Write(&economy, 0xb0, active_production); EXPECT_FALSE(ReadInactiveArtisan(pop.data(), &pop_id));
+        int32_t pop_id = -1; EXPECT_TRUE(ReadInactiveArtisan(Pop(pop.data()), &pop_id)); EXPECT_EQ(pop_id, 42);
+        const void *active_production = pop_type.data(); Write(&economy, 0xb0, active_production); EXPECT_FALSE(ReadInactiveArtisan(Pop(pop.data()), &pop_id));
     }
 
     TEST(GameStateReadersTest, ReadsValidatedProvinceRgoRecord)
@@ -838,20 +882,20 @@ namespace smedley::game_state
         Write(&records[1], 0x38, output_efficiency); Write(&records[1], 0x40, throughput); Write(&records[1], 0x58, employed); Write(&records[1], 0x80, income); Write(&records[1], 0x88, base_size);
         Write(&records[1], 0x90, percent_sold_domestic); Write(&records[1], 0x98, percent_sold_export); Write(&records[1], 0xa0, leftover);
         RgoSnapshot snapshot{};
-        ASSERT_TRUE(ReadProvinceRgo(registry.data(), province.data(), 1, records.size(), RGO_IDENTITY | RGO_EMPLOYMENT | RGO_PRODUCTION | RGO_FINANCE | RGO_MODIFIERS | RGO_SALES, &snapshot));
+        ASSERT_TRUE(ReadProvinceRgo(EmploymentRegistry(registry.data()), Province(province.data()), 1, records.size(), RGO_IDENTITY | RGO_EMPLOYMENT | RGO_PRODUCTION | RGO_FINANCE | RGO_MODIFIERS | RGO_SALES, &snapshot));
         EXPECT_EQ(snapshot.province_id, 1); EXPECT_STREQ(snapshot.production_type, production_key); EXPECT_EQ(snapshot.output_good_ordinal, goods_ordinal); EXPECT_STREQ(snapshot.output_good, goods_key);
         EXPECT_EQ(snapshot.employment_capacity, capacity); EXPECT_EQ(snapshot.employed, employed); EXPECT_EQ(snapshot.base_output_per_size_raw, base_output); EXPECT_EQ(snapshot.base_size_raw, base_size);
         EXPECT_EQ(snapshot.output_efficiency_raw, output_efficiency); EXPECT_EQ(snapshot.throughput_raw, throughput); EXPECT_EQ(snapshot.gross_output_raw, 187206);
         EXPECT_EQ(snapshot.owner_population, 848); EXPECT_EQ(snapshot.state_rgo_employment_capacity, capacity); EXPECT_EQ(snapshot.owner_output_modifier_raw, 463);
         EXPECT_EQ(snapshot.income_raw, income); EXPECT_EQ(snapshot.percent_sold_domestic_raw, percent_sold_domestic); EXPECT_EQ(snapshot.percent_sold_export_raw, percent_sold_export); EXPECT_EQ(snapshot.leftover_raw, leftover);
         const int64_t invalid_percent_sold = 32769; Write(&records[1], 0x90, invalid_percent_sold);
-        EXPECT_FALSE(ReadProvinceRgo(registry.data(), province.data(), 1, records.size(), RGO_SALES, &snapshot)); Write(&records[1], 0x90, percent_sold_domestic);
+        EXPECT_FALSE(ReadProvinceRgo(EmploymentRegistry(registry.data()), Province(province.data()), 1, records.size(), RGO_SALES, &snapshot)); Write(&records[1], 0x90, percent_sold_domestic);
         const int32_t invalid_owner_pop_type_ordinal = 128; Write(&owner_modifier, 0x28, invalid_owner_pop_type_ordinal);
-        EXPECT_FALSE(ReadProvinceRgo(registry.data(), province.data(), 1, records.size(), RGO_MODIFIERS, &snapshot)); Write(&owner_modifier, 0x28, owner_pop_type_ordinal);
+        EXPECT_FALSE(ReadProvinceRgo(EmploymentRegistry(registry.data()), Province(province.data()), 1, records.size(), RGO_MODIFIERS, &snapshot)); Write(&owner_modifier, 0x28, owner_pop_type_ordinal);
         const void *wrong_province = production_type.data(); Write(&records[1], 0x1c, wrong_province);
-        EXPECT_FALSE(ReadProvinceRgo(registry.data(), province.data(), 1, records.size(), RGO_IDENTITY, &snapshot));
+        EXPECT_FALSE(ReadProvinceRgo(EmploymentRegistry(registry.data()), Province(province.data()), 1, records.size(), RGO_IDENTITY, &snapshot));
         Write(&records[1], 0x1c, province_pointer); const int64_t maximum = (std::numeric_limits<int64_t>::max)();
         Write(&records[1], 0x38, maximum); Write(&records[1], 0x40, maximum);
-        EXPECT_FALSE(ReadProvinceRgo(registry.data(), province.data(), 1, records.size(), RGO_PRODUCTION, &snapshot));
+        EXPECT_FALSE(ReadProvinceRgo(EmploymentRegistry(registry.data()), Province(province.data()), 1, records.size(), RGO_PRODUCTION, &snapshot));
     }
 }

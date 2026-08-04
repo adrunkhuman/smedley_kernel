@@ -32,10 +32,10 @@ namespace
         const void *province = nullptr;
     };
 
-    const void *ResolveCountry(const void *context, int32_t ordinal)
+    game_state::CountryRef ResolveCountry(const void *context, int32_t ordinal)
     {
         const auto *lookup = static_cast<const CountryLookup *>(context);
-        return ordinal == lookup->ordinal ? lookup->country : nullptr;
+        return ordinal == lookup->ordinal ? game_state::CountryRef{lookup->country} : game_state::CountryRef{};
     }
 
 }
@@ -143,7 +143,7 @@ TEST(InterestBugFixTest, CompletesTransferAfterCreditorEntryDisappears)
     before.destination_bank_interest_raw = 100;
 
     auto after = game_state::ReadCountryCreditorBalances(
-        before, debtor.data(), 1234, ResolveCountry, &lookup);
+        before, game_state::CountryRef{debtor.data()}, 1234, ResolveCountry, &lookup);
     ASSERT_EQ(after.flags, 0u);
     ASSERT_EQ(after.creditor_destinations, 1u);
     interest_bug_fix::DestinationTransferSummary summary{};
@@ -243,18 +243,18 @@ TEST(InterestBugFixTest, ValidatesPopMoneyWriteSpan)
     ASSERT_NE(pages, nullptr);
 
     const void *pop = pages + page_size - 0x180 - 1;
-    EXPECT_TRUE(interest_bug_fix::CanWritePopMoney(pop));
+    EXPECT_TRUE(interest_bug_fix::CanWritePopMoney(game_state::PopRef{pop}));
 
     DWORD writable_protection = 0;
     const BOOL made_readonly = VirtualProtect(
         pages + page_size, page_size, PAGE_READONLY, &writable_protection);
     EXPECT_NE(made_readonly, FALSE);
     if (made_readonly != FALSE) {
-        EXPECT_FALSE(interest_bug_fix::CanWritePopMoney(pop));
+        EXPECT_FALSE(interest_bug_fix::CanWritePopMoney(game_state::PopRef{pop}));
         DWORD restored_protection = 0;
         EXPECT_NE(VirtualProtect(pages + page_size, page_size, writable_protection, &restored_protection), FALSE);
     }
-    EXPECT_FALSE(interest_bug_fix::CanWritePopMoney(nullptr));
+    EXPECT_FALSE(interest_bug_fix::CanWritePopMoney({}));
     EXPECT_NE(VirtualFree(pages, 0, MEM_RELEASE), FALSE);
 }
 

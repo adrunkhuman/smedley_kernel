@@ -27,7 +27,7 @@ namespace telemetry_plugin
         uint32_t candidate_count = 0;
         for (size_t ordinal = 1; ordinal < slots; ++ordinal) {
             const auto *country = game_state->country(static_cast<int32_t>(ordinal));
-            const CountryEconomySnapshot credit_quality = ReadCountryEconomy(country, date);
+            const CountryEconomySnapshot credit_quality = ReadCountryEconomy(CountryRef{country}, date);
             constexpr uint32_t credit_flag_mask = SAMPLE_SUM_OVERFLOW | SAMPLE_CREDITOR_VECTOR_INVALID
                 | SAMPLE_CREDITOR_UNREADABLE | SAMPLE_CREDITOR_TAG_INVALID;
             snapshot.credit_flags |= credit_quality.flags & credit_flag_mask;
@@ -35,7 +35,7 @@ namespace telemetry_plugin
             uint32_t collected = 0;
             const uint32_t province_remaining = snapshot.province_count >= max_sample_destination_provinces
                 ? 0 : max_sample_destination_provinces - snapshot.province_count;
-            if (!CollectCountryPops(country, date, ResolveProvince, game_state,
+            if (!CollectCountryPops(CountryRef{country}, date, ResolveProvince, game_state,
                     candidates_.data() + candidate_count, candidates_.size() - candidate_count,
                     province_remaining, &collected, &quality)) {
                 snapshot.snapshot_flags |= SNAPSHOT_COLLECTION_FAILED;
@@ -67,10 +67,10 @@ namespace telemetry_plugin
         if (snapshot.complete()) {
             std::sort(candidates_.begin(), candidates_.begin() + candidate_count,
                 [](const PopCandidate &left, const PopCandidate &right) {
-                    return reinterpret_cast<uintptr_t>(left.address) < reinterpret_cast<uintptr_t>(right.address);
+                    return left.address.address() < right.address.address();
                 });
             for (uint32_t index = 1; index < candidate_count; ++index) {
-                if (candidates_[index - 1].address == candidates_[index].address) {
+                if (candidates_[index - 1].address.address() == candidates_[index].address.address()) {
                     snapshot.snapshot_flags |= SNAPSHOT_DUPLICATE_POP;
                     break;
                 }
@@ -94,9 +94,9 @@ namespace telemetry_plugin
         return snapshot;
     }
 
-    const void *EconomicCapture::ResolveProvince(const void *context, int32_t id)
+    ProvinceRef EconomicCapture::ResolveProvince(const void *context, int32_t id)
     {
-        return static_cast<const smedley::v2::CCurrentGameState *>(context)->province(id);
+        return ProvinceRef{static_cast<const smedley::v2::CCurrentGameState *>(context)->province(id)};
     }
 
     PopulationCapture EconomicCapture::CollectPopulation(
@@ -121,7 +121,7 @@ namespace telemetry_plugin
                 uint32_t collected = 0;
                 const uint32_t province_remaining = capture.province_count >= max_sample_destination_provinces
                     ? 0 : max_sample_destination_provinces - capture.province_count;
-                if (!CollectCountryPops(country, date, ResolveProvince, game_state,
+                if (!CollectCountryPops(CountryRef{country}, date, ResolveProvince, game_state,
                         candidates_.data() + candidate_count, candidates_.size() - candidate_count,
                         province_remaining, &collected, &quality)) {
                     capture.flags |= quality.flags == 0 ? SAMPLE_COUNTRY_UNREADABLE : quality.flags;
@@ -135,10 +135,10 @@ namespace telemetry_plugin
             if (capture.complete()) {
                 std::sort(candidates_.begin(), candidates_.begin() + candidate_count,
                     [](const PopCandidate &left, const PopCandidate &right) {
-                        return reinterpret_cast<uintptr_t>(left.address) < reinterpret_cast<uintptr_t>(right.address);
+                        return left.address.address() < right.address.address();
                     });
                 for (uint32_t index = 1; index < candidate_count; ++index) {
-                    if (candidates_[index - 1].address == candidates_[index].address) {
+                    if (candidates_[index - 1].address.address() == candidates_[index].address.address()) {
                         capture.flags |= SAMPLE_DUPLICATE_POP;
                         break;
                     }

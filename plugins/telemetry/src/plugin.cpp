@@ -498,12 +498,12 @@ namespace telemetry_plugin
             for (uint32_t factory_index = 0; factory_index < factory_count; ++factory_index) {
                 const auto &factory = factory_snapshots_[factory_index];
                 const auto flow_it = std::lower_bound(factory_daily_flows_->begin(),
-                    factory_daily_flows_->begin() + factory_daily_flow_count_, factory.address,
-                    [](const DailyFactoryFlow &candidate, const void *address) {
-                        return reinterpret_cast<uintptr_t>(candidate.address) < reinterpret_cast<uintptr_t>(address);
+                    factory_daily_flows_->begin() + factory_daily_flow_count_, factory.address.address(),
+                    [](const DailyFactoryFlow &candidate, uintptr_t address) {
+                        return reinterpret_cast<uintptr_t>(candidate.address) < address;
                     });
                 const DailyFactoryFlow *daily_flow = flow_it != factory_daily_flows_->begin() + factory_daily_flow_count_
-                    && flow_it->address == factory.address ? &*flow_it : nullptr;
+                    && reinterpret_cast<uintptr_t>(flow_it->address) == factory.address.address() ? &*flow_it : nullptr;
                 const SmedleyTelemetryFieldV1 summary_entities[] = {
                     StringField("country_tag", country_tag), IntField("state_id", factory.state_id),
                     StringField("factory_type", factory.factory_type),
@@ -899,7 +899,7 @@ namespace telemetry_plugin
                     rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
                     ++family_stats_[rule_index].polls_due;
                     uint32_t market_count = 0;
-                    if (!smedley::game_state::CollectWorldMarket(game_state, world_market_snapshots_.data(),
+                    if (!smedley::game_state::CollectWorldMarket(smedley::game_state::GameStateRef{game_state}, world_market_snapshots_.data(),
                             world_market_snapshots_.size(), &market_count)) {
                         ++family_stats_[rule_index].invalid;
                     } else {
@@ -1026,8 +1026,8 @@ namespace telemetry_plugin
                     size_t province_count = 0;
                     const bool province_vector_valid = game_state->province_count_candidate(&province_count);
                     if (!province_vector_valid) ++family_stats_[rule_index].invalid;
-                    const void *registry = province_vector_valid
-                        ? smedley::game_state::ResolveStateEmploymentRegistry() : nullptr;
+                    const smedley::game_state::EmploymentRegistryRef registry = province_vector_valid
+                        ? smedley::game_state::ResolveStateEmploymentRegistry() : smedley::game_state::EmploymentRegistryRef{};
                     uint32_t groups = 0;
                     if (HasField(*rule, "identity")) groups |= smedley::game_state::RGO_IDENTITY;
                     if (HasField(*rule, "employment")) groups |= smedley::game_state::RGO_EMPLOYMENT;
@@ -1053,7 +1053,7 @@ namespace telemetry_plugin
                         if (!HasCountryTag(*rule, country_tag)) continue;
                         ++family_stats_[rule_index].collection_attempts;
                         smedley::game_state::RgoSnapshot snapshot{};
-                        if (!smedley::game_state::ReadProvinceRgo(registry, province,
+                        if (!smedley::game_state::ReadProvinceRgo(registry, smedley::game_state::ProvinceRef{province},
                                 static_cast<int32_t>(id), province_count, groups, &snapshot)) {
                             if (!rule->country_tags.empty() || !rule->province_ids.empty()) {
                                 ++family_stats_[rule_index].invalid;
@@ -1213,7 +1213,7 @@ namespace telemetry_plugin
                         groups |= smedley::game_state::FACTORY_IDENTITY | smedley::game_state::FACTORY_PRODUCTION
                             | smedley::game_state::FACTORY_FINANCE;
                     }
-                    if (!smedley::game_state::CollectCountryFactories(country, factory_snapshots_.data(),
+                    if (!smedley::game_state::CollectCountryFactories(smedley::game_state::CountryRef{country}, factory_snapshots_.data(),
                             factory_snapshots_.size(), &factory_count, factory_input_snapshots_.data(),
                             factory_input_snapshots_.size(), &input_count, groups, &flags)) {
                         ++family_stats_[country_rule_index].invalid;
@@ -1224,7 +1224,8 @@ namespace telemetry_plugin
                             for (uint32_t record_index = 0; record_index < factory_hook_record_count_; ++record_index) {
                                 const auto &record = (*factory_hook_records_)[record_index];
                                 for (uint32_t factory_index = 0; factory_index < factory_count; ++factory_index) {
-                                    if (factory_snapshots_[factory_index].address != record.factory) continue;
+                                    if (factory_snapshots_[factory_index].address.address()
+                                        != reinterpret_cast<uintptr_t>(record.factory)) continue;
                                     auto &aggregate = (*factory_hook_aggregates_)[factory_index];
                                     if (record.pool > 3) {
                                         ++family_stats_[country_rule_index].invalid;
@@ -1321,14 +1322,14 @@ namespace telemetry_plugin
                             if (HasField(*rule, "sales")) {
                                 const auto begin = factory_sales_hook_records_->begin();
                                 const auto end = begin + factory_sales_hook_record_count_;
-                                const auto match = std::lower_bound(begin, end, snapshot.address,
-                                    [](const FactorySalesHookRecord &candidate, const void *address) {
+                                const auto match = std::lower_bound(begin, end, snapshot.address.address(),
+                                    [](const FactorySalesHookRecord &candidate, uintptr_t address) {
                                         return reinterpret_cast<uintptr_t>(candidate.factory)
-                                            < reinterpret_cast<uintptr_t>(address);
+                                            < address;
                                     });
-                                const auto match_end = std::upper_bound(match, end, snapshot.address,
-                                    [](const void *address, const FactorySalesHookRecord &candidate) {
-                                        return reinterpret_cast<uintptr_t>(address)
+                                const auto match_end = std::upper_bound(match, end, snapshot.address.address(),
+                                    [](uintptr_t address, const FactorySalesHookRecord &candidate) {
+                                        return address
                                             < reinterpret_cast<uintptr_t>(candidate.factory);
                                     });
                                 const auto settlement_count = static_cast<int64_t>(match_end - match);
@@ -1775,7 +1776,7 @@ namespace telemetry_plugin
         {
             size_t day_count = 0;
             uint32_t market_count = 0;
-            if (!smedley::game_state::CollectWorldMarket(game_state, world_market_snapshots_.data(),
+            if (!smedley::game_state::CollectWorldMarket(smedley::game_state::GameStateRef{game_state}, world_market_snapshots_.data(),
                     world_market_snapshots_.size(), &market_count) || market_count == 0) return false;
             std::array<int64_t, 64> current_prices{};
             std::array<bool, 64> current_price_seen{};
@@ -1805,7 +1806,7 @@ namespace telemetry_plugin
                 if (day == nullptr) return false;
                 if (factory_hook_dropped_ != 0) day->complete = false;
                 uint32_t factory_count = 0, input_count = 0, flags = 0;
-                if (!smedley::game_state::CollectCountryFactories(country, factory_snapshots_.data(), factory_snapshots_.size(),
+                if (!smedley::game_state::CollectCountryFactories(smedley::game_state::CountryRef{country}, factory_snapshots_.data(), factory_snapshots_.size(),
                         &factory_count, factory_input_snapshots_.data(), factory_input_snapshots_.size(), &input_count,
                         smedley::game_state::FACTORY_PRODUCTION, &flags) || flags != 0) {
                     day->complete = false;
@@ -1815,12 +1816,12 @@ namespace telemetry_plugin
                     const auto &factory = factory_snapshots_[factory_index];
                     if (factory.output_raw > 0 && factory_flow_observed_dates_ < 2) day->complete = false;
                     const auto flow_it = std::lower_bound(factory_daily_flows_->begin(),
-                        factory_daily_flows_->begin() + factory_daily_flow_count_, factory.address,
-                        [](const DailyFactoryFlow &candidate, const void *address) {
-                            return reinterpret_cast<uintptr_t>(candidate.address) < reinterpret_cast<uintptr_t>(address);
+                        factory_daily_flows_->begin() + factory_daily_flow_count_, factory.address.address(),
+                        [](const DailyFactoryFlow &candidate, uintptr_t address) {
+                            return reinterpret_cast<uintptr_t>(candidate.address) < address;
                         });
                     DailyFactoryFlow *flow = flow_it != factory_daily_flows_->begin() + factory_daily_flow_count_
-                        && flow_it->address == factory.address ? &*flow_it : nullptr;
+                        && reinterpret_cast<uintptr_t>(flow_it->address) == factory.address.address() ? &*flow_it : nullptr;
                     if (flow != nullptr) {
                         const bool identity_mismatch = flow->identity_seen
                             && (flow->state_id != factory.state_id
@@ -1831,12 +1832,12 @@ namespace telemetry_plugin
                         flow->state_id = factory.state_id;
                         std::copy_n(factory.factory_type, flow->factory_type.size(), flow->factory_type.data());
                         const auto retained_it = std::lower_bound(factory_previous_flows_->begin(),
-                            factory_previous_flows_->begin() + factory_previous_flow_count_, factory.address,
-                            [](const DailyFactoryFlow &candidate, const void *address) {
-                                return reinterpret_cast<uintptr_t>(candidate.address) < reinterpret_cast<uintptr_t>(address);
+                            factory_previous_flows_->begin() + factory_previous_flow_count_, factory.address.address(),
+                            [](const DailyFactoryFlow &candidate, uintptr_t address) {
+                                return reinterpret_cast<uintptr_t>(candidate.address) < address;
                             });
-                        if (retained_it != factory_previous_flows_->begin() + factory_previous_flow_count_
-                            && retained_it->address == factory.address) {
+                    if (retained_it != factory_previous_flows_->begin() + factory_previous_flow_count_
+                            && reinterpret_cast<uintptr_t>(retained_it->address) == factory.address.address()) {
                             retained_it->identity_seen = true;
                             retained_it->state_id = factory.state_id;
                             retained_it->factory_type = flow->factory_type;
@@ -1872,9 +1873,9 @@ namespace telemetry_plugin
             }
 
             size_t province_count = 0;
-            const void *registry = nullptr;
+            smedley::game_state::EmploymentRegistryRef registry{};
             if (!game_state->province_count_candidate(&province_count)
-                || (registry = smedley::game_state::ResolveStateEmploymentRegistry()) == nullptr) return false;
+                || !(registry = smedley::game_state::ResolveStateEmploymentRegistry())) return false;
             for (size_t province_id = 0; province_id < province_count; ++province_id) {
                 const auto *province = game_state->province(static_cast<int>(province_id));
                 if (province == nullptr || !province->owner_candidate().normalized_candidate()) continue;
@@ -1883,7 +1884,7 @@ namespace telemetry_plugin
                 auto *day = CountryEconomyDayFor(tag, &day_count);
                 if (day == nullptr) return false;
                 smedley::game_state::RgoSnapshot rgo{};
-                if (!smedley::game_state::ReadProvinceRgo(registry, province, static_cast<int32_t>(province_id),
+                if (!smedley::game_state::ReadProvinceRgo(registry, smedley::game_state::ProvinceRef{province}, static_cast<int32_t>(province_id),
                         province_count, smedley::game_state::RGO_IDENTITY | smedley::game_state::RGO_PRODUCTION, &rgo)) {
                     day->complete = false;
                     continue;
@@ -2214,12 +2215,12 @@ namespace telemetry_plugin
                     && state->pop_type_id == detail.pop_type_id_candidate
                     && state->country_key == country_key;
                 const auto record_it = std::lower_bound(pop_cash_flow_records_->begin(),
-                    pop_cash_flow_records_->begin() + pop_cash_flow_record_count_, candidate.address,
-                    [](const PopCashFlowHookRecord &record, const void *address) {
-                        return reinterpret_cast<uintptr_t>(record.pop) < reinterpret_cast<uintptr_t>(address);
+                    pop_cash_flow_records_->begin() + pop_cash_flow_record_count_, candidate.address.address(),
+                    [](const PopCashFlowHookRecord &record, uintptr_t address) {
+                        return reinterpret_cast<uintptr_t>(record.pop) < address;
                     });
                 const PopCashFlowHookRecord *record = record_it != pop_cash_flow_records_->begin()
-                    + pop_cash_flow_record_count_ && record_it->pop == candidate.address ? &*record_it : nullptr;
+                    + pop_cash_flow_record_count_ && reinterpret_cast<uintptr_t>(record_it->pop) == candidate.address.address() ? &*record_it : nullptr;
                 std::array<int64_t, pop_cash_flow_component_count> posted{}, component_delta{};
                 uint32_t call_count = 0;
                 if (record != nullptr) {
@@ -2872,7 +2873,7 @@ namespace telemetry_plugin
                         || (!rule.country_tags.empty() && rule.country_tags.size() <= 16)
                         || (!rule.province_ids.empty() && rule.province_ids.size() <= 16);
                     GoodsFlowAggregate flow;
-                    CollectArtisanFlowAggregate(economic_capture_->population_candidate(index).address,
+                    CollectArtisanFlowAggregate(reinterpret_cast<const void *>(economic_capture_->population_candidate(index).address.address()),
                         rule_index, &flow);
                     EmitArtisanGroups(date_raw, rule, rule_index, province->owner_candidate().str(),
                         detail.province_id_candidate, artisan, inputs.data(), input_count, flow, reliable);

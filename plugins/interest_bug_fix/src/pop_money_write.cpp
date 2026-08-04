@@ -37,10 +37,10 @@ namespace interest_bug_fix
         }
     }
 
-    bool CanWritePopMoney(const void *pop)
+    bool CanWritePopMoney(smedley::game_state::PopRef pop_ref)
     {
-        if (pop == nullptr) return false;
-        const uintptr_t address = reinterpret_cast<uintptr_t>(pop);
+        const uintptr_t address = pop_ref.address();
+        if (address == 0) return false;
         if (address > (std::numeric_limits<uintptr_t>::max)() - pop_money_offset) return false;
         constexpr size_t span = pop_total_cash_flow_offset + sizeof(int64_t) - pop_money_offset;
         return IsWritable(reinterpret_cast<const void *>(address + pop_money_offset), span);

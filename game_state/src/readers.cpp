@@ -404,8 +404,8 @@ namespace smedley::game_state
         }
 
         void CollectPops(const PointerVector &provinces, ProvinceResolver resolver,
-                          const void *resolver_context, TraversalScratch *scratch,
-                          const void **immediate_pop, uint32_t province_limit,
+                           const void *resolver_context, TraversalScratch *scratch,
+                           PopRef *immediate_pop, uint32_t province_limit,
                            uint32_t pop_limit, CountryEconomySnapshot *sample)
         {
             uint32_t province_count = 0;
@@ -425,7 +425,7 @@ namespace smedley::game_state
                     continue;
                 }
                 scratch->province_ids[scratch->province_id_count++] = province_id;
-                const void *province = resolver(resolver_context, province_id);
+                const void *province = detail::RawPointer(resolver(resolver_context, province_id));
                 PointerVector pop_lists{};
                 uint32_t pop_list_count = 0;
                 if (!ReadAt(province, province_pop_lists_offset, &pop_lists)
@@ -480,10 +480,10 @@ namespace smedley::game_state
                         AddChecked(savings, &sample->destination_pop_savings_raw, &sample->flags);
                         AddChecked(savings / pop_savings_state_scale,
                             &sample->destination_pop_savings_state_scale_raw, &sample->flags);
-                        if (immediate_pop != nullptr && *immediate_pop == nullptr) {
+                        if (immediate_pop != nullptr && !*immediate_pop) {
                             PopMoneySnapshot snapshot{};
                             if (!ReadPopMoney(pop, &snapshot)) sample->flags |= SAMPLE_POP_UNREADABLE;
-                            else *immediate_pop = pop;
+                            else *immediate_pop = PopRef{pop};
                         }
                         ++sample->destination_pops;
                         ++walked;
@@ -502,12 +502,13 @@ namespace smedley::game_state
         }
     }
 
-    CountryEconomySnapshot ReadCountryEconomyImpl(const void *country, int32_t date_raw,
-                                                   CountryResolver country_resolver, ProvinceResolver province_resolver,
-                                                   const void *resolver_context, bool collect_states, bool collect_pops,
-                                                   TraversalScratch *scratch, const void **immediate_pop,
-                                                   uint32_t province_limit, uint32_t pop_limit, bool collect_creditors)
+    CountryEconomySnapshot ReadCountryEconomyImpl(CountryRef country_ref, int32_t date_raw,
+                                                    CountryResolver country_resolver, ProvinceResolver province_resolver,
+                                                    const void *resolver_context, bool collect_states, bool collect_pops,
+                                                    TraversalScratch *scratch, PopRef *immediate_pop,
+                                                    uint32_t province_limit, uint32_t pop_limit, bool collect_creditors)
     {
+        const void *country = detail::RawPointer(country_ref);
         CountryEconomySnapshot sample{};
         sample.date_raw = date_raw;
         if (!IsReadable(country, country_minimum_size)) {
@@ -658,7 +659,7 @@ namespace smedley::game_state
                 sample.flags |= SAMPLE_CREDITOR_DESTINATION_LIMIT;
                 break;
             }
-            const void *destination = country_resolver(resolver_context, ordinal);
+            const void *destination = detail::RawPointer(country_resolver(resolver_context, ordinal));
             uint32_t destination_key = 0;
             int32_t destination_ordinal = -1;
             if (!ReadAt(destination, country_tag_offset, &destination_key)
@@ -684,7 +685,7 @@ namespace smedley::game_state
                 continue;
             }
             const CountryEconomySnapshot destination_sample = ReadCountryEconomyImpl(
-                destination, date_raw, nullptr, province_resolver, resolver_context, collect_states, collect_pops, scratch,
+                CountryRef{destination}, date_raw, nullptr, province_resolver, resolver_context, collect_states, collect_pops, scratch,
                 immediate_pop, province_limit, pop_limit, false);
             sample.destination_provinces_resolved += destination_sample.destination_provinces_resolved;
             sample.destination_pop_lists += destination_sample.destination_pop_lists;
@@ -709,12 +710,12 @@ namespace smedley::game_state
         return sample;
     }
 
-    CountryEconomySnapshot ReadCountryEconomy(const void *country, int32_t date_raw,
-                                              CountryResolver country_resolver, ProvinceResolver province_resolver,
-                                              const void *resolver_context, const void **immediate_pop)
+    CountryEconomySnapshot ReadCountryEconomy(CountryRef country, int32_t date_raw,
+                                               CountryResolver country_resolver, ProvinceResolver province_resolver,
+                                               const void *resolver_context, PopRef *immediate_pop)
     {
         ResetMemoryRegionCache();
-        if (immediate_pop != nullptr) *immediate_pop = nullptr;
+        if (immediate_pop != nullptr) *immediate_pop = {};
         traversal_scratch.province_attempts = 0;
         traversal_scratch.province_id_count = 0;
         traversal_scratch.pop_attempts = 0;
@@ -741,7 +742,7 @@ namespace smedley::game_state
         return sample;
     }
 
-    CountryEconomySnapshot ReadCountryCreditors(const void *country, int32_t date_raw,
+    CountryEconomySnapshot ReadCountryCreditors(CountryRef country, int32_t date_raw,
                                                 CountryResolver country_resolver, const void *resolver_context)
     {
         ResetMemoryRegionCache();
@@ -750,7 +751,7 @@ namespace smedley::game_state
     }
 
     CountryEconomySnapshot ReadCountryCreditorBalances(const CountryEconomySnapshot &before,
-                                                        const void *country, int32_t date_raw,
+                                                         CountryRef country, int32_t date_raw,
                                                         CountryResolver country_resolver, const void *resolver_context)
     {
         ResetMemoryRegionCache();
@@ -764,7 +765,7 @@ namespace smedley::game_state
         for (uint32_t index = 0; index < before.creditor_destinations; ++index) {
             const int32_t ordinal = before.destination_ordinals[index];
             const uint32_t key = before.destination_keys[index];
-            const void *destination = country_resolver(resolver_context, ordinal);
+            const void *destination = detail::RawPointer(country_resolver(resolver_context, ordinal));
             uint32_t destination_key = 0;
             int32_t destination_ordinal = -1;
             const void *bank = nullptr;
@@ -786,7 +787,7 @@ namespace smedley::game_state
         return after;
     }
 
-    bool CollectCountryPops(const void *country, int32_t date_raw,
+    bool CollectCountryPops(CountryRef country, int32_t date_raw,
                             ProvinceResolver province_resolver, const void *resolver_context,
                             PopCandidate *candidates, size_t candidate_capacity,
                             uint32_t province_attempt_capacity, uint32_t *candidate_count,
@@ -825,25 +826,26 @@ namespace smedley::game_state
         *quality = sample;
         if (sample.flags != 0) return false;
         for (uint32_t index = 0; index < traversal_scratch.pop_pointer_count; ++index) {
-            candidates[index].address = reinterpret_cast<const void *>(traversal_scratch.pop_pointers[index]);
+            candidates[index].address = PopRef{reinterpret_cast<const void *>(traversal_scratch.pop_pointers[index])};
             candidates[index].savings_raw = traversal_scratch.pop_savings[index];
         }
         *candidate_count = traversal_scratch.pop_pointer_count;
         return true;
     }
 
-    bool ReadPopMoneySnapshot(const void *pop, PopMoneySnapshot *snapshot)
+    bool ReadPopMoneySnapshot(PopRef pop, PopMoneySnapshot *snapshot)
     {
         if (snapshot == nullptr) return false;
         PopMoneySnapshot value{};
-        if (!ReadPopMoney(pop, &value)) return false;
+        if (!ReadPopMoney(detail::RawPointer(pop), &value)) return false;
         *snapshot = value;
         return true;
     }
 
-    bool ReadPopDetailSnapshot(const void *pop, PopDetailSnapshot *snapshot)
+    bool ReadPopDetailSnapshot(PopRef pop_ref, PopDetailSnapshot *snapshot)
     {
         if (snapshot == nullptr) return false;
+        const void *pop = detail::RawPointer(pop_ref);
         PopDetailSnapshot value{};
         const void *province = nullptr;
         const void *pop_type = nullptr;
@@ -870,8 +872,9 @@ namespace smedley::game_state
         return true;
     }
 
-    bool ReadPopNeedsSnapshot(const void *pop, PopNeedsSnapshot *snapshot)
+    bool ReadPopNeedsSnapshot(PopRef pop_ref, PopNeedsSnapshot *snapshot)
     {
+        const void *pop = detail::RawPointer(pop_ref);
         if (pop == nullptr || snapshot == nullptr) return false;
         PopNeedsSnapshot value{};
         if (!ReadAt(pop, pop_life_needs_satisfaction_offset, &value.life_satisfaction_candidate_raw)
@@ -888,8 +891,9 @@ namespace smedley::game_state
         return true;
     }
 
-    bool ReadPopIdentityDimensions(const void *pop, PopIdentityDimensions *identity)
+    bool ReadPopIdentityDimensions(PopRef pop_ref, PopIdentityDimensions *identity)
     {
+        const void *pop = detail::RawPointer(pop_ref);
         if (pop == nullptr || identity == nullptr) return false;
         const void *culture = nullptr;
         const void *religion = nullptr;
@@ -910,10 +914,11 @@ namespace smedley::game_state
         return true;
     }
 
-    bool ReadArtisanSnapshot(const void *pop, ArtisanSnapshot *snapshot,
+    bool ReadArtisanSnapshot(PopRef pop_ref, ArtisanSnapshot *snapshot,
                               ArtisanInputSnapshot *inputs, size_t input_capacity, uint32_t *input_count,
                               uint32_t groups, ArtisanReadFailure *failure)
     {
+        const void *pop = detail::RawPointer(pop_ref);
         if (failure != nullptr) *failure = {};
         const auto fail = [&](ArtisanReadFailureReason reason, int64_t raw = 0) {
             if (failure != nullptr) {
@@ -931,7 +936,7 @@ namespace smedley::game_state
         const void *production_type = nullptr;
         char pop_type_key[64]{};
         ArtisanSnapshot value{};
-        value.address = pop;
+        value.address = pop_ref;
         if (!ReadAt(pop, pop_id_offset, &value.pop_id) || value.pop_id < 0) {
             return fail(ArtisanReadFailureReason::PopHeader, value.pop_id);
         }
@@ -1042,8 +1047,9 @@ namespace smedley::game_state
         return "unknown";
     }
 
-    bool ReadInactiveArtisan(const void *pop, int32_t *pop_id)
+    bool ReadInactiveArtisan(PopRef pop_ref, int32_t *pop_id)
     {
+        const void *pop = detail::RawPointer(pop_ref);
         if (pop == nullptr || pop_id == nullptr) return false;
         const void *pop_type = nullptr;
         const void *economy = nullptr;
@@ -1061,12 +1067,13 @@ namespace smedley::game_state
         return true;
     }
 
-    bool CollectCountryFactories(const void *country, FactorySnapshot *snapshots,
+    bool CollectCountryFactories(CountryRef country_ref, FactorySnapshot *snapshots,
                                  size_t snapshot_capacity, uint32_t *snapshot_count,
                                  FactoryInputSnapshot *inputs, size_t input_capacity,
                                  uint32_t *input_count, uint32_t groups, uint32_t *flags,
                                  uint32_t loaded_goods_count_override)
     {
+        const void *country = detail::RawPointer(country_ref);
         if (snapshots == nullptr || snapshot_count == nullptr || inputs == nullptr
             || input_count == nullptr || flags == nullptr) return false;
         *snapshot_count = 0;
@@ -1163,7 +1170,7 @@ namespace smedley::game_state
                             break;
                         }
                         FactorySnapshot snapshot{};
-                        snapshot.address = factory_node;
+                        snapshot.address = FactoryRef{factory_node};
                         snapshot.state_index = states_walked;
                         snapshot.factory_index = factories_walked;
                         snapshot.state_id = state_id;
@@ -1378,9 +1385,10 @@ namespace smedley::game_state
         return *flags == 0;
     }
 
-    bool CollectWorldMarket(const void *game_state, WorldMarketSnapshot *snapshots,
+    bool CollectWorldMarket(GameStateRef game_state_ref, WorldMarketSnapshot *snapshots,
                             size_t snapshot_capacity, uint32_t *snapshot_count)
     {
+        const void *game_state = detail::RawPointer(game_state_ref);
         if (game_state == nullptr || snapshots == nullptr || snapshot_count == nullptr) return false;
         *snapshot_count = 0;
         ResetMemoryRegionCache();
@@ -1426,21 +1434,23 @@ namespace smedley::game_state
         return true;
     }
 
-    const void *ResolveStateEmploymentRegistry()
+    EmploymentRegistryRef ResolveStateEmploymentRegistry()
     {
         ResetMemoryRegionCache();
         const auto module = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
         if (module == 0 || module > (std::numeric_limits<uintptr_t>::max)() - state_employment_registry_rva) {
-            return nullptr;
+            return {};
         }
         const void *registry = nullptr;
         return ReadAt(reinterpret_cast<const void *>(module + state_employment_registry_rva), 0, &registry)
-            ? registry : nullptr;
+            ? EmploymentRegistryRef{registry} : EmploymentRegistryRef{};
     }
 
-    bool ReadProvinceRgo(const void *registry, const void *province, int32_t province_id,
+    bool ReadProvinceRgo(EmploymentRegistryRef registry_ref, ProvinceRef province_ref, int32_t province_id,
                          size_t province_count, uint32_t groups, RgoSnapshot *snapshot)
     {
+        const void *registry = detail::RawPointer(registry_ref);
+        const void *province = detail::RawPointer(province_ref);
         if (registry == nullptr || province == nullptr || snapshot == nullptr || province_id < 0
             || province_count > max_sample_destination_provinces) return false;
         ResetMemoryRegionCache();

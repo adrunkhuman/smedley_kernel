@@ -271,7 +271,7 @@ namespace interest_bug_fix
             }
             if (event.GetPhase() == smedley::events::DailyInterestPhase::BEFORE) {
                 ResetPendingInterest();
-                pending_before_ = ReadCountryCreditors(event.GetCountry(), game_state->current_date_raw(),
+                pending_before_ = ReadCountryCreditors(CountryRef{event.GetCountry()}, game_state->current_date_raw(),
                     ResolveCountry, game_state);
                 daily_max_creditor_count_ = (std::max)(daily_max_creditor_count_, pending_before_.creditor_count);
                 daily_max_destination_count_ = (std::max)(daily_max_destination_count_, pending_before_.creditor_destinations);
@@ -284,7 +284,7 @@ namespace interest_bug_fix
             ResetPendingInterest();
             callback_started_ = std::chrono::steady_clock::now();
 
-            CountryEconomySnapshot after = ReadCountryCreditorBalances(pending_before_, event.GetCountry(),
+            CountryEconomySnapshot after = ReadCountryCreditorBalances(pending_before_, CountryRef{event.GetCountry()},
                 game_state->current_date_raw(), ResolveCountry, game_state);
             DestinationTransferSummary transfer_summary{};
             const int32_t debtor_ordinal = after.country_ordinal > 0
@@ -462,7 +462,7 @@ namespace interest_bug_fix
             const void *country = game_state->country(recipient.ordinal);
             uint32_t collected = 0;
             CountryEconomySnapshot quality{};
-            if (!CollectCountryPops(country, result->date_raw, ResolveProvince, game_state,
+            if (!CollectCountryPops(CountryRef{country}, result->date_raw, ResolveProvince, game_state,
                     candidates_.data(), candidates_.size(), max_sample_destination_provinces,
                     &collected, &quality)) {
                 result->status = FixStatus::collection_failed;
@@ -498,7 +498,7 @@ namespace interest_bug_fix
             for (uint32_t index = 0; index < collected; ++index) {
                 const int64_t payout = allocations_[index].payout_raw;
                 if (payout == 0) continue;
-                if (daily_paid_pops_.Contains(reinterpret_cast<uintptr_t>(candidates_[index].address))) {
+                if (daily_paid_pops_.Contains(candidates_[index].address.address())) {
                     result->status = FixStatus::duplicate_pop;
                     return;
                 }
@@ -533,7 +533,7 @@ namespace interest_bug_fix
             }
             for (uint32_t index = 0; index < collected; ++index) {
                 if (allocations_[index].payout_raw == 0) continue;
-                if (daily_paid_pops_.Insert(reinterpret_cast<uintptr_t>(candidates_[index].address))
+                if (daily_paid_pops_.Insert(candidates_[index].address.address())
                     != PointerInsertStatus::inserted) {
                     result->status = FixStatus::duplicate_pop;
                     return;
@@ -543,7 +543,7 @@ namespace interest_bug_fix
             for (uint32_t index = 0; index < collected; ++index) {
                 const int64_t payout = allocations_[index].payout_raw;
                 if (payout == 0) continue;
-                GiveMoney(candidates_[index].address, payout);
+                GiveMoney(reinterpret_cast<const void *>(candidates_[index].address.address()), payout);
                 ++result->paid_pop_count;
                 PopMoneySnapshot after{};
                 const PopMoneySnapshot &before = before_snapshots_[index];
@@ -561,14 +561,14 @@ namespace interest_bug_fix
             result->status = FixStatus::paid;
         }
 
-        static const void *ResolveCountry(const void *context, int32_t ordinal)
+        static CountryRef ResolveCountry(const void *context, int32_t ordinal)
         {
-            return static_cast<const smedley::v2::CCurrentGameState *>(context)->country(ordinal);
+            return CountryRef{static_cast<const smedley::v2::CCurrentGameState *>(context)->country(ordinal)};
         }
 
-        static const void *ResolveProvince(const void *context, int32_t id)
+        static ProvinceRef ResolveProvince(const void *context, int32_t id)
         {
-            return static_cast<const smedley::v2::CCurrentGameState *>(context)->province(id);
+            return ProvinceRef{static_cast<const smedley::v2::CCurrentGameState *>(context)->province(id)};
         }
 
         void ResetPendingInterest() noexcept
