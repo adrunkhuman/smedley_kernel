@@ -767,9 +767,8 @@ and postcondition checks remain material. Daily recipient batching reduced the
 historical pre-batching slowdown from 8.40x elapsed time to 1.41x on this
 fixture; this is not a claim about other machines, saves, or mods.
 
-The fix emitted 3,650 aggregate health/value pairs plus one zero-transfer
-treasury-mismatch warning. Every named transfer was paid exactly: aggregate
-destination-bank gain `2,003,503,700`, domestic `343,963,354`, foreign
+The fix emitted 3,650 aggregate health/value pairs. Every named transfer was
+paid exactly: aggregate destination-bank gain `2,003,503,700`, domestic `343,963,354`, foreign
 `1,659,540,346`, and POP payout `2,003,503,700,000`. There were zero rejected
 debtors, failed recipients, result-queue drops, or postcondition failures.
 

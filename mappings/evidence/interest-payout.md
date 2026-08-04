@@ -41,8 +41,8 @@ debt, another country's tag/ordinal for foreign debt, and literal `---` with
 ordinal zero for the Shadowy Financiers fallback, displayed as "Private
 Investors" in vanilla localization. The first two forms credit the identified
 country bank and are paid to that country's savers. The ordinal-zero form has no
-lender POPs or destination-bank credit, so its exact treasury residual remains a
-measured vanilla sink.
+lender POPs or named destination-bank credit. The production fix leaves
+ordinal-zero flows untouched and unallocated.
 
 ## Current static evidence
 
@@ -51,13 +51,14 @@ All addresses below are RVAs in the cataloged Victoria II 3.04 executable.
 | Evidence | Status | Basis |
 | --- | --- | --- |
 | `CCountry::DailyUpdate` `0x00108590` | `verified-current` | Its only direct call to `PayDailyInterest` is at `0x00108d3e`, with the country pointer already on the stack. The checked kernel trampoline invoked the original call and emitted 1,897 ordered runtime boundary pairs. |
-| `CCountry::PayDailyInterest` `0x00123c30` | `verified-runtime` | The paired boundary run observed current-country treasury reductions on all 12 calls with creditor entries. Its sole direct caller and `ret 4` cleanup are statically established. |
-| Creditor destination bank path | `verified-runtime` | `PayDailyInterest` reads the current country creditor vector at `+0xe8c`. A nonzero ordinal at creditor `+0x0c` resolves a destination country and credits bank `+0x20`; the branch at VA `0x00524022` skips that credit when the ordinal is zero. All 12 creditor-bearing seven-day fixture calls contained only country destinations and conserved the exact debtor treasury loss in the summed destination-bank gain. A later diagnostic captured 22 rejected rows with the same no-country key `0x2d2d2d` (`---`), ordinal zero, and paid byte one. Ordinal-zero entries are retained in aggregate telemetry but excluded from destination conservation and POP payout. |
+| `CCountry::PayDailyInterest` `0x00123c30` | `verified-runtime` | Its sole direct caller and `ret 4` cleanup are statically established. Bankruptcy construction can refund funds inside this call, so the debtor treasury before/after delta includes unrelated movement and is not a conservation check for named creditor transfers. |
+| Creditor destination bank path | `verified-runtime` | `PayDailyInterest` reads the current country creditor vector at `+0xe8c`. A nonzero ordinal at creditor `+0x0c` resolves a destination country and credits bank `+0x20`; the branch at VA `0x00524022` skips that credit when the ordinal is zero. A later diagnostic captured 22 entries with the same no-country key `0x2d2d2d` (`---`), ordinal zero, and paid byte one. The production fix allocates only nonzero-ordinal named destination-bank deltas; ordinal-zero flows remain untouched and unallocated. |
 | Domestic creditor creation | `verified-static-callsites` | `CCountry::TakeLoan` at RVA `0x00122910` passes the debtor's own tag/ordinal from `CCountry+0x1c/+0x20` through `CanTakeLoanFrom` and `TakeLoanFrom`. Domestic debt is therefore an explicit self-tagged creditor and follows the same verified nonzero-ordinal bank-credit path. |
 | Shadowy Financiers creation | `verified-static-callsites` | The fallback path writes literal `---`, zeroes the ordinal at VA `0x00522c24`-`0x00522c27`, and calls `TakeLoanFrom` at `0x00522c6a`. Localisation maps `SHADOWY_INVESTOR` to “Private Investors,” and `SHADOWY_FINANCIERS_MAX_LOAN_AMOUNT` is 1500 in vanilla. |
 | Creditor `+0x8/+0x10/+0x18/+0x20` | `verified-runtime` | Static code reads the tag/ordinal at `+0x8`, multiplies the 64-bit `+0x18` value by the 64-bit `+0x10` value in its payment calculation, and updates the byte at `+0x20` on payment. The destination run validated every tag/ordinal and observed `+0x20 == 1` for every paid entry; the economic names on the two 64-bit fields remain candidates. |
-| Destination bank `+0x20` | `verified-runtime` | The static add target and repeated exact before/after runs agree. The individual-destination run observed 40 positive transfers across 12 calls; every child sum exactly matched its aggregate bank delta and negated the corresponding debtor treasury loss. Other historical `CBank` fields remain unverified. |
+| Destination bank `+0x20` | `verified-runtime` | The static add target and repeated exact before/after runs agree. The individual-destination run observed 40 positive transfers across 12 calls; every child sum exactly matched its aggregate bank delta. Other historical `CBank` fields remain unverified. |
 | `PayDailyInterest` boundary `0x00108d3e` | `verified-runtime` | The kernel replaces the sole direct call with a register/flags-preserving trampoline, emits `before`, invokes the original callee, emits `after`, and resumes at `0x00108d43`. Both subscribed and unsubscribed runtime fixtures reached exact targets. |
+| Bankruptcy construction path | `verified-static-callsites` | The insufficient-funds helper reaches `TakeLoan` at `0x001257a8` after preparing debtor, zero, and the requested 64-bit amount. Bankruptcy construction refunds occur within `PayDailyInterest`; this is why its net treasury delta is not an independent named-transfer conservation signal. |
 | Country state list `+0xe44` | `verified-current` | Current country update code walks node data at `+0`, next at `+8`, and terminates at null. State-creation callers maintain head `+0xe44`, tail `+0xe48`, and count `+0xe4c`; the seven-day runtime probe walked every reported state without a mismatch. |
 | State constructor `0x000cdc60` | `verified-static-callsites` | Three callers allocate `0x290` bytes. The constructor initializes 64-bit slots `+0x258` and `+0x260` to zero. |
 | State province vector `+0x48` | `verified-runtime` | Current code and the destination POP run agree that its four-byte elements are game-state province indices. All 346-661 destination provinces per creditor-bearing sample resolved to readable province POP vectors with no quality flag. |
@@ -393,10 +394,12 @@ classifies self-tagged amounts as domestic and other named amounts as foreign.
 After every expected country pair for the date has completed, it processes each
 recipient once in ascending ordinal order:
 
-1. requires each debtor's individual nonzero-ordinal bank deltas to sum exactly,
-   and records any matching treasury-loss remainder as the Private Investor
-   sink; a treasury mismatch is reported but does not discard directly observed
-   destination-bank gains;
+1. requires each debtor's individual nonzero-ordinal bank deltas to sum exactly;
+    ordinal-zero flows have no named destination and remain untouched and
+    unallocated;
+   duplicate destination ordinals collapse into one destination. At most 512
+   unique destinations are retained; the 513th sets
+   `SAMPLE_CREDITOR_DESTINATION_LIMIT` and rejects the debtor before mutation;
 2. sums transfers with checked arithmetic and retains no game pointers across
    callbacks;
 3. traverses at most 4,096 recipient provinces and 100,000 POPs, rejecting
@@ -416,8 +419,10 @@ requiring the mutable creditor vector to keep the same order.
 
 Any structural, identity, budget, overflow, destination-transfer, or
 writable-memory failure skips that debtor pair or recipient before mutation.
-A treasury mismatch suppresses only the uncertain Private Investor residual; it
-does not invalidate exact named destination-bank gains.
+Treasury before/after movement is not checked: the bankruptcy-construction path
+is identified inside `PayDailyInterest` and can alter that delta. The refund's
+complete economic accounting remains unmapped, so treasury movement is not a
+named-transfer conservation identity.
 
 A postcondition failure disables later payouts and is reported. Callbacks
 perform no file I/O; a bounded worker writes `interest_bug_fix.csv`.
@@ -425,17 +430,24 @@ perform no file I/O; a bounded worker writes `interest_bug_fix.csv`.
 The exact batched CSV header is:
 
 ```text
-date_raw,country,status,flags,source_count,pop_count,paid_pop_count,province_count,verified_pop_count,transfer_raw,domestic_transfer_raw,foreign_transfer_raw,private_sink_raw,payout_raw,allocation_status,callback_us,rejected_debtors,health_telemetry_result,value_telemetry_result,dropped_results
+date_raw,country,status,flags,source_count,pop_count,paid_pop_count,province_count,verified_pop_count,transfer_raw,domestic_transfer_raw,foreign_transfer_raw,payout_raw,allocation_status,callback_us,rejected_debtors,health_telemetry_result,value_telemetry_result,dropped_results,reconciliation_failure,reconciliation_creditor_count,reconciliation_destination_count,daily_max_creditor_count,daily_max_destination_count
 ```
 
 Possible statuses are `paid`, `invalid_pair`, `batch_invalid`, `day_incomplete`,
 `day_summary`, `day_partial`, `recipient_identity_invalid`, `collection_failed`,
 `no_eligible_savings`, `allocation_overflow`, `allocation_invalid`,
 `pop_balance_overflow`, `pop_not_writable`, `duplicate_pop`, `pop_identity_limit`,
-`postcondition_failed`, `conservation_failed`, and `treasury_mismatch`.
+`postcondition_failed`, and `conservation_failed`.
 `allocation_status` preserves
-the allocator's exact result. `dropped_results` is the cumulative bounded
-result-queue drop count. Telemetry result codes
+the allocator's exact result. `reconciliation_failure` identifies why an
+`invalid_pair` debtor snapshot was rejected and is `none` for other result
+types. Its `flags` value combines both reconciliation snapshots with
+`INTEREST_RECONCILIATION_INVALID`; other result types retain their own snapshot
+flags. The reconciliation counts record the raw creditor vector and resolved
+unique destination counts from the pre-update snapshot on `invalid_pair` rows
+and are zero otherwise. Daily maximum fields are populated only on
+`day_summary` and `day_partial` rows. `dropped_results` is the cumulative bounded
+result-queue drop count when the row is written. Telemetry result codes
 follow the C ABI: 0 unavailable, 1 filtered, 2 accepted, 3 dropped, and 4
 invalid. `interest.fix.health` covers rejected debtor pairs, recipient outcomes,
 and one aggregate daily summary. Successful recipient rows remain complete in
@@ -557,15 +569,15 @@ complete results:
 | Domestic / foreign transfer | 343,963,354 / 1,659,540,346 |
 | Exact POP-money payout | 2,003,503,700,000 |
 | POP payout instances passing postconditions | 8,635,406 |
-| Measured Private Investor sink | 3,552,798,087 |
 
 Every recipient payout equaled its transfer multiplied by 1,000; every paid POP
 passed money, interest-flow, total-flow, and unchanged-savings postconditions.
 All 3,650 daily transfer totals in the CSV exactly matched their structured
-`interest.fix.value` records. One zero-transfer BOL debtor emitted
-`treasury_mismatch` because its treasury moved opposite the expected direction;
-no named bank gain or payout depended on that residual. All other daily summary
-flags were zero, and every health/value telemetry publication was accepted.
+`interest.fix.value` records. An earlier treasury-derived Private Investor
+measurement is not retained: bankruptcy construction refunds occur inside
+`PayDailyInterest`, so net treasury movement is not a conservation check. All
+daily summary flags were zero, and every health/value telemetry publication was
+accepted.
 
 The successful run had no `no_eligible_savings` result. A prior deterministic
 simulation path did encounter this guard for countries with POPs but no positive
@@ -609,5 +621,6 @@ retained SHA-256
 
 ## Remaining validation
 
-1. Map bankruptcy and the missing bank-cash/world-money categories before
-   claiming effects on bankruptcy or total money supply.
+1. Map the complete bankruptcy refund accounting and the missing
+    bank-cash/world-money categories before claiming effects on bankruptcy or
+    total money supply.

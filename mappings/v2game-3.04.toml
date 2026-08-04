@@ -46,7 +46,7 @@ rva = 0x00123c30
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
-source = "paired runtime observations verified current-country treasury reductions and exact conservation into resolved destination-bank +0x20 values on all 12 calls with creditor entries; the sole direct caller at RVA 0x00108d3e and ret 4 cleanup are statically established"
+source = "paired runtime observations verified exact resolved destination-bank +0x20 deltas on all 12 calls with creditor entries; bankruptcy refunds make net treasury deltas unsuitable for conservation claims; the sole direct caller at RVA 0x00108d3e and ret 4 cleanup are statically established"
 
 [[symbols]]
 name = "CCountry::Annex pre-game-over observer handoff"

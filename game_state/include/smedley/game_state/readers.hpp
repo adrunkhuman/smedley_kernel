@@ -5,7 +5,7 @@
 
 namespace smedley::game_state
 {
-    constexpr uint32_t max_sample_creditor_destinations = 64;
+    constexpr uint32_t max_sample_creditor_destinations = 512;
     constexpr uint32_t max_sample_destination_provinces = 4096;
     constexpr uint32_t max_sample_pops = 100000;
     constexpr uint32_t max_sample_factories = 4096;

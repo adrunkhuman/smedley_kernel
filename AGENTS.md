@@ -313,6 +313,9 @@ wrapper that depends on it.
   `*_test_plugin` name.
 - Probes are opt-in and state their exact claim, restoration, and removal
   condition. Do not retain exploration merely as history.
+- Do not merge intermediary debug hooks, event APIs, CSV fields, or mappings
+  into `master` unless they have a durable product contract and production
+  validation. Remove them after the investigation they support.
 
 ## Durable Documentation
 

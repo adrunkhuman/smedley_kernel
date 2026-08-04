@@ -600,13 +600,9 @@ namespace smedley::game_state
             return sample;
         }
         if (sample.creditor_count == 0) return sample;
-        if (country_resolver != nullptr && sample.creditor_count > max_creditor_destinations) {
-            sample.flags |= SAMPLE_CREDITOR_DESTINATION_LIMIT;
-        }
-
-        const uint32_t creditor_limit = country_resolver == nullptr
-            ? sample.creditor_count : (std::min)(sample.creditor_count, max_creditor_destinations);
-        for (uint32_t index = 0; index < creditor_limit; ++index) {
+        std::array<int32_t, max_creditor_destinations * 2> destination_slots{};
+        destination_slots.fill(-1);
+        for (uint32_t index = 0; index < sample.creditor_count; ++index) {
             const void *creditor = nullptr;
             if (!ReadAt(creditors.begin, index * sizeof(void *), &creditor) || creditor == nullptr) {
                 sample.flags |= SAMPLE_CREDITOR_UNREADABLE;
@@ -649,16 +645,18 @@ namespace smedley::game_state
             AddChecked(debt, &sample.creditor_debt_raw, &sample.flags);
             if (was_paid != 0) ++sample.creditors_was_paid;
 
-            bool duplicate = false;
-            for (uint32_t prior = 0; prior < sample.creditor_destinations; ++prior) {
-                if (sample.destination_ordinals[prior] == ordinal) {
-                    duplicate = true;
-                    break;
-                }
+            const uint32_t slot_mask = static_cast<uint32_t>(destination_slots.size() - 1);
+            uint32_t slot = static_cast<uint32_t>(ordinal) & slot_mask;
+            while (destination_slots[slot] >= 0 && destination_slots[slot] != ordinal) {
+                slot = (slot + 1) & slot_mask;
             }
-            if (duplicate) {
+            if (destination_slots[slot] == ordinal) {
                 sample.flags |= SAMPLE_CREDITOR_DUPLICATE_DESTINATION;
                 continue;
+            }
+            if (sample.creditor_destinations == max_creditor_destinations) {
+                sample.flags |= SAMPLE_CREDITOR_DESTINATION_LIMIT;
+                break;
             }
             const void *destination = country_resolver(resolver_context, ordinal);
             uint32_t destination_key = 0;
@@ -667,6 +665,22 @@ namespace smedley::game_state
                 || !ReadAt(destination, country_tag_offset + sizeof(destination_key), &destination_ordinal)
                 || destination_key != key || destination_ordinal != ordinal) {
                 sample.flags |= SAMPLE_CREDITOR_DESTINATION_INVALID;
+                continue;
+            }
+            destination_slots[slot] = ordinal;
+            if (!collect_states && !collect_pops) {
+                const void *destination_bank = nullptr;
+                int64_t destination_bank_interest = 0;
+                if (!ReadAt(destination, country_bank_offset, &destination_bank) || destination_bank == nullptr
+                    || !ReadAt(destination_bank, bank_interest_offset, &destination_bank_interest)) {
+                    sample.flags |= SAMPLE_CREDITOR_DESTINATION_INVALID;
+                    continue;
+                }
+                sample.destination_keys[sample.creditor_destinations] = key;
+                sample.destination_ordinals[sample.creditor_destinations] = ordinal;
+                sample.destination_bank_interests_raw[sample.creditor_destinations] = destination_bank_interest;
+                ++sample.creditor_destinations;
+                AddChecked(destination_bank_interest, &sample.destination_bank_interest_raw, &sample.flags);
                 continue;
             }
             const CountryEconomySnapshot destination_sample = ReadCountryEconomyImpl(
