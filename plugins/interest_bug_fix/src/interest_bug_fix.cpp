@@ -229,7 +229,9 @@ namespace interest_bug_fix
             try {
                 const auto *game_state = smedley::v2::CCurrentGameState::instance();
                 if (game_state == nullptr) return;
-                const int32_t date_raw = game_state->current_date_raw();
+                const GameStateRef game_state_ref{game_state};
+                int32_t date_raw = 0;
+                if (!ReadCurrentDate(game_state_ref, &date_raw)) return;
                 if (date_raw == finalized_date_raw_) return;
                 if (batch_.started() && batch_.date_raw() != date_raw) {
                     ResetPendingInterest();
@@ -247,7 +249,9 @@ namespace interest_bug_fix
                     day_flags_ = 0;
                     daily_max_creditor_count_ = 0;
                     daily_max_destination_count_ = 0;
-                    if (!batch_.Begin(date_raw, static_cast<uint32_t>(game_state->country_count()))) {
+                    uint32_t country_count = 0;
+                    if (!ReadCountryCount(game_state_ref, &country_count)
+                        || !batch_.Begin(date_raw, country_count)) {
                         disabled_ = true;
                         logger().Failure("interest fix disabled because the country vector exceeds the daily batch bound");
                     }
@@ -269,10 +273,16 @@ namespace interest_bug_fix
                 ResetPendingInterest();
                 return;
             }
+            const GameStateRef game_state_ref{game_state};
+            int32_t date_raw = 0;
+            if (!ReadCurrentDate(game_state_ref, &date_raw)) {
+                ResetPendingInterest();
+                return;
+            }
             if (event.GetPhase() == smedley::events::DailyInterestPhase::BEFORE) {
                 ResetPendingInterest();
-                pending_before_ = ReadCountryCreditors(CountryRef{event.GetCountry()}, game_state->current_date_raw(),
-                    ResolveCountry, game_state);
+                pending_before_ = ReadCountryCreditors(CountryRef{event.GetCountry()}, date_raw,
+                    ResolveCountry, &game_state_ref);
                 daily_max_creditor_count_ = (std::max)(daily_max_creditor_count_, pending_before_.creditor_count);
                 daily_max_destination_count_ = (std::max)(daily_max_destination_count_, pending_before_.creditor_destinations);
                 has_pending_before_ = true;
@@ -285,7 +295,7 @@ namespace interest_bug_fix
             callback_started_ = std::chrono::steady_clock::now();
 
             CountryEconomySnapshot after = ReadCountryCreditorBalances(pending_before_, CountryRef{event.GetCountry()},
-                game_state->current_date_raw(), ResolveCountry, game_state);
+                date_raw, ResolveCountry, &game_state_ref);
             DestinationTransferSummary transfer_summary{};
             const int32_t debtor_ordinal = after.country_ordinal > 0
                 ? after.country_ordinal : pending_before_.country_ordinal;
@@ -319,7 +329,7 @@ namespace interest_bug_fix
                 RejectPair(after, debtor_ordinal, FixStatus::batch_invalid);
                 return;
             }
-            if (batch_.complete()) FinalizeDay(game_state);
+            if (batch_.complete()) FinalizeDay(game_state_ref);
         }
 
         void RejectPair(const CountryEconomySnapshot &sample, int32_t debtor_ordinal, FixStatus status,
@@ -339,11 +349,11 @@ namespace interest_bug_fix
             Publish(result);
             if (batch_.complete()) {
                 const auto *game_state = smedley::v2::CCurrentGameState::instance();
-                if (game_state != nullptr) FinalizeDay(game_state);
+                if (game_state != nullptr) FinalizeDay(GameStateRef{game_state});
             }
         }
 
-        void FinalizeDay(const smedley::v2::CCurrentGameState *game_state)
+        void FinalizeDay(GameStateRef game_state)
         {
             daily_paid_pops_.Reset();
             uint32_t recipient_failures = 0;
@@ -456,13 +466,13 @@ namespace interest_bug_fix
             day_flags_ = 0;
         }
 
-        void PayRecipient(const smedley::v2::CCurrentGameState *game_state,
-                          const DailyRecipient &recipient, FixResult *result)
+        void PayRecipient(GameStateRef game_state,
+                           const DailyRecipient &recipient, FixResult *result)
         {
-            const void *country = game_state->country(recipient.ordinal);
+            const CountryRef country = smedley::game_state::ResolveCountry(game_state, recipient.ordinal);
             uint32_t collected = 0;
             CountryEconomySnapshot quality{};
-            if (!CollectCountryPops(CountryRef{country}, result->date_raw, ResolveProvince, game_state,
+            if (!CollectCountryPops(country, result->date_raw, ResolveProvince, &game_state,
                     candidates_.data(), candidates_.size(), max_sample_destination_provinces,
                     &collected, &quality)) {
                 result->status = FixStatus::collection_failed;
@@ -563,12 +573,14 @@ namespace interest_bug_fix
 
         static CountryRef ResolveCountry(const void *context, int32_t ordinal)
         {
-            return CountryRef{static_cast<const smedley::v2::CCurrentGameState *>(context)->country(ordinal)};
+            if (context == nullptr) return {};
+            return smedley::game_state::ResolveCountry(*static_cast<const GameStateRef *>(context), ordinal);
         }
 
         static ProvinceRef ResolveProvince(const void *context, int32_t id)
         {
-            return ProvinceRef{static_cast<const smedley::v2::CCurrentGameState *>(context)->province(id)};
+            if (context == nullptr) return {};
+            return smedley::game_state::ResolveProvince(*static_cast<const GameStateRef *>(context), id);
         }
 
         void ResetPendingInterest() noexcept

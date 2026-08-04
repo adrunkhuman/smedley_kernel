@@ -7,6 +7,7 @@
 
 namespace smedley::game_state
 {
+    constexpr uint32_t max_game_countries = 512;
     constexpr uint32_t max_sample_creditor_destinations = 512;
     constexpr uint32_t max_sample_destination_provinces = 4096;
     constexpr uint32_t max_sample_pops = 100000;
@@ -290,6 +291,10 @@ namespace smedley::game_state
     using CountryResolver = CountryRef (*)(const void *context, int32_t ordinal);
     using ProvinceResolver = ProvinceRef (*)(const void *context, int32_t id);
 
+    bool ReadCurrentDate(GameStateRef game_state, int32_t *date_raw);
+    bool ReadCountryCount(GameStateRef game_state, uint32_t *count);
+    CountryRef ResolveCountry(GameStateRef game_state, int32_t ordinal);
+    ProvinceRef ResolveProvince(GameStateRef game_state, int32_t id);
     CountryEconomySnapshot ReadCountryEconomy(CountryRef country, int32_t date_raw,
                                                CountryResolver country_resolver = nullptr,
                                                ProvinceResolver province_resolver = nullptr,

@@ -15,6 +15,9 @@ namespace smedley::game_state
         constexpr size_t country_minimum_size = 0xe9c;
         constexpr size_t country_tag_offset = 0x1c;
         constexpr size_t country_states_offset = 0xe44;
+        constexpr size_t game_state_provinces_offset = 0xacc;
+        constexpr size_t game_state_countries_offset = 0xadc;
+        constexpr size_t game_state_current_date_offset = 0xb0c;
         constexpr size_t game_state_world_market_offset = 0xbcc;
         constexpr uintptr_t state_employment_registry_rva = 0x00e58728;
         constexpr uintptr_t loaded_goods_count_rva = 0x00e587f4;
@@ -74,6 +77,7 @@ namespace smedley::game_state
         constexpr size_t creditor_debt_offset = 0x18;
         constexpr size_t creditor_was_paid_offset = 0x20;
         constexpr uint32_t max_states = 512;
+        constexpr uint32_t max_game_provinces = 4096;
         constexpr uint32_t max_provinces_per_state = 1024;
         constexpr uint32_t max_creditors = 4096;
         constexpr uint32_t max_creditor_destinations = max_sample_creditor_destinations;
@@ -268,6 +272,7 @@ namespace smedley::game_state
         template <typename T>
         bool ReadAt(const void *base, size_t offset, T *value)
         {
+            if (base == nullptr || value == nullptr) return false;
             const uintptr_t address = reinterpret_cast<uintptr_t>(base);
             if (address > (std::numeric_limits<uintptr_t>::max)() - offset) return false;
             return CopyReadable(value, reinterpret_cast<const void *>(address + offset), sizeof(T));
@@ -275,6 +280,7 @@ namespace smedley::game_state
 
         bool VectorCount(const PointerVector &vector, size_t element_size, uint32_t limit, uint32_t *count)
         {
+            if (count == nullptr || element_size == 0) return false;
             const uintptr_t begin = reinterpret_cast<uintptr_t>(vector.begin);
             const uintptr_t end = reinterpret_cast<uintptr_t>(vector.end);
             const uintptr_t capacity = reinterpret_cast<uintptr_t>(vector.capacity);
@@ -282,7 +288,9 @@ namespace smedley::game_state
                 *count = 0;
                 return true;
             }
-            if (begin == 0 || begin > end || end > capacity || (end - begin) % element_size != 0) return false;
+            if (begin == 0 || begin > end || end > capacity
+                || begin % alignof(void *) != 0 || end % alignof(void *) != 0 || capacity % alignof(void *) != 0
+                || (end - begin) % element_size != 0 || (capacity - begin) % element_size != 0) return false;
             const uintptr_t elements = (end - begin) / element_size;
             if (elements > limit || (elements != 0 && !IsReadable(vector.begin, static_cast<size_t>(end - begin)))) return false;
             *count = static_cast<uint32_t>(elements);
@@ -500,6 +508,54 @@ namespace smedley::game_state
                 }
             }
         }
+    }
+
+    bool ReadCurrentDate(GameStateRef game_state, int32_t *date_raw)
+    {
+        if (date_raw == nullptr) return false;
+        int32_t value = 0;
+        if (!ReadAt(detail::RawPointer(game_state), game_state_current_date_offset, &value)) return false;
+        *date_raw = value;
+        return true;
+    }
+
+    bool ReadCountryCount(GameStateRef game_state, uint32_t *count)
+    {
+        if (count == nullptr) return false;
+        PointerVector countries{};
+        uint32_t value = 0;
+        if (!ReadAt(detail::RawPointer(game_state), game_state_countries_offset, &countries)
+            || !VectorCount(countries, sizeof(void *), max_game_countries, &value)) return false;
+        *count = value;
+        return true;
+    }
+
+    CountryRef ResolveCountry(GameStateRef game_state, int32_t ordinal)
+    {
+        if (ordinal < 0) return {};
+        PointerVector countries{};
+        uint32_t count = 0;
+        const void *country = nullptr;
+        if (!ReadAt(detail::RawPointer(game_state), game_state_countries_offset, &countries)
+            || !VectorCount(countries, sizeof(void *), max_game_countries, &count)
+            || static_cast<uint32_t>(ordinal) >= count
+            || !ReadAt(countries.begin, static_cast<size_t>(ordinal) * sizeof(country), &country)
+            || country == nullptr) return {};
+        return CountryRef{country};
+    }
+
+    ProvinceRef ResolveProvince(GameStateRef game_state, int32_t id)
+    {
+        if (id < 0) return {};
+        PointerVector provinces{};
+        uint32_t count = 0;
+        const void *province = nullptr;
+        if (!ReadAt(detail::RawPointer(game_state), game_state_provinces_offset, &provinces)
+            || !VectorCount(provinces, sizeof(void *), max_game_provinces, &count)
+            || static_cast<uint32_t>(id) >= count
+            || !ReadAt(provinces.begin, static_cast<size_t>(id) * sizeof(province), &province)
+            || province == nullptr) return {};
+        return ProvinceRef{province};
     }
 
     CountryEconomySnapshot ReadCountryEconomyImpl(CountryRef country_ref, int32_t date_raw,

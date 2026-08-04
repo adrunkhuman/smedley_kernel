@@ -32,6 +32,15 @@ namespace smedley::game_state
             Write(bytes, offset + 0x14, uint32_t{15});
         }
 
+        template <size_t Size>
+        void WritePointerVector(std::array<std::byte, Size> *bytes, size_t offset,
+                                const void *begin, const void *end, const void *capacity)
+        {
+            Write(bytes, offset, begin);
+            Write(bytes, offset + sizeof(begin), end);
+            Write(bytes, offset + 2 * sizeof(begin), capacity);
+        }
+
         struct Node
         {
             const void *data;
@@ -180,6 +189,130 @@ namespace smedley::game_state
             const CountryLookupTable table{lookup_entries.data(), lookup_entries.size()};
             return ReadCountryCreditors(Country(debtor.data()), 1234, ResolveCountryFromTable, &table);
         }
+    }
+
+    TEST(GameStateReadersTest, ReadsCheckedGameStateValuesAndReferences)
+    {
+        std::array<std::byte, 0xb10> game_state{};
+        std::array<std::byte, 1> country{};
+        std::array<std::byte, 1> province{};
+        std::array<void *, 2> countries{nullptr, country.data()};
+        std::array<void *, 3> provinces{nullptr, nullptr, province.data()};
+        const void *country_begin = countries.data();
+        const void *country_end = countries.data() + countries.size();
+        const void *province_begin = provinces.data();
+        const void *province_end = provinces.data() + provinces.size();
+
+        WritePointerVector(&game_state, 0xacc, province_begin, province_end, province_end);
+        WritePointerVector(&game_state, 0xadc, country_begin, country_end, country_end);
+        Write(&game_state, 0xb0c, int32_t{1234});
+
+        int32_t date_raw = 0;
+        uint32_t country_count = 0;
+        ASSERT_TRUE(ReadCurrentDate(GameState(game_state.data()), &date_raw));
+        EXPECT_EQ(date_raw, 1234);
+        ASSERT_TRUE(ReadCountryCount(GameState(game_state.data()), &country_count));
+        EXPECT_EQ(country_count, countries.size());
+        EXPECT_EQ(smedley::game_state::ResolveCountry(GameState(game_state.data()), 1).address(),
+            reinterpret_cast<uintptr_t>(country.data()));
+        EXPECT_EQ(smedley::game_state::ResolveProvince(GameState(game_state.data()), 2).address(),
+            reinterpret_cast<uintptr_t>(province.data()));
+
+        Write(&game_state, 0xb0c, int32_t{-42});
+        ASSERT_TRUE(ReadCurrentDate(GameState(game_state.data()), &date_raw));
+        EXPECT_EQ(date_raw, -42);
+    }
+
+    TEST(GameStateReadersTest, RejectsNullGameStateArgumentsAndNullElements)
+    {
+        std::array<std::byte, 0xb10> game_state{};
+        std::array<void *, 1> countries{nullptr};
+        std::array<void *, 1> provinces{nullptr};
+        const void *country_begin = countries.data();
+        const void *country_end = countries.data() + countries.size();
+        const void *province_begin = provinces.data();
+        const void *province_end = provinces.data() + provinces.size();
+        WritePointerVector(&game_state, 0xacc, province_begin, province_end, province_end);
+        WritePointerVector(&game_state, 0xadc, country_begin, country_end, country_end);
+
+        int32_t date_raw = 0;
+        uint32_t country_count = 0;
+        EXPECT_FALSE(ReadCurrentDate({}, &date_raw));
+        EXPECT_FALSE(ReadCurrentDate(GameState(game_state.data()), nullptr));
+        EXPECT_FALSE(ReadCountryCount({}, &country_count));
+        EXPECT_FALSE(ReadCountryCount(GameState(game_state.data()), nullptr));
+        EXPECT_FALSE(smedley::game_state::ResolveCountry({}, 0));
+        EXPECT_FALSE(smedley::game_state::ResolveProvince({}, 0));
+        EXPECT_FALSE(smedley::game_state::ResolveCountry(GameState(game_state.data()), 0));
+        EXPECT_FALSE(smedley::game_state::ResolveProvince(GameState(game_state.data()), 0));
+    }
+
+    TEST(GameStateReadersTest, RejectsMalformedGameStateVectorsAndInvalidIndices)
+    {
+        std::array<std::byte, 0xb10> game_state{};
+        std::array<void *, 2> countries{};
+        std::array<void *, 2> provinces{};
+        const void *country_begin = countries.data();
+        const void *country_end = countries.data() + countries.size();
+        const void *province_begin = provinces.data();
+        const void *province_end = provinces.data() + provinces.size();
+        uint32_t country_count = 99;
+
+        WritePointerVector(&game_state, 0xadc, country_end, country_begin, country_end);
+        EXPECT_FALSE(ReadCountryCount(GameState(game_state.data()), &country_count));
+        EXPECT_EQ(country_count, 99u);
+        EXPECT_FALSE(smedley::game_state::ResolveCountry(GameState(game_state.data()), 0));
+
+        const auto *misaligned_province_begin = reinterpret_cast<const std::byte *>(province_begin) + 1;
+        const auto *misaligned_province_end = misaligned_province_begin + sizeof(void *);
+        WritePointerVector(&game_state, 0xacc, misaligned_province_begin,
+            misaligned_province_end, misaligned_province_end);
+        EXPECT_FALSE(smedley::game_state::ResolveProvince(GameState(game_state.data()), 0));
+
+        WritePointerVector(&game_state, 0xacc, province_begin, province_end, province_end);
+        WritePointerVector(&game_state, 0xadc, country_begin, country_end, country_end);
+        EXPECT_FALSE(smedley::game_state::ResolveCountry(GameState(game_state.data()), -1));
+        EXPECT_FALSE(smedley::game_state::ResolveCountry(GameState(game_state.data()), 2));
+        EXPECT_FALSE(smedley::game_state::ResolveProvince(GameState(game_state.data()), -1));
+        EXPECT_FALSE(smedley::game_state::ResolveProvince(GameState(game_state.data()), 2));
+    }
+
+    TEST(GameStateReadersTest, HonorsGameStateReferenceLimits)
+    {
+        std::array<std::byte, 0xb10> game_state{};
+        std::array<std::byte, 1> country{};
+        std::array<std::byte, 1> province{};
+        std::array<void *, max_game_countries> countries{};
+        std::array<void *, 4096> provinces{};
+        countries.back() = country.data();
+        provinces.back() = province.data();
+        const void *country_begin = countries.data();
+        const void *country_end = countries.data() + countries.size();
+        const void *province_begin = provinces.data();
+        const void *province_end = provinces.data() + provinces.size();
+        WritePointerVector(&game_state, 0xacc, province_begin, province_end, province_end);
+        WritePointerVector(&game_state, 0xadc, country_begin, country_end, country_end);
+
+        uint32_t country_count = 0;
+        ASSERT_TRUE(ReadCountryCount(GameState(game_state.data()), &country_count));
+        EXPECT_EQ(country_count, max_game_countries);
+        EXPECT_EQ(smedley::game_state::ResolveCountry(GameState(game_state.data()), max_game_countries - 1).address(),
+            reinterpret_cast<uintptr_t>(country.data()));
+        EXPECT_EQ(smedley::game_state::ResolveProvince(GameState(game_state.data()), 4095).address(),
+            reinterpret_cast<uintptr_t>(province.data()));
+
+        std::array<void *, max_game_countries + 1> too_many_countries{};
+        const void *too_many_country_begin = too_many_countries.data();
+        const void *too_many_country_end = too_many_countries.data() + too_many_countries.size();
+        WritePointerVector(&game_state, 0xadc, too_many_country_begin, too_many_country_end, too_many_country_end);
+        EXPECT_FALSE(ReadCountryCount(GameState(game_state.data()), &country_count));
+        EXPECT_FALSE(smedley::game_state::ResolveCountry(GameState(game_state.data()), 0));
+
+        std::array<void *, 4097> too_many_provinces{};
+        const void *too_many_province_begin = too_many_provinces.data();
+        const void *too_many_province_end = too_many_provinces.data() + too_many_provinces.size();
+        WritePointerVector(&game_state, 0xacc, too_many_province_begin, too_many_province_end, too_many_province_end);
+        EXPECT_FALSE(smedley::game_state::ResolveProvince(GameState(game_state.data()), 0));
     }
 
     TEST(GameStateReadersTest, CollectsBoundedStateAndBankCandidates)
