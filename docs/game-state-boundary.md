@@ -79,9 +79,10 @@ The interest plugin performs a complete preflight before its first write:
    plugin-owned storage.
 2. It checks allocation conservation and invokes `PreparePopInterest` for every
    nonzero payout.
-3. It calls `ApplyPopInterest` only after every preflight succeeds. Apply
-   rechecks access, signature, identity, writable range, and preflight snapshot,
-   then verifies the expected POP-money postconditions.
+3. It calls `ApplyPopInterest` only after every preflight succeeds. Apply does
+   not re-resolve POP identity or ownership; it rechecks access, signature, the
+   bound address and amount, writable range, and preflight money snapshot, then
+   verifies the expected POP-money postconditions.
 
 Preflight does not reserve engine state and application is not transactional
 across several POPs. A later POP can fail after earlier writes succeeded. There
