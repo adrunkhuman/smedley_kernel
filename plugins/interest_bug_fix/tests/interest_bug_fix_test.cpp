@@ -1,11 +1,9 @@
 #include <smedley/game_state/readers.hpp>
 #include "interest_allocation.hpp"
 #include "interest_batch.hpp"
+#include "interest_mutation_status.hpp"
 #include "interest_reconciliation.hpp"
-#include "pop_money_write.hpp"
 #include <gtest/gtest.h>
-
-#include <windows.h>
 
 #include <array>
 #include <cstddef>
@@ -232,30 +230,28 @@ TEST(InterestBugFixTest, RejectsFlaggedBeforeSample)
     EXPECT_EQ(summary.transfer_raw, 0);
 }
 
-TEST(InterestBugFixTest, ValidatesPopMoneyWriteSpan)
+TEST(InterestBugFixTest, ClassifiesMutationFailuresWithoutOverstatingPostconditions)
 {
-    SYSTEM_INFO system_info{};
-    GetSystemInfo(&system_info);
-    const size_t page_size = system_info.dwPageSize;
-    ASSERT_NE(page_size, 0u);
-    auto *pages = static_cast<std::byte *>(VirtualAlloc(
-        nullptr, page_size * 2, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-    ASSERT_NE(pages, nullptr);
+    using interest_bug_fix::PopInterestFailureClass;
+    using game_state::PopInterestMutationStatus;
 
-    const void *pop = pages + page_size - 0x180 - 1;
-    EXPECT_TRUE(interest_bug_fix::CanWritePopMoney(game_state::PopRef{pop}));
-
-    DWORD writable_protection = 0;
-    const BOOL made_readonly = VirtualProtect(
-        pages + page_size, page_size, PAGE_READONLY, &writable_protection);
-    EXPECT_NE(made_readonly, FALSE);
-    if (made_readonly != FALSE) {
-        EXPECT_FALSE(interest_bug_fix::CanWritePopMoney(game_state::PopRef{pop}));
-        DWORD restored_protection = 0;
-        EXPECT_NE(VirtualProtect(pages + page_size, page_size, writable_protection, &restored_protection), FALSE);
-    }
-    EXPECT_FALSE(interest_bug_fix::CanWritePopMoney({}));
-    EXPECT_NE(VirtualFree(pages, 0, MEM_RELEASE), FALSE);
+    EXPECT_EQ(interest_bug_fix::ClassifyPopInterestFailure(PopInterestMutationStatus::not_writable),
+        PopInterestFailureClass::not_writable);
+    EXPECT_EQ(interest_bug_fix::ClassifyPopInterestFailure(PopInterestMutationStatus::state_changed),
+        PopInterestFailureClass::precondition_changed);
+    EXPECT_EQ(interest_bug_fix::ClassifyPopInterestFailure(PopInterestMutationStatus::signature_mismatch),
+        PopInterestFailureClass::unavailable);
+    EXPECT_EQ(interest_bug_fix::ClassifyPopInterestFailure(PopInterestMutationStatus::postcondition_failed),
+        PopInterestFailureClass::postcondition_failed);
+    EXPECT_EQ(interest_bug_fix::ClassifyAppliedPopInterestFailure(PopInterestMutationStatus::state_changed, true),
+        PopInterestFailureClass::partial_mutation);
+    EXPECT_EQ(interest_bug_fix::ClassifyAppliedPopInterestFailure(PopInterestMutationStatus::state_changed, false),
+        PopInterestFailureClass::precondition_changed);
+    EXPECT_FALSE(interest_bug_fix::IsUnsafePopInterestFailure(PopInterestMutationStatus::state_changed));
+    EXPECT_TRUE(interest_bug_fix::IsUnsafePopInterestFailure(PopInterestMutationStatus::invalid_thread));
+    EXPECT_FALSE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(PopInterestMutationStatus::not_writable, false));
+    EXPECT_TRUE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(PopInterestMutationStatus::state_changed, true));
+    EXPECT_TRUE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(PopInterestMutationStatus::postcondition_failed, false));
 }
 
 TEST(InterestAllocationTest, ConservesPayoutWithDeterministicRemainders)

@@ -192,7 +192,7 @@ namespace telemetry_plugin
                     std::array<PopCashFlowAggregate, smedley::game_state::max_sample_pops>>();
                 pop_cash_flow_hook_installed_ = true;
                 if (!InstallPopCashFlowHook(&error)) {
-                    StopConsumptionHooks(false);
+                    if (!StopConsumptionHooks(false)) TerminateProcess(GetCurrentProcess(), ERROR_OPERATION_ABORTED);
                     logger().Failure("POP cash-flow hook did not start: " + error);
                     throw std::runtime_error(error);
                 }

@@ -1,9 +1,9 @@
-add_library(interest_bug_fix_core STATIC src/interest_allocation.cpp src/interest_batch.cpp src/interest_reconciliation.cpp src/pop_money_write.cpp)
+add_library(interest_bug_fix_core STATIC src/interest_allocation.cpp src/interest_batch.cpp src/interest_mutation_status.cpp src/interest_reconciliation.cpp)
 target_include_directories(interest_bug_fix_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(interest_bug_fix_core PUBLIC smedley_game_state)
 
 add_library(interest_bug_fix MODULE src/interest_bug_fix.cpp src/telemetry_bridge.cpp)
-target_link_libraries(interest_bug_fix interest_bug_fix_core smedley_kernel psapi)
+target_link_libraries(interest_bug_fix PRIVATE interest_bug_fix_core smedley_game_runtime smedley_kernel psapi)
 target_include_directories(interest_bug_fix PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 if(BUILD_TESTING)
