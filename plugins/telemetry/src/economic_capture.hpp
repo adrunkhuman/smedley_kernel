@@ -34,7 +34,7 @@ namespace telemetry_plugin
         const smedley::game_state::PopDetailSnapshot &population_detail(size_t index) const { return population_details_[index]; }
 
     private:
-        static const void *ResolveProvince(const void *context, int32_t id);
+        static smedley::game_state::ProvinceRef ResolveProvince(const void *context, int32_t id);
         std::array<smedley::game_state::PopCandidate, smedley::game_state::max_sample_pops> candidates_{};
         std::array<smedley::game_state::PopDetailSnapshot, smedley::game_state::max_sample_pops> population_details_{};
         std::array<int32_t, smedley::game_state::max_sample_pops> population_ids_{};

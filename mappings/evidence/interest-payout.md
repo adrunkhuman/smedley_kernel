@@ -437,7 +437,13 @@ Possible statuses are `paid`, `invalid_pair`, `batch_invalid`, `day_incomplete`,
 `day_summary`, `day_partial`, `recipient_identity_invalid`, `collection_failed`,
 `no_eligible_savings`, `allocation_overflow`, `allocation_invalid`,
 `pop_balance_overflow`, `pop_not_writable`, `duplicate_pop`, `pop_identity_limit`,
-`postcondition_failed`, and `conservation_failed`.
+`mutation_unavailable`, `mutation_precondition_changed`, `partial_mutation`,
+`postcondition_failed`, and `conservation_failed`. `mutation_unavailable`
+disables later payouts because the callback, thread, phase, signature, or native
+runtime boundary is no longer trusted. `mutation_precondition_changed` is a
+pre-write revalidation failure. `partial_mutation` means at least one earlier
+POP in the recipient allocation was already written; no rollback is claimed and
+later payouts are disabled.
 `allocation_status` preserves
 the allocator's exact result. `reconciliation_failure` identifies why an
 `invalid_pair` debtor snapshot was rejected and is `none` for other result
@@ -587,6 +593,22 @@ inventing a recipient would violate the documented allocation model.
 
 The matched no-fix baseline and full performance/economic comparison are
 recorded in `telemetry.md`.
+
+## Checked boundary final smoke test
+
+Run `c94800f7-74a8-4013-bfcc-c12e96776d52` used the final Release artifacts with
+kernel-retained executable identity, `CurrentGameSession`, checked interest
+mutation, campaign runner, and the telemetry `CPop::GiveMoney` hook. All three
+plugins loaded after the in-process identity check. The benchmark advanced from
+raw date `59883384` to `59883552`, paused with zero overshoot, drained telemetry,
+and exited through the native bounded-run path.
+
+The trace contained 3,684 ordered records with zero gaps, drops, or writer
+failures. Its 24 paid recipient rows reconciled raw transfer `92,860` to exact
+POP payout `92,860,000`; all 4,911 paid POP postconditions passed and every
+allocation status and daily flag was successful. The source save retained
+SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 
 ## Historical renamed-plugin smoke test
 

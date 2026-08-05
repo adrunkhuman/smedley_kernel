@@ -1,11 +1,9 @@
 #include <smedley/game_state/readers.hpp>
 #include "interest_allocation.hpp"
 #include "interest_batch.hpp"
+#include "interest_mutation_status.hpp"
 #include "interest_reconciliation.hpp"
-#include "pop_money_write.hpp"
 #include <gtest/gtest.h>
-
-#include <windows.h>
 
 #include <array>
 #include <cstddef>
@@ -32,10 +30,10 @@ namespace
         const void *province = nullptr;
     };
 
-    const void *ResolveCountry(const void *context, int32_t ordinal)
+    game_state::CountryRef ResolveCountry(const void *context, int32_t ordinal)
     {
         const auto *lookup = static_cast<const CountryLookup *>(context);
-        return ordinal == lookup->ordinal ? lookup->country : nullptr;
+        return ordinal == lookup->ordinal ? game_state::CountryRef{lookup->country} : game_state::CountryRef{};
     }
 
 }
@@ -143,7 +141,7 @@ TEST(InterestBugFixTest, CompletesTransferAfterCreditorEntryDisappears)
     before.destination_bank_interest_raw = 100;
 
     auto after = game_state::ReadCountryCreditorBalances(
-        before, debtor.data(), 1234, ResolveCountry, &lookup);
+        before, game_state::CountryRef{debtor.data()}, 1234, ResolveCountry, &lookup);
     ASSERT_EQ(after.flags, 0u);
     ASSERT_EQ(after.creditor_destinations, 1u);
     interest_bug_fix::DestinationTransferSummary summary{};
@@ -232,30 +230,41 @@ TEST(InterestBugFixTest, RejectsFlaggedBeforeSample)
     EXPECT_EQ(summary.transfer_raw, 0);
 }
 
-TEST(InterestBugFixTest, ValidatesPopMoneyWriteSpan)
+TEST(InterestBugFixTest, ClassifiesMutationFailuresWithoutOverstatingPostconditions)
 {
-    SYSTEM_INFO system_info{};
-    GetSystemInfo(&system_info);
-    const size_t page_size = system_info.dwPageSize;
-    ASSERT_NE(page_size, 0u);
-    auto *pages = static_cast<std::byte *>(VirtualAlloc(
-        nullptr, page_size * 2, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
-    ASSERT_NE(pages, nullptr);
+    using interest_bug_fix::PopInterestFailureClass;
+    using game_state::PopInterestMutationStatus;
 
-    const void *pop = pages + page_size - 0x180 - 1;
-    EXPECT_TRUE(interest_bug_fix::CanWritePopMoney(pop));
-
-    DWORD writable_protection = 0;
-    const BOOL made_readonly = VirtualProtect(
-        pages + page_size, page_size, PAGE_READONLY, &writable_protection);
-    EXPECT_NE(made_readonly, FALSE);
-    if (made_readonly != FALSE) {
-        EXPECT_FALSE(interest_bug_fix::CanWritePopMoney(pop));
-        DWORD restored_protection = 0;
-        EXPECT_NE(VirtualProtect(pages + page_size, page_size, writable_protection, &restored_protection), FALSE);
+    struct ExpectedFailure
+    {
+        PopInterestMutationStatus status;
+        PopInterestFailureClass failure;
+        bool unsafe;
+    };
+    constexpr ExpectedFailure failures[] = {
+        {PopInterestMutationStatus::invalid_context, PopInterestFailureClass::unavailable, true},
+        {PopInterestMutationStatus::invalid_phase, PopInterestFailureClass::unavailable, true},
+        {PopInterestMutationStatus::invalid_thread, PopInterestFailureClass::unavailable, true},
+        {PopInterestMutationStatus::invalid_amount, PopInterestFailureClass::precondition_changed, false},
+        {PopInterestMutationStatus::balance_unreadable, PopInterestFailureClass::balance, false},
+        {PopInterestMutationStatus::balance_overflow, PopInterestFailureClass::balance, false},
+        {PopInterestMutationStatus::not_writable, PopInterestFailureClass::not_writable, false},
+        {PopInterestMutationStatus::signature_mismatch, PopInterestFailureClass::unavailable, true},
+        {PopInterestMutationStatus::unavailable, PopInterestFailureClass::unavailable, true},
+        {PopInterestMutationStatus::state_changed, PopInterestFailureClass::precondition_changed, false},
+        {PopInterestMutationStatus::postcondition_failed, PopInterestFailureClass::postcondition_failed, true},
+    };
+    for (const auto &failure : failures) {
+        EXPECT_EQ(interest_bug_fix::ClassifyPopInterestFailure(failure.status), failure.failure);
+        EXPECT_EQ(interest_bug_fix::IsUnsafePopInterestFailure(failure.status), failure.unsafe);
     }
-    EXPECT_FALSE(interest_bug_fix::CanWritePopMoney(nullptr));
-    EXPECT_NE(VirtualFree(pages, 0, MEM_RELEASE), FALSE);
+    EXPECT_EQ(interest_bug_fix::ClassifyAppliedPopInterestFailure(PopInterestMutationStatus::state_changed, true),
+        PopInterestFailureClass::partial_mutation);
+    EXPECT_EQ(interest_bug_fix::ClassifyAppliedPopInterestFailure(PopInterestMutationStatus::state_changed, false),
+        PopInterestFailureClass::precondition_changed);
+    EXPECT_FALSE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(PopInterestMutationStatus::not_writable, false));
+    EXPECT_TRUE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(PopInterestMutationStatus::state_changed, true));
+    EXPECT_TRUE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(PopInterestMutationStatus::postcondition_failed, false));
 }
 
 TEST(InterestAllocationTest, ConservesPayoutWithDeterministicRemainders)

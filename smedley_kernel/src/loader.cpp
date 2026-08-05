@@ -2,6 +2,7 @@
 #include "loader.hpp"
 #include "memory.hpp"
 #include "util.hpp"
+#include <smedley/executable_identity.hpp>
 #include <cstdio>
 #include <cstdio>
 #include <filesystem>
@@ -112,6 +113,9 @@ namespace smedley
     {
         if (_loaded) return true;
         try {
+            if (!ValidateCurrentExecutableIdentity()) {
+                throw std::runtime_error("unsupported Victoria II executable identity");
+            }
             memory::Map::Init();
             InstallHooks();
             std::vector<PluginDefinition> definitions;

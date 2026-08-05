@@ -296,28 +296,50 @@ namespace telemetry_plugin
             buffers[1].reset();
             return false;
         }
-        ScopedThreadQuiescence quiescence(error);
-        if (!quiescence) return false;
-        bool thread_in_patch = false;
-        if (!quiescence.AnyInstructionPointerIn(target, original_bytes.size(), &thread_in_patch, error)
-            || thread_in_patch) {
-            if (thread_in_patch) *error = "a game thread is executing the POP cash-flow patch site";
+        if (!smedley::memory::RegisterCodePatch(
+                target, original_bytes.data(), hook.data(), hook.size())) {
+            *error = "cannot register the POP cash-flow hook patch";
             return false;
         }
-        if (!WriteBytes(target, original_bytes.data(), hook.data(), hook.size(), error)) {
-            std::string ignored;
-            (void)quiescence.Release(&ignored);
-            return false;
-        }
+        bool patched = false;
+        bool quiesced = false;
+        bool resumed = false;
         std::string resume_error;
-        if (!quiescence.Release(&resume_error)) {
+        {
+            ScopedThreadQuiescence quiescence(error);
+            if (quiescence) {
+                quiesced = true;
+                bool thread_in_patch = false;
+                if (!quiescence.AnyInstructionPointerIn(target, original_bytes.size(), &thread_in_patch, error)
+                    || thread_in_patch) {
+                    if (thread_in_patch) *error = "a game thread is executing the POP cash-flow patch site";
+                } else {
+                    patched = WriteBytes(target, original_bytes.data(), hook.data(), hook.size(), error);
+                    if (patched) installed = true;
+                }
+                resumed = quiescence.Release(&resume_error);
+            }
+        }
+        if (!quiesced) {
+            if (!smedley::memory::UnregisterCodePatch(
+                    target, original_bytes.data(), hook.data(), hook.size())) {
+                TerminateProcess(GetCurrentProcess(), ERROR_OPERATION_ABORTED);
+            }
+            return false;
+        }
+        if (!resumed) {
             poisoned = true;
-            installed = true;
             *error += "; " + resume_error;
             return false;
         }
+        if (!patched) {
+            if (!smedley::memory::UnregisterCodePatch(
+                    target, original_bytes.data(), hook.data(), hook.size())) {
+                TerminateProcess(GetCurrentProcess(), ERROR_OPERATION_ABORTED);
+            }
+            return false;
+        }
         active_buffer = 0;
-        installed = true;
         InterlockedExchange(&active, 1);
         return true;
     }
@@ -333,23 +355,39 @@ namespace telemetry_plugin
             *error = "POP cash-flow hook target is out of range";
             return false;
         }
-        ScopedThreadQuiescence quiescence(error);
-        if (!quiescence) return false;
-        bool thread_in_patch = false;
-        if (!quiescence.AnyInstructionPointerIn(target + 1, original_bytes.size() - 1, &thread_in_patch, error)
-            || thread_in_patch) {
-            if (thread_in_patch) *error = "a game thread is executing the POP cash-flow patch site";
-            return false;
-        }
-        if (!WriteBytes(target, hook.data(), original_bytes.data(), hook.size(), error)) {
-            std::string ignored;
-            (void)quiescence.Release(&ignored);
-            return false;
-        }
+        bool restored = false;
+        bool quiesced = false;
+        bool resumed = false;
         std::string resume_error;
-        if (!quiescence.Release(&resume_error)) {
+        {
+            ScopedThreadQuiescence quiescence(error);
+            if (quiescence) {
+                quiesced = true;
+                bool thread_in_patch = false;
+                if (!quiescence.AnyInstructionPointerIn(target + 1, original_bytes.size() - 1, &thread_in_patch, error)
+                    || thread_in_patch) {
+                    if (thread_in_patch) *error = "a game thread is executing the POP cash-flow patch site";
+                } else {
+                    restored = WriteBytes(target, hook.data(), original_bytes.data(), hook.size(), error);
+                }
+                resumed = quiescence.Release(&resume_error);
+            }
+        }
+        if (!quiesced) return false;
+        if (!resumed) {
             poisoned = true;
             *error += "; " + resume_error;
+            return false;
+        }
+        if (!restored) {
+            poisoned = true;
+            return false;
+        }
+        if (!smedley::memory::UnregisterCodePatch(
+                target, original_bytes.data(), hook.data(), hook.size())) {
+            poisoned = true;
+            *error = "cannot unregister restored POP cash-flow hook patch";
+            TerminateProcess(GetCurrentProcess(), ERROR_OPERATION_ABORTED);
             return false;
         }
         const ULONGLONG drain_deadline = GetTickCount64() + 5000;

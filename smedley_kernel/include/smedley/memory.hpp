@@ -4,6 +4,7 @@
 
 #include "apimacros.hpp"
 #include <cstdint>
+#include <cstddef>
 #include <cstring>
 #include <stdexcept>
 #include <vector>
@@ -45,6 +46,15 @@ namespace smedley::memory
      */
     bool Hook(uintptr_t addr, void *jmp, int n, std::vector<uint8_t> *old_instr);
     bool RestoreHook(uintptr_t addr, const std::vector<uint8_t> &instructions) noexcept;
+
+    constexpr size_t max_registered_code_patch_bytes = 32;
+
+    // Registers an exact patch while the site still contains either its original or replacement bytes.
+    bool RegisterCodePatch(uintptr_t address, const uint8_t *original, const uint8_t *replacement, size_t size);
+    // Removes only the matching patch after the site contains either registered byte sequence.
+    bool UnregisterCodePatch(uintptr_t address, const uint8_t *original, const uint8_t *replacement, size_t size);
+    // Accepts an original sequence or an exact registered replacement for that sequence.
+    bool MatchesOriginalOrRegisteredCodePatch(uintptr_t address, const uint8_t *original, size_t size);
 
     /**
      * Hooks a function at its prologue and generates a trampoline that calls fn.

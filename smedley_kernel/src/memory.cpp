@@ -1,9 +1,41 @@
 #include "memory.hpp"
 #include <cstdint>
+#include <array>
+#include <mutex>
 #include <stdexcept>
 
 namespace smedley::memory
 {
+    namespace
+    {
+        constexpr size_t max_registered_code_patches = 16;
+
+        struct RegisteredCodePatch
+        {
+            uintptr_t address = 0;
+            std::array<uint8_t, max_registered_code_patch_bytes> original{};
+            std::array<uint8_t, max_registered_code_patch_bytes> replacement{};
+            size_t size = 0;
+        };
+
+        std::array<RegisteredCodePatch, max_registered_code_patches> registered_code_patches{};
+        std::mutex registered_code_patches_mutex;
+
+        bool ValidCodePatchArguments(uintptr_t address, const uint8_t *original,
+                                     const uint8_t *replacement, size_t size)
+        {
+            return address != 0 && original != nullptr && replacement != nullptr
+                && size != 0 && size <= max_registered_code_patch_bytes;
+        }
+
+        bool Matches(const RegisteredCodePatch &patch, uintptr_t address, const uint8_t *original,
+                     const uint8_t *replacement, size_t size)
+        {
+            return patch.address == address && patch.size == size
+                && std::memcmp(patch.original.data(), original, size) == 0
+                && std::memcmp(patch.replacement.data(), replacement, size) == 0;
+        }
+    }
 
     uintptr_t Map::base_addr = NULL;
     HANDLE Map::game_heap = NULL;
@@ -124,5 +156,52 @@ namespace smedley::memory
         DWORD ignored;
         const bool restored = VirtualProtect(target, instructions.size(), old_protect, &ignored) != FALSE;
         return flushed && restored;
+    }
+
+    bool RegisterCodePatch(uintptr_t address, const uint8_t *original, const uint8_t *replacement, size_t size)
+    {
+        if (!ValidCodePatchArguments(address, original, replacement, size)) return false;
+        const auto *current = reinterpret_cast<const void *>(address);
+        if (std::memcmp(current, original, size) != 0 && std::memcmp(current, replacement, size) != 0) return false;
+        std::lock_guard lock(registered_code_patches_mutex);
+        for (const auto &patch : registered_code_patches) {
+            if (patch.address == address) return false;
+        }
+        for (auto &patch : registered_code_patches) {
+            if (patch.address != 0) continue;
+            patch.address = address;
+            patch.size = size;
+            std::memcpy(patch.original.data(), original, size);
+            std::memcpy(patch.replacement.data(), replacement, size);
+            return true;
+        }
+        return false;
+    }
+
+    bool UnregisterCodePatch(uintptr_t address, const uint8_t *original, const uint8_t *replacement, size_t size)
+    {
+        if (!ValidCodePatchArguments(address, original, replacement, size)) return false;
+        std::lock_guard lock(registered_code_patches_mutex);
+        for (auto &patch : registered_code_patches) {
+            if (!Matches(patch, address, original, replacement, size)) continue;
+            const auto *current = reinterpret_cast<const void *>(address);
+            if (std::memcmp(current, original, size) != 0 && std::memcmp(current, replacement, size) != 0) return false;
+            patch = {};
+            return true;
+        }
+        return false;
+    }
+
+    bool MatchesOriginalOrRegisteredCodePatch(uintptr_t address, const uint8_t *original, size_t size)
+    {
+        if (address == 0 || original == nullptr || size == 0 || size > max_registered_code_patch_bytes) return false;
+        if (std::memcmp(reinterpret_cast<const void *>(address), original, size) == 0) return true;
+        std::lock_guard lock(registered_code_patches_mutex);
+        for (const auto &patch : registered_code_patches) {
+            if (patch.address != address || patch.size != size
+                || std::memcmp(patch.original.data(), original, size) != 0) continue;
+            return std::memcmp(reinterpret_cast<const void *>(address), patch.replacement.data(), size) == 0;
+        }
+        return false;
     }
 }

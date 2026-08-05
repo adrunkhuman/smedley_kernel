@@ -5,13 +5,26 @@ not sandboxed and have the same filesystem, memory, and process access as the
 user running the game. Prefer the constrained scripting API when its copied
 state and queued operations are sufficient.
 
+Bundled-plugin ownership and the internal typed-reader boundary are documented
+in [`game-state-boundary.md`](game-state-boundary.md).
+
 ## Internal shared readers
 
 `smedley_game_state` is a private static library for bounded, observational
-Victoria II state readers shared by bundled plugins. It is not a DLL, plugin,
-public ABI, or general game-services interface. Keep read-only traversal and
-validation in this layer. Mutation, lifecycle, publication, and policy remain
-owned by the consuming plugin.
+Victoria II state readers shared by bundled plugins. `smedley_game_runtime`
+adds callback-scoped native adapters with checked preconditions and
+postconditions. Neither target is a DLL, plugin, public ABI, or general
+game-services interface. Plugins retain lifecycle, publication, and gameplay
+policy; they do not own raw traversal or native calling conventions.
+
+Legacy first-party engine integrations are explicit raw adapter sources. Their
+CMake target must list each `.cpp` or `.hpp` and register it with
+`smedley_allow_raw_plugin_sources`. The layering CTest rejects raw engine
+headers, memory-map access, native POP-money wrappers, and game-object `void*`
+declarations, named engine RVAs/field offsets, and native x86 call stubs from
+every unregistered plugin production source. Registration is not approval for
+new offsets or mutations; the ordinary mapping evidence and review requirements
+still apply.
 
 ## Foreign engine objects
 
