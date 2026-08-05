@@ -690,7 +690,8 @@ them to liquid balances can double-count value. `bank_interest_accumulator_raw`
 is the verified temporary destination of charged interest, not a national-bank
 cash balance. The plugin deliberately does not emit `world_money_supply`.
 
-With both `interest_bug_fix` and `telemetry` selected, the fix emits:
+With `interest_fix_debug` enabled and both `interest_bug_fix` and `telemetry`
+selected, the fix emits:
 
 | Event | Payload | Contract |
 | --- | --- | --- |
@@ -706,9 +707,11 @@ telemetry result codes for independent diagnosis. This guarantee requires the
 bundled `SmedleyTelemetryEmitReliableV1`; an older compatible telemetry plugin
 without that symbol receives best-effort nonblocking publication.
 
-The fix CSV is separate from JSONL telemetry configuration. Selecting the fix
-opens and truncates `<GAME_DIR>/interest_bug_fix.csv`; telemetry output paths and
-overwrite policy do not change that fixed diagnostic file.
+The production interest fix creates no CSV, worker thread, or interest telemetry.
+Enable its advanced **interest-fix diagnostics** setting (CLI:
+`--interest-fix-debug`) only for a bounded investigation. That mode opens and
+truncates `<GAME_DIR>/interest_bug_fix.csv`; telemetry output paths and overwrite
+policy do not change that fixed diagnostic file.
 
 The project mapping inventory has historical status spellings, but telemetry
 uses only canonical project evidence levels.

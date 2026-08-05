@@ -11,6 +11,8 @@
 #include <smedley/events/dailyupdate.hpp>
 #include <smedley/plugin.hpp>
 
+#include <shellapi.h>
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -19,7 +21,10 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <string>
+#include <string_view>
 #include <thread>
+#include <vector>
 
 namespace interest_bug_fix
 {
@@ -28,6 +33,19 @@ namespace interest_bug_fix
     namespace
     {
         constexpr size_t result_queue_capacity = 1024;
+
+        bool DebugEnabled()
+        {
+            int count = 0;
+            wchar_t **arguments = CommandLineToArgvW(GetCommandLineW(), &count);
+            if (arguments == nullptr) return false;
+            bool enabled = false;
+            for (int index = 1; index < count; ++index) {
+                if (std::wstring_view(arguments[index]) == L"-smedley-interest-fix-debug=1") enabled = true;
+            }
+            LocalFree(arguments);
+            return enabled;
+        }
 
         enum class FixStatus : uint32_t
         {
@@ -185,17 +203,8 @@ namespace interest_bug_fix
     public:
         void OnLoad() override
         {
-            output_.open("interest_bug_fix.csv", std::ios::trunc);
-            if (!output_) throw std::runtime_error("cannot open interest_bug_fix.csv in the game directory");
-            output_ << "date_raw,country,status,flags,source_count,pop_count,paid_pop_count,"
-                        "province_count,verified_pop_count,transfer_raw,domestic_transfer_raw,"
-                        "foreign_transfer_raw,payout_raw,allocation_status,callback_us,"
-                        "rejected_debtors,health_telemetry_result,value_telemetry_result,dropped_results,reconciliation_failure,"
-                        "reconciliation_creditor_count,reconciliation_destination_count,daily_max_creditor_count,"
-                          "daily_max_destination_count\n";
-            output_.flush();
-            if (!output_) throw std::runtime_error("cannot initialize interest_bug_fix.csv in the game directory");
-            worker_ = std::thread([this] { WriteResults(); });
+            debug_ = DebugEnabled();
+            if (debug_) StartDiagnostics();
             try {
                 AddEventHandler<smedley::events::DailyUpdateEvent>(
                     "interest_bug_fix.day", [this](smedley::events::DailyUpdateEvent &event) { OnDailyUpdate(event); });
@@ -204,20 +213,17 @@ namespace interest_bug_fix
             } catch (...) {
                 RemoveEventHandler<smedley::events::DailyInterestEvent>("interest_bug_fix.boundary");
                 RemoveEventHandler<smedley::events::DailyUpdateEvent>("interest_bug_fix.day");
-                stop_.store(true, std::memory_order_release);
-                worker_.join();
+                StopDiagnostics();
                 throw;
             }
-            logger().Info("enabled opt-in batched creditor POP interest distribution");
+            if (debug_) logger().Info("enabled interest-fix diagnostics");
         }
 
         void OnUnload() override
         {
             RemoveEventHandler<smedley::events::DailyInterestEvent>("interest_bug_fix.boundary");
             RemoveEventHandler<smedley::events::DailyUpdateEvent>("interest_bug_fix.day");
-            stop_.store(true, std::memory_order_release);
-            if (worker_.joinable()) worker_.join();
-            output_.flush();
+            StopDiagnostics();
         }
 
     private:
@@ -241,7 +247,7 @@ namespace interest_bug_fix
                     result.status = FixStatus::day_incomplete;
                     result.source_count = batch_.seen_count();
                     result.rejected_debtors = batch_.expected_debtors() - batch_.seen_count();
-                    callback_started_ = std::chrono::steady_clock::now();
+                    if (debug_) callback_started_ = std::chrono::steady_clock::now();
                     Publish(result);
                     batch_.Reset();
                 }
@@ -292,7 +298,7 @@ namespace interest_bug_fix
                 return;
             }
             ResetPendingInterest();
-            callback_started_ = std::chrono::steady_clock::now();
+            if (debug_) callback_started_ = std::chrono::steady_clock::now();
 
             CountryEconomySnapshot after = ReadCountryCreditorBalances(pending_before_, access.country(),
                 date_raw, ResolveCountry, &game_state_ref);
@@ -381,7 +387,7 @@ namespace interest_bug_fix
                     overflow.status = FixStatus::conservation_failed;
                     overflow.flags = SAMPLE_SUM_OVERFLOW;
                     overflow.rejected_debtors = batch_.rejected_debtors();
-                    callback_started_ = std::chrono::steady_clock::now();
+                    if (debug_) callback_started_ = std::chrono::steady_clock::now();
                     Publish(overflow);
                     finalized_date_raw_ = date_raw;
                     batch_.Reset();
@@ -399,7 +405,7 @@ namespace interest_bug_fix
                 overflow.status = FixStatus::conservation_failed;
                 overflow.flags = SAMPLE_SUM_OVERFLOW;
                 overflow.rejected_debtors = batch_.rejected_debtors();
-                callback_started_ = std::chrono::steady_clock::now();
+                if (debug_) callback_started_ = std::chrono::steady_clock::now();
                 Publish(overflow);
                 finalized_date_raw_ = date_raw;
                 batch_.Reset();
@@ -408,7 +414,7 @@ namespace interest_bug_fix
             for (uint32_t ordinal = 1; ordinal < max_batch_countries; ++ordinal) {
                 const DailyRecipient &recipient = batch_.recipient(ordinal);
                 if (!recipient.active) continue;
-                callback_started_ = std::chrono::steady_clock::now();
+                if (debug_) callback_started_ = std::chrono::steady_clock::now();
                 FixResult result{};
                 result.date_raw = date_raw;
                 std::memcpy(result.country_tag, recipient.tag, 4);
@@ -590,6 +596,7 @@ namespace interest_bug_fix
 
         void Publish(FixResult &result, bool emit_telemetry = true, bool preserve_callback_us = false)
         {
+            if (!debug_) return;
             if (!preserve_callback_us) {
                 result.callback_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::steady_clock::now() - callback_started_).count());
@@ -629,6 +636,29 @@ namespace interest_bug_fix
         void Enqueue(const FixResult &result) noexcept
         {
             if (!queue_.TryPush(result)) dropped_.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        void StartDiagnostics()
+        {
+            output_.open("interest_bug_fix.csv", std::ios::trunc);
+            if (!output_) throw std::runtime_error("cannot open interest_bug_fix.csv in the game directory");
+            output_ << "date_raw,country,status,flags,source_count,pop_count,paid_pop_count,"
+                        "province_count,verified_pop_count,transfer_raw,domestic_transfer_raw,"
+                        "foreign_transfer_raw,payout_raw,allocation_status,callback_us,"
+                        "rejected_debtors,health_telemetry_result,value_telemetry_result,dropped_results,reconciliation_failure,"
+                        "reconciliation_creditor_count,reconciliation_destination_count,daily_max_creditor_count,"
+                          "daily_max_destination_count\n";
+            output_.flush();
+            if (!output_) throw std::runtime_error("cannot initialize interest_bug_fix.csv in the game directory");
+            worker_ = std::thread([this] { WriteResults(); });
+        }
+
+        void StopDiagnostics() noexcept
+        {
+            if (!debug_) return;
+            stop_.store(true, std::memory_order_release);
+            if (worker_.joinable()) worker_.join();
+            output_.flush();
         }
 
         void WriteResults()
@@ -686,6 +716,7 @@ namespace interest_bug_fix
         std::array<uint32_t, max_sample_pops> order_scratch_{};
         TelemetryBridge telemetry_{};
         std::chrono::steady_clock::time_point callback_started_{};
+        bool debug_ = false;
         std::atomic<uint64_t> dropped_{0};
         std::atomic<bool> stop_{false};
         std::thread worker_;

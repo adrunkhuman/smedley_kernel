@@ -6,3 +6,12 @@ conflicts = ["v2up"]
 
 [settings]
 version = 1
+
+[[settings.fields]]
+key = "debug"
+type = "bool"
+label = "Enable interest-fix diagnostics"
+help = "Write per-recipient CSV diagnostics and emit interest telemetry. Disabled by default."
+default = false
+advanced = true
+argv = { option = "-smedley-interest-fix-debug", codec = "bool_01" }

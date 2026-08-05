@@ -221,6 +221,7 @@ namespace smedley::launcher
         int script_instruction_budget = 100000;
         int script_memory_bytes = 8388608;
         int script_queue_capacity = 256;
+        bool interest_fix_debug = false;
     };
 
     struct PluginDiscovery
