@@ -1,4 +1,4 @@
-#include "pop_cash_flow_hook.hpp"
+#include <smedley/game_state/pop_cash_flow_hook.hpp>
 #include "hook_patch.hpp"
 
 #include <smedley/memory.hpp>
@@ -12,7 +12,7 @@
 #include <memory>
 #include <new>
 
-namespace telemetry_plugin
+namespace smedley::game_state
 {
     namespace
     {
@@ -86,12 +86,12 @@ namespace telemetry_plugin
                 if (!candidate.used) {
                     if (buffer.used_count == buffer.used_indices.size()) break;
                     candidate.used = true;
-                    candidate.record.pop = pop;
+                    candidate.record.pop = PopRef{static_cast<const void *>(pop)};
                     buffer.used_indices[buffer.used_count++] = static_cast<uint32_t>(slot_index);
                     slot = &candidate;
                     break;
                 }
-                if (candidate.record.pop == pop) {
+                if (candidate.record.pop.address() == reinterpret_cast<uintptr_t>(pop)) {
                     slot = &candidate;
                     break;
                 }
@@ -212,7 +212,7 @@ namespace telemetry_plugin
         bool WriteBytes(uintptr_t address, const uint8_t *expected, const uint8_t *replacement,
                         size_t size, std::string *error)
         {
-            if (std::memcmp(reinterpret_cast<const void *>(address), expected, size) != 0) {
+            if (!MatchesReadableBytes(address, expected, size)) {
                 *error = "POP cash-flow hook bytes do not match the supported executable";
                 return false;
             }
@@ -283,10 +283,10 @@ namespace telemetry_plugin
             *error = "POP cash-flow hook is already installed or poisoned";
             return false;
         }
-        const uintptr_t target = smedley::memory::Map::base_addr + give_money_rva;
-        if (smedley::memory::Map::base_addr == 0) { *error = "game module is unavailable"; return false; }
-        buffers[0] = std::unique_ptr<Buffer>(new (std::nothrow) Buffer{});
-        buffers[1] = std::unique_ptr<Buffer>(new (std::nothrow) Buffer{});
+        uintptr_t target = 0;
+        if (!ResolveSupportedGameAddress(give_money_rva, &target, error)) return false;
+        buffers[0] = std::unique_ptr<Buffer>(new (std::nothrow) Buffer);
+        buffers[1] = std::unique_ptr<Buffer>(new (std::nothrow) Buffer);
         if (!buffers[0] || !buffers[1]) { *error = "cannot allocate POP cash-flow buffers"; return false; }
         std::array<uint8_t, 10> hook{};
         if (!JumpBytes(target, reinterpret_cast<const void *>(&GiveMoneyHook), &hook)
@@ -349,7 +349,8 @@ namespace telemetry_plugin
         if (error == nullptr) return false;
         if (!installed) return true;
         InterlockedExchange(&active, 0);
-        const uintptr_t target = smedley::memory::Map::base_addr + give_money_rva;
+        uintptr_t target = 0;
+        if (!ResolveSupportedGameAddress(give_money_rva, &target, error)) return false;
         std::array<uint8_t, 10> hook{};
         if (!JumpBytes(target, reinterpret_cast<const void *>(&GiveMoneyHook), &hook)) {
             *error = "POP cash-flow hook target is out of range";

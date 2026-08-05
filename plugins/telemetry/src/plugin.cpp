@@ -1,19 +1,17 @@
 #include "telemetry_core.hpp"
-#include "artisan_consumption_hook.hpp"
+#include <smedley/game_state/artisan_consumption_hook.hpp>
 #include "country_economy_core.hpp"
 #include "economic_capture.hpp"
-#include "factory_consumption_hook.hpp"
-#include "factory_sales_hook.hpp"
+#include <smedley/game_state/factory_consumption_hook.hpp>
+#include <smedley/game_state/factory_sales_hook.hpp>
 #include "pop_cash_flow_core.hpp"
-#include "pop_cash_flow_hook.hpp"
+#include <smedley/game_state/pop_cash_flow_hook.hpp>
+#include <smedley/game_state/runtime.hpp>
 #include "pop_identity_core.hpp"
 #include "producer_sales_core.hpp"
 
 #include <smedley/events/dailyupdate.hpp>
 #include <smedley/plugin.hpp>
-#include <smedley/v2/country.hpp>
-#include <smedley/v2/gamestate.hpp>
-#include <smedley/v2/province.hpp>
 
 #include <shellapi.h>
 
@@ -29,6 +27,28 @@
 
 namespace telemetry_plugin
 {
+    using smedley::game_state::ArtisanSettlementHookRecord;
+    using smedley::game_state::DrainArtisanConsumptionHook;
+    using smedley::game_state::DrainFactoryConsumptionHook;
+    using smedley::game_state::DrainFactorySalesHook;
+    using smedley::game_state::DrainPopCashFlowHook;
+    using smedley::game_state::FactorySalesHookRecord;
+    using smedley::game_state::FactorySettlementHookRecord;
+    using smedley::game_state::InstallArtisanConsumptionHook;
+    using smedley::game_state::InstallFactoryConsumptionHook;
+    using smedley::game_state::InstallFactorySalesHook;
+    using smedley::game_state::InstallPopCashFlowHook;
+    using smedley::game_state::max_artisan_flow_records;
+    using smedley::game_state::max_factory_flow_records;
+    using smedley::game_state::max_factory_sales_records;
+    using smedley::game_state::max_pop_cash_flow_records;
+    using smedley::game_state::PopCashFlowHookRecord;
+    using smedley::game_state::PopCashFlowHookStats;
+    using smedley::game_state::pop_cash_flow_component_count;
+    using smedley::game_state::UninstallArtisanConsumptionHook;
+    using smedley::game_state::UninstallFactoryConsumptionHook;
+    using smedley::game_state::UninstallFactorySalesHook;
+    using smedley::game_state::UninstallPopCashFlowHook;
     class Plugin;
     std::shared_timed_mutex active_sink_mutex;
     std::mutex drain_call_mutex;
@@ -51,7 +71,7 @@ namespace telemetry_plugin
 
         struct DailyFactoryFlow
         {
-            const void *address = nullptr;
+            smedley::game_state::FactoryRef address{};
             int32_t date_raw = 0;
             int32_t state_id = -1;
             std::array<char, 64> factory_type{};
@@ -371,7 +391,7 @@ namespace telemetry_plugin
             for (uint32_t record_index = 0; record_index < factory_hook_record_count_; ++record_index) {
                 const auto &record = (*factory_hook_records_)[record_index];
                 if (factory_daily_flow_count_ == 0
-                    || (*factory_daily_flows_)[factory_daily_flow_count_ - 1].address != record.factory) {
+                    || (*factory_daily_flows_)[factory_daily_flow_count_ - 1].address.address() != record.factory.address()) {
                     if (factory_daily_flow_count_ >= factory_daily_flows_->size()) {
                         ++family_stats_[rule_index].invalid;
                         continue;
@@ -440,12 +460,12 @@ namespace telemetry_plugin
                 }
                 const auto previous_it = std::lower_bound(factory_previous_flows_->begin(),
                     factory_previous_flows_->begin() + factory_previous_flow_count_, flow.address,
-                    [](const DailyFactoryFlow &candidate, const void *address) {
-                        return reinterpret_cast<uintptr_t>(candidate.address) < reinterpret_cast<uintptr_t>(address);
+                    [](const DailyFactoryFlow &candidate, smedley::game_state::FactoryRef address) {
+                        return candidate.address.address() < address.address();
                     });
                 const DailyFactoryFlow *previous = nullptr;
                 if (previous_it != factory_previous_flows_->begin() + factory_previous_flow_count_
-                    && previous_it->address == flow.address && flow.date_raw >= previous_it->date_raw
+                    && previous_it->address.address() == flow.address.address() && flow.date_raw >= previous_it->date_raw
                     && flow.date_raw - previous_it->date_raw <= 30 * 24) {
                     previous = &*previous_it;
                     flow.identity_seen = previous->identity_seen;
@@ -469,11 +489,11 @@ namespace telemetry_plugin
                 if (!current.closing_valid) continue;
                 const auto previous_it = std::lower_bound(factory_previous_flows_->begin(),
                     factory_previous_flows_->begin() + previous_count_before_update, current.address,
-                    [](const DailyFactoryFlow &candidate, const void *address) {
-                        return reinterpret_cast<uintptr_t>(candidate.address) < reinterpret_cast<uintptr_t>(address);
+                    [](const DailyFactoryFlow &candidate, smedley::game_state::FactoryRef address) {
+                        return candidate.address.address() < address.address();
                     });
                 if (previous_it == factory_previous_flows_->begin() + previous_count_before_update
-                    || previous_it->address != current.address) {
+                    || previous_it->address.address() != current.address.address()) {
                     if (factory_previous_flow_count_ >= factory_previous_flows_->size()) {
                         ++family_stats_[rule_index].invalid;
                         continue;
@@ -486,7 +506,7 @@ namespace telemetry_plugin
             }
             std::sort(factory_previous_flows_->begin(), factory_previous_flows_->begin() + factory_previous_flow_count_,
                 [](const DailyFactoryFlow &left, const DailyFactoryFlow &right) {
-                    return reinterpret_cast<uintptr_t>(left.address) < reinterpret_cast<uintptr_t>(right.address);
+                    return left.address.address() < right.address.address();
                 });
             ++factory_flow_observed_dates_;
         }
@@ -500,10 +520,10 @@ namespace telemetry_plugin
                 const auto flow_it = std::lower_bound(factory_daily_flows_->begin(),
                     factory_daily_flows_->begin() + factory_daily_flow_count_, factory.address.address(),
                     [](const DailyFactoryFlow &candidate, uintptr_t address) {
-                        return reinterpret_cast<uintptr_t>(candidate.address) < address;
+                        return candidate.address.address() < address;
                     });
                 const DailyFactoryFlow *daily_flow = flow_it != factory_daily_flows_->begin() + factory_daily_flow_count_
-                    && reinterpret_cast<uintptr_t>(flow_it->address) == factory.address.address() ? &*flow_it : nullptr;
+                    && flow_it->address.address() == factory.address.address() ? &*flow_it : nullptr;
                 const SmedleyTelemetryFieldV1 summary_entities[] = {
                     StringField("country_tag", country_tag), IntField("state_id", factory.state_id),
                     StringField("factory_type", factory.factory_type),
@@ -709,10 +729,18 @@ namespace telemetry_plugin
                 || std::find(rule.country_tags.begin(), rule.country_tags.end(), tag) != rule.country_tags.end();
         }
 
-        static std::optional<std::string_view> NormalizedCountryTag(const smedley::v2::CCountry *country)
+        static std::optional<std::string_view> NormalizedCountryTag(
+            const smedley::game_state::TelemetryCountrySnapshot *country)
         {
             if (country == nullptr || !country->tag().normalized_candidate()) return std::nullopt;
             return std::string_view(country->tag().str(), 3);
+        }
+
+        static bool ReadDailyCountry(smedley::events::DailyUpdateEvent &event,
+                                     smedley::game_state::TelemetryCountrySnapshot *snapshot)
+        {
+            return smedley::game_state::ReadTelemetryCountry(
+                smedley::game_state::DailyUpdateCountry(event), snapshot);
         }
 
         static bool HasProvinceId(const smedley::telemetry::CaptureRule &rule, int id)
@@ -749,8 +777,9 @@ namespace telemetry_plugin
             const bool lifecycle_enabled = smedley::telemetry::HasCategory(config_, "lifecycle");
             const bool state_enabled = smedley::telemetry::HasCategory(config_, "state")
                 && !config_.capture_rules.empty();
-            const auto *game_state = smedley::v2::CCurrentGameState::instance();
-            const std::optional<int> raw_date = game_state ? std::optional<int>(game_state->current_date_raw()) : std::nullopt;
+            smedley::game_state::TelemetryCurrentState game_state{};
+            const std::optional<int> raw_date = smedley::game_state::ReadTelemetryCurrentState(&game_state)
+                ? std::optional<int>(game_state.date_raw) : std::nullopt;
             if (!raw_date) { if (state_enabled) skipped_unsampleable_.fetch_add(1, std::memory_order_relaxed); finish(); return; }
             if (factory_consumption_hook_installed_ && factory_hook_date_ != raw_date) {
                 factory_hook_record_count_ = 0;
@@ -761,8 +790,8 @@ namespace telemetry_plugin
                 }
                 std::sort(factory_hook_records_->begin(), factory_hook_records_->begin() + factory_hook_record_count_,
                     [](const FactorySettlementHookRecord &left, const FactorySettlementHookRecord &right) {
-                        const auto left_address = reinterpret_cast<uintptr_t>(left.factory);
-                        const auto right_address = reinterpret_cast<uintptr_t>(right.factory);
+                        const auto left_address = left.factory.address();
+                        const auto right_address = right.factory.address();
                         return left_address != right_address ? left_address < right_address : left.pool < right.pool;
                     });
                 factory_hook_date_ = raw_date;
@@ -790,7 +819,7 @@ namespace telemetry_plugin
                 std::sort(factory_sales_hook_records_->begin(),
                     factory_sales_hook_records_->begin() + factory_sales_hook_record_count_,
                     [](const FactorySalesHookRecord &left, const FactorySalesHookRecord &right) {
-                        return reinterpret_cast<uintptr_t>(left.factory) < reinterpret_cast<uintptr_t>(right.factory);
+                        return left.factory.address() < right.factory.address();
                     });
                 factory_sales_hook_date_ = raw_date;
                 if (factory_sales_hook_dropped_ != 0) {
@@ -810,8 +839,8 @@ namespace telemetry_plugin
                 std::sort(artisan_hook_records_->begin(),
                     artisan_hook_records_->begin() + artisan_hook_record_count_,
                     [](const ArtisanSettlementHookRecord &left, const ArtisanSettlementHookRecord &right) {
-                        const auto left_address = reinterpret_cast<uintptr_t>(left.pop);
-                        const auto right_address = reinterpret_cast<uintptr_t>(right.pop);
+                        const auto left_address = left.pop.address();
+                        const auto right_address = right.pop.address();
                         return left_address != right_address ? left_address < right_address : left.pool < right.pool;
                     });
                 artisan_hook_date_ = raw_date;
@@ -832,7 +861,7 @@ namespace telemetry_plugin
                 std::sort(pop_cash_flow_records_->begin(),
                     pop_cash_flow_records_->begin() + pop_cash_flow_record_count_,
                     [](const PopCashFlowHookRecord &left, const PopCashFlowHookRecord &right) {
-                        return reinterpret_cast<uintptr_t>(left.pop) < reinterpret_cast<uintptr_t>(right.pop);
+                        return left.pop.address() < right.pop.address();
                     });
                 pop_cash_flow_hook_date_ = raw_date;
             }
@@ -860,20 +889,24 @@ namespace telemetry_plugin
                     rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
                     ++family_stats_[rule_index].polls_due;
                     ++family_stats_[rule_index].collection_attempts;
-                    std::array<SmedleyTelemetryFieldV1, 3> payload;
-                    uint32_t count = 0;
-                    if (HasField(*rule, "country_slot_count")) payload[count++] = IntField("country_slot_count", static_cast<int64_t>(game_state->country_count()));
-                    if (HasField(*rule, "ai_scheduler_entry_count")) payload[count++] = IntField("ai_scheduler_entry_count", static_cast<int64_t>(game_state->country_ai_count()));
-                    if (HasField(*rule, "human_control_present")) payload[count++] = BoolField("human_control_present", game_state->has_human_controlled_country());
-                    AccountResult(rule_index,
-                        EmitTyped("world.daily", "state", raw_date, nullptr, 0, payload.data(), count, false, true));
+                    if (!game_state.world_daily_available()) {
+                        ++family_stats_[rule_index].invalid;
+                    } else {
+                        std::array<SmedleyTelemetryFieldV1, 3> payload;
+                        uint32_t count = 0;
+                        if (HasField(*rule, "country_slot_count")) payload[count++] = IntField("country_slot_count", static_cast<int64_t>(game_state.country_count()));
+                        if (HasField(*rule, "ai_scheduler_entry_count")) payload[count++] = IntField("ai_scheduler_entry_count", static_cast<int64_t>(game_state.country_ai_count()));
+                        if (HasField(*rule, "human_control_present")) payload[count++] = BoolField("human_control_present", game_state.has_human_controlled_country());
+                        AccountResult(rule_index,
+                            EmitTyped("world.daily", "state", raw_date, nullptr, 0, payload.data(), count, false, true));
+                    }
                 }
                 if (const auto *rule = FindRule("world.economy", &rule_index);
                     rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
                     ++family_stats_[rule_index].polls_due;
                     ++family_stats_[rule_index].collection_attempts;
                     try {
-                        const EconomicSnapshot snapshot = economic_capture_->Collect(game_state, *raw_date);
+                        const EconomicSnapshot snapshot = economic_capture_->Collect(game_state.game_state, *raw_date);
                         collection_us += snapshot.collection_us;
                         family_stats_[rule_index].collection_us += snapshot.collection_us;
                         EmitEconomicSnapshot(snapshot, *rule, rule_index);
@@ -888,7 +921,7 @@ namespace telemetry_plugin
                     ++family_stats_[rule_index].polls_due;
                     ++family_stats_[rule_index].collection_attempts;
                     int count = 0;
-                    if (!game_state->ongoing_war_count_candidate(&count)) ++family_stats_[rule_index].invalid;
+                    if (!game_state.ongoing_war_count_candidate(&count)) ++family_stats_[rule_index].invalid;
                     else {
                         const auto field = IntField("ongoing_war_count_candidate", count);
                         AccountResult(rule_index, EmitTyped("world.military", "state", raw_date,
@@ -899,7 +932,7 @@ namespace telemetry_plugin
                     rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
                     ++family_stats_[rule_index].polls_due;
                     uint32_t market_count = 0;
-                    if (!smedley::game_state::CollectWorldMarket(smedley::game_state::GameStateRef{game_state}, world_market_snapshots_.data(),
+                    if (!smedley::game_state::CollectWorldMarket(game_state.game_state, world_market_snapshots_.data(),
                             world_market_snapshots_.size(), &market_count)) {
                         ++family_stats_[rule_index].invalid;
                     } else {
@@ -949,10 +982,18 @@ namespace telemetry_plugin
                 if (const auto *rule = FindRule("province.daily", &rule_index);
                     rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
                     ++family_stats_[rule_index].polls_due;
-                    for (size_t id = 0; id < game_state->province_count(); ++id) {
+                    size_t province_count = 0;
+                    if (!game_state.province_count_candidate(&province_count)) {
+                        ++family_stats_[rule_index].invalid;
+                    }
+                    for (size_t id = 0; id < province_count; ++id) {
                         if (!HasProvinceId(*rule, static_cast<int>(id))) continue;
-                        const auto *province = game_state->province(static_cast<int>(id));
-                        if (province == nullptr || province->id_candidate() != static_cast<int>(id)) {
+                        smedley::game_state::TelemetryProvinceSnapshot province_snapshot{};
+                        const auto *province = smedley::game_state::ReadTelemetryProvince(
+                            smedley::game_state::ResolveProvince(game_state.game_state, static_cast<int>(id)), &province_snapshot)
+                            ? &province_snapshot : nullptr;
+                        if (province == nullptr || !province->daily_available()
+                            || province->id_candidate() != static_cast<int>(id)) {
                             ++family_stats_[rule_index].invalid;
                             continue;
                         }
@@ -989,9 +1030,16 @@ namespace telemetry_plugin
                 if (const auto *rule = FindRule("province.production", &rule_index);
                     rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
                     ++family_stats_[rule_index].polls_due;
-                    for (size_t id = 0; id < game_state->province_count(); ++id) {
+                    size_t province_count = 0;
+                    if (!game_state.province_count_candidate(&province_count)) {
+                        ++family_stats_[rule_index].invalid;
+                    }
+                    for (size_t id = 0; id < province_count; ++id) {
                         if (!HasProvinceId(*rule, static_cast<int>(id))) continue;
-                        const auto *province = game_state->province(static_cast<int>(id));
+                        smedley::game_state::TelemetryProvinceSnapshot province_snapshot{};
+                        const auto *province = smedley::game_state::ReadTelemetryProvince(
+                            smedley::game_state::ResolveProvince(game_state.game_state, static_cast<int>(id)), &province_snapshot)
+                            ? &province_snapshot : nullptr;
                         if (province == nullptr || province->id_candidate() != static_cast<int>(id)) {
                             ++family_stats_[rule_index].invalid;
                             continue;
@@ -1024,7 +1072,7 @@ namespace telemetry_plugin
                     rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
                     ++family_stats_[rule_index].polls_due;
                     size_t province_count = 0;
-                    const bool province_vector_valid = game_state->province_count_candidate(&province_count);
+                    const bool province_vector_valid = game_state.province_count_candidate(&province_count);
                     if (!province_vector_valid) ++family_stats_[rule_index].invalid;
                     const smedley::game_state::EmploymentRegistryRef registry = province_vector_valid
                         ? smedley::game_state::ResolveStateEmploymentRegistry() : smedley::game_state::EmploymentRegistryRef{};
@@ -1040,7 +1088,10 @@ namespace telemetry_plugin
                     }
                     for (size_t id = 0; id < province_count; ++id) {
                         if (!HasProvinceId(*rule, static_cast<int>(id))) continue;
-                        const auto *province = game_state->province(static_cast<int>(id));
+                        smedley::game_state::TelemetryProvinceSnapshot province_snapshot{};
+                        const auto *province = smedley::game_state::ReadTelemetryProvince(
+                            smedley::game_state::ResolveProvince(game_state.game_state, static_cast<int>(id)), &province_snapshot)
+                            ? &province_snapshot : nullptr;
                         if (province == nullptr) {
                             ++family_stats_[rule_index].invalid;
                             continue;
@@ -1053,7 +1104,7 @@ namespace telemetry_plugin
                         if (!HasCountryTag(*rule, country_tag)) continue;
                         ++family_stats_[rule_index].collection_attempts;
                         smedley::game_state::RgoSnapshot snapshot{};
-                        if (!smedley::game_state::ReadProvinceRgo(registry, smedley::game_state::ProvinceRef{province},
+                        if (!smedley::game_state::ReadProvinceRgo(registry, province->province,
                                 static_cast<int32_t>(id), province_count, groups, &snapshot)) {
                             if (!rule->country_tags.empty() || !rule->province_ids.empty()) {
                                 ++family_stats_[rule_index].invalid;
@@ -1177,26 +1228,32 @@ namespace telemetry_plugin
             if (const auto *rule = FindRule("country.daily", &country_rule_index);
                 rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[country_rule_index])) {
                 AccountPoll(country_rule_index, *raw_date);
-                const auto *country = event.GetCountry();
+                smedley::game_state::TelemetryCountrySnapshot country_snapshot{};
+                const auto *country = ReadDailyCountry(event, &country_snapshot) ? &country_snapshot : nullptr;
                 const auto country_tag_value = NormalizedCountryTag(country);
                 if (country != nullptr && !country_tag_value) ++family_stats_[country_rule_index].invalid;
                 else if (country_tag_value && HasCountryTag(*rule, *country_tag_value)) {
                     ++family_stats_[country_rule_index].collection_attempts;
-                    const auto country_tag = StringField("country_tag", *country_tag_value);
-                    const int64_t treasury_raw = country->treasury_raw();
-                    std::array<SmedleyTelemetryFieldV1, 2> payload;
-                    uint32_t count = 0;
-                    if (HasField(*rule, "treasury_raw")) payload[count++] = IntField("treasury_raw", treasury_raw);
-                    if (HasField(*rule, "treasury")) payload[count++] = DoubleField("treasury", static_cast<double>(treasury_raw) / 32768.0);
-                    const bool reliable = !rule->country_tags.empty() && rule->country_tags.size() <= 16;
-                    AccountResult(country_rule_index,
-                        EmitTyped("country.daily", "state", raw_date, &country_tag, 1, payload.data(), count, false, reliable));
+                    if (!country->daily_available()) {
+                        ++family_stats_[country_rule_index].invalid;
+                    } else {
+                        const auto country_tag = StringField("country_tag", *country_tag_value);
+                        const int64_t treasury_raw = country->treasury_raw();
+                        std::array<SmedleyTelemetryFieldV1, 2> payload;
+                        uint32_t count = 0;
+                        if (HasField(*rule, "treasury_raw")) payload[count++] = IntField("treasury_raw", treasury_raw);
+                        if (HasField(*rule, "treasury")) payload[count++] = DoubleField("treasury", static_cast<double>(treasury_raw) / 32768.0);
+                        const bool reliable = !rule->country_tags.empty() && rule->country_tags.size() <= 16;
+                        AccountResult(country_rule_index,
+                            EmitTyped("country.daily", "state", raw_date, &country_tag, 1, payload.data(), count, false, reliable));
+                    }
                 }
             }
             if (const auto *rule = FindRule("state.factory", &country_rule_index);
                 rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[country_rule_index])) {
                 AccountPoll(country_rule_index, *raw_date);
-                const auto *country = event.GetCountry();
+                smedley::game_state::TelemetryCountrySnapshot country_snapshot{};
+                const auto *country = ReadDailyCountry(event, &country_snapshot) ? &country_snapshot : nullptr;
                 const auto country_tag_value = NormalizedCountryTag(country);
                 if (country != nullptr && !country_tag_value) ++family_stats_[country_rule_index].invalid;
                 else if (country_tag_value && HasCountryTag(*rule, *country_tag_value)) {
@@ -1213,7 +1270,7 @@ namespace telemetry_plugin
                         groups |= smedley::game_state::FACTORY_IDENTITY | smedley::game_state::FACTORY_PRODUCTION
                             | smedley::game_state::FACTORY_FINANCE;
                     }
-                    if (!smedley::game_state::CollectCountryFactories(smedley::game_state::CountryRef{country}, factory_snapshots_.data(),
+                    if (!smedley::game_state::CollectCountryFactories(country->country, factory_snapshots_.data(),
                             factory_snapshots_.size(), &factory_count, factory_input_snapshots_.data(),
                             factory_input_snapshots_.size(), &input_count, groups, &flags)) {
                         ++family_stats_[country_rule_index].invalid;
@@ -1225,7 +1282,7 @@ namespace telemetry_plugin
                                 const auto &record = (*factory_hook_records_)[record_index];
                                 for (uint32_t factory_index = 0; factory_index < factory_count; ++factory_index) {
                                     if (factory_snapshots_[factory_index].address.address()
-                                        != reinterpret_cast<uintptr_t>(record.factory)) continue;
+                                        != record.factory.address()) continue;
                                     auto &aggregate = (*factory_hook_aggregates_)[factory_index];
                                     if (record.pool > 3) {
                                         ++family_stats_[country_rule_index].invalid;
@@ -1324,13 +1381,11 @@ namespace telemetry_plugin
                                 const auto end = begin + factory_sales_hook_record_count_;
                                 const auto match = std::lower_bound(begin, end, snapshot.address.address(),
                                     [](const FactorySalesHookRecord &candidate, uintptr_t address) {
-                                        return reinterpret_cast<uintptr_t>(candidate.factory)
-                                            < address;
+                                        return candidate.factory.address() < address;
                                     });
                                 const auto match_end = std::upper_bound(match, end, snapshot.address.address(),
                                     [](uintptr_t address, const FactorySalesHookRecord &candidate) {
-                                        return address
-                                            < reinterpret_cast<uintptr_t>(candidate.factory);
+                                        return address < candidate.factory.address();
                                     });
                                 const auto settlement_count = static_cast<int64_t>(match_end - match);
                                 ProducerSale sale{};
@@ -1437,7 +1492,8 @@ namespace telemetry_plugin
             if (const auto *rule = FindRule("country.metrics", &country_rule_index);
                 rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[country_rule_index])) {
                 AccountPoll(country_rule_index, *raw_date);
-                const auto *country = event.GetCountry();
+                smedley::game_state::TelemetryCountrySnapshot country_snapshot{};
+                const auto *country = ReadDailyCountry(event, &country_snapshot) ? &country_snapshot : nullptr;
                 const auto country_tag_value = NormalizedCountryTag(country);
                 if (country != nullptr && !country_tag_value) ++family_stats_[country_rule_index].invalid;
                 else if (country_tag_value && HasCountryTag(*rule, *country_tag_value)) {
@@ -1445,42 +1501,50 @@ namespace telemetry_plugin
                     const bool reliable = !rule->country_tags.empty() && rule->country_tags.size() <= 16;
                     if (HasField(*rule, "power")) {
                         ++family_stats_[country_rule_index].collection_attempts;
-                        const SmedleyTelemetryFieldV1 payload[] = {
-                            IntField("prestige_candidate_raw", country->prestige_candidate_raw()),
-                            IntField("infamy_candidate_raw", country->infamy_candidate_raw()),
-                            IntField("ranking_candidate", country->ranking_candidate()),
-                            IntField("military_ranking_candidate", country->military_ranking_candidate()),
-                            IntField("industrial_ranking_candidate", country->industrial_ranking_candidate()),
-                            IntField("prestige_ranking_candidate", country->prestige_ranking_candidate()),
-                        };
-                        AccountResult(country_rule_index, EmitTyped("country.metrics.power", "state", raw_date,
-                            &country_tag, 1, payload, 6, false, reliable));
+                        if (!country->power_available()) ++family_stats_[country_rule_index].invalid;
+                        else {
+                            const SmedleyTelemetryFieldV1 payload[] = {
+                                IntField("prestige_candidate_raw", country->prestige_candidate_raw()),
+                                IntField("infamy_candidate_raw", country->infamy_candidate_raw()),
+                                IntField("ranking_candidate", country->ranking_candidate()),
+                                IntField("military_ranking_candidate", country->military_ranking_candidate()),
+                                IntField("industrial_ranking_candidate", country->industrial_ranking_candidate()),
+                                IntField("prestige_ranking_candidate", country->prestige_ranking_candidate()),
+                            };
+                            AccountResult(country_rule_index, EmitTyped("country.metrics.power", "state", raw_date,
+                                &country_tag, 1, payload, 6, false, reliable));
+                        }
                     }
                     if (HasField(*rule, "politics")) {
                         ++family_stats_[country_rule_index].collection_attempts;
-                        const SmedleyTelemetryFieldV1 payload[] = {
-                            IntField("plurality_candidate_raw", country->plurality_candidate_raw()),
-                            IntField("war_exhaustion_candidate_raw", country->war_exhaustion_candidate_raw()),
-                            IntField("diplomatic_points_candidate_raw", country->diplomatic_points_candidate_raw()),
-                            IntField("research_points_candidate_raw", country->research_points_candidate_raw()),
-                            IntField("leadership_candidate_raw", country->leadership_candidate_raw()),
-                        };
-                        AccountResult(country_rule_index, EmitTyped("country.metrics.politics", "state", raw_date,
-                            &country_tag, 1, payload, 5, false, reliable));
+                        if (!country->politics_available()) ++family_stats_[country_rule_index].invalid;
+                        else {
+                            const SmedleyTelemetryFieldV1 payload[] = {
+                                IntField("plurality_candidate_raw", country->plurality_candidate_raw()),
+                                IntField("war_exhaustion_candidate_raw", country->war_exhaustion_candidate_raw()),
+                                IntField("diplomatic_points_candidate_raw", country->diplomatic_points_candidate_raw()),
+                                IntField("research_points_candidate_raw", country->research_points_candidate_raw()),
+                                IntField("leadership_candidate_raw", country->leadership_candidate_raw()),
+                            };
+                            AccountResult(country_rule_index, EmitTyped("country.metrics.politics", "state", raw_date,
+                                &country_tag, 1, payload, 5, false, reliable));
+                        }
                     }
                 }
             }
             if (const auto *rule = FindRule("country.military", &country_rule_index);
                 rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[country_rule_index])) {
                 AccountPoll(country_rule_index, *raw_date);
-                const auto *country = event.GetCountry();
+                smedley::game_state::TelemetryCountrySnapshot country_snapshot{};
+                const auto *country = ReadDailyCountry(event, &country_snapshot) ? &country_snapshot : nullptr;
                 const auto country_tag_value = NormalizedCountryTag(country);
                 if (country != nullptr && !country_tag_value) ++family_stats_[country_rule_index].invalid;
                 else if (country_tag_value && HasCountryTag(*rule, *country_tag_value)) {
                     ++family_stats_[country_rule_index].collection_attempts;
                     int unit_count = 0;
                     size_t mobilization_count = 0;
-                    const bool valid = (!HasField(*rule, "unit_count_candidate")
+                    const bool valid = country->military_available()
+                        && (!HasField(*rule, "unit_count_candidate")
                             || country->unit_count_candidate(&unit_count))
                         && (!HasField(*rule, "scheduled_mobilization_count_candidate")
                             || country->scheduled_mobilization_count_candidate(&mobilization_count));
@@ -1506,7 +1570,8 @@ namespace telemetry_plugin
             if (const auto *rule = FindRule("country.diplomacy", &country_rule_index);
                 rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[country_rule_index])) {
                 AccountPoll(country_rule_index, *raw_date);
-                const auto *country = event.GetCountry();
+                smedley::game_state::TelemetryCountrySnapshot country_snapshot{};
+                const auto *country = ReadDailyCountry(event, &country_snapshot) ? &country_snapshot : nullptr;
                 const auto country_tag_value = NormalizedCountryTag(country);
                 if (country != nullptr && !country_tag_value) ++family_stats_[country_rule_index].invalid;
                 else if (country_tag_value && HasCountryTag(*rule, *country_tag_value)) {
@@ -1514,7 +1579,7 @@ namespace telemetry_plugin
                     const bool reliable = !rule->country_tags.empty() && rule->country_tags.size() <= 16;
                     if (HasField(*rule, "status")) {
                         ++family_stats_[country_rule_index].collection_attempts;
-                        if (!country->overlord_candidate().normalized_candidate()
+                        if (!country->diplomacy_status_available() || !country->overlord_candidate().normalized_candidate()
                             || !country->sphere_leader_candidate().normalized_candidate()) {
                             ++family_stats_[country_rule_index].invalid;
                         } else {
@@ -1531,7 +1596,7 @@ namespace telemetry_plugin
                     if (HasField(*rule, "relations")) {
                         ++family_stats_[country_rule_index].collection_attempts;
                         size_t spherelings = 0, vassals = 0, allies = 0, guaranteed = 0, neighbors = 0;
-                        if (!country->sphereling_count_candidate(&spherelings)
+                        if (!country->diplomacy_relations_available() || !country->sphereling_count_candidate(&spherelings)
                             || !country->vassal_count_candidate(&vassals)
                             || !country->ally_count_candidate(&allies)
                             || !country->guaranteed_count_candidate(&guaranteed)
@@ -1771,12 +1836,12 @@ namespace telemetry_plugin
             }
         }
 
-        bool CollectCountryEconomyDay(const smedley::v2::CCurrentGameState *game_state, int32_t date_raw,
+        bool CollectCountryEconomyDay(const smedley::game_state::TelemetryCurrentState &game_state, int32_t date_raw,
                                       const smedley::telemetry::CaptureRule &rule, size_t rule_index)
         {
             size_t day_count = 0;
             uint32_t market_count = 0;
-            if (!smedley::game_state::CollectWorldMarket(smedley::game_state::GameStateRef{game_state}, world_market_snapshots_.data(),
+            if (!smedley::game_state::CollectWorldMarket(game_state.game_state, world_market_snapshots_.data(),
                     world_market_snapshots_.size(), &market_count) || market_count == 0) return false;
             std::array<int64_t, 64> current_prices{};
             std::array<bool, 64> current_price_seen{};
@@ -1799,14 +1864,17 @@ namespace telemetry_plugin
             };
 
             for (uint32_t ordinal = 1; ordinal < max_world_countries; ++ordinal) {
-                const auto *country = game_state->country(ordinal);
+                const smedley::game_state::CountryRef country_ref = smedley::game_state::ResolveCountry(game_state.game_state, ordinal);
+                smedley::game_state::TelemetryCountrySnapshot country_snapshot{};
+                const auto *country = smedley::game_state::ReadTelemetryCountry(country_ref, &country_snapshot)
+                    ? &country_snapshot : nullptr;
                 const auto tag = NormalizedCountryTag(country);
                 if (!tag || !HasCountryTag(rule, *tag)) continue;
                 auto *day = CountryEconomyDayFor(*tag, &day_count);
                 if (day == nullptr) return false;
                 if (factory_hook_dropped_ != 0) day->complete = false;
                 uint32_t factory_count = 0, input_count = 0, flags = 0;
-                if (!smedley::game_state::CollectCountryFactories(smedley::game_state::CountryRef{country}, factory_snapshots_.data(), factory_snapshots_.size(),
+                if (!smedley::game_state::CollectCountryFactories(country_ref, factory_snapshots_.data(), factory_snapshots_.size(),
                         &factory_count, factory_input_snapshots_.data(), factory_input_snapshots_.size(), &input_count,
                         smedley::game_state::FACTORY_PRODUCTION, &flags) || flags != 0) {
                     day->complete = false;
@@ -1818,10 +1886,10 @@ namespace telemetry_plugin
                     const auto flow_it = std::lower_bound(factory_daily_flows_->begin(),
                         factory_daily_flows_->begin() + factory_daily_flow_count_, factory.address.address(),
                         [](const DailyFactoryFlow &candidate, uintptr_t address) {
-                            return reinterpret_cast<uintptr_t>(candidate.address) < address;
+                            return candidate.address.address() < address;
                         });
                     DailyFactoryFlow *flow = flow_it != factory_daily_flows_->begin() + factory_daily_flow_count_
-                        && reinterpret_cast<uintptr_t>(flow_it->address) == factory.address.address() ? &*flow_it : nullptr;
+                        && flow_it->address.address() == factory.address.address() ? &*flow_it : nullptr;
                     if (flow != nullptr) {
                         const bool identity_mismatch = flow->identity_seen
                             && (flow->state_id != factory.state_id
@@ -1834,10 +1902,10 @@ namespace telemetry_plugin
                         const auto retained_it = std::lower_bound(factory_previous_flows_->begin(),
                             factory_previous_flows_->begin() + factory_previous_flow_count_, factory.address.address(),
                             [](const DailyFactoryFlow &candidate, uintptr_t address) {
-                                return reinterpret_cast<uintptr_t>(candidate.address) < address;
+                                return candidate.address.address() < address;
                             });
                     if (retained_it != factory_previous_flows_->begin() + factory_previous_flow_count_
-                            && reinterpret_cast<uintptr_t>(retained_it->address) == factory.address.address()) {
+                            && retained_it->address.address() == factory.address.address()) {
                             retained_it->identity_seen = true;
                             retained_it->state_id = factory.state_id;
                             retained_it->factory_type = flow->factory_type;
@@ -1874,17 +1942,20 @@ namespace telemetry_plugin
 
             size_t province_count = 0;
             smedley::game_state::EmploymentRegistryRef registry{};
-            if (!game_state->province_count_candidate(&province_count)
+            if (!game_state.province_count_candidate(&province_count)
                 || !(registry = smedley::game_state::ResolveStateEmploymentRegistry())) return false;
             for (size_t province_id = 0; province_id < province_count; ++province_id) {
-                const auto *province = game_state->province(static_cast<int>(province_id));
+                smedley::game_state::TelemetryProvinceSnapshot province_snapshot{};
+                const auto *province = smedley::game_state::ReadTelemetryProvince(
+                    smedley::game_state::ResolveProvince(game_state.game_state, static_cast<int>(province_id)), &province_snapshot)
+                    ? &province_snapshot : nullptr;
                 if (province == nullptr || !province->owner_candidate().normalized_candidate()) continue;
                 const std::string_view tag(province->owner_candidate().str(), 3);
                 if (!HasCountryTag(rule, tag)) continue;
                 auto *day = CountryEconomyDayFor(tag, &day_count);
                 if (day == nullptr) return false;
                 smedley::game_state::RgoSnapshot rgo{};
-                if (!smedley::game_state::ReadProvinceRgo(registry, smedley::game_state::ProvinceRef{province}, static_cast<int32_t>(province_id),
+                if (!smedley::game_state::ReadProvinceRgo(registry, province->province, static_cast<int32_t>(province_id),
                         province_count, smedley::game_state::RGO_IDENTITY | smedley::game_state::RGO_PRODUCTION, &rgo)) {
                     day->complete = false;
                     continue;
@@ -1907,12 +1978,15 @@ namespace telemetry_plugin
             }
 
             economic_capture_->InvalidatePopulationCache();
-            const PopulationCapture population = economic_capture_->CollectPopulation(game_state, date_raw);
+            const PopulationCapture population = economic_capture_->CollectPopulation(game_state.game_state, date_raw);
             family_stats_[rule_index].collection_us += population.collection_us;
             if (!population.complete()) return false;
             for (uint32_t index = 0; index < population.pop_count; ++index) {
                 const auto &detail = economic_capture_->population_detail(index);
-                const auto *province = game_state->province(detail.province_id_candidate);
+                smedley::game_state::TelemetryProvinceSnapshot province_snapshot{};
+                const auto *province = smedley::game_state::ReadTelemetryProvince(
+                    smedley::game_state::ResolveProvince(game_state.game_state, detail.province_id_candidate), &province_snapshot)
+                    ? &province_snapshot : nullptr;
                 if (province == nullptr || !province->owner_candidate().normalized_candidate()) continue;
                 const std::string_view tag(province->owner_candidate().str(), 3);
                 if (!HasCountryTag(rule, tag)) continue;
@@ -1961,7 +2035,7 @@ namespace telemetry_plugin
             return true;
         }
 
-        void ProcessCountryEconomy(const smedley::v2::CCurrentGameState *game_state, int32_t date_raw)
+        void ProcessCountryEconomy(const smedley::game_state::TelemetryCurrentState &game_state, int32_t date_raw)
         {
             size_t rule_index = 0;
             const auto *rule = FindRule("country.economy", &rule_index);
@@ -2062,18 +2136,18 @@ namespace telemetry_plugin
             }
         }
 
-        void CollectArtisanFlowAggregate(const void *pop, size_t rule_index, GoodsFlowAggregate *aggregate)
+        void CollectArtisanFlowAggregate(smedley::game_state::PopRef pop, size_t rule_index, GoodsFlowAggregate *aggregate)
         {
             *aggregate = {};
             if (!artisan_consumption_hook_installed_) return;
             const auto first = artisan_hook_records_->begin();
             const auto end = first + artisan_hook_record_count_;
-            const uintptr_t address = reinterpret_cast<uintptr_t>(pop);
+            const uintptr_t address = pop.address();
             auto record = std::lower_bound(first, end, address,
                 [](const ArtisanSettlementHookRecord &candidate, uintptr_t target) {
-                    return reinterpret_cast<uintptr_t>(candidate.pop) < target;
+                    return candidate.pop.address() < target;
                 });
-            while (record != end && record->pop == pop) {
+            while (record != end && record->pop.address() == pop.address()) {
                 if (record->pool > 3) {
                     ++family_stats_[rule_index].invalid;
                     ++record;
@@ -2157,7 +2231,7 @@ namespace telemetry_plugin
 // MSVC's x86 optimizer exhausts its 32-bit heap on these field-heavy emitters.
 #pragma optimize("", off)
         __declspec(noinline) uint64_t EmitPopCashFlows(
-            const smedley::v2::CCurrentGameState *game_state, int32_t date_raw)
+            const smedley::game_state::TelemetryCurrentState &game_state, int32_t date_raw)
         {
             size_t detail_rule_index = 0, aggregate_rule_index = 0;
             const auto *detail_rule = FindRule("pop.cashflow", &detail_rule_index);
@@ -2169,7 +2243,7 @@ namespace telemetry_plugin
                 && smedley::telemetry::ShouldCaptureDate(
                     date_raw, *aggregate_rule, &schedule_states_[aggregate_rule_index]);
 
-            const PopulationCapture capture = economic_capture_->CollectPopulation(game_state, date_raw);
+            const PopulationCapture capture = economic_capture_->CollectPopulation(game_state.game_state, date_raw);
             if (detail_due) {
                 ++family_stats_[detail_rule_index].polls_due;
                 family_stats_[detail_rule_index].collection_us += capture.collection_us;
@@ -2193,7 +2267,10 @@ namespace telemetry_plugin
             for (uint32_t index = 0; index < capture.pop_count; ++index) {
                 const auto &candidate = economic_capture_->population_candidate(index);
                 const auto &detail = economic_capture_->population_detail(index);
-                const auto *province = game_state->province(detail.province_id_candidate);
+                smedley::game_state::TelemetryProvinceSnapshot province_snapshot{};
+                const auto *province = smedley::game_state::ReadTelemetryProvince(
+                    smedley::game_state::ResolveProvince(game_state.game_state, detail.province_id_candidate), &province_snapshot)
+                    ? &province_snapshot : nullptr;
                 if (province == nullptr || !province->owner_candidate().normalized_candidate()) {
                     if (detail_due && HasProvinceId(*detail_rule, detail.province_id_candidate)) {
                         ++family_stats_[detail_rule_index].invalid;
@@ -2217,10 +2294,10 @@ namespace telemetry_plugin
                 const auto record_it = std::lower_bound(pop_cash_flow_records_->begin(),
                     pop_cash_flow_records_->begin() + pop_cash_flow_record_count_, candidate.address.address(),
                     [](const PopCashFlowHookRecord &record, uintptr_t address) {
-                        return reinterpret_cast<uintptr_t>(record.pop) < address;
+                        return record.pop.address() < address;
                     });
                 const PopCashFlowHookRecord *record = record_it != pop_cash_flow_records_->begin()
-                    + pop_cash_flow_record_count_ && reinterpret_cast<uintptr_t>(record_it->pop) == candidate.address.address() ? &*record_it : nullptr;
+                    + pop_cash_flow_record_count_ && record_it->pop.address() == candidate.address.address() ? &*record_it : nullptr;
                 std::array<int64_t, pop_cash_flow_component_count> posted{}, component_delta{};
                 uint32_t call_count = 0;
                 if (record != nullptr) {
@@ -2672,11 +2749,11 @@ namespace telemetry_plugin
             }
         }
 
-        uint64_t EmitPopLifecycle(const smedley::v2::CCurrentGameState *game_state, int32_t date_raw,
+        uint64_t EmitPopLifecycle(const smedley::game_state::TelemetryCurrentState &game_state, int32_t date_raw,
                                   const smedley::telemetry::CaptureRule &rule, size_t rule_index)
         {
             ++family_stats_[rule_index].polls_due;
-            const PopulationCapture capture = economic_capture_->CollectPopulation(game_state, date_raw);
+            const PopulationCapture capture = economic_capture_->CollectPopulation(game_state.game_state, date_raw);
             family_stats_[rule_index].collection_us += capture.collection_us;
             if (!capture.complete() || !pop_identity_current_ || !pop_identity_previous_ || !pop_identity_changes_) {
                 ++family_stats_[rule_index].invalid;
@@ -2688,7 +2765,10 @@ namespace telemetry_plugin
             bool identity_complete = true;
             for (size_t index = 0; index < current_count; ++index) {
                 const auto &detail = economic_capture_->population_detail(index);
-                const auto *province = game_state->province(detail.province_id_candidate);
+                smedley::game_state::TelemetryProvinceSnapshot province_snapshot{};
+                const auto *province = smedley::game_state::ReadTelemetryProvince(
+                    smedley::game_state::ResolveProvince(game_state.game_state, detail.province_id_candidate), &province_snapshot)
+                    ? &province_snapshot : nullptr;
                 if (province == nullptr || !province->owner_candidate().normalized_candidate()) {
                     identity_complete = false;
                     break;
@@ -2796,11 +2876,11 @@ namespace telemetry_plugin
             return capture.collection_us;
         }
 
-        uint64_t EmitPopulationSnapshot(const smedley::v2::CCurrentGameState *game_state, int32_t date_raw,
+        uint64_t EmitPopulationSnapshot(const smedley::game_state::TelemetryCurrentState &game_state, int32_t date_raw,
                                         const smedley::telemetry::CaptureRule &rule, size_t rule_index)
         {
             ++family_stats_[rule_index].polls_due;
-            const PopulationCapture capture = economic_capture_->CollectPopulation(game_state, date_raw);
+            const PopulationCapture capture = economic_capture_->CollectPopulation(game_state.game_state, date_raw);
             family_stats_[rule_index].collection_us += capture.collection_us;
             if (!capture.complete()) {
                 ++family_stats_[rule_index].invalid;
@@ -2809,7 +2889,10 @@ namespace telemetry_plugin
             for (uint32_t index = 0; index < capture.pop_count; ++index) {
                 const auto &detail = economic_capture_->population_detail(index);
                 if (!HasProvinceId(rule, detail.province_id_candidate)) continue;
-                const auto *province = game_state->province(detail.province_id_candidate);
+                smedley::game_state::TelemetryProvinceSnapshot province_snapshot{};
+                const auto *province = smedley::game_state::ReadTelemetryProvince(
+                    smedley::game_state::ResolveProvince(game_state.game_state, detail.province_id_candidate), &province_snapshot)
+                    ? &province_snapshot : nullptr;
                 const bool owner_required = smedley::telemetry::PopulationOwnerRequired(
                     rule.family, rule.country_tags.size());
                 if (owner_required) {
@@ -2873,7 +2956,7 @@ namespace telemetry_plugin
                         || (!rule.country_tags.empty() && rule.country_tags.size() <= 16)
                         || (!rule.province_ids.empty() && rule.province_ids.size() <= 16);
                     GoodsFlowAggregate flow;
-                    CollectArtisanFlowAggregate(reinterpret_cast<const void *>(economic_capture_->population_candidate(index).address.address()),
+                    CollectArtisanFlowAggregate(economic_capture_->population_candidate(index).address,
                         rule_index, &flow);
                     EmitArtisanGroups(date_raw, rule, rule_index, province->owner_candidate().str(),
                         detail.province_id_candidate, artisan, inputs.data(), input_count, flow, reliable);
@@ -2947,11 +3030,11 @@ namespace telemetry_plugin
         }
 #pragma optimize("", on)
 
-        uint64_t EmitPopulationAggregate(const smedley::v2::CCurrentGameState *game_state, int32_t date_raw,
+        uint64_t EmitPopulationAggregate(const smedley::game_state::TelemetryCurrentState &game_state, int32_t date_raw,
                                          const smedley::telemetry::CaptureRule &rule, size_t rule_index)
         {
             ++family_stats_[rule_index].polls_due;
-            const PopulationCapture capture = economic_capture_->CollectPopulation(game_state, date_raw);
+            const PopulationCapture capture = economic_capture_->CollectPopulation(game_state.game_state, date_raw);
             family_stats_[rule_index].collection_us += capture.collection_us;
             if (!capture.complete()) {
                 ++family_stats_[rule_index].invalid;
@@ -2961,7 +3044,10 @@ namespace telemetry_plugin
             for (uint32_t index = 0; index < capture.pop_count; ++index) {
                 const auto &detail = economic_capture_->population_detail(index);
                 if (!HasProvinceId(rule, detail.province_id_candidate)) continue;
-                const auto *province = game_state->province(detail.province_id_candidate);
+                smedley::game_state::TelemetryProvinceSnapshot province_snapshot{};
+                const auto *province = smedley::game_state::ReadTelemetryProvince(
+                    smedley::game_state::ResolveProvince(game_state.game_state, detail.province_id_candidate), &province_snapshot)
+                    ? &province_snapshot : nullptr;
                 if (province == nullptr || !province->owner_candidate().normalized_candidate()) {
                     ++family_stats_[rule_index].invalid;
                     continue;
@@ -3001,7 +3087,10 @@ namespace telemetry_plugin
             }
             for (size_t index = 0; index < merged_count; ++index) {
                 const auto &aggregate = pop_aggregates_[index];
-                const auto *province = game_state->province(aggregate.province_id);
+                smedley::game_state::TelemetryProvinceSnapshot province_snapshot{};
+                const auto *province = smedley::game_state::ReadTelemetryProvince(
+                    smedley::game_state::ResolveProvince(game_state.game_state, aggregate.province_id), &province_snapshot)
+                    ? &province_snapshot : nullptr;
                 if (province == nullptr || !province->owner_candidate().normalized_candidate()) {
                     ++family_stats_[rule_index].invalid;
                     continue;

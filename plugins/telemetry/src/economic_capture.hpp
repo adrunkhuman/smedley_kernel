@@ -3,7 +3,6 @@
 #include "economic_capture_core.hpp"
 #include <smedley/game_state/readers.hpp>
 
-#include <smedley/v2/gamestate.hpp>
 
 #include <array>
 #include <cstdint>
@@ -26,15 +25,14 @@ namespace telemetry_plugin
     {
     public:
         EconomicSnapshot Collect(
-            const smedley::v2::CCurrentGameState *game_state, int32_t date);
+            smedley::game_state::GameStateRef game_state, int32_t date);
         PopulationCapture CollectPopulation(
-            const smedley::v2::CCurrentGameState *game_state, int32_t date);
+            smedley::game_state::GameStateRef game_state, int32_t date);
         void InvalidatePopulationCache() { population_cached_ = false; }
         const smedley::game_state::PopCandidate &population_candidate(size_t index) const { return candidates_[index]; }
         const smedley::game_state::PopDetailSnapshot &population_detail(size_t index) const { return population_details_[index]; }
 
     private:
-        static smedley::game_state::ProvinceRef ResolveProvince(const void *context, int32_t id);
         std::array<smedley::game_state::PopCandidate, smedley::game_state::max_sample_pops> candidates_{};
         std::array<smedley::game_state::PopDetailSnapshot, smedley::game_state::max_sample_pops> population_details_{};
         std::array<int32_t, smedley::game_state::max_sample_pops> population_ids_{};

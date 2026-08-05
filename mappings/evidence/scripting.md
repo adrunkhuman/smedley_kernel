@@ -7,11 +7,14 @@ symbols. The final x86 Release DLL exports only `CreatePlugin`.
 
 ## Data path
 
-`DailyUpdateEvent` runs synchronously in the game update path. The scripting
-handler copies only fixed-size values and attempts a bounded queue lock without
-waiting. It performs no Lua execution, script parsing, garbage collection, user
-logging, result logging, or filesystem access. One worker owns every private `lua_State` and
-converts copied snapshots into Lua tables.
+The existing C++ daily event runs synchronously in the game update path and
+permits the checked pause transaction used by this first-party plugin. The
+runtime consumes its country pointer and returns a fixed-size
+`DailyUpdateSnapshot`; the plugin copies that snapshot and attempts a bounded
+queue lock without waiting. It performs no Lua
+execution, script parsing, garbage collection, user logging, result logging, or
+filesystem access. One worker owns every private `lua_State` and converts copied
+snapshots into Lua tables.
 
 | Script field | Native source | Evidence | Limit |
 | --- | --- | --- | --- |
@@ -31,12 +34,16 @@ Victoria II Lua value crosses to the worker.
 `smedley.request_pause()` sets a one-slot atomic request from the worker. A
 later daily callback on the game update path performs the transaction:
 
-1. Require RTTI `.?AVCInGameIdler@@` at `CGameState+0xb24`.
-2. Require the verified prologue at RVA `0x26a2c0`:
+1. The checked `smedley_game_runtime` adapter requires the kernel's supported
+   executable identity and reads the current game-state and idler pointers only
+   through readable spans.
+2. Require RTTI `.?AVCInGameIdler@@` at `CGameState+0xb24`.
+3. Require the verified prologue at RVA `0x26a2c0`:
    `55 8b ec 64 a1 00 00 00 00`.
-3. Read `CInGameIdler+0x1538` and accept only pause state `0` or `1`.
-4. Invoke `TogglePause` only from state `0`.
-5. Require state `1` on immediate readback.
+4. Read `CInGameIdler+0x1538` through a readable span and accept only pause
+   state `0` or `1`.
+5. Invoke `TogglePause` only from state `0`.
+6. Require state `1` on immediate readback through a readable span.
 
 The script's boolean result means that the atomic request was queued, not that
 the later transaction completed. Completion or explicit rejection is logged.
@@ -44,6 +51,13 @@ The slot is not reopened until the worker consumes that result, preventing a
 later request from overwriting an earlier transaction outcome.
 Only pause is exposed: a paused simulation supplies no next daily callback for
 a symmetric queued unpause.
+
+The scripting plugin owns neither these addresses nor a game pointer. It calls
+`PauseGame`, the compatibility pause entry point over generalized
+`SetCampaignPaused(true)`, and maps the shared completed, outside-campaign,
+invalid-state, signature-mismatch, and readback-failed statuses to the existing
+`PauseResult` values and worker log messages. The public copied C daily event ABI
+remains observation-only and is not used to perform this mutation.
 
 ## Runtime acceptance
 
@@ -65,3 +79,10 @@ in-memory day scheduling, and pause transaction completion on the supported
 runtime. It does not establish safe arbitrary mutation, save-persistent script
 state, crash-time teardown, deterministic multiplayer behavior, or support for
 another executable or mod.
+
+Post-migration run `d0cfef6e-ae3c-42ab-ada2-c3db7601ca13` repeated the same
+save, plugins, script, and speed with the checked `DailyUpdateSnapshot` and
+`PauseGame` boundaries. At raw date `59884128` the worker logged the queued
+request, the next game-thread transaction logged paused readback, and the
+process remained responsive. Test cleanup then terminated the paused process;
+the source save retained the same SHA-256.

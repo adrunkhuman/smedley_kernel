@@ -491,7 +491,7 @@ namespace smedley::game_state
                         if (immediate_pop != nullptr && !*immediate_pop) {
                             PopMoneySnapshot snapshot{};
                             if (!ReadPopMoney(pop, &snapshot)) sample->flags |= SAMPLE_POP_UNREADABLE;
-                            else *immediate_pop = PopRef{pop};
+                            else *immediate_pop = PopRef{static_cast<const void *>(pop)};
                         }
                         ++sample->destination_pops;
                         ++walked;
@@ -541,7 +541,7 @@ namespace smedley::game_state
             || static_cast<uint32_t>(ordinal) >= count
             || !ReadAt(countries.begin, static_cast<size_t>(ordinal) * sizeof(country), &country)
             || country == nullptr) return {};
-        return CountryRef{country};
+        return CountryRef{static_cast<const void *>(country)};
     }
 
     ProvinceRef ResolveProvince(GameStateRef game_state, int32_t id)
@@ -555,7 +555,7 @@ namespace smedley::game_state
             || static_cast<uint32_t>(id) >= count
             || !ReadAt(provinces.begin, static_cast<size_t>(id) * sizeof(province), &province)
             || province == nullptr) return {};
-        return ProvinceRef{province};
+        return ProvinceRef{static_cast<const void *>(province)};
     }
 
     CountryEconomySnapshot ReadCountryEconomyImpl(CountryRef country_ref, int32_t date_raw,
@@ -741,7 +741,7 @@ namespace smedley::game_state
                 continue;
             }
             const CountryEconomySnapshot destination_sample = ReadCountryEconomyImpl(
-                CountryRef{destination}, date_raw, nullptr, province_resolver, resolver_context, collect_states, collect_pops, scratch,
+                CountryRef{static_cast<const void *>(destination)}, date_raw, nullptr, province_resolver, resolver_context, collect_states, collect_pops, scratch,
                 immediate_pop, province_limit, pop_limit, false);
             sample.destination_provinces_resolved += destination_sample.destination_provinces_resolved;
             sample.destination_pop_lists += destination_sample.destination_pop_lists;
@@ -887,6 +887,23 @@ namespace smedley::game_state
         }
         *candidate_count = traversal_scratch.pop_pointer_count;
         return true;
+    }
+
+    namespace
+    {
+        ProvinceRef ResolveProvinceFromGameState(const void *context, int32_t id)
+        {
+            return ResolveProvince(*static_cast<const GameStateRef *>(context), id);
+        }
+    }
+
+    bool CollectCountryPops(CountryRef country, GameStateRef game_state, int32_t date_raw,
+                            PopCandidate *candidates, size_t candidate_capacity,
+                            uint32_t province_attempt_capacity, uint32_t *candidate_count,
+                            CountryEconomySnapshot *quality)
+    {
+        return CollectCountryPops(country, date_raw, ResolveProvinceFromGameState, &game_state,
+            candidates, candidate_capacity, province_attempt_capacity, candidate_count, quality);
     }
 
     bool ReadPopMoneySnapshot(PopRef pop, PopMoneySnapshot *snapshot)
@@ -1226,7 +1243,7 @@ namespace smedley::game_state
                             break;
                         }
                         FactorySnapshot snapshot{};
-                        snapshot.address = FactoryRef{factory_node};
+                        snapshot.address = FactoryRef{static_cast<const void *>(factory_node)};
                         snapshot.state_index = states_walked;
                         snapshot.factory_index = factories_walked;
                         snapshot.state_id = state_id;
@@ -1499,7 +1516,7 @@ namespace smedley::game_state
         }
         const void *registry = nullptr;
         return ReadAt(reinterpret_cast<const void *>(module + state_employment_registry_rva), 0, &registry)
-            ? EmploymentRegistryRef{registry} : EmploymentRegistryRef{};
+            ? EmploymentRegistryRef{static_cast<const void *>(registry)} : EmploymentRegistryRef{};
     }
 
     bool ReadProvinceRgo(EmploymentRegistryRef registry_ref, ProvinceRef province_ref, int32_t province_id,

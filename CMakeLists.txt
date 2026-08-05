@@ -18,27 +18,6 @@ if(BUILD_TESTING)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
 endif()
 
-function(smedley_allow_raw_plugin_sources target)
-  if(NOT TARGET ${target})
-    message(FATAL_ERROR "Unknown raw plugin adapter target: ${target}")
-  endif()
-  get_target_property(target_sources ${target} SOURCES)
-  set(absolute_target_sources)
-  foreach(source IN LISTS target_sources)
-    get_filename_component(absolute_source "${source}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-    list(APPEND absolute_target_sources "${absolute_source}")
-  endforeach()
-  foreach(source IN LISTS ARGN)
-    get_filename_component(absolute_source "${source}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
-    list(FIND absolute_target_sources "${absolute_source}" source_index)
-    if(source_index EQUAL -1)
-      message(FATAL_ERROR "Raw plugin adapter is not owned by ${target}: ${source}")
-    endif()
-    file(RELATIVE_PATH relative_source "${PROJECT_SOURCE_DIR}" "${absolute_source}")
-    set_property(GLOBAL APPEND PROPERTY SMEDLEY_RAW_PLUGIN_SOURCES "${relative_source}")
-  endforeach()
-endfunction()
-
 if(NOT MSVC)
     message(FATAL_ERROR "Smedley currently requires the MSVC x86 toolchain")
 endif()
@@ -70,15 +49,10 @@ add_subdirectory ("tools/launcher/gui")
 add_subdirectory ("tools/trace")
 
 if(BUILD_TESTING)
-  get_property(raw_plugin_sources GLOBAL PROPERTY SMEDLEY_RAW_PLUGIN_SOURCES)
-  set(raw_plugin_arguments)
-  foreach(source IN LISTS raw_plugin_sources)
-    list(APPEND raw_plugin_arguments --allow-raw "${source}")
-  endforeach()
   add_test(
     NAME smedley_game_layering_audit
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/check_game_layering.py
-      --root ${PROJECT_SOURCE_DIR} ${raw_plugin_arguments})
+      --root ${PROJECT_SOURCE_DIR})
   add_test(
     NAME smedley_game_layering_tool_tests
     COMMAND ${Python3_EXECUTABLE}

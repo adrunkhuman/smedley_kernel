@@ -1,11 +1,12 @@
 add_library(smedley_game_state STATIC src/readers.cpp)
 target_include_directories(smedley_game_state PUBLIC include)
 
-add_library(smedley_game_runtime STATIC src/runtime.cpp)
+add_library(smedley_game_runtime STATIC src/runtime.cpp src/artisan_consumption_hook.cpp
+  src/factory_consumption_hook.cpp src/factory_sales_hook.cpp src/pop_cash_flow_hook.cpp)
 target_include_directories(smedley_game_runtime PUBLIC include)
 target_link_libraries(smedley_game_runtime
   PUBLIC smedley_game_state
-  PRIVATE smedley_kernel)
+  PRIVATE smedley_kernel psapi)
 
 if(BUILD_TESTING)
   add_executable(smedley_game_state_tests tests/readers_test.cpp)

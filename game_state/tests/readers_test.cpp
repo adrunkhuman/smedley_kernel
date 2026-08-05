@@ -125,7 +125,7 @@ namespace smedley::game_state
             EXPECT_EQ(empty.address(), 0u);
 
             std::array<std::byte, 1> bytes{};
-            const PopRef pop{bytes.data()};
+            const PopRef pop{static_cast<const void *>(bytes.data())};
             EXPECT_TRUE(pop);
             EXPECT_EQ(pop.address(), reinterpret_cast<uintptr_t>(bytes.data()));
         }

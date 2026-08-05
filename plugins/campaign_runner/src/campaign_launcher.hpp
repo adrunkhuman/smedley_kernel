@@ -1,6 +1,6 @@
 #pragma once
 
-#include <smedley/v2/console.hpp>
+#include <smedley/game_state/runtime.hpp>
 #include "campaign_telemetry.hpp"
 #include "benchmark_controller.hpp"
 #include "campaign_launch_arguments.hpp"
@@ -15,12 +15,6 @@ namespace smedley
     class Logger;
 }
 
-namespace smedley::v2
-{
-    class CCurrentGameState;
-    class CInGameIdler;
-}
-
 namespace campaign_runner
 {
     class CampaignLauncher
@@ -31,40 +25,36 @@ namespace campaign_runner
         bool Start(std::wstring save_path, bool observe, std::wstring observer_view_tag, int speed, bool start_paused,
                    bool quit_after_run, CampaignRunCondition condition);
         void Stop();
-        void CaptureConsoleCommandManager(smedley::v2::CConsoleCmdManager *manager);
-        void CaptureFrontendController(void *controller);
-        void CaptureMainMenuController(void *controller);
-        void ReleaseFrontendController(void *controller);
-        void ReleaseMainMenuController(void *controller);
+        void OnConsoleCommandManagerCaptured(smedley::game_state::CampaignConsoleCaptureStatus status);
         // Called before native Annex captures the player tag. Observer mode
         // changes only the view and logs failure if no healthy AI target exists.
         void PrepareObserverForAnnexation(int annexed_ordinal);
 
-        static smedley::v2::CConsoleCmd::SResult HandleObserverSwitch(
-            const smedley::sstd::vector<smedley::sstd::string> &arguments);
-        static smedley::v2::CConsoleCmd::SResult RejectNativeTag(
-            const smedley::sstd::vector<smedley::sstd::string> &arguments);
+        static void __stdcall NotifyFrontendControllerCaptured(
+            smedley::game_state::FrontendControllerKind kind) noexcept;
+        static void __stdcall NotifyObserverAnnexation(int annexed_ordinal) noexcept;
+        static void __stdcall NotifyConsoleCommandManagerCaptured(
+            smedley::game_state::CampaignConsoleCaptureStatus status) noexcept;
+        static smedley::game_state::CampaignConsoleResponse __stdcall HandleCampaignConsoleCommand(
+            smedley::game_state::CampaignConsoleCommand command,
+            const smedley::game_state::CampaignConsoleArguments &arguments) noexcept;
 
     private:
         static void CALLBACK SaveTimerCallback(HWND, UINT, UINT_PTR timer, DWORD) noexcept;
 
         bool ScheduleTimer(UINT delay, const char *failure_message);
-        bool CheckSignatures() const;
-        bool SelectSpeed(smedley::v2::CCurrentGameState *game_state);
-        void StartBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler);
-        bool TickBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler);
+        bool SelectSpeed();
+        void StartBenchmark(const smedley::game_state::CampaignRuntimeSnapshot &runtime);
+        bool TickBenchmark(const smedley::game_state::CampaignRuntimeSnapshot &runtime, bool observer_valid);
         void FinishBenchmark(const char *reason, std::optional<int> actual_date_raw, std::optional<bool> paused);
-        void FinishInvalidBenchmark(smedley::v2::CCurrentGameState *game_state, smedley::v2::CInGameIdler *idler);
+        void FinishInvalidBenchmark(const smedley::game_state::CampaignRuntimeSnapshot &runtime);
         bool DrainTelemetryBeforeQuit();
         void QuitAfterRun();
         void ReportTelemetryResult(SmedleyTelemetryResult result);
-        bool ObserverInvariantsValid(smedley::v2::CCurrentGameState *game_state) const;
-        bool EmitObserverConfiguredIfReady(smedley::v2::CCurrentGameState *game_state);
-        bool InstallControllerHooks();
-        bool DispatchMainMenuSinglePlayer();
-        bool DispatchControlSignal(const char *name);
-        smedley::v2::CConsoleCmd::SResult RequestObserverSwitch(
-            const smedley::sstd::vector<smedley::sstd::string> &arguments);
+        bool ObserverInvariantsValid() const;
+        bool EmitObserverConfiguredIfReady();
+        void OnFrontendControllerCaptured(smedley::game_state::FrontendControllerKind kind);
+        smedley::game_state::CampaignConsoleResponse RequestObserverSwitch(std::string requested_tag);
 
         smedley::Logger &logger_;
         std::wstring save_path_;
@@ -103,14 +93,7 @@ namespace campaign_runner
         CampaignTelemetry telemetry_;
         bool telemetry_invalid_logged_ = false;
         bool telemetry_dropped_logged_ = false;
-        smedley::v2::CConsoleCmd::SCommandData *native_tag_command_ = nullptr;
-        smedley::v2::CConsoleCmd::SCommandData *observer_switch_command_ = nullptr;
-        smedley::v2::CConsoleCmdManager *observer_command_manager_ = nullptr;
-        smedley::v2::CConsoleCmd::SCommandData::Handler native_tag_handler_ = nullptr;
-        std::atomic<smedley::v2::CConsoleCmdManager *> console_manager_ = nullptr;
-        std::atomic<void *> frontend_controller_ = nullptr;
-        std::atomic<void *> main_menu_controller_ = nullptr;
-        std::atomic<DWORD> frontend_thread_id_ = 0;
-        std::atomic<DWORD> main_menu_thread_id_ = 0;
+        smedley::game_state::FrontendControllerToken frontend_controller_;
+        smedley::game_state::FrontendControllerToken main_menu_controller_;
     };
 }

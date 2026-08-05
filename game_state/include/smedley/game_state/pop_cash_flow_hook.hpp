@@ -5,14 +5,16 @@
 #include <cstdint>
 #include <string>
 
-namespace telemetry_plugin
+#include <smedley/game_state/references.hpp>
+
+namespace smedley::game_state
 {
     constexpr size_t pop_cash_flow_component_count = 8;
     constexpr size_t max_pop_cash_flow_records = 100000;
 
     struct PopCashFlowHookRecord
     {
-        const void *pop = nullptr;
+        PopRef pop{};
         std::array<int64_t, pop_cash_flow_component_count> posted_raw{};
         std::array<int64_t, pop_cash_flow_component_count> money_delta_raw{};
         uint32_t call_count = 0;

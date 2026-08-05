@@ -1,4 +1,4 @@
-#include "artisan_consumption_hook.hpp"
+#include <smedley/game_state/artisan_consumption_hook.hpp>
 #include "hook_patch.hpp"
 
 #include <smedley/memory.hpp>
@@ -11,7 +11,7 @@
 #include <cstring>
 #include <limits>
 
-namespace telemetry_plugin
+namespace smedley::game_state
 {
     namespace
     {
@@ -98,7 +98,7 @@ namespace telemetry_plugin
             if (InterlockedCompareExchange(&active, 0, 0) == 0) return;
             if (!MatchesSelectedCountry(pop)) return;
             ArtisanSettlementHookRecord record{};
-            record.pop = pop;
+            record.pop = PopRef{static_cast<const void *>(pop)};
             record.pool = pool;
             if (!DecodePool(source, &record)) {
                 queue_dropped.fetch_add(1, std::memory_order_relaxed);
@@ -189,7 +189,7 @@ namespace telemetry_plugin
         bool WriteBytes(uintptr_t address, const std::array<uint8_t, 5> &expected,
                         const std::array<uint8_t, 5> &replacement, std::string *error)
         {
-            if (std::memcmp(reinterpret_cast<const void *>(address), expected.data(), expected.size()) != 0) {
+            if (!MatchesReadableBytes(address, expected.data(), expected.size())) {
                 *error = "artisan consumption hook bytes do not match the supported executable";
                 return false;
             }
@@ -223,13 +223,14 @@ namespace telemetry_plugin
             *error = "artisan consumption hook is already installed or has an unrecoverable patch state";
             return false;
         }
-        const uintptr_t base = smedley::memory::Map::base_addr;
-        if (base == 0) { *error = "game module is unavailable"; return false; }
-        const uintptr_t first = base + first_pool_add_rva;
-        const uintptr_t second = base + second_pool_add_rva;
-        const uintptr_t settlement_call = base + settlement_call_rva;
-        goods_pool_add = base + goods_pool_add_rva;
-        settlement = base + settlement_rva;
+        uintptr_t first = 0;
+        uintptr_t second = 0;
+        uintptr_t settlement_call = 0;
+        if (!ResolveSupportedGameAddress(first_pool_add_rva, &first, error)
+            || !ResolveSupportedGameAddress(second_pool_add_rva, &second, error)
+            || !ResolveSupportedGameAddress(settlement_call_rva, &settlement_call, error)
+            || !ResolveSupportedGameAddress(goods_pool_add_rva, &goods_pool_add, error)
+            || !ResolveSupportedGameAddress(settlement_rva, &settlement, error)) return false;
         std::array<uint8_t, 5> settlement_hook{}, first_hook{}, second_hook{};
         if (!CallBytes(settlement_call, reinterpret_cast<const void *>(&SettlementHook), &settlement_hook)
             || !CallBytes(first, reinterpret_cast<const void *>(&FirstPoolAddHook), &first_hook)
@@ -289,10 +290,12 @@ namespace telemetry_plugin
         if (error == nullptr) return false;
         if (!installed) return true;
         InterlockedExchange(&active, 0);
-        const uintptr_t base = smedley::memory::Map::base_addr;
-        const uintptr_t first = base + first_pool_add_rva;
-        const uintptr_t second = base + second_pool_add_rva;
-        const uintptr_t settlement_call = base + settlement_call_rva;
+        uintptr_t first = 0;
+        uintptr_t second = 0;
+        uintptr_t settlement_call = 0;
+        if (!ResolveSupportedGameAddress(first_pool_add_rva, &first, error)
+            || !ResolveSupportedGameAddress(second_pool_add_rva, &second, error)
+            || !ResolveSupportedGameAddress(settlement_call_rva, &settlement_call, error)) return false;
         std::array<uint8_t, 5> settlement_hook{}, first_hook{}, second_hook{};
         if (!CallBytes(settlement_call, reinterpret_cast<const void *>(&SettlementHook), &settlement_hook)
             || !CallBytes(first, reinterpret_cast<const void *>(&FirstPoolAddHook), &first_hook)

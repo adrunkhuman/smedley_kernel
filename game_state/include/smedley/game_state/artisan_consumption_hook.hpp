@@ -5,13 +5,15 @@
 #include <cstdint>
 #include <string>
 
-namespace telemetry_plugin
+#include <smedley/game_state/references.hpp>
+
+namespace smedley::game_state
 {
     constexpr size_t max_artisan_flow_records = 8192;
 
     struct ArtisanSettlementHookRecord
     {
-        const void *pop = nullptr;
+        PopRef pop{};
         uint32_t pool = 0;
         std::array<int64_t, 64> quantity_raw{};
     };

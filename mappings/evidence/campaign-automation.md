@@ -12,13 +12,15 @@ handlers run; the harness dispatches native GUI signals rather than coordinates.
    Single Player controller (RVA `0x36a2f0`). Their primary vtables are
    `0xa13dbc` and `0xa14ed0`; scalar deleting destructors at `0x354df0` and
    `0x36b030` invalidate the captures before object storage is released.
-3. Ten seconds after the Single Player controller appears, the plugin resolves
+3. Ten seconds after the Single Player controller appears, the checked
+   `smedley_game_runtime` frontend capability resolves
    `mainmenu_panel/single_player_button` through the main controller's GUI
    registry at `+0x704`. Native main-menu update RVA `0x354f90` independently
    performs the same registry `+0x6c` and returned-panel `+0x34` lookups.
-4. Native press and release dispatchers at RVAs `0x5ee510` and `0x5ee550`
+4. The runtime dispatches native press and release at RVAs `0x5ee510` and `0x5ee550`
    enter the Single Player lobby.
-5. The plugin confirms the requested save filename is present at `+0x590`,
+5. The runner retains basename policy while the runtime confirms the requested
+   save filename at `+0x590`,
    constructing it only from the canonical empty inline-string state; it rejects
    malformed metadata or a different existing value. The controller's GUI
    registry and lookup target must also remain valid. It then sets `+0x5bc=1`
@@ -26,10 +28,10 @@ handlers run; the harness dispatches native GUI signals rather than coordinates.
 6. Victoria 2's normal lobby update calls `CCurrentGameState::LoadSave` from
    call RVA `0x36f8b3`, performs its complete post-load contract, clears
    `+0x5bc`, and sets `+0x5bd`.
-7. The plugin resolves `play_button` through the lobby GUI registry at `+0x278`
+7. The runtime resolves `play_button` through the lobby GUI registry at `+0x278`
    and emits the same native press/release sequence.
-8. `CGameState+0xb24` changes from RTTI `CFrontEnd` to `CInGameIdler`, proving
-   campaign entry.
+8. `smedley_game_runtime` copies and validates the current campaign idler,
+   proving `CGameState+0xb24` changed from RTTI `CFrontEnd` to `CInGameIdler`.
 9. When `--observe` is present, the runner invokes the native return-to-AI
    transition at RVA `0x287a70` for the current player country.
 10. The runner verifies that every `CGameState+0xaec` player-control entry is
@@ -38,12 +40,12 @@ handlers run; the harness dispatches native GUI signals rather than coordinates.
 11. The runner invokes the registered native `debug` command with argument
     `fow`, verifies the process-global byte at RVA `0xb092fb` is `0`, and leaves the map fully
     visible.
-12. The runner invokes the native speed-up or speed-down handler until
+12. `smedley_game_runtime` invokes the native speed-up or speed-down handler until
     `CGameState+0xb28` matches the selected speed minus one, reading the field
     after every call. Both paths are runtime-verified against the supported
     executable; the retained speed-down probe selected speed 2 from a higher
     initial speed and checked each decrement.
-13. The runner checks the pause state at `CInGameIdler+0x1538`, invokes
+13. `smedley_game_runtime` checks the pause state at `CInGameIdler+0x1538`, invokes
     `CInGameIdler::TogglePause` at RVA `0x26a2c0` when the value differs from the
     requested state, and verifies the result. Observer mode rejects
     `start_paused` because its watchdog requires simulation advancement.
@@ -85,13 +87,13 @@ simulation effect, log entry, map notice, or icon.
 `--run-days N` and `--run-until-date-raw N` are mutually exclusive bounded
 campaign targets. After the final requested speed and unpaused-state readback
 (and, for observer mode, full AI/FOW/valid-view postconditions), the runner
-reads `CCurrentGameState::current_date_raw()`. Relative targets add `N * 24`
+reads a copied raw date. Relative targets add `N * 24`
 in int64; absolute targets must advance and be aligned to the recorded
 verified-runtime 24 raw units per game day.
 
 A recurring Win32 `SetTimer` uses `USER_TIMER_MINIMUM` (effectively 10 ms).
 It does not poll a game hook or mutate from `DailyUpdateEvent`.
-Each tick checks `CInGameIdler`, readable date, pause state, and lightweight
+Each tick consumes a copied, checked `CInGameIdler` observation with date and pause state, plus lightweight
 observer invariants. At the exact target it invokes verified `TogglePause` and
 reads back the paused state. Overshoot, timeout, date regression, invalid
 idler/pause state, or observer invariant failure is a failed benchmark. Both
@@ -101,8 +103,8 @@ exact-target run may then request the verified native quit operation when
 `quit_after_run` is explicitly enabled. Failures never attempt an exit, and no
 terminal path writes a save.
 
-The benchmark is terminally paused before the exit request. The runner validates
-the idler RTTI, exact vtable target, and post-call request flag. A failed
+The benchmark is terminally paused before the exit request. `smedley_game_runtime`
+validates the idler RTTI, exact vtable target, and post-call request flag. A failed
 validation or readback logs a failure and leaves the campaign paused and open.
 Before dispatch, the runner waits up to five seconds for the optional sibling
 telemetry drain. Completed or unavailable telemetry permits exit. Busy, timeout,
@@ -230,6 +232,32 @@ restored ENG's AI and exact scheduler count one second later, and resumed the
 simulation. A subsequent native `tag FRA` command was rejected by the
 observer-only replacement handler.
 
+The checked observer runtime boundary now owns the retained mappings for console
+manager capture, native-tag replacement/restoration, `switch` registration/removal,
+checked copied command arguments/results, annex/message trampolines, popup counters,
+and country
+resolution/existence, player-control entries, scheduler membership/counts,
+camera tag handoff, `ReturnCountryToAI`, native asynchronous `tag`, and
+`debug fow`. It returns copied tags, counts, and flags to the runner and rejects
+unreadable or malformed state before a mutation. This refactoring adds
+fail-closed host tests and does not promote the existing supported-game evidence
+for those mappings: the runtime observations above remain the evidence for their
+semantics and thread assumptions.
+
+Post-migration run `01edd2fb-4c64-468b-8db9-efeefecc7b05` loaded the checked
+runtime-owned frontend, console, observer, annex/message, pause, speed, and quit
+boundaries with telemetry. It registered the observer-safe console command,
+restored JAN to AI, enabled full-map visibility, advanced exactly three days,
+paused at raw date `59883456`, drained telemetry, and exited through the native
+quit path with zero trace gaps, drops, or writer failure.
+
+Run `b14dc611-cfd0-4b15-ae47-bfd3473cbf5e` exercised the runtime-owned console
+event and copied command callback with `--view-tag ENG`. The asynchronous native
+switch completed, ENG returned to scheduled AI, the simulation resumed, and 15
+generic popup events were suppressed while the process remained responsive.
+The source save retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
 A subsequent observer test bypassed six generic message dispatches while the
 campaign advanced about 3,085 days without a watchdog-detected pause.
 After expanding coverage to all nine dispatchers, a smoke run suppressed six
@@ -252,6 +280,15 @@ destructor, annexation, and message hooks install transactionally and roll back
 in reverse order on startup failure. The legacy loader retains plugin modules
 and has no thread-quiescence protocol, so shutdown makes callbacks inert instead
 of racing other game threads to rewrite live executable memory.
+
+The checked frontend boundary owns constructor/destructor signatures and
+trampolines, controller addresses, generations, vtable checks, and captured
+thread IDs. The runner receives only an opaque generation-bound capability and
+copied save status/name. A stale, released, cross-thread, malformed, or
+unsupported capability fails closed before GUI lookup, string mutation, signal
+dispatch, or save-flag writes. This extraction preserves the prior
+`verified-runtime` mapping evidence above; its synthetic host tests establish
+only fail-closed API behavior and do not add live-game evidence.
 
 ## Lifecycle Telemetry
 
