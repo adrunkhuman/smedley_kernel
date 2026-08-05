@@ -1,6 +1,7 @@
 #include <smedley/game_state/runtime.hpp>
 
 #include <smedley/events/dailyinterest.hpp>
+#include <smedley/executable_identity.hpp>
 #include <smedley/memory.hpp>
 #include <smedley/v2/gamestate.hpp>
 
@@ -8,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <limits>
 
@@ -23,6 +25,14 @@ namespace smedley::game_state
         constexpr size_t pop_interest_cash_flow_offset = 0x210;
         constexpr size_t pop_total_cash_flow_offset = 0x218;
         constexpr size_t pop_money_span = pop_total_cash_flow_offset + sizeof(int64_t) - pop_money_offset;
+        std::atomic<uintptr_t> observed_game_state{};
+        std::atomic<uint64_t> game_session_epoch{};
+
+        GameStateRef ReadCurrentGameStateRef()
+        {
+            if (smedley::memory::Map::base_addr == 0) return {};
+            return GameStateRef{smedley::v2::CCurrentGameState::instance()};
+        }
 
         bool IsAccessible(const void *pointer, size_t size, bool writable)
         {
@@ -75,6 +85,9 @@ namespace smedley::game_state
 
         PopInterestMutationStatus VerifySignature(PopInterestMutationStatus *status)
         {
+            if (!smedley::IsCurrentExecutableSupported()) {
+                return *status = PopInterestMutationStatus::unavailable;
+            }
             const uintptr_t module = smedley::memory::Map::base_addr;
             if (module == 0 || module > (std::numeric_limits<uintptr_t>::max)() - give_money_rva) {
                 return *status = PopInterestMutationStatus::unavailable;
@@ -109,15 +122,25 @@ namespace smedley::game_state
         }
     }
 
-    GameStateRef CurrentGameStateRef()
+    GameSession CurrentGameSession()
     {
-        if (smedley::memory::Map::base_addr == 0) return {};
-        return GameStateRef{smedley::v2::CCurrentGameState::instance()};
+        const GameStateRef game_state = ReadCurrentGameStateRef();
+        const uintptr_t address = game_state.address();
+        uintptr_t observed = observed_game_state.load(std::memory_order_acquire);
+        while (observed != address) {
+            if (observed_game_state.compare_exchange_weak(
+                    observed, address, std::memory_order_acq_rel, std::memory_order_acquire)) {
+                game_session_epoch.fetch_add(1, std::memory_order_acq_rel);
+                break;
+            }
+        }
+        return {game_state, game_session_epoch.load(std::memory_order_acquire)};
     }
 
     DailyInterestAccess::DailyInterestAccess(
-        GameStateRef game_state, CountryRef country, bool after, uint64_t generation) noexcept
-        : game_state_(game_state), country_(country), thread_(std::this_thread::get_id()), generation_(generation), after_(after)
+        GameSession session, CountryRef country, bool after, uint64_t generation) noexcept
+        : game_state_(session.game_state), country_(country), thread_(std::this_thread::get_id()), generation_(generation),
+          session_epoch_(session.epoch), after_(after)
     {
     }
 
@@ -126,7 +149,7 @@ namespace smedley::game_state
         const uint64_t generation = events::DailyInterestEvent::ActiveDispatchGeneration();
         const uint64_t trusted_generation = events::DailyInterestEvent::IsCurrentDispatch(event, generation)
             ? generation : 0;
-        return DailyInterestAccess(CurrentGameStateRef(), CountryRef{event.GetCountry()},
+        return DailyInterestAccess(CurrentGameSession(), CountryRef{event.GetCountry()},
             event.GetPhase() == events::DailyInterestPhase::AFTER, trusted_generation);
     }
 
@@ -137,6 +160,9 @@ namespace smedley::game_state
         if (!after_) return PopInterestMutationStatus::invalid_phase;
         if (!game_state_) return PopInterestMutationStatus::invalid_context;
         if (!events::DailyInterestEvent::IsDispatchActive(generation_)) return PopInterestMutationStatus::invalid_context;
+        const GameSession current_session = CurrentGameSession();
+        if (current_session.epoch != session_epoch_
+            || current_session.game_state.address() != game_state_.address()) return PopInterestMutationStatus::state_changed;
         return PopInterestMutationStatus::success;
     }
 

@@ -228,7 +228,7 @@ namespace interest_bug_fix
                 return;
             }
             try {
-                const GameStateRef game_state_ref = CurrentGameStateRef();
+                const GameStateRef game_state_ref = CurrentGameSession().game_state;
                 if (!game_state_ref) return;
                 int32_t date_raw = 0;
                 if (!ReadCurrentDate(game_state_ref, &date_raw)) return;

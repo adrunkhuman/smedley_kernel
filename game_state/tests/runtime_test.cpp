@@ -107,6 +107,23 @@ namespace smedley::game_state
         EXPECT_EQ(status, PopInterestMutationStatus::invalid_thread);
     }
 
+    TEST_F(RuntimeFixture, AdvancesEpochAfterObservedGameSessionReplacement)
+    {
+        std::array<std::byte, 0x260> replacement_game_state{};
+        auto event = AfterEvent();
+        auto access = DailyInterestAccess::FromEvent(event);
+        const uint64_t original_epoch = access.session_epoch();
+        const void *replacement = &replacement_game_state;
+        std::memcpy(module_ + game_state_instance_rva, &replacement, sizeof(replacement));
+
+        const GameSession replacement_session = CurrentGameSession();
+        const GameSession repeated_session = CurrentGameSession();
+
+        EXPECT_EQ(replacement_session.game_state.address(), reinterpret_cast<uintptr_t>(&replacement_game_state));
+        EXPECT_GT(replacement_session.epoch, original_epoch);
+        EXPECT_EQ(repeated_session.epoch, replacement_session.epoch);
+    }
+
     TEST_F(RuntimeFixture, ValidatesWritableSpanAcrossPageBoundaries)
     {
         SYSTEM_INFO system_info{};

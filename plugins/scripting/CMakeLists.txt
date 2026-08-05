@@ -46,6 +46,7 @@ add_library(scripting MODULE src/plugin.cpp)
 set_target_properties(scripting PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 target_link_libraries(scripting PRIVATE smedley_kernel smedley_scripting_core shell32)
 target_include_directories(scripting PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+smedley_allow_raw_plugin_sources(scripting src/plugin.cpp)
 
 if(BUILD_TESTING)
   add_executable(smedley_scripting_tests tests/scripting_runtime_test.cpp)

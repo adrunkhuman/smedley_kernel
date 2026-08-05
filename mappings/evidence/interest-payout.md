@@ -594,6 +594,22 @@ inventing a recipient would violate the documented allocation model.
 The matched no-fix baseline and full performance/economic comparison are
 recorded in `telemetry.md`.
 
+## Checked boundary final smoke test
+
+Run `c94800f7-74a8-4013-bfcc-c12e96776d52` used the final Release artifacts with
+kernel-retained executable identity, `CurrentGameSession`, checked interest
+mutation, campaign runner, and the telemetry `CPop::GiveMoney` hook. All three
+plugins loaded after the in-process identity check. The benchmark advanced from
+raw date `59883384` to `59883552`, paused with zero overshoot, drained telemetry,
+and exited through the native bounded-run path.
+
+The trace contained 3,684 ordered records with zero gaps, drops, or writer
+failures. Its 24 paid recipient rows reconciled raw transfer `92,860` to exact
+POP payout `92,860,000`; all 4,911 paid POP postconditions passed and every
+allocation status and daily flag was successful. The source save retained
+SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
 ## Historical renamed-plugin smoke test
 
 This run predates removal of three unused hooks from the active mapping catalog.

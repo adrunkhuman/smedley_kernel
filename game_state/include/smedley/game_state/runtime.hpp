@@ -36,7 +36,13 @@ namespace smedley::game_state
         PopInterestMutationStatus status = PopInterestMutationStatus::invalid_context;
     };
 
-    GameStateRef CurrentGameStateRef();
+    struct GameSession
+    {
+        GameStateRef game_state{};
+        uint64_t epoch = 0;
+    };
+
+    GameSession CurrentGameSession();
 
     class DailyInterestAccess
     {
@@ -50,9 +56,10 @@ namespace smedley::game_state
 
         GameStateRef game_state() const noexcept { return game_state_; }
         CountryRef country() const noexcept { return country_; }
+        uint64_t session_epoch() const noexcept { return session_epoch_; }
 
     private:
-        DailyInterestAccess(GameStateRef game_state, CountryRef country, bool after, uint64_t generation) noexcept;
+        DailyInterestAccess(GameSession session, CountryRef country, bool after, uint64_t generation) noexcept;
         PopInterestMutationStatus CheckMutationAccess() const;
         PopInterestMutationStatus CheckSignature(bool recheck = false);
 
@@ -60,6 +67,7 @@ namespace smedley::game_state
         CountryRef country_{};
         std::thread::id thread_{};
         uint64_t generation_ = 0;
+        uint64_t session_epoch_ = 0;
         bool after_ = false;
         bool signature_checked_ = false;
         PopInterestMutationStatus signature_status_ = PopInterestMutationStatus::unavailable;

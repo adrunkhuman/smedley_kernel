@@ -13,10 +13,11 @@ import check_game_layering
 
 
 class GameLayeringAuditTest(unittest.TestCase):
-    def write_source(self, root: Path, relative_path: str, content: str) -> None:
-        path = root / "plugins" / "interest_bug_fix" / relative_path
+    def write_source(self, root: Path, relative_path: str, content: str, plugin: str = "interest_bug_fix") -> Path:
+        path = root / "plugins" / plugin / relative_path
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
+        return path
 
     def test_rejects_raw_engine_access(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -29,6 +30,8 @@ class GameLayeringAuditTest(unittest.TestCase):
 const void *pop;
 auto base = memory::Map::base_addr;
 constexpr auto address = 0x0055a5f0;
+constexpr auto pop_money_offset = 0x180;
+void __declspec(naked) Hook() {}
 void GiveMoneyVerified() {}
 """,
             )
@@ -43,6 +46,8 @@ void GiveMoneyVerified() {}
                     "use typed game_state References, not void game-object pointers",
                     "memory::Map is a game runtime implementation detail",
                     "CPop::GiveMoney RVA belongs in smedley_game_runtime",
+                    "engine RVAs and field offsets require a registered raw adapter",
+                    "native engine calls require a registered raw adapter",
                     "local GiveMoney wrappers belong in smedley_game_runtime",
                 },
             )
@@ -65,6 +70,20 @@ static CountryRef ResolveCountry(const void *context, int ordinal)
             self.write_source(root, "tests/raw_engine_test.cpp", "#include <smedley/memory.hpp>\nvoid *pop;\n")
 
             self.assertEqual(check_game_layering.audit(root), [])
+
+    def test_allows_only_explicit_raw_adapter_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            adapter = self.write_source(
+                root, "src/raw_adapter.cpp", "#include <smedley/memory.hpp>\n", plugin="telemetry"
+            )
+            self.write_source(root, "src/policy.h", "#include <smedley/v2/pop.hpp>\n", plugin="scripting")
+
+            findings = check_game_layering.audit(root, {adapter})
+
+            self.assertEqual(len(findings), 1)
+            self.assertEqual(findings[0].path.name, "policy.h")
+            self.assertEqual(findings[0].message, "raw engine header included: smedley/v2/pop.hpp")
 
 
 if __name__ == "__main__":

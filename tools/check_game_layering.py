@@ -15,10 +15,14 @@ RAW_HEADER_PREFIXES = (
     "smedley/clausewitz/",
     "smedley/std/",
 )
-VOID_POINTER = re.compile(r"\b(?:const\s+)?void\s*\*")
+GAME_OBJECT_VOID_POINTER = re.compile(
+    r"\b(?:const\s+)?void\s*\*\s*(?:country|province|pop|factory|game_state|controller|object|signal)\b"
+)
 MEMORY_MAP = re.compile(r"\b(?:smedley\s*::\s*)?memory\s*::\s*Map\b")
 GIVE_MONEY_SYMBOL = re.compile(r"\b(?:\w*GiveMoney\w*|\w*give_money\w*)\b")
 HEX_LITERAL = re.compile(r"\b0x[0-9a-fA-F]+\b")
+ENGINE_LAYOUT_LITERAL = re.compile(r"\b\w*(?:rva|offset|vtable)\w*\s*=\s*[^;]*\b0x[0-9a-fA-F]+\b")
+NATIVE_ENGINE_CALL = re.compile(r"\b__thiscall\b|\b__declspec\s*\(\s*naked\s*\)")
 INCLUDE = re.compile(r'^\s*#\s*include\s*[<"]([^>"]+)[>"]')
 RESOLVER_CONTEXT = re.compile(
     r"^\s*(?:static\s+)?(?:[\w:]+\s+)?(?:CountryRef|ProvinceRef)\s+Resolve\w*\s*\(\s*"
@@ -120,21 +124,25 @@ def strip_literals(source: str) -> str:
 
 
 def production_sources(root: Path) -> list[Path]:
-    source_root = root / "plugins" / "interest_bug_fix"
+    source_root = root / "plugins"
     return sorted(
         (
             path
             for path in source_root.rglob("*")
-            if path.suffix in {".cpp", ".hpp"} and "tests" not in path.relative_to(source_root).parts
+            if path.suffix in {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp"}
+            and "tests" not in path.relative_to(source_root).parts
         ),
         key=lambda path: path.as_posix(),
     )
 
 
-def audit(root: Path) -> list[Finding]:
-    """Return layering violations under the interest bug fix production source tree."""
+def audit(root: Path, raw_adapters: set[Path] | None = None) -> list[Finding]:
+    """Return raw engine access outside explicitly registered plugin adapters."""
+    allowed = {path.resolve() for path in raw_adapters or set()}
     findings: list[Finding] = []
     for path in production_sources(root):
+        if path.resolve() in allowed:
+            continue
         uncommented = strip_comments(path.read_text(encoding="utf-8"))
         code = strip_literals(uncommented)
         for line_number, line in enumerate(uncommented.splitlines(), start=1):
@@ -149,9 +157,15 @@ def audit(root: Path) -> list[Finding]:
                 findings.append(Finding(path, line_number, "memory::Map is a game runtime implementation detail"))
             if any(int(match.group(), 16) == 0x0055A5F0 for match in HEX_LITERAL.finditer(line)):
                 findings.append(Finding(path, line_number, "CPop::GiveMoney RVA belongs in smedley_game_runtime"))
+            if ENGINE_LAYOUT_LITERAL.search(line):
+                findings.append(
+                    Finding(path, line_number, "engine RVAs and field offsets require a registered raw adapter")
+                )
+            if NATIVE_ENGINE_CALL.search(line):
+                findings.append(Finding(path, line_number, "native engine calls require a registered raw adapter"))
             if GIVE_MONEY_SYMBOL.search(line):
                 findings.append(Finding(path, line_number, "local GiveMoney wrappers belong in smedley_game_runtime"))
-            if VOID_POINTER.search(line) and not RESOLVER_CONTEXT.match(line):
+            if GAME_OBJECT_VOID_POINTER.search(line) and not RESOLVER_CONTEXT.match(line):
                 findings.append(
                     Finding(path, line_number, "use typed game_state References, not void game-object pointers")
                 )
@@ -162,15 +176,17 @@ def audit(root: Path) -> list[Finding]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).parents[1])
+    parser.add_argument("--allow-raw", action="append", type=Path, default=[])
     args = parser.parse_args()
 
     root = args.root.resolve()
-    findings = audit(root)
+    raw_adapters = {root / path for path in args.allow_raw}
+    findings = audit(root, raw_adapters)
     for finding in findings:
         print(f"{finding.path.relative_to(root).as_posix()}:{finding.line}: {finding.message}", file=sys.stderr)
     if findings:
         return 1
-    print("OK: interest_bug_fix production sources respect the game-state boundary")
+    print("OK: first-party plugin raw access is confined to registered adapters")
     return 0
 
 

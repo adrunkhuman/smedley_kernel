@@ -14,14 +14,18 @@ foreign-object assumptions.
 | Plugins | Feature selection, deterministic allocation, result publication, lifecycle, and failure policy | Raw offsets, engine ABI mirrors, native calls, or retained game pointers |
 
 The static audit `tools/check_game_layering.py`, registered as the
-`smedley_game_layering_audit` CTest, is a targeted guardrail for
-`interest_bug_fix` production `.cpp` and `.hpp` files. It excludes tests. The
-plugin may use the generic resolver context required by the typed reader API,
-but that context stays within plugin source and is immediately converted to a
-typed reference. The audit catches known raw headers, `memory::Map`, the
-verified `GiveMoney` RVA and wrapper names, and non-resolver `void*` use. It is
-not a proof that arbitrary source contains no engine assumption; review and
-target ownership remain required.
+`smedley_game_layering_audit` CTest, scans common C/C++ source and header
+extensions in every first-party plugin production tree and excludes tests.
+Existing raw integrations must be
+listed as sources of their CMake target and registered with
+`smedley_allow_raw_plugin_sources`; configuration rejects a registration that
+the target does not own. Every other production source is checked for raw
+headers, `memory::Map`, the verified `GiveMoney` RVA and wrapper names, and
+named engine RVAs/field offsets, native call stubs, and game-object `void*`
+declarations. Adding or expanding a raw adapter is an explicit reviewable CMake
+change rather than an accidental include. This is a source-policy boundary, not
+proof that arbitrary code contains no engine assumption; review and target
+ownership remain required.
 
 ## Evidence promotion
 
@@ -34,18 +38,19 @@ checks the claimed behavior. A successful byte match or process launch is not
 runtime validation.
 
 Defensive checks in the runtime are not new reverse-engineering evidence. They
-check the configured base, expected or registered code bytes, callback phase
-and thread, memory protection, snapshots, and postconditions. Executable
-identity validation remains an injection prerequisite, and these checks do not
-independently prove object identity.
+check the kernel's retained executable-identity verdict, configured base,
+expected or registered code bytes, callback phase and thread, memory protection,
+snapshots, and postconditions. The kernel hashes the current process executable
+before installing any hook; mutation remains unavailable unless that exact
+identity passed. These checks do not independently prove object identity.
 
-Supported-game run `fc6b57d5-9fc6-4feb-a261-f64511d8d2d9` exercised the checked
-runtime together with the telemetry `CPop::GiveMoney` hook for seven exact days.
-It produced 3,684 trace records with zero gaps, drops, or writer failures and 24
-successful recipient rows. Named bank transfer `92,874` produced exact POP
-payout `92,874,000`; all 4,955 paid POP postconditions passed. The campaign
-reached raw target `59883552`, exited through the native bounded-run path, and
-the source save retained SHA-256
+Supported-game run `c94800f7-74a8-4013-bfcc-c12e96776d52` exercised the final
+checked runtime, retained executable-identity gate, and telemetry
+`CPop::GiveMoney` hook for seven exact days. It produced 3,684 trace records with
+zero gaps, drops, or writer failures and 24 successful recipient rows. Named
+bank transfer `92,860` produced exact POP payout `92,860,000`; all 4,911 paid POP
+postconditions passed. The campaign reached raw target `59883552`, exited through
+the native bounded-run path, and the source save retained SHA-256
 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 This validates the exercised path only, not arbitrary object identity or other
 plugin migrations.
@@ -60,6 +65,17 @@ foreign pointer safe to retain. Their explicit constructor is an unchecked
 internal labeling operation. Resolve again in the callback that needs the
 object, use the reference only synchronously in that dispatch, and pass copied
 snapshots across callbacks, unload, queues, or worker threads.
+
+`CurrentGameSession` pairs the observed current-game-state address with a
+monotonic process-local epoch. The checked runtime advances the epoch when it
+observes that address change. `DailyInterestAccess` captures both values and
+rejects mutation if either changes, while its separate dispatch generation
+still proves that the exact callback is active on the creating thread.
+
+The epoch is stale-reference defense, not a native lifecycle claim. No verified
+game-state constructor or destructor hook exists, and an unobserved replacement
+that reuses the same address cannot be distinguished. This is why references
+remain synchronous and non-owning even when their captured epoch still matches.
 
 Readers return bounded snapshots instead of exposing containers or ABI mirrors.
 The caller owns the snapshot, can inspect its flags, and must treat a failed or
@@ -107,15 +123,21 @@ The `game_state` C++ headers are internal source contracts for bundled plugins.
 Their symbols, layouts, and source interfaces may change with the repository;
 they provide no third-party binary or source compatibility promise.
 
-## Migration inventory
+## Raw-access inventory
 
 This inventory starts from `498d674` and includes the checked interest-path
 migration on this branch; it is not a claim of fresh supported-game runtime
 validation.
 
-| Plugin | Current boundary | Concrete follow-up boundary |
-| --- | --- | --- |
-| `interest_bug_fix` | Its creditor and POP payout path uses typed readers, snapshots, `DailyInterestAccess`, and checked preflight/apply mutation. | Keep new creditor/POP engine facts in `smedley_game_state`; keep payout eligibility and allocation in the plugin. |
-| `telemetry` | Uses typed readers for captured state; `pop_cash_flow_hook.cpp` and the factory/artisan hook adapters still own raw observational patches. | Move one verified hook boundary at a time to a named runtime adapter, preserving copied records, bounds, and hook evidence before removing the plugin-owned patch. |
-| `campaign_runner` | `campaign_launcher.cpp` owns raw frontend, idler, console, and campaign object adapters. | Promote each validated observation or command separately; completion means orchestration no longer includes raw layout or memory headers for that action. |
-| `scripting` | `plugin.cpp` still converts raw callback and current-game objects before feeding copied Lua values. | Move each conversion into a checked adapter while retaining copied Lua payloads and constrained queued operations; no Lua-visible object handle is required. |
+| Plugin | Registered raw adapter sources | Raw access owned there | Concrete follow-up boundary |
+| --- | --- | --- | --- |
+| `interest_bug_fix` | None | None. Creditor and POP payout uses typed readers, copied snapshots, `CurrentGameSession`, `DailyInterestAccess`, and checked preflight/apply mutation. | Keep new creditor/POP engine facts in `smedley_game_state`; keep payout eligibility and allocation in the plugin. |
+| `telemetry` | `plugin.cpp`, `economic_capture.cpp/.hpp`, `artisan_consumption_hook.cpp/.hpp`, `factory_consumption_hook.cpp/.hpp`, `factory_sales_hook.cpp/.hpp`, `pop_cash_flow_hook.cpp/.hpp` | Current-game/country/province ABI views; POP, artisan, factory consumption and sales hook RVAs; mapped field and stack offsets; engine object pointers; `memory::Map`; patch/trampoline code; x86 native hook assembly. | Move one verified hook or object conversion at a time to a named runtime adapter, preserving copied records, bounds, and hook evidence before removing each registration. |
+| `campaign_runner` | `campaign_launcher.cpp/.hpp` | Frontend, menu, idler, console, country, and campaign object views; raw string/vector ABI arguments; controller pointers; mapped fields, vtables, RTTI, RVAs, signatures, hooks, and x86 native calls. | Promote each validated observation or command separately; completion means orchestration no longer includes raw layout or memory headers for that action. |
+| `scripting` | `plugin.cpp` | Current-game/country views, idler RTTI and vtable inspection, pause RVA/signature validation, guarded memory reads, and the native pause call path. Lua allocator and userdata `void*` values in `scripting_runtime.cpp` are not engine objects. | Move the idler and pause operation into checked adapters while retaining copied Lua payloads and constrained queued operations; no Lua-visible object handle is required. |
+
+No first-party production source outside this table may include `smedley/v2`,
+`smedley/clausewitz`, `smedley/std`, or `smedley/memory.hpp`, access
+`memory::Map`, or introduce game-object `void*` declarations without an explicit
+CMake registration. The inventory describes code ownership, not fresh runtime
+verification of every listed legacy adapter.
