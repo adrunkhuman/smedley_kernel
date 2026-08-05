@@ -36,12 +36,20 @@ namespace smedley::game_state
         postcondition_failed,
     };
 
-    struct PopInterestPreflight
+    struct PopInterestBatchEntry
     {
         PopRef pop{};
         int64_t amount = 0;
         PopMoneySnapshot before{};
         PopInterestMutationStatus status = PopInterestMutationStatus::invalid_context;
+    };
+
+    struct PopInterestBatchResult
+    {
+        PopInterestMutationStatus status = PopInterestMutationStatus::invalid_context;
+        uint32_t failed_index = 0;
+        uint32_t write_count = 0;
+        uint32_t verified_count = 0;
     };
 
     struct GameSession
@@ -489,27 +497,21 @@ namespace smedley::game_state
         bool signature_checked_ = false;
         PopInterestMutationStatus signature_status_ = PopInterestMutationStatus::unavailable;
 
-        friend PopInterestMutationStatus PreparePopInterest(
-            DailyInterestAccess &access, PopRef pop, int64_t amount, PopInterestPreflight *preflight);
-        friend PopInterestMutationStatus ApplyPopInterest(
-            DailyInterestAccess &access, PopRef pop, int64_t amount, const PopInterestPreflight &preflight,
-            PopMoneySnapshot *after);
+        friend PopInterestMutationStatus ApplyPopInterestBatch(
+            DailyInterestAccess &access, PopInterestBatchEntry *entries, uint32_t entry_count,
+            PopInterestBatchResult *result);
     };
 
     /** Checks the complete verified POP money write span without writing it. */
     bool IsPopInterestWritable(PopRef pop);
     /**
-     * Captures and validates one positive payout during the active AFTER callback.
-     * The result is bound to the supplied POP and amount and performs no write.
+     * Preflights every positive payout before the first write, then invokes the
+     * native operation in entry order with immediate per-POP postconditions.
+     * Session, phase, signature, and page checks are amortized across the
+     * synchronous batch. write_count includes a call whose postcondition fails;
+     * verified_count includes only calls with successful postconditions.
      */
-    PopInterestMutationStatus PreparePopInterest(
-        DailyInterestAccess &access, PopRef pop, int64_t amount, PopInterestPreflight *preflight);
-    /**
-     * Revalidates a preflight and invokes the native operation synchronously.
-     * postcondition_failed means the native call occurred and may have written;
-     * every other failure is detected before this invocation writes.
-     */
-    PopInterestMutationStatus ApplyPopInterest(
-        DailyInterestAccess &access, PopRef pop, int64_t amount, const PopInterestPreflight &preflight,
-        PopMoneySnapshot *after = nullptr);
+    PopInterestMutationStatus ApplyPopInterestBatch(
+        DailyInterestAccess &access, PopInterestBatchEntry *entries, uint32_t entry_count,
+        PopInterestBatchResult *result);
 }

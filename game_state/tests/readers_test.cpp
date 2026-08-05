@@ -527,6 +527,11 @@ namespace smedley::game_state
         EXPECT_EQ(candidate_count, 1u);
         EXPECT_EQ(candidates[0].address.address(), reinterpret_cast<uintptr_t>(destination_pop.data()));
         EXPECT_EQ(candidates[0].savings_raw, destination_pop_savings);
+        EXPECT_EQ(pop_quality.state_savings_raw, 0);
+        EXPECT_EQ(pop_quality.state_interest_raw, 0);
+        EXPECT_EQ(pop_quality.bank_interest_raw, 0);
+        EXPECT_EQ(pop_quality.destination_pop_savings_raw, 0);
+        EXPECT_EQ(pop_quality.destination_pop_savings_state_scale_raw, 0);
         EXPECT_EQ(pop_quality.flags, 0u);
 
         pop_lists[0].count = 2;

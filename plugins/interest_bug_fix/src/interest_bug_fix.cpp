@@ -274,6 +274,9 @@ namespace interest_bug_fix
                 ResetPendingInterest();
                 return;
             }
+            const auto phase = event.GetPhase();
+            if (phase == smedley::events::DailyInterestPhase::AFTER
+                && !has_pending_before_ && !finalize_pending_) return;
             DailyInterestAccess access = DailyInterestAccess::FromEvent(event);
             const GameStateRef game_state_ref = access.game_state();
             if (!game_state_ref || !batch_.started()) {
@@ -285,13 +288,23 @@ namespace interest_bug_fix
                 ResetPendingInterest();
                 return;
             }
-            if (event.GetPhase() == smedley::events::DailyInterestPhase::BEFORE) {
+            if (phase == smedley::events::DailyInterestPhase::BEFORE) {
                 ResetPendingInterest();
                 pending_before_ = ReadCountryCreditors(access.country(), date_raw,
                     ResolveCountry, &game_state_ref);
                 daily_max_creditor_count_ = (std::max)(daily_max_creditor_count_, pending_before_.creditor_count);
                 daily_max_destination_count_ = (std::max)(daily_max_destination_count_, pending_before_.creditor_destinations);
+                if (pending_before_.flags == 0 && pending_before_.creditor_destinations == 0
+                    && batch_.AddDebtor(pending_before_.country_ordinal, nullptr, 0) == BatchAddStatus::success) {
+                    finalize_pending_ = batch_.complete();
+                    return;
+                }
                 has_pending_before_ = true;
+                return;
+            }
+            if (finalize_pending_ && !has_pending_before_) {
+                finalize_pending_ = false;
+                FinalizeDay(access);
                 return;
             }
             if (!has_pending_before_) {
@@ -299,6 +312,17 @@ namespace interest_bug_fix
             }
             ResetPendingInterest();
             if (debug_) callback_started_ = std::chrono::steady_clock::now();
+
+            if (pending_before_.flags == 0 && pending_before_.creditor_destinations == 0) {
+                const BatchAddStatus add = batch_.AddDebtor(
+                    pending_before_.country_ordinal, nullptr, 0);
+                if (add != BatchAddStatus::success) {
+                    RejectPair(access, pending_before_, pending_before_.country_ordinal, FixStatus::batch_invalid);
+                    return;
+                }
+                if (batch_.complete()) FinalizeDay(access);
+                return;
+            }
 
             CountryEconomySnapshot after = ReadCountryCreditorBalances(pending_before_, access.country(),
                 date_raw, ResolveCountry, &game_state_ref);
@@ -518,17 +542,12 @@ namespace interest_bug_fix
                     result->status = FixStatus::duplicate_pop;
                     return;
                 }
-                const PopInterestMutationStatus preflight_status = PreparePopInterest(
-                    access, candidates_[index].address, payout, &preflights_[index]);
-                if (preflight_status != PopInterestMutationStatus::success) {
-                    result->status = PreflightFixStatus(preflight_status);
-                    if (IsUnsafePopInterestFailure(preflight_status)) disabled_ = true;
-                    return;
-                }
                 if (!CanAdd(payout_total, payout)) {
                     result->status = FixStatus::conservation_failed;
                     return;
                 }
+                payments_[eligible_pop_count].pop = candidates_[index].address;
+                payments_[eligible_pop_count].amount = payout;
                 payout_total += payout;
                 ++eligible_pop_count;
             }
@@ -550,29 +569,26 @@ namespace interest_bug_fix
                 }
             }
 
-            for (uint32_t index = 0; index < collected; ++index) {
-                const int64_t payout = allocations_[index].payout_raw;
-                if (payout == 0) continue;
-                const PopInterestMutationStatus apply_status = ApplyPopInterest(
-                    access, candidates_[index].address, payout, preflights_[index]);
-                if (apply_status != PopInterestMutationStatus::success) {
-                    const PopInterestFailureClass failure = ClassifyAppliedPopInterestFailure(
-                        apply_status, result->paid_pop_count != 0);
-                    switch (failure) {
-                    case PopInterestFailureClass::balance: result->status = FixStatus::pop_balance_overflow; break;
-                    case PopInterestFailureClass::not_writable: result->status = FixStatus::pop_not_writable; break;
-                    case PopInterestFailureClass::unavailable: result->status = FixStatus::mutation_unavailable; break;
-                    case PopInterestFailureClass::precondition_changed: result->status = FixStatus::mutation_precondition_changed; break;
-                    case PopInterestFailureClass::postcondition_failed: result->status = FixStatus::postcondition_failed; break;
-                    case PopInterestFailureClass::partial_mutation: result->status = FixStatus::partial_mutation; break;
-                    }
-                    if (IsUnsafeAppliedPopInterestFailure(apply_status, result->paid_pop_count != 0)) {
-                        disabled_ = true;
-                    }
-                    return;
+            PopInterestBatchResult batch_result{};
+            const PopInterestMutationStatus apply_status = ApplyPopInterestBatch(
+                access, payments_.data(), eligible_pop_count, &batch_result);
+            result->paid_pop_count = batch_result.verified_count;
+            result->verified_pop_count = batch_result.verified_count;
+            if (apply_status != PopInterestMutationStatus::success) {
+                const PopInterestFailureClass failure = ClassifyAppliedPopInterestFailure(
+                    apply_status, batch_result.verified_count != 0);
+                switch (failure) {
+                case PopInterestFailureClass::balance: result->status = FixStatus::pop_balance_overflow; break;
+                case PopInterestFailureClass::not_writable: result->status = FixStatus::pop_not_writable; break;
+                case PopInterestFailureClass::unavailable: result->status = FixStatus::mutation_unavailable; break;
+                case PopInterestFailureClass::precondition_changed: result->status = FixStatus::mutation_precondition_changed; break;
+                case PopInterestFailureClass::postcondition_failed: result->status = FixStatus::postcondition_failed; break;
+                case PopInterestFailureClass::partial_mutation: result->status = FixStatus::partial_mutation; break;
                 }
-                ++result->paid_pop_count;
-                ++result->verified_pop_count;
+                if (IsUnsafeAppliedPopInterestFailure(apply_status, batch_result.verified_count != 0)) {
+                    disabled_ = true;
+                }
+                return;
             }
             result->status = FixStatus::paid;
         }
@@ -592,6 +608,7 @@ namespace interest_bug_fix
         void ResetPendingInterest() noexcept
         {
             has_pending_before_ = false;
+            finalize_pending_ = false;
         }
 
         void Publish(FixResult &result, bool emit_telemetry = true, bool preserve_callback_us = false)
@@ -694,6 +711,7 @@ namespace interest_bug_fix
         DailyInterestBatch batch_{};
         CountryEconomySnapshot pending_before_{};
         bool has_pending_before_ = false;
+        bool finalize_pending_ = false;
         bool disabled_ = false;
         int32_t finalized_date_raw_ = 0;
         uint32_t candidate_count_ = 0;
@@ -712,7 +730,7 @@ namespace interest_bug_fix
         DailyPopSet daily_paid_pops_{};
         std::array<PopCandidate, max_sample_pops> candidates_{};
         std::array<AllocationEntry, max_sample_pops> allocations_{};
-        std::array<PopInterestPreflight, max_sample_pops> preflights_{};
+        std::array<PopInterestBatchEntry, max_sample_pops> payments_{};
         std::array<uint32_t, max_sample_pops> order_scratch_{};
         TelemetryBridge telemetry_{};
         std::chrono::steady_clock::time_point callback_started_{};

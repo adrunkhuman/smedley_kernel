@@ -115,25 +115,68 @@ namespace smedley::game_state
     {
         events::DailyInterestEvent event(reinterpret_cast<v2::CCountry *>(1), events::DailyInterestPhase::BEFORE);
         auto access = DailyInterestAccess::FromEvent(event);
-        PopInterestPreflight preflight{};
+        PopInterestBatchEntry entry{{}, 0};
+        PopInterestBatchResult result{};
 
-        EXPECT_EQ(PreparePopInterest(access, {}, 0, &preflight), PopInterestMutationStatus::invalid_amount);
-        EXPECT_EQ(preflight.status, PopInterestMutationStatus::invalid_amount);
-        EXPECT_EQ(PreparePopInterest(access, {}, -1, &preflight), PopInterestMutationStatus::invalid_amount);
+        EXPECT_EQ(ApplyPopInterestBatch(access, &entry, 1, &result), PopInterestMutationStatus::invalid_amount);
+        EXPECT_EQ(entry.status, PopInterestMutationStatus::invalid_amount);
+        entry.amount = -1;
+        EXPECT_EQ(ApplyPopInterestBatch(access, &entry, 1, &result), PopInterestMutationStatus::invalid_amount);
+    }
+
+    TEST_F(RuntimeFixture, ValidatesCompleteBatchInputBeforeRuntimeAccess)
+    {
+        events::DailyInterestEvent event(reinterpret_cast<v2::CCountry *>(1), events::DailyInterestPhase::BEFORE);
+        auto access = DailyInterestAccess::FromEvent(event);
+        std::array<PopInterestBatchEntry, 2> entries{{
+            {PopRef{reinterpret_cast<const void *>(1)}, 1},
+            {PopRef{reinterpret_cast<const void *>(2)}, 0},
+        }};
+        PopInterestBatchResult result{};
+
+        EXPECT_EQ(ApplyPopInterestBatch(access, entries.data(), entries.size(), &result),
+            PopInterestMutationStatus::invalid_amount);
+        EXPECT_EQ(result.failed_index, 1u);
+        EXPECT_EQ(result.write_count, 0u);
+        EXPECT_EQ(result.verified_count, 0u);
+        EXPECT_EQ(entries[1].status, PopInterestMutationStatus::invalid_amount);
+        EXPECT_EQ(ApplyPopInterestBatch(access, nullptr, 1, &result),
+            PopInterestMutationStatus::invalid_context);
+        EXPECT_EQ(ApplyPopInterestBatch(access, nullptr, 0, &result),
+            PopInterestMutationStatus::success);
+        EXPECT_EQ(ApplyPopInterestBatch(access, nullptr, 0, nullptr),
+            PopInterestMutationStatus::invalid_context);
+    }
+
+    TEST_F(RuntimeFixture, RejectsDuplicateBatchPopsBeforeRuntimeAccess)
+    {
+        events::DailyInterestEvent event(reinterpret_cast<v2::CCountry *>(1), events::DailyInterestPhase::BEFORE);
+        auto access = DailyInterestAccess::FromEvent(event);
+        const PopRef pop{reinterpret_cast<const void *>(0x1000)};
+        std::array<PopInterestBatchEntry, 2> entries{{{pop, 1}, {pop, 2}}};
+        PopInterestBatchResult result{};
+
+        EXPECT_EQ(ApplyPopInterestBatch(access, entries.data(), entries.size(), &result),
+            PopInterestMutationStatus::state_changed);
+        EXPECT_EQ(result.failed_index, 1u);
+        EXPECT_EQ(result.write_count, 0u);
+        EXPECT_EQ(result.verified_count, 0u);
+        EXPECT_EQ(entries[1].status, PopInterestMutationStatus::state_changed);
     }
 
     TEST_F(RuntimeFixture, RejectsUntrustedAfterEventAndBeforePhase)
     {
         auto after_event = AfterEvent();
         auto after_access = DailyInterestAccess::FromEvent(after_event);
-        PopInterestPreflight preflight{};
-        EXPECT_EQ(PreparePopInterest(after_access, PopRef{reinterpret_cast<const void *>(1)}, 1, &preflight),
+        PopInterestBatchEntry entry{PopRef{reinterpret_cast<const void *>(1)}, 1};
+        PopInterestBatchResult result{};
+        EXPECT_EQ(ApplyPopInterestBatch(after_access, &entry, 1, &result),
             PopInterestMutationStatus::invalid_context);
 
         EventRegistry<events::DailyInterestEvent>::Register(nullptr, "runtime-untrusted-notify-test",
             [&](events::DailyInterestEvent &event) {
                 auto access = DailyInterestAccess::FromEvent(event);
-                EXPECT_EQ(PreparePopInterest(access, PopRef{reinterpret_cast<const void *>(1)}, 1, &preflight),
+                EXPECT_EQ(ApplyPopInterestBatch(access, &entry, 1, &result),
                     PopInterestMutationStatus::invalid_context);
             });
         EventRegistry<events::DailyInterestEvent>::Notify(after_event);
@@ -141,7 +184,7 @@ namespace smedley::game_state
 
         events::DailyInterestEvent before_event(reinterpret_cast<v2::CCountry *>(1), events::DailyInterestPhase::BEFORE);
         auto before_access = DailyInterestAccess::FromEvent(before_event);
-        EXPECT_EQ(PreparePopInterest(before_access, PopRef{reinterpret_cast<const void *>(1)}, 1, &preflight),
+        EXPECT_EQ(ApplyPopInterestBatch(before_access, &entry, 1, &result),
             PopInterestMutationStatus::invalid_phase);
     }
 
@@ -151,8 +194,9 @@ namespace smedley::game_state
         auto access = DailyInterestAccess::FromEvent(event);
         PopInterestMutationStatus status = PopInterestMutationStatus::success;
         std::thread worker([&] {
-            PopInterestPreflight preflight{};
-            status = PreparePopInterest(access, PopRef{reinterpret_cast<const void *>(1)}, 1, &preflight);
+            PopInterestBatchEntry entry{PopRef{reinterpret_cast<const void *>(1)}, 1};
+            PopInterestBatchResult result{};
+            status = ApplyPopInterestBatch(access, &entry, 1, &result);
         });
         worker.join();
 

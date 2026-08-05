@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <new>
 #include <string>
 #include <string_view>
@@ -70,7 +71,10 @@ namespace smedley::game_state
         constexpr size_t pop_money_offset = 0x180;
         constexpr size_t pop_interest_cash_flow_offset = 0x210;
         constexpr size_t pop_total_cash_flow_offset = 0x218;
+        constexpr size_t pop_savings_offset = 0x250;
         constexpr size_t pop_money_span = pop_total_cash_flow_offset + sizeof(int64_t) - pop_money_offset;
+        constexpr size_t pop_snapshot_span = pop_savings_offset + sizeof(int64_t) - pop_money_offset;
+        constexpr size_t pop_interest_identity_capacity = 131072;
         constexpr size_t game_state_country_ais_offset = 0x0a4;
         constexpr size_t game_state_provinces_offset = 0x0acc;
         constexpr size_t game_state_countries_offset = 0x0adc;
@@ -124,6 +128,16 @@ namespace smedley::game_state
         std::atomic<uint64_t> game_session_epoch{};
         std::atomic<uintptr_t> captured_console{};
         std::atomic<uintptr_t> captured_native_tag_handler{};
+
+        struct PopInterestIdentitySet
+        {
+            std::array<uintptr_t, pop_interest_identity_capacity> entries{};
+            std::array<uint32_t, pop_interest_identity_capacity> generations{};
+            uint32_t generation = 0;
+        };
+
+        PopInterestIdentitySet pop_interest_identities;
+        std::mutex pop_interest_identity_mutex;
 
         class CampaignConsoleRef
         {
@@ -186,6 +200,86 @@ namespace smedley::game_state
                 cursor = (std::min)(end, region_end);
             }
             return true;
+        }
+
+        struct MemoryRegionCache
+        {
+            uintptr_t begin = 0;
+            uintptr_t end = 0;
+            DWORD protect = 0;
+            DWORD state = 0;
+        };
+
+        bool IsAccessibleCached(const void *pointer, size_t size, bool writable, MemoryRegionCache *cache)
+        {
+            if (pointer == nullptr || size == 0 || cache == nullptr) return false;
+            const uintptr_t begin = reinterpret_cast<uintptr_t>(pointer);
+            if (begin > (std::numeric_limits<uintptr_t>::max)() - size) return false;
+            const uintptr_t end = begin + size;
+            for (uintptr_t cursor = begin; cursor < end;) {
+                if (cursor < cache->begin || cursor >= cache->end) {
+                    MEMORY_BASIC_INFORMATION region{};
+                    if (VirtualQuery(reinterpret_cast<const void *>(cursor), &region, sizeof(region)) != sizeof(region)) {
+                        return false;
+                    }
+                    const uintptr_t region_begin = reinterpret_cast<uintptr_t>(region.BaseAddress);
+                    if (region_begin > (std::numeric_limits<uintptr_t>::max)() - region.RegionSize) return false;
+                    cache->begin = region_begin;
+                    cache->end = region_begin + region.RegionSize;
+                    cache->protect = region.Protect;
+                    cache->state = region.State;
+                }
+                const DWORD allowed = writable
+                    ? PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
+                    : PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY
+                        | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
+                if (cache->state != MEM_COMMIT || (cache->protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0
+                    || (cache->protect & allowed) == 0 || cache->end <= cursor) return false;
+                cursor = (std::min)(end, cache->end);
+            }
+            return true;
+        }
+
+        bool CopyPopMoneyFields(PopRef pop, PopMoneySnapshot *snapshot)
+        {
+            if (!pop || snapshot == nullptr) return false;
+            const auto *address = reinterpret_cast<const uint8_t *>(pop.address());
+            __try {
+                std::memcpy(&snapshot->money_raw, address + pop_money_offset, sizeof(snapshot->money_raw));
+                std::memcpy(&snapshot->interest_cash_flow_raw,
+                    address + pop_interest_cash_flow_offset, sizeof(snapshot->interest_cash_flow_raw));
+                std::memcpy(&snapshot->total_cash_flow_raw,
+                    address + pop_total_cash_flow_offset, sizeof(snapshot->total_cash_flow_raw));
+                std::memcpy(&snapshot->savings_raw, address + pop_savings_offset, sizeof(snapshot->savings_raw));
+                return true;
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                return false;
+            }
+        }
+
+        void BeginPopInterestIdentitySet()
+        {
+            ++pop_interest_identities.generation;
+            if (pop_interest_identities.generation == 0) {
+                pop_interest_identities.generations.fill(0);
+                pop_interest_identities.generation = 1;
+            }
+        }
+
+        bool InsertPopInterestIdentity(uintptr_t address, size_t capacity)
+        {
+            const size_t mask = capacity - 1;
+            size_t slot = static_cast<size_t>((address >> 4) * uintptr_t{2654435761u}) & mask;
+            for (size_t attempt = 0; attempt < capacity; ++attempt) {
+                if (pop_interest_identities.generations[slot] != pop_interest_identities.generation) {
+                    pop_interest_identities.generations[slot] = pop_interest_identities.generation;
+                    pop_interest_identities.entries[slot] = address;
+                    return true;
+                }
+                if (pop_interest_identities.entries[slot] == address) return false;
+                slot = (slot + 1) & mask;
+            }
+            return false;
         }
 
         bool CopyReadable(void *destination, const void *source, size_t size)
@@ -552,14 +646,6 @@ namespace smedley::game_state
         bool CanAdd(int64_t value, int64_t amount)
         {
             return amount > 0 && value <= (std::numeric_limits<int64_t>::max)() - amount;
-        }
-
-        bool SameSnapshot(const PopMoneySnapshot &left, const PopMoneySnapshot &right)
-        {
-            return left.money_raw == right.money_raw
-                && left.interest_cash_flow_raw == right.interest_cash_flow_raw
-                && left.total_cash_flow_raw == right.total_cash_flow_raw
-                && left.savings_raw == right.savings_raw;
         }
 
         PopInterestMutationStatus VerifySignature(PopInterestMutationStatus *status)
@@ -2230,69 +2316,101 @@ namespace smedley::game_state
         return IsAccessible(reinterpret_cast<const void *>(address + pop_money_offset), pop_money_span, true);
     }
 
-    PopInterestMutationStatus PreparePopInterest(
-        DailyInterestAccess &access, PopRef pop, int64_t amount, PopInterestPreflight *preflight)
+    PopInterestMutationStatus ApplyPopInterestBatch(
+        DailyInterestAccess &access, PopInterestBatchEntry *entries, uint32_t entry_count,
+        PopInterestBatchResult *result)
     {
-        if (preflight == nullptr) return PopInterestMutationStatus::invalid_context;
-        *preflight = {};
-        preflight->pop = pop;
-        preflight->amount = amount;
-        if (amount <= 0) return preflight->status = PopInterestMutationStatus::invalid_amount;
+        if (result == nullptr) return PopInterestMutationStatus::invalid_context;
+        *result = {};
+        auto fail = [result](PopInterestMutationStatus status, uint32_t index) {
+            result->status = status;
+            result->failed_index = index;
+            return status;
+        };
+        if (entry_count != 0 && entries == nullptr) {
+            return fail(PopInterestMutationStatus::invalid_context, 0);
+        }
+        if (entry_count > max_sample_pops) return fail(PopInterestMutationStatus::invalid_context, 0);
+        for (uint32_t index = 0; index < entry_count; ++index) {
+            entries[index].before = {};
+            entries[index].status = PopInterestMutationStatus::invalid_context;
+            if (entries[index].amount <= 0) {
+                entries[index].status = PopInterestMutationStatus::invalid_amount;
+                return fail(entries[index].status, index);
+            }
+            if (!entries[index].pop) {
+                entries[index].status = PopInterestMutationStatus::invalid_context;
+                return fail(entries[index].status, index);
+            }
+        }
+        {
+            const std::lock_guard lock(pop_interest_identity_mutex);
+            BeginPopInterestIdentitySet();
+            size_t identity_capacity = 1;
+            while (identity_capacity < entry_count * 2u
+                && identity_capacity < pop_interest_identity_capacity) identity_capacity *= 2;
+            for (uint32_t index = 0; index < entry_count; ++index) {
+                if (!InsertPopInterestIdentity(entries[index].pop.address(), identity_capacity)) {
+                    entries[index].status = PopInterestMutationStatus::state_changed;
+                    return fail(entries[index].status, index);
+                }
+            }
+        }
+        if (entry_count == 0) return fail(PopInterestMutationStatus::success, 0);
         if (const auto status = access.CheckMutationAccess(); status != PopInterestMutationStatus::success) {
-            return preflight->status = status;
+            return fail(status, 0);
         }
-        if (!pop) return preflight->status = PopInterestMutationStatus::invalid_context;
         if (const auto status = access.CheckSignature(); status != PopInterestMutationStatus::success) {
-            return preflight->status = status;
+            return fail(status, 0);
         }
-        if (!ReadPopMoneySnapshot(pop, &preflight->before)) {
-            return preflight->status = PopInterestMutationStatus::balance_unreadable;
-        }
-        if (!CanAdd(preflight->before.money_raw, amount)
-            || !CanAdd(preflight->before.interest_cash_flow_raw, amount)
-            || !CanAdd(preflight->before.total_cash_flow_raw, amount)) {
-            return preflight->status = PopInterestMutationStatus::balance_overflow;
-        }
-        if (!IsPopInterestWritable(pop)) return preflight->status = PopInterestMutationStatus::not_writable;
-        return preflight->status = PopInterestMutationStatus::success;
-    }
 
-    PopInterestMutationStatus ApplyPopInterest(
-        DailyInterestAccess &access, PopRef pop, int64_t amount, const PopInterestPreflight &preflight,
-        PopMoneySnapshot *after)
-    {
-        if (after != nullptr) *after = {};
-        if (amount <= 0) return PopInterestMutationStatus::invalid_amount;
-        if (const auto status = access.CheckMutationAccess(); status != PopInterestMutationStatus::success) return status;
-        if (!pop || preflight.status != PopInterestMutationStatus::success) return PopInterestMutationStatus::invalid_context;
-        if (preflight.pop.address() != pop.address() || preflight.amount != amount) {
-            return PopInterestMutationStatus::state_changed;
+        MemoryRegionCache access_cache{};
+        for (uint32_t index = 0; index < entry_count; ++index) {
+            PopInterestBatchEntry &entry = entries[index];
+            const uintptr_t address = entry.pop.address();
+            if (address > (std::numeric_limits<uintptr_t>::max)() - pop_money_offset
+                || !IsAccessibleCached(reinterpret_cast<const void *>(address + pop_money_offset),
+                    pop_snapshot_span, false, &access_cache)
+                || !CopyPopMoneyFields(entry.pop, &entry.before)) {
+                entry.status = PopInterestMutationStatus::balance_unreadable;
+            } else if (!CanAdd(entry.before.money_raw, entry.amount)
+                || !CanAdd(entry.before.interest_cash_flow_raw, entry.amount)
+                || !CanAdd(entry.before.total_cash_flow_raw, entry.amount)) {
+                entry.status = PopInterestMutationStatus::balance_overflow;
+            } else {
+                entry.status = address <= (std::numeric_limits<uintptr_t>::max)() - pop_money_offset
+                    && IsAccessibleCached(reinterpret_cast<const void *>(address + pop_money_offset),
+                        pop_money_span, true, &access_cache)
+                    ? PopInterestMutationStatus::success : PopInterestMutationStatus::not_writable;
+            }
+            if (entry.status != PopInterestMutationStatus::success) return fail(entry.status, index);
         }
-        if (const auto status = access.CheckSignature(true); status != PopInterestMutationStatus::success) return status;
-        PopMoneySnapshot before{};
-        if (!ReadPopMoneySnapshot(pop, &before)) return PopInterestMutationStatus::balance_unreadable;
-        if (!SameSnapshot(before, preflight.before)) return PopInterestMutationStatus::state_changed;
-        if (!CanAdd(before.money_raw, amount)
-            || !CanAdd(before.interest_cash_flow_raw, amount)
-            || !CanAdd(before.total_cash_flow_raw, amount)) {
-            return PopInterestMutationStatus::balance_overflow;
-        }
-        if (!IsPopInterestWritable(pop)) return PopInterestMutationStatus::not_writable;
 
-        GiveMoneyVerified(pop, amount);
-
-        const int64_t expected_money = before.money_raw + amount;
-        const int64_t expected_interest_cash_flow = before.interest_cash_flow_raw + amount;
-        const int64_t expected_total_cash_flow = before.total_cash_flow_raw + amount;
-        PopMoneySnapshot value{};
-        if (!ReadPopMoneySnapshot(pop, &value)
-            || value.money_raw != expected_money
-            || value.interest_cash_flow_raw != expected_interest_cash_flow
-            || value.total_cash_flow_raw != expected_total_cash_flow
-            || value.savings_raw != before.savings_raw) {
-            return PopInterestMutationStatus::postcondition_failed;
+        if (const auto status = access.CheckMutationAccess(); status != PopInterestMutationStatus::success) {
+            return fail(status, 0);
         }
-        if (after != nullptr) *after = value;
-        return PopInterestMutationStatus::success;
+        if (const auto status = access.CheckSignature(true); status != PopInterestMutationStatus::success) {
+            return fail(status, 0);
+        }
+
+        for (uint32_t index = 0; index < entry_count; ++index) {
+            PopInterestBatchEntry &entry = entries[index];
+            GiveMoneyVerified(entry.pop, entry.amount);
+            ++result->write_count;
+
+            PopMoneySnapshot after{};
+            if (!CopyPopMoneyFields(entry.pop, &after)
+                || after.money_raw != entry.before.money_raw + entry.amount
+                || after.interest_cash_flow_raw != entry.before.interest_cash_flow_raw + entry.amount
+                || after.total_cash_flow_raw != entry.before.total_cash_flow_raw + entry.amount
+                || after.savings_raw != entry.before.savings_raw) {
+                entry.status = PopInterestMutationStatus::postcondition_failed;
+                return fail(entry.status, index);
+            }
+            ++result->verified_count;
+        }
+        result->status = PopInterestMutationStatus::success;
+        result->failed_index = entry_count;
+        return result->status;
     }
 }

@@ -448,7 +448,8 @@ namespace smedley::game_state
         void CollectPops(const PointerVector &provinces, ProvinceResolver resolver,
                            const void *resolver_context, TraversalScratch *scratch,
                            PopRef *immediate_pop, uint32_t province_limit,
-                           uint32_t pop_limit, CountryEconomySnapshot *sample)
+                           uint32_t pop_limit, bool collect_savings_aggregates,
+                           CountryEconomySnapshot *sample)
         {
             uint32_t province_count = 0;
             if (!VectorCount(provinces, sizeof(int32_t), max_provinces_per_state, &province_count)) {
@@ -521,9 +522,11 @@ namespace smedley::game_state
                         }
                         scratch->pop_savings[scratch->pop_pointer_count] = savings;
                         ++scratch->pop_pointer_count;
-                        AddChecked(savings, &sample->destination_pop_savings_raw, &sample->flags);
-                        AddChecked(savings / pop_savings_state_scale,
-                            &sample->destination_pop_savings_state_scale_raw, &sample->flags);
+                        if (collect_savings_aggregates) {
+                            AddChecked(savings, &sample->destination_pop_savings_raw, &sample->flags);
+                            AddChecked(savings / pop_savings_state_scale,
+                                &sample->destination_pop_savings_state_scale_raw, &sample->flags);
+                        }
                         if (immediate_pop != nullptr && !*immediate_pop) {
                             PopMoneySnapshot snapshot{};
                             if (!ReadPopMoney(pop, &snapshot)) sample->flags |= SAMPLE_POP_UNREADABLE;
@@ -596,9 +599,10 @@ namespace smedley::game_state
 
     CountryEconomySnapshot ReadCountryEconomyImpl(CountryRef country_ref, int32_t date_raw,
                                                     CountryResolver country_resolver, ProvinceResolver province_resolver,
-                                                    const void *resolver_context, bool collect_states, bool collect_pops,
-                                                    TraversalScratch *scratch, PopRef *immediate_pop,
-                                                    uint32_t province_limit, uint32_t pop_limit, bool collect_creditors)
+                                                     const void *resolver_context, bool collect_states, bool collect_pops,
+                                                     TraversalScratch *scratch, PopRef *immediate_pop,
+                                                     uint32_t province_limit, uint32_t pop_limit, bool collect_creditors,
+                                                     bool collect_economy_values)
     {
         const void *country = detail::RawPointer(country_ref);
         CountryEconomySnapshot sample{};
@@ -613,7 +617,7 @@ namespace smedley::game_state
         std::memcpy(sample.country_tag, tag, sizeof(tag));
         sample.country_tag[3] = '\0';
         ReadAt(country, country_tag_offset + sizeof(uint32_t), &sample.country_ordinal);
-        ReadAt(country, country_treasury_offset, &sample.treasury_raw);
+        if (collect_economy_values) ReadAt(country, country_treasury_offset, &sample.treasury_raw);
 
         if (collect_states) {
             const ListNode *node = nullptr;
@@ -646,19 +650,22 @@ namespace smedley::game_state
                             sample.province_element_candidates += province_count;
                             if (collect_pops && province_resolver != nullptr) {
                                 CollectPops(provinces, province_resolver, resolver_context,
-                                    scratch, immediate_pop, province_limit, pop_limit, &sample);
+                                    scratch, immediate_pop, province_limit, pop_limit,
+                                    collect_economy_values, &sample);
                             }
-                        }
-                        int64_t savings = 0;
-                        int64_t interest = 0;
-                        if (!ReadAt(current.data, state_savings_offset, &savings)
-                            || !ReadAt(current.data, state_interest_offset, &interest)) {
-                            sample.flags |= SAMPLE_STATE_UNREADABLE;
-                        } else {
-                            if (savings != 0) ++sample.states_with_savings;
-                            if (interest != 0) ++sample.states_with_interest;
-                            AddChecked(savings, &sample.state_savings_raw, &sample.flags);
-                            AddChecked(interest, &sample.state_interest_raw, &sample.flags);
+                            if (collect_economy_values) {
+                                int64_t savings = 0;
+                                int64_t interest = 0;
+                                if (!ReadAt(current.data, state_savings_offset, &savings)
+                                    || !ReadAt(current.data, state_interest_offset, &interest)) {
+                                    sample.flags |= SAMPLE_STATE_UNREADABLE;
+                                } else {
+                                    if (savings != 0) ++sample.states_with_savings;
+                                    if (interest != 0) ++sample.states_with_interest;
+                                    AddChecked(savings, &sample.state_savings_raw, &sample.flags);
+                                    AddChecked(interest, &sample.state_interest_raw, &sample.flags);
+                                }
+                            }
                         }
                     }
                 }
@@ -678,10 +685,12 @@ namespace smedley::game_state
             }
         }
 
-        const void *bank = nullptr;
-        if (!ReadAt(country, country_bank_offset, &bank) || bank == nullptr
-            || !ReadAt(bank, bank_interest_offset, &sample.bank_interest_raw)) {
-            sample.flags |= SAMPLE_BANK_UNREADABLE;
+        if (collect_economy_values) {
+            const void *bank = nullptr;
+            if (!ReadAt(country, country_bank_offset, &bank) || bank == nullptr
+                || !ReadAt(bank, bank_interest_offset, &sample.bank_interest_raw)) {
+                sample.flags |= SAMPLE_BANK_UNREADABLE;
+            }
         }
 
         if (!collect_creditors) return sample;
@@ -708,22 +717,27 @@ namespace smedley::game_state
             uint8_t was_paid = 0;
             if (!ReadAt(creditor, creditor_tag_offset, &key)
                 || !ReadAt(creditor, creditor_tag_offset + sizeof(key), &ordinal)
-                || !ReadAt(creditor, creditor_interest_offset, &interest)
-                || !ReadAt(creditor, creditor_debt_offset, &debt)
-                || !ReadAt(creditor, creditor_was_paid_offset, &was_paid)) {
+                || !ReadAt(creditor, creditor_was_paid_offset, &was_paid)
+                || (collect_economy_values
+                    && (!ReadAt(creditor, creditor_interest_offset, &interest)
+                        || !ReadAt(creditor, creditor_debt_offset, &debt)))) {
                 sample.flags |= SAMPLE_CREDITOR_UNREADABLE;
                 continue;
             }
             if (country_resolver == nullptr) {
                 if (was_paid > 1) sample.flags |= SAMPLE_CREDITOR_TAG_INVALID;
-                AddChecked(interest, &sample.creditor_interest_raw, &sample.flags);
-                AddChecked(debt, &sample.creditor_debt_raw, &sample.flags);
+                if (collect_economy_values) {
+                    AddChecked(interest, &sample.creditor_interest_raw, &sample.flags);
+                    AddChecked(debt, &sample.creditor_debt_raw, &sample.flags);
+                }
                 if (was_paid != 0) ++sample.creditors_was_paid;
                 continue;
             }
             if (ordinal == 0 && was_paid <= 1) {
-                AddChecked(interest, &sample.creditor_interest_raw, &sample.flags);
-                AddChecked(debt, &sample.creditor_debt_raw, &sample.flags);
+                if (collect_economy_values) {
+                    AddChecked(interest, &sample.creditor_interest_raw, &sample.flags);
+                    AddChecked(debt, &sample.creditor_debt_raw, &sample.flags);
+                }
                 if (was_paid != 0) ++sample.creditors_was_paid;
                 continue;
             }
@@ -734,8 +748,10 @@ namespace smedley::game_state
                 sample.invalid_creditor_was_paid = was_paid;
                 continue;
             }
-            AddChecked(interest, &sample.creditor_interest_raw, &sample.flags);
-            AddChecked(debt, &sample.creditor_debt_raw, &sample.flags);
+            if (collect_economy_values) {
+                AddChecked(interest, &sample.creditor_interest_raw, &sample.flags);
+                AddChecked(debt, &sample.creditor_debt_raw, &sample.flags);
+            }
             if (was_paid != 0) ++sample.creditors_was_paid;
 
             const uint32_t slot_mask = static_cast<uint32_t>(destination_slots.size() - 1);
@@ -778,7 +794,7 @@ namespace smedley::game_state
             }
             const CountryEconomySnapshot destination_sample = ReadCountryEconomyImpl(
                 CountryRef{static_cast<const void *>(destination)}, date_raw, nullptr, province_resolver, resolver_context, collect_states, collect_pops, scratch,
-                immediate_pop, province_limit, pop_limit, false);
+                immediate_pop, province_limit, pop_limit, false, collect_economy_values);
             sample.destination_provinces_resolved += destination_sample.destination_provinces_resolved;
             sample.destination_pop_lists += destination_sample.destination_pop_lists;
             sample.destination_pops += destination_sample.destination_pops;
@@ -816,7 +832,7 @@ namespace smedley::game_state
         CountryEconomySnapshot sample = ReadCountryEconomyImpl(
             country, date_raw, country_resolver, province_resolver, resolver_context,
             true, province_resolver != nullptr, &traversal_scratch, immediate_pop,
-            max_destination_provinces, max_pops, true);
+            max_destination_provinces, max_pops, true, true);
         sample.destination_province_attempts = traversal_scratch.province_attempts;
         sample.destination_pop_attempts = traversal_scratch.pop_attempts;
 
@@ -836,7 +852,7 @@ namespace smedley::game_state
     {
         ResetMemoryRegionCache();
         return ReadCountryEconomyImpl(country, date_raw, country_resolver, nullptr, resolver_context,
-            false, false, &traversal_scratch, nullptr, 0, 0, true);
+            false, false, &traversal_scratch, nullptr, 0, 0, true, false);
     }
 
     CountryEconomySnapshot ReadCountryCreditorBalances(const CountryEconomySnapshot &before,
@@ -845,7 +861,7 @@ namespace smedley::game_state
     {
         ResetMemoryRegionCache();
         CountryEconomySnapshot after = ReadCountryEconomyImpl(country, date_raw, nullptr, nullptr, resolver_context,
-            false, false, &traversal_scratch, nullptr, 0, 0, false);
+            false, false, &traversal_scratch, nullptr, 0, 0, false, false);
         after.creditor_count = before.creditor_count;
         if (country_resolver == nullptr || before.creditor_destinations > max_creditor_destinations) {
             after.flags |= SAMPLE_CREDITOR_DESTINATION_INVALID;
@@ -897,7 +913,7 @@ namespace smedley::game_state
         const uint32_t pop_limit = static_cast<uint32_t>((std::min)(candidate_capacity,
             static_cast<size_t>(max_pops)));
         CountryEconomySnapshot sample = ReadCountryEconomyImpl(country, date_raw, nullptr, province_resolver,
-            resolver_context, true, true, &traversal_scratch, nullptr, province_limit, pop_limit, false);
+            resolver_context, true, true, &traversal_scratch, nullptr, province_limit, pop_limit, false, false);
         sample.destination_province_attempts = traversal_scratch.province_attempts;
         sample.destination_pop_attempts = traversal_scratch.pop_attempts;
         if ((sample.flags & SAMPLE_POP_LIMIT) == 0) {

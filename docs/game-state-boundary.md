@@ -101,12 +101,20 @@ The interest plugin performs a complete preflight before its first write:
 
 1. It collects typed POP candidates and computes a deterministic allocation in
    plugin-owned storage.
-2. It checks allocation conservation and invokes `PreparePopInterest` for every
-   nonzero payout.
-3. It calls `ApplyPopInterest` only after every preflight succeeds. Apply does
-   not re-resolve POP identity or ownership; it rechecks access, signature, the
-   bound address and amount, writable range, and preflight money snapshot, then
-   verifies the expected POP-money postconditions.
+2. It checks allocation conservation and submits every nonzero payout to
+   `ApplyPopInterestBatch` in deterministic order.
+3. The checked runtime validates callback access and the native signature,
+   snapshots every POP, checks every addition and writable range, and performs
+   no write unless the complete batch preflight succeeds.
+4. Immediately before the first write it rechecks callback access and the
+   native signature. Each native call then requires immediate expected
+   POP-money postconditions against its preflight snapshot.
+
+Callback, session, signature, and memory-page checks are amortized across this
+synchronous game-thread operation. The batch does not re-resolve POP identity
+or ownership. The checked API exposes no raw mutation primitive; native plugins
+remain trusted DLLs with arbitrary process access and are not sandboxed by this
+source boundary.
 
 Preflight does not reserve engine state and application is not transactional
 across several POPs. A later POP can fail after earlier writes succeeded. There

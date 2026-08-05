@@ -641,6 +641,23 @@ payout `20,472,000` across 1,115 post-write-verified POPs. The source save
 retained SHA-256
 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 
+## Checked batch performance
+
+Run `c6e8e7f2-2637-42df-963e-18496bda36b0` exercised the production
+`interest_bug_fix` and campaign runner for 3,650 exact days with diagnostics and
+telemetry disabled. Callback-scoped batch mutation amortized session, signature,
+and memory-region validation while retaining complete preflight and immediate
+per-POP postconditions. The focused collector omitted economy aggregates not
+consumed by payout policy, and zero-destination debtors completed before their
+otherwise empty AFTER processing.
+
+The process exited through the bounded native path after 366.829 seconds, or
+9.95 game days per second. Repeated full runs of the optimized path ranged from
+9.93 to 10.09 game days per second, so 10 is within run-to-run variation rather
+than a guaranteed floor. The previous production implementation on the same
+fixture took 496.4 seconds (7.35 game days per second). The source save and the
+pre-existing diagnostics CSV remained byte-for-byte unchanged.
+
 ## Remaining validation
 
 1. Map the complete bankruptcy refund accounting and the missing
