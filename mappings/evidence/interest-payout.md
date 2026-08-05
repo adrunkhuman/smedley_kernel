@@ -437,7 +437,13 @@ Possible statuses are `paid`, `invalid_pair`, `batch_invalid`, `day_incomplete`,
 `day_summary`, `day_partial`, `recipient_identity_invalid`, `collection_failed`,
 `no_eligible_savings`, `allocation_overflow`, `allocation_invalid`,
 `pop_balance_overflow`, `pop_not_writable`, `duplicate_pop`, `pop_identity_limit`,
-`postcondition_failed`, and `conservation_failed`.
+`mutation_unavailable`, `mutation_precondition_changed`, `partial_mutation`,
+`postcondition_failed`, and `conservation_failed`. `mutation_unavailable`
+disables later payouts because the callback, thread, phase, signature, or native
+runtime boundary is no longer trusted. `mutation_precondition_changed` is a
+pre-write revalidation failure. `partial_mutation` means at least one earlier
+POP in the recipient allocation was already written; no rollback is claimed and
+later payouts are disabled.
 `allocation_status` preserves
 the allocator's exact result. `reconciliation_failure` identifies why an
 `invalid_pair` debtor snapshot was rejected and is `none` for other result

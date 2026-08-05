@@ -235,20 +235,33 @@ TEST(InterestBugFixTest, ClassifiesMutationFailuresWithoutOverstatingPostconditi
     using interest_bug_fix::PopInterestFailureClass;
     using game_state::PopInterestMutationStatus;
 
-    EXPECT_EQ(interest_bug_fix::ClassifyPopInterestFailure(PopInterestMutationStatus::not_writable),
-        PopInterestFailureClass::not_writable);
-    EXPECT_EQ(interest_bug_fix::ClassifyPopInterestFailure(PopInterestMutationStatus::state_changed),
-        PopInterestFailureClass::precondition_changed);
-    EXPECT_EQ(interest_bug_fix::ClassifyPopInterestFailure(PopInterestMutationStatus::signature_mismatch),
-        PopInterestFailureClass::unavailable);
-    EXPECT_EQ(interest_bug_fix::ClassifyPopInterestFailure(PopInterestMutationStatus::postcondition_failed),
-        PopInterestFailureClass::postcondition_failed);
+    struct ExpectedFailure
+    {
+        PopInterestMutationStatus status;
+        PopInterestFailureClass failure;
+        bool unsafe;
+    };
+    constexpr ExpectedFailure failures[] = {
+        {PopInterestMutationStatus::invalid_context, PopInterestFailureClass::unavailable, true},
+        {PopInterestMutationStatus::invalid_phase, PopInterestFailureClass::unavailable, true},
+        {PopInterestMutationStatus::invalid_thread, PopInterestFailureClass::unavailable, true},
+        {PopInterestMutationStatus::invalid_amount, PopInterestFailureClass::precondition_changed, false},
+        {PopInterestMutationStatus::balance_unreadable, PopInterestFailureClass::balance, false},
+        {PopInterestMutationStatus::balance_overflow, PopInterestFailureClass::balance, false},
+        {PopInterestMutationStatus::not_writable, PopInterestFailureClass::not_writable, false},
+        {PopInterestMutationStatus::signature_mismatch, PopInterestFailureClass::unavailable, true},
+        {PopInterestMutationStatus::unavailable, PopInterestFailureClass::unavailable, true},
+        {PopInterestMutationStatus::state_changed, PopInterestFailureClass::precondition_changed, false},
+        {PopInterestMutationStatus::postcondition_failed, PopInterestFailureClass::postcondition_failed, true},
+    };
+    for (const auto &failure : failures) {
+        EXPECT_EQ(interest_bug_fix::ClassifyPopInterestFailure(failure.status), failure.failure);
+        EXPECT_EQ(interest_bug_fix::IsUnsafePopInterestFailure(failure.status), failure.unsafe);
+    }
     EXPECT_EQ(interest_bug_fix::ClassifyAppliedPopInterestFailure(PopInterestMutationStatus::state_changed, true),
         PopInterestFailureClass::partial_mutation);
     EXPECT_EQ(interest_bug_fix::ClassifyAppliedPopInterestFailure(PopInterestMutationStatus::state_changed, false),
         PopInterestFailureClass::precondition_changed);
-    EXPECT_FALSE(interest_bug_fix::IsUnsafePopInterestFailure(PopInterestMutationStatus::state_changed));
-    EXPECT_TRUE(interest_bug_fix::IsUnsafePopInterestFailure(PopInterestMutationStatus::invalid_thread));
     EXPECT_FALSE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(PopInterestMutationStatus::not_writable, false));
     EXPECT_TRUE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(PopInterestMutationStatus::state_changed, true));
     EXPECT_TRUE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(PopInterestMutationStatus::postcondition_failed, false));

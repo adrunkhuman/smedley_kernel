@@ -37,8 +37,18 @@ Defensive checks in the runtime are not new reverse-engineering evidence. They
 check the configured base, expected or registered code bytes, callback phase
 and thread, memory protection, snapshots, and postconditions. Executable
 identity validation remains an injection prerequisite, and these checks do not
-independently prove object identity. A supported-game smoke of the extracted
-reader/runtime path remains pending before making a new runtime claim.
+independently prove object identity.
+
+Supported-game run `fc6b57d5-9fc6-4feb-a261-f64511d8d2d9` exercised the checked
+runtime together with the telemetry `CPop::GiveMoney` hook for seven exact days.
+It produced 3,684 trace records with zero gaps, drops, or writer failures and 24
+successful recipient rows. Named bank transfer `92,874` produced exact POP
+payout `92,874,000`; all 4,955 paid POP postconditions passed. The campaign
+reached raw target `59883552`, exited through the native bounded-run path, and
+the source save retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+This validates the exercised path only, not arbitrary object identity or other
+plugin migrations.
 
 ## References and snapshots
 

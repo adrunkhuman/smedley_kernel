@@ -263,10 +263,18 @@ namespace smedley::game_state
         EXPECT_EQ(country_count, 99u);
         EXPECT_FALSE(smedley::game_state::ResolveCountry(GameState(game_state.data()), 0));
 
+        WritePointerVector(&game_state, 0xadc, country_begin, country_end, countries.data() + 1);
+        EXPECT_FALSE(ReadCountryCount(GameState(game_state.data()), &country_count));
+        EXPECT_EQ(country_count, 99u);
+        EXPECT_FALSE(smedley::game_state::ResolveCountry(GameState(game_state.data()), 0));
+
         const auto *misaligned_province_begin = reinterpret_cast<const std::byte *>(province_begin) + 1;
         const auto *misaligned_province_end = misaligned_province_begin + sizeof(void *);
         WritePointerVector(&game_state, 0xacc, misaligned_province_begin,
             misaligned_province_end, misaligned_province_end);
+        EXPECT_FALSE(smedley::game_state::ResolveProvince(GameState(game_state.data()), 0));
+
+        WritePointerVector(&game_state, 0xacc, province_begin, province_end, provinces.data() + 1);
         EXPECT_FALSE(smedley::game_state::ResolveProvince(GameState(game_state.data()), 0));
 
         WritePointerVector(&game_state, 0xacc, province_begin, province_end, province_end);

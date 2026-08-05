@@ -71,4 +71,27 @@ namespace
             first_address, original.data(), replacement.data(), replacement.size()));
         EXPECT_FALSE(smedley::memory::RegisterCodePatch(0, original.data(), replacement.data(), replacement.size()));
     }
+
+    TEST(CodePatchRegistryTest, RetainsOwnershipWhenActiveBytesBecomeUnknown)
+    {
+        std::array<uint8_t, 3> bytes{{0x55, 0x8b, 0xec}};
+        const std::array<uint8_t, 3> original = bytes;
+        const std::array<uint8_t, 3> replacement{{0xe9, 0x01, 0x02}};
+        const std::array<uint8_t, 3> unknown{{0xcc, 0xcc, 0xcc}};
+        const uintptr_t address = reinterpret_cast<uintptr_t>(bytes.data());
+
+        ASSERT_TRUE(smedley::memory::RegisterCodePatch(
+            address, original.data(), replacement.data(), replacement.size()));
+        bytes = unknown;
+        EXPECT_FALSE(smedley::memory::MatchesOriginalOrRegisteredCodePatch(
+            address, original.data(), original.size()));
+        EXPECT_FALSE(smedley::memory::UnregisterCodePatch(
+            address, original.data(), replacement.data(), replacement.size()));
+
+        bytes = replacement;
+        EXPECT_TRUE(smedley::memory::MatchesOriginalOrRegisteredCodePatch(
+            address, original.data(), original.size()));
+        EXPECT_TRUE(smedley::memory::UnregisterCodePatch(
+            address, original.data(), replacement.data(), replacement.size()));
+    }
 }

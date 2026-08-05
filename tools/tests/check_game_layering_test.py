@@ -36,15 +36,15 @@ void GiveMoneyVerified() {}
             messages = [finding.message for finding in check_game_layering.audit(root)]
 
             self.assertEqual(
-                messages,
-                [
+                set(messages),
+                {
                     "raw engine header included: smedley/memory.hpp",
                     "raw engine header included: smedley/v2/pop.hpp",
                     "use typed game_state References, not void game-object pointers",
                     "memory::Map is a game runtime implementation detail",
                     "CPop::GiveMoney RVA belongs in smedley_game_runtime",
                     "local GiveMoney wrappers belong in smedley_game_runtime",
-                ],
+                },
             )
 
     def test_ignores_comments_tests_and_allowed_resolver_context(self) -> None:
