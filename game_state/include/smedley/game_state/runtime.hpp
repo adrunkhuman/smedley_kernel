@@ -13,6 +13,7 @@ namespace smedley::game_state
 {
     enum class PopInterestMutationStatus
     {
+        // Among failures, only postcondition_failed can follow a native write.
         success,
         invalid_context,
         invalid_phase,
@@ -70,9 +71,19 @@ namespace smedley::game_state
             PopMoneySnapshot *after);
     };
 
+    /** Checks the complete verified POP money write span without writing it. */
     bool IsPopInterestWritable(PopRef pop);
+    /**
+     * Captures and validates one positive payout during the active AFTER callback.
+     * The result is bound to the supplied POP and amount and performs no write.
+     */
     PopInterestMutationStatus PreparePopInterest(
         DailyInterestAccess &access, PopRef pop, int64_t amount, PopInterestPreflight *preflight);
+    /**
+     * Revalidates a preflight and invokes the native operation synchronously.
+     * postcondition_failed means the native call occurred and may have written;
+     * every other failure is detected before this invocation writes.
+     */
     PopInterestMutationStatus ApplyPopInterest(
         DailyInterestAccess &access, PopRef pop, int64_t amount, const PopInterestPreflight &preflight,
         PopMoneySnapshot *after = nullptr);

@@ -3,7 +3,9 @@ target_include_directories(smedley_game_state PUBLIC include)
 
 add_library(smedley_game_runtime STATIC src/runtime.cpp)
 target_include_directories(smedley_game_runtime PUBLIC include)
-target_link_libraries(smedley_game_runtime PRIVATE smedley_kernel smedley_game_state)
+target_link_libraries(smedley_game_runtime
+  PUBLIC smedley_game_state
+  PRIVATE smedley_kernel)
 
 if(BUILD_TESTING)
   add_executable(smedley_game_state_tests tests/readers_test.cpp)

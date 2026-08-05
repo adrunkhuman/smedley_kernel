@@ -25,6 +25,7 @@ namespace smedley::game_state
     {
     public:
         Reference() = default;
+        // Construction labels an address; checked readers still establish accessibility and invariants.
         explicit Reference(const void *pointer) noexcept : pointer_(pointer) {}
 
         explicit operator bool() const noexcept { return pointer_ != nullptr; }

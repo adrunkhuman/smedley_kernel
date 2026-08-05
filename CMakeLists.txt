@@ -14,6 +14,18 @@ project("smedley")
 
 include(CTest)
 
+if(BUILD_TESTING)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  add_test(
+    NAME smedley_game_layering_audit
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/check_game_layering.py
+      --root ${PROJECT_SOURCE_DIR})
+  add_test(
+    NAME smedley_game_layering_tool_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tools/tests/check_game_layering_test.py)
+endif()
+
 if(NOT MSVC)
     message(FATAL_ERROR "Smedley currently requires the MSVC x86 toolchain")
 endif()
