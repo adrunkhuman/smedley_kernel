@@ -82,6 +82,14 @@ The caller owns the snapshot, can inspect its flags, and must treat a failed or
 partial read as unavailable rather than zero. Snapshotting is not a claim that
 the game object remains valid after the reader returns.
 
+Telemetry current-state, country, and province snapshots copy each requested
+field through guarded spans and validate foreign vector/list metadata before
+using it. Their availability flags are capture-group scoped: an unavailable
+relation or province-production container suppresses that group only, not an
+otherwise readable country or province snapshot. Telemetry records omit the
+unavailable selected group and account it as invalid; they never substitute a
+zero value.
+
 ## Interest mutation
 
 `DailyInterestAccess` is callback-scoped capability derived from the active
@@ -111,6 +119,90 @@ remains plugin policy: it defines eligibility, weighting, ordering, rounding,
 telemetry, and whether a failure disables the feature. A generic game-state
 service must not silently choose those gameplay semantics.
 
+## Pause mutation
+
+`PauseGame` owns the scripting pause engine boundary. It first requires the
+kernel's executable-identity verdict, then reads the current game-state and
+idler pointers through guarded spans, validates the `CInGameIdler` RTTI name,
+checks pause state `0` or `1`, checks the native pause prologue, invokes
+`TogglePause` only from state `0`, and requires immediate state-`1` readback.
+It retains no pointer. The scripting plugin owns only its one-slot request
+state, maps the checked statuses to its existing Lua-worker result messages,
+and unregisters its daily event handler before shutdown reporting.
+
+The existing C++ daily event remains the mutation-capable scheduling boundary.
+`ReadDailyUpdateSnapshot` consumes it inside `smedley_game_runtime` and returns
+only copied values. The plugin never calls `GetCountry` and receives no country
+or game-state reference while queueing Lua work. The separate public copied C
+event ABI remains observation-only.
+
+## Campaign runtime
+
+`smedley_game_runtime` owns the checked campaign runtime boundary. It returns a
+copied `CampaignRuntimeSnapshot` only after executable identity, current
+game-state/idler resolution, idler RTTI, readable date/speed/pause fields, and
+their supported ranges pass. The snapshot is synchronous and non-owning; an
+unavailable observation is not a zero date, speed, or pause value.
+
+`SetCampaignPaused`, `SetCampaignSpeedIndex`, and `RequestCampaignQuit` return
+explicit fail-closed statuses. Pause is the same generalized native transaction
+used by `PauseGame`, so scripting and campaign automation share RTTI, signature,
+and readback checks. Speed verifies both native handler bodies and every
+one-index readback. Quit verifies the idler vtable target and its request-flag
+postcondition. `SampleProcessMetrics` returns optional copied Windows process
+CPU and memory values; unavailable counters remain absent.
+
+`campaign_runner` retains benchmark decisions, timers, retries, logging,
+telemetry, and drain/quit policy. It owns no idler pointer, campaign date,
+pause/speed field, speed handler, quit vtable operation, or process-counter
+access for those responsibilities.
+
+## Frontend runtime
+
+`smedley_game_runtime` owns the checked frontend/main-menu boundary. It
+transactionally installs the supported constructor and scalar-deleting-destructor
+hooks, preserves their displaced prologues, and invalidates a capture before
+native storage can be released. A bundled runner receives only a generation-bound
+`FrontendControllerToken`, never a controller address. Every action rechecks the
+token, captured thread, exact controller vtable, bounded GUI lookup target, and
+native signal signatures before calling the engine.
+
+`FrontendSaveSnapshot` copies the selected basename and request/completion flags.
+The runner keeps filename policy and state-machine decisions; the runtime owns
+canonical empty-string validation, prepared engine-string lifetime transfer,
+save-flag mutation, and readback. Stale, cross-thread, malformed, or unsupported
+capabilities fail closed without signal dispatch or writes. The existing mapping
+claims remain `verified-runtime`; host tests cover only invalid metadata and API
+failure paths.
+
+## Observer runtime
+
+`smedley_game_runtime` owns the checked observer engine boundary.
+`ObserverStateSnapshot` and `ObserverCountrySnapshot` copy normalized tags,
+ordinals, existence, human-control, AI/scheduler, country-count, scheduler-count,
+and FOW state. They retain no country, AI, game-state, or container pointer.
+Malformed vectors, tags, control entries, scheduler entries, FOW bytes, or a
+missing in-game idler make the observation unavailable; plugins must not treat a
+failed observation as an empty country or disabled FOW.
+
+`ReturnObserverCountryToAI` re-resolves the copied country synchronously,
+requires the expected human-controlled/no-AI precondition, validates the native
+transition signature, and requires a restored scheduled AI on readback.
+`SetObserverViewCountry` requires a healthy AI target, writes only the camera
+tag, and requires unchanged human-control and scheduler counts on readback.
+These operations do not choose targets, retries, or watchdog actions.
+
+The runtime registers the legacy console-initialization event on behalf of the
+runner, extracts the raw manager there, and reports only a copied capture status.
+It validates and saves the native asynchronous `tag` handler, installs/removes
+the observer-safe `switch` command, copies command arguments and results, and
+validates/invokes `debug fow` with FOW readback. Retained manager use is bound to
+the captured `CurrentGameSession` epoch; a session change discards the manager
+without dereferencing stale storage and makes old handlers inert. A command
+record is reclaimed only after verified removal from a live manager; otherwise
+the runtime intentionally retains the small allocation rather than risk freeing
+engine-referenced storage. Runner callbacks receive no console object.
+
 ## Public boundaries
 
 Do not duplicate a public C API merely to expose game objects. The copied daily
@@ -125,16 +217,16 @@ they provide no third-party binary or source compatibility promise.
 
 ## Raw-access inventory
 
-This inventory starts from `498d674` and includes the checked interest-path
-migration on this branch; it is not a claim of fresh supported-game runtime
-validation.
+This inventory starts from `498d674` and includes all checked first-party plugin
+migrations on this branch. The migration-specific supported-game observations
+are recorded in the corresponding mapping evidence files.
 
 | Plugin | Registered raw adapter sources | Raw access owned there | Concrete follow-up boundary |
 | --- | --- | --- | --- |
 | `interest_bug_fix` | None | None. Creditor and POP payout uses typed readers, copied snapshots, `CurrentGameSession`, `DailyInterestAccess`, and checked preflight/apply mutation. | Keep new creditor/POP engine facts in `smedley_game_state`; keep payout eligibility and allocation in the plugin. |
-| `telemetry` | `plugin.cpp`, `economic_capture.cpp/.hpp`, `artisan_consumption_hook.cpp/.hpp`, `factory_consumption_hook.cpp/.hpp`, `factory_sales_hook.cpp/.hpp`, `pop_cash_flow_hook.cpp/.hpp` | Current-game/country/province ABI views; POP, artisan, factory consumption and sales hook RVAs; mapped field and stack offsets; engine object pointers; `memory::Map`; patch/trampoline code; x86 native hook assembly. | Move one verified hook or object conversion at a time to a named runtime adapter, preserving copied records, bounds, and hook evidence before removing each registration. |
-| `campaign_runner` | `campaign_launcher.cpp/.hpp` | Frontend, menu, idler, console, country, and campaign object views; raw string/vector ABI arguments; controller pointers; mapped fields, vtables, RTTI, RVAs, signatures, hooks, and x86 native calls. | Promote each validated observation or command separately; completion means orchestration no longer includes raw layout or memory headers for that action. |
-| `scripting` | `plugin.cpp` | Current-game/country views, idler RTTI and vtable inspection, pause RVA/signature validation, guarded memory reads, and the native pause call path. Lua allocator and userdata `void*` values in `scripting_runtime.cpp` are not engine objects. | Move the idler and pause operation into checked adapters while retaining copied Lua payloads and constrained queued operations; no Lua-visible object handle is required. |
+| `telemetry` | None | None. The telemetry module consumes typed `PopRef`/`FactoryRef` hook records plus copied current-state, country, and province snapshots. Current-state resolution, daily-event `CountryRef` conversion, checked object snapshotting, hook patch/trampoline code, and thread-quiescence/unload draining live under `game_state/`. | Keep capture selection, filtering, aggregation, and publication in the telemetry module; put any new engine read, hook, offset, or native call in `smedley_game_state` or `smedley_game_runtime`. |
+| `campaign_runner` | None | None. The runner retains observer target/policy decisions, switch parsing, retries, state transitions, logging, and telemetry. `smedley_game_runtime` owns frontend, console capture/command replacement/removal, checked copied callback arguments, annex/message hooks, popup counters, mappings, and native calls. | Keep future engine access in `smedley_game_state` or `smedley_game_runtime`; runner inputs and observations remain copied. |
+| `scripting` | None | None. Its C++ daily handler requests a copied `DailyUpdateSnapshot` from the runtime, queues plugin-owned `EventSnapshot` values, and maps the checked pause-operation result to its established worker log semantics. Lua allocator and userdata `void*` values in `scripting_runtime.cpp` are not engine objects. | Keep new engine facts in `smedley_game_state` or `smedley_game_runtime`; retain copied Lua payloads and constrained queued operations. |
 
 No first-party production source outside this table may include `smedley/v2`,
 `smedley/clausewitz`, `smedley/std`, or `smedley/memory.hpp`, access

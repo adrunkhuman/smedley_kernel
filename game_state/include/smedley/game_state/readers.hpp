@@ -312,6 +312,10 @@ namespace smedley::game_state
                              PopCandidate *candidates, size_t candidate_capacity,
                              uint32_t province_attempt_capacity, uint32_t *candidate_count,
                               CountryEconomySnapshot *quality);
+    bool CollectCountryPops(CountryRef country, GameStateRef game_state, int32_t date_raw,
+                            PopCandidate *candidates, size_t candidate_capacity,
+                            uint32_t province_attempt_capacity, uint32_t *candidate_count,
+                            CountryEconomySnapshot *quality);
     bool ReadPopMoneySnapshot(PopRef pop, PopMoneySnapshot *snapshot);
     bool ReadPopDetailSnapshot(PopRef pop, PopDetailSnapshot *snapshot);
     bool ReadPopIdentityDimensions(PopRef pop, PopIdentityDimensions *identity);

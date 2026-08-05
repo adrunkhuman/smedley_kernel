@@ -8,7 +8,7 @@ namespace telemetry_plugin
     using namespace smedley::game_state;
 
     EconomicSnapshot EconomicCapture::Collect(
-        const smedley::v2::CCurrentGameState *game_state, int32_t date)
+        GameStateRef game_state, int32_t date)
     {
         const auto started = std::chrono::steady_clock::now();
         EconomicSnapshot snapshot{};
@@ -17,8 +17,8 @@ namespace telemetry_plugin
             snapshot.collection_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::steady_clock::now() - started).count());
         };
-        const size_t slots = game_state->country_count();
-        if (slots == 0 || slots > static_cast<size_t>(max_world_countries) + 1) {
+        uint32_t slots = 0;
+        if (!ReadCountryCount(game_state, &slots) || slots == 0 || slots > max_world_countries + 1) {
             snapshot.snapshot_flags |= SNAPSHOT_COUNTRY_LIMIT;
             finish_timing();
             return snapshot;
@@ -26,8 +26,8 @@ namespace telemetry_plugin
 
         uint32_t candidate_count = 0;
         for (size_t ordinal = 1; ordinal < slots; ++ordinal) {
-            const auto *country = game_state->country(static_cast<int32_t>(ordinal));
-            const CountryEconomySnapshot credit_quality = ReadCountryEconomy(CountryRef{country}, date);
+            const CountryRef country = ResolveCountry(game_state, static_cast<int32_t>(ordinal));
+            const CountryEconomySnapshot credit_quality = ReadCountryEconomy(country, date);
             constexpr uint32_t credit_flag_mask = SAMPLE_SUM_OVERFLOW | SAMPLE_CREDITOR_VECTOR_INVALID
                 | SAMPLE_CREDITOR_UNREADABLE | SAMPLE_CREDITOR_TAG_INVALID;
             snapshot.credit_flags |= credit_quality.flags & credit_flag_mask;
@@ -35,7 +35,7 @@ namespace telemetry_plugin
             uint32_t collected = 0;
             const uint32_t province_remaining = snapshot.province_count >= max_sample_destination_provinces
                 ? 0 : max_sample_destination_provinces - snapshot.province_count;
-            if (!CollectCountryPops(CountryRef{country}, date, ResolveProvince, game_state,
+            if (!CollectCountryPops(country, game_state, date,
                     candidates_.data() + candidate_count, candidates_.size() - candidate_count,
                     province_remaining, &collected, &quality)) {
                 snapshot.snapshot_flags |= SNAPSHOT_COLLECTION_FAILED;
@@ -94,13 +94,8 @@ namespace telemetry_plugin
         return snapshot;
     }
 
-    ProvinceRef EconomicCapture::ResolveProvince(const void *context, int32_t id)
-    {
-        return ProvinceRef{static_cast<const smedley::v2::CCurrentGameState *>(context)->province(id)};
-    }
-
     PopulationCapture EconomicCapture::CollectPopulation(
-        const smedley::v2::CCurrentGameState *game_state, int32_t date)
+        GameStateRef game_state, int32_t date)
     {
         if (population_cached_ && cached_population_.date_raw == date) {
             PopulationCapture cached = cached_population_;
@@ -110,18 +105,18 @@ namespace telemetry_plugin
         const auto started = std::chrono::steady_clock::now();
         PopulationCapture capture{};
         capture.date_raw = date;
-        const size_t slots = game_state->country_count();
-        if (slots == 0 || slots > static_cast<size_t>(max_world_countries) + 1) {
+        uint32_t slots = 0;
+        if (!ReadCountryCount(game_state, &slots) || slots == 0 || slots > max_world_countries + 1) {
             capture.flags = SAMPLE_COUNTRY_UNREADABLE;
         } else {
             uint32_t candidate_count = 0;
             for (size_t ordinal = 1; ordinal < slots; ++ordinal) {
-                const auto *country = game_state->country(static_cast<int32_t>(ordinal));
+                const CountryRef country = ResolveCountry(game_state, static_cast<int32_t>(ordinal));
                 CountryEconomySnapshot quality{};
                 uint32_t collected = 0;
                 const uint32_t province_remaining = capture.province_count >= max_sample_destination_provinces
                     ? 0 : max_sample_destination_provinces - capture.province_count;
-                if (!CollectCountryPops(CountryRef{country}, date, ResolveProvince, game_state,
+                if (!CollectCountryPops(country, game_state, date,
                         candidates_.data() + candidate_count, candidates_.size() - candidate_count,
                         province_remaining, &collected, &quality)) {
                     capture.flags |= quality.flags == 0 ? SAMPLE_COUNTRY_UNREADABLE : quality.flags;

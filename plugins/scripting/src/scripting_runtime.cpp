@@ -8,6 +8,7 @@ extern "C" {
 
 #include <algorithm>
 #include <cerrno>
+#include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <limits>
@@ -376,6 +377,22 @@ namespace smedley::scripting
             }
         }
     };
+
+    bool CopyDailyEventSnapshot(const SmedleyDailyEventV1 &event, EventSnapshot *snapshot)
+    {
+        if (snapshot == nullptr || event.struct_size != sizeof(event)
+            || event.version != SMEDLEY_DAILY_EVENT_VERSION_V1) return false;
+        EventSnapshot value;
+        value.date_raw = event.game_date_raw;
+        value.treasury_raw = event.treasury_raw;
+        value.country_slot_count = event.country_slot_count;
+        value.ai_scheduler_entry_count = event.ai_scheduler_entry_count;
+        std::memcpy(value.country_tag.data(), event.country_tag, value.country_tag.size());
+        value.country_exists = event.has_owned_province != 0;
+        value.human_control_present = event.human_control_present != 0;
+        *snapshot = value;
+        return true;
+    }
 
     bool ValidateConfig(const Config &config, std::string *error)
     {

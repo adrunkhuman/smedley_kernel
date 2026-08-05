@@ -201,6 +201,35 @@ end
     EXPECT_EQ(runtime.stats().disabled_scripts, 0u);
 }
 
+TEST(ScriptingEventApiTest, CopiesTheDailyAbiSnapshot)
+{
+    SmedleyDailyEventV1 event{};
+    event.struct_size = sizeof(event);
+    event.version = SMEDLEY_DAILY_EVENT_VERSION_V1;
+    event.game_date_raw = 100;
+    event.treasury_raw = 32768;
+    event.country_slot_count = 272;
+    event.ai_scheduler_entry_count = 271;
+    event.country_tag[0] = 'E';
+    event.country_tag[1] = 'N';
+    event.country_tag[2] = 'G';
+    event.has_owned_province = 1;
+    event.human_control_present = 1;
+    scripting::EventSnapshot snapshot;
+
+    ASSERT_TRUE(scripting::CopyDailyEventSnapshot(event, &snapshot));
+    EXPECT_EQ(snapshot.date_raw, 100);
+    EXPECT_EQ(snapshot.treasury_raw, 32768);
+    EXPECT_EQ(snapshot.country_slot_count, 272u);
+    EXPECT_EQ(snapshot.ai_scheduler_entry_count, 271u);
+    EXPECT_EQ(snapshot.country_tag, (std::array<char, 4>{'E', 'N', 'G', '\0'}));
+    EXPECT_TRUE(snapshot.country_exists);
+    EXPECT_TRUE(snapshot.human_control_present);
+
+    event.version = 0;
+    EXPECT_FALSE(scripting::CopyDailyEventSnapshot(event, &snapshot));
+}
+
 TEST(ScriptingConfigTest, RejectsOutOfRangeLimits)
 {
     scripting::Config config;

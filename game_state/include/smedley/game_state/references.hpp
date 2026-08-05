@@ -27,6 +27,8 @@ namespace smedley::game_state
         Reference() = default;
         // Construction labels an address; checked readers still establish accessibility and invariants.
         explicit Reference(const void *pointer) noexcept : pointer_(pointer) {}
+        template <typename T>
+        explicit Reference(T *pointer) = delete;
 
         explicit operator bool() const noexcept { return pointer_ != nullptr; }
         uintptr_t address() const noexcept { return reinterpret_cast<uintptr_t>(pointer_); }

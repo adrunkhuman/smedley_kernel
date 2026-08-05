@@ -1,13 +1,14 @@
 #include "campaign_launcher.hpp"
 #include "campaign_launch_arguments.hpp"
 
-#include <smedley/events/console.hpp>
+#include <smedley/game_state/runtime.hpp>
 #include <smedley/plugin.hpp>
 
 #include <shellapi.h>
 #include <windows.h>
 
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -35,11 +36,9 @@ namespace campaign_runner
         void OnLoad() override
         {
             launcher_ = std::make_unique<CampaignLauncher>(logger());
-            AddEventHandler<smedley::events::ConsoleCmdManagerInitEvent>(
-                "campaign_runner_console",
-                [this](smedley::events::ConsoleCmdManagerInitEvent &event) {
-                    launcher_->CaptureConsoleCommandManager(event.cmd_mgr());
-                });
+            if (!smedley::game_state::RegisterCampaignConsoleCapture(this)) {
+                throw std::runtime_error("campaign console capture registration failed");
+            }
             CampaignLaunchArguments arguments;
             std::string error;
             if (!ParseCommandLineArguments(&arguments, &error)) {
@@ -58,7 +57,7 @@ namespace campaign_runner
 
         void OnUnload() override
         {
-            RemoveEventHandler<smedley::events::ConsoleCmdManagerInitEvent>("campaign_runner_console");
+            smedley::game_state::UnregisterCampaignConsoleCapture(this);
             if (launcher_ != nullptr) {
                 launcher_->Stop();
             }

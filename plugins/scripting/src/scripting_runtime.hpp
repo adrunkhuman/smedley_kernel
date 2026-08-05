@@ -12,6 +12,8 @@
 #include <thread>
 #include <vector>
 
+#include <smedley/event_api.h>
+
 namespace smedley::scripting
 {
     constexpr int kMinInstructionBudget = 1'000;
@@ -41,6 +43,8 @@ namespace smedley::scripting
         bool country_exists = false;
         bool human_control_present = false;
     };
+
+    bool CopyDailyEventSnapshot(const SmedleyDailyEventV1 &event, EventSnapshot *snapshot);
 
     struct Stats
     {

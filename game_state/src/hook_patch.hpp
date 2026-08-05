@@ -1,12 +1,40 @@
 #pragma once
 
+#include <smedley/executable_identity.hpp>
+#include <smedley/memory.hpp>
+
+#include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 #include <Windows.h>
 #include <TlHelp32.h>
 
-namespace telemetry_plugin
+namespace smedley::game_state
 {
+    inline bool ResolveSupportedGameAddress(uintptr_t rva, uintptr_t *address, std::string *error) noexcept
+    {
+        const uintptr_t base = smedley::memory::Map::base_addr;
+        if (!smedley::IsCurrentExecutableSupported() || base == 0
+            || rva > (std::numeric_limits<uintptr_t>::max)() - base || address == nullptr) {
+            if (error != nullptr) *error = "supported game module is unavailable";
+            return false;
+        }
+        *address = base + rva;
+        return true;
+    }
+
+    inline bool MatchesReadableBytes(uintptr_t address, const void *expected, size_t size) noexcept
+    {
+        if (address == 0 || expected == nullptr || size == 0
+            || size > (std::numeric_limits<uintptr_t>::max)() - address) return false;
+        __try {
+            return std::memcmp(reinterpret_cast<const void *>(address), expected, size) == 0;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return false;
+        }
+    }
+
     class ScopedThreadQuiescence
     {
     public:

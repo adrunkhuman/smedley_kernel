@@ -1,4 +1,4 @@
-#include "factory_sales_hook.hpp"
+#include <smedley/game_state/factory_sales_hook.hpp>
 #include "hook_patch.hpp"
 
 #include <smedley/memory.hpp>
@@ -10,7 +10,7 @@
 #include <cstring>
 #include <limits>
 
-namespace telemetry_plugin
+namespace smedley::game_state
 {
     namespace
     {
@@ -37,7 +37,7 @@ namespace telemetry_plugin
                 return;
             }
             __try {
-                record.factory = factory;
+                record.factory = FactoryRef{static_cast<const void *>(factory)};
                 std::memcpy(&record.proceeds_raw, call_stack + 0x0c, sizeof(int64_t));
                 const auto *factory_bytes = static_cast<const uint8_t *>(factory);
                 std::memcpy(&record.produced_raw, factory_bytes + 0x00d8, sizeof(int64_t));
@@ -88,7 +88,7 @@ namespace telemetry_plugin
         bool WriteBytes(uintptr_t address, const std::array<uint8_t, 5> &expected,
                         const std::array<uint8_t, 5> &replacement, std::string *error)
         {
-            if (std::memcmp(reinterpret_cast<const void *>(address), expected.data(), expected.size()) != 0) {
+            if (!MatchesReadableBytes(address, expected.data(), expected.size())) {
                 *error = "factory sales hook bytes do not match the supported executable";
                 return false;
             }
@@ -119,10 +119,9 @@ namespace telemetry_plugin
             *error = "factory sales hook is already installed or has an unrecoverable patch state";
             return false;
         }
-        const uintptr_t base = smedley::memory::Map::base_addr;
-        if (base == 0) { *error = "game module is unavailable"; return false; }
-        const uintptr_t callsite = base + settlement_call_rva;
-        settlement = base + settlement_rva;
+        uintptr_t callsite = 0;
+        if (!ResolveSupportedGameAddress(settlement_call_rva, &callsite, error)
+            || !ResolveSupportedGameAddress(settlement_rva, &settlement, error)) return false;
         std::array<uint8_t, 5> hook{};
         if (!CallBytes(callsite, reinterpret_cast<const void *>(&SettlementHook), &hook)) {
             *error = "factory sales hook target is out of range";
@@ -155,7 +154,8 @@ namespace telemetry_plugin
         if (error == nullptr) return false;
         if (!installed) return true;
         InterlockedExchange(&active, 0);
-        const uintptr_t callsite = smedley::memory::Map::base_addr + settlement_call_rva;
+        uintptr_t callsite = 0;
+        if (!ResolveSupportedGameAddress(settlement_call_rva, &callsite, error)) return false;
         std::array<uint8_t, 5> hook{};
         if (!CallBytes(callsite, reinterpret_cast<const void *>(&SettlementHook), &hook)) {
             *error = "factory sales hook target is out of range";

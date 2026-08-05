@@ -39,14 +39,13 @@ target_include_directories(smedley_lua51 PUBLIC ${lua51_SOURCE_DIR}/src)
 
 add_library(smedley_scripting_core STATIC src/scripting_runtime.cpp)
 target_link_libraries(smedley_scripting_core PUBLIC smedley_lua51)
-target_include_directories(smedley_scripting_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_include_directories(smedley_scripting_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src" "${PROJECT_SOURCE_DIR}/include")
 target_compile_definitions(smedley_scripting_core PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 
 add_library(scripting MODULE src/plugin.cpp)
 set_target_properties(scripting PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
-target_link_libraries(scripting PRIVATE smedley_kernel smedley_scripting_core shell32)
+target_link_libraries(scripting PRIVATE smedley_game_runtime smedley_kernel smedley_scripting_core shell32)
 target_include_directories(scripting PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
-smedley_allow_raw_plugin_sources(scripting src/plugin.cpp)
 
 if(BUILD_TESTING)
   add_executable(smedley_scripting_tests tests/scripting_runtime_test.cpp)

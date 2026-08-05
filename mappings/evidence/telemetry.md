@@ -1,5 +1,33 @@
 # Telemetry mapping evidence
 
+## Adapter ownership
+
+Telemetry raw adapters are implemented under `game_state/`: current-state,
+daily-event `CountryRef` conversion, and copied country/province snapshots in
+the telemetry runtime adapter; POP, artisan, factory-consumption, and
+factory-sales hooks are in `smedley_game_runtime`. The telemetry module receives
+typed `PopRef`/`FactoryRef` records or copied reader snapshots and retains
+capture, filtering, aggregation, and publication policy.
+This ownership move preserves the evidence levels below; the post-migration
+smoke records operation of the moved boundaries but does not promote their
+existing mapping quality.
+
+The adapter copies fields through guarded spans and validates vector/list
+metadata with the existing reader bounds before reporting a capture group.
+Malformed metadata makes only that group unavailable; it does not promote the
+underlying layout evidence or turn an unavailable value into zero.
+
+Post-migration run `01edd2fb-4c64-468b-8db9-efeefecc7b05` used the exact
+supported executable, unmodified `benchmark.v2`, observer campaign automation,
+and three daily FRA/all-country capture rules. It exercised factory consumption
+and sales, artisan consumption, and POP cash-flow hooks together for three exact
+days. The trace contained 13,308 ordered records with zero gaps, drops, writer
+failure, or family-invalid results. `state.factory` accepted 61 records,
+`pop.artisan` accepted 2,083, and `pop.cashflow.aggregate` accepted 11,132. The
+run paused at raw target `59883456`, drained telemetry, exited natively, and
+retained source-save SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
 ## Raw Game-Date Units
 
 `CGameState+0x0b0c` is exposed as `game_date_raw` with `provisional` quality.

@@ -141,7 +141,7 @@ TEST(InterestBugFixTest, CompletesTransferAfterCreditorEntryDisappears)
     before.destination_bank_interest_raw = 100;
 
     auto after = game_state::ReadCountryCreditorBalances(
-        before, game_state::CountryRef{debtor.data()}, 1234, ResolveCountry, &lookup);
+        before, game_state::CountryRef{static_cast<const void *>(debtor.data())}, 1234, ResolveCountry, &lookup);
     ASSERT_EQ(after.flags, 0u);
     ASSERT_EQ(after.creditor_destinations, 1u);
     interest_bug_fix::DestinationTransferSummary summary{};
