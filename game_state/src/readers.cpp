@@ -182,22 +182,56 @@ namespace smedley::game_state
             uint32_t allocator;
         };
 
+        constexpr size_t pop_identity_table_capacity = 262144;
+
         struct TraversalScratch
         {
             std::array<int32_t, max_destination_provinces> province_ids{};
             std::array<uintptr_t, max_pops> pop_pointers{};
-            std::array<uintptr_t, max_pops> pop_identity_pointers{};
             std::array<int64_t, max_pops> pop_savings{};
+            // Generation tags retain duplicate detection without sorting every
+            // candidate set or clearing a large table for each country.
+            std::array<uintptr_t, pop_identity_table_capacity> pop_identity_entries{};
+            std::array<uint32_t, pop_identity_table_capacity> pop_identity_generations{};
             uint32_t province_attempts = 0;
             uint32_t province_id_count = 0;
             uint32_t pop_attempts = 0;
             uint32_t pop_pointer_count = 0;
+            uint32_t pop_identity_generation = 0;
+            bool duplicate_pop = false;
         };
 
         // The event runs synchronously on the game thread. Static storage keeps
         // this bounded identity set off the thread's stack without allocating
         // on the hot path.
         TraversalScratch traversal_scratch;
+
+        void BeginPopIdentitySet(TraversalScratch *scratch)
+        {
+            scratch->duplicate_pop = false;
+            ++scratch->pop_identity_generation;
+            if (scratch->pop_identity_generation == 0) {
+                scratch->pop_identity_generations.fill(0);
+                scratch->pop_identity_generation = 1;
+            }
+        }
+
+        bool InsertPopIdentity(TraversalScratch *scratch, uintptr_t address)
+        {
+            constexpr size_t mask = pop_identity_table_capacity - 1;
+            static_assert((pop_identity_table_capacity & mask) == 0);
+            size_t slot = static_cast<size_t>((address >> 4) * uintptr_t{2654435761u}) & mask;
+            for (size_t attempt = 0; attempt < pop_identity_table_capacity; ++attempt) {
+                if (scratch->pop_identity_generations[slot] != scratch->pop_identity_generation) {
+                    scratch->pop_identity_generations[slot] = scratch->pop_identity_generation;
+                    scratch->pop_identity_entries[slot] = address;
+                    return true;
+                }
+                if (scratch->pop_identity_entries[slot] == address) return false;
+                slot = (slot + 1) & mask;
+            }
+            return false;
+        }
 
         struct MemoryRegionCache
         {
@@ -482,7 +516,9 @@ namespace smedley::game_state
                         std::memcpy(&savings, pop_fields.data(), sizeof(savings));
                         std::memcpy(&next, pop_fields.data() + pop_next_offset - pop_savings_offset, sizeof(next));
                         scratch->pop_pointers[scratch->pop_pointer_count] = reinterpret_cast<uintptr_t>(pop);
-                        scratch->pop_identity_pointers[scratch->pop_pointer_count] = reinterpret_cast<uintptr_t>(pop);
+                        if (!InsertPopIdentity(scratch, reinterpret_cast<uintptr_t>(pop))) {
+                            scratch->duplicate_pop = true;
+                        }
                         scratch->pop_savings[scratch->pop_pointer_count] = savings;
                         ++scratch->pop_pointer_count;
                         AddChecked(savings, &sample->destination_pop_savings_raw, &sample->flags);
@@ -776,6 +812,7 @@ namespace smedley::game_state
         traversal_scratch.province_id_count = 0;
         traversal_scratch.pop_attempts = 0;
         traversal_scratch.pop_pointer_count = 0;
+        BeginPopIdentitySet(&traversal_scratch);
         CountryEconomySnapshot sample = ReadCountryEconomyImpl(
             country, date_raw, country_resolver, province_resolver, resolver_context,
             true, province_resolver != nullptr, &traversal_scratch, immediate_pop,
@@ -789,11 +826,7 @@ namespace smedley::game_state
             if (std::adjacent_find(traversal_scratch.province_ids.begin(), province_end) != province_end) {
                 sample.flags |= SAMPLE_DUPLICATE_PROVINCE;
             }
-            auto pop_end = traversal_scratch.pop_identity_pointers.begin() + traversal_scratch.pop_pointer_count;
-            std::sort(traversal_scratch.pop_identity_pointers.begin(), pop_end);
-            if (std::adjacent_find(traversal_scratch.pop_identity_pointers.begin(), pop_end) != pop_end) {
-                sample.flags |= SAMPLE_DUPLICATE_POP;
-            }
+            if (traversal_scratch.duplicate_pop) sample.flags |= SAMPLE_DUPLICATE_POP;
         }
         return sample;
     }
@@ -859,6 +892,7 @@ namespace smedley::game_state
         traversal_scratch.province_id_count = 0;
         traversal_scratch.pop_attempts = 0;
         traversal_scratch.pop_pointer_count = 0;
+        BeginPopIdentitySet(&traversal_scratch);
         const uint32_t province_limit = (std::min)(province_attempt_capacity, max_destination_provinces);
         const uint32_t pop_limit = static_cast<uint32_t>((std::min)(candidate_capacity,
             static_cast<size_t>(max_pops)));
@@ -872,11 +906,7 @@ namespace smedley::game_state
             if (std::adjacent_find(traversal_scratch.province_ids.begin(), province_end) != province_end) {
                 sample.flags |= SAMPLE_DUPLICATE_PROVINCE;
             }
-            auto pop_end = traversal_scratch.pop_identity_pointers.begin() + traversal_scratch.pop_pointer_count;
-            std::sort(traversal_scratch.pop_identity_pointers.begin(), pop_end);
-            if (std::adjacent_find(traversal_scratch.pop_identity_pointers.begin(), pop_end) != pop_end) {
-                sample.flags |= SAMPLE_DUPLICATE_POP;
-            }
+            if (traversal_scratch.duplicate_pop) sample.flags |= SAMPLE_DUPLICATE_POP;
         }
         if (traversal_scratch.pop_pointer_count > candidate_capacity) sample.flags |= SAMPLE_POP_LIMIT;
         *quality = sample;
