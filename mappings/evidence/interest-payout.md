@@ -759,10 +759,56 @@ retained 89.0 percent of paired baseline throughput.
 The final path performs full campaign cleanup only for a new session or after a
 failed payout, ignores native recapitalization callbacks before collection,
 walks POP lists only for positive state pools, validates country membership once
-per callback, uses generation-tagged daily identity storage, and amortizes
+per callback, uses generation-tagged per-bank identity storage, and amortizes
 signature and session checks across each prepared country. Checked writable
 state spans, native `CPop::GiveMoney`, immediate POP postconditions, exact
 state-pool conservation, and clear-after-success ordering remain active.
+
+## Century acceptance run
+
+The first 36,500-day diagnostic run exposed 5,496 valid second-bank payouts that
+the initial day-scoped POP identity guard rejected. The same state had received
+and cleared one pool, then native distribution from a later bank created a new
+pool for it during the same daily bank loop. Commit `c357fd9` narrowed the guard
+to one bank callback. Duplicate POPs across states in that callback remain
+rejected by both collection and mutation preflight, while a later independently
+created pool can pay the same depositor again.
+
+Run `73859a8f-c876-45ea-9622-4b9a5f61e319` repeated the complete 36,500-day
+fixture after that correction with campaign runner, `interest_bug_fix`, and
+diagnostics enabled. It reached the exact target and exited through the bounded
+native path in 5,104.095 seconds. The 7.1511 game days per second includes
+diagnostic formatting and writing a 938,029,562-byte CSV, so it is not a
+production throughput benchmark.
+
+The closed CSV had SHA-256
+`e1f26d99fabc3e5413f8a9ac84e7a496cb2fcd3c186d183698731b9ab8db322d`.
+Its 12,945,293 data rows covered 36,499 completed native bank-distribution dates;
+the campaign runner pauses at the final target before that date's bank pass.
+
+| Outcome | Count or raw total |
+| --- | ---: |
+| Successful state pools | 11,695,674 |
+| Verified POP writes | 144,643,153 |
+| Paid state-pool raw total | 122,721,581,891 |
+| Exact POP payout raw total | 122,721,581,891,000 |
+| `no_eligible_savings` pools | 1,213,120 |
+| Retained no-savings pool raw total | 38,472,078,485 |
+| Subsequent initialization discard raw total | 38,470,779,489 |
+| Full cleanup passes | 31,749 |
+
+Every paid row satisfied `paid_pop_count = verified_pop_count` and
+`payout_raw = state_pool_raw * 1000`, with successful allocation status. There
+were zero quality flags, result drops, collection failures, duplicate-POP
+failures, overflow failures, unavailable mutations, changed preconditions,
+partial mutations, postcondition failures, or conservation failures. The only
+non-paid outcomes were the documented `no_eligible_savings` guard; those pools
+were retained and discarded before a later pass. The small difference between
+retained and discarded totals consists of pools created near the final target
+without a subsequent pass.
+
+The source save remained unchanged at SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 
 ## Remaining validation
 
