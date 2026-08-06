@@ -201,6 +201,7 @@ namespace interest_bug_fix
     private:
         void OnBankInterest(smedley::events::BankInterestEvent &event)
         {
+            ReportWriterFailure();
             if (event.GetPhase() == smedley::events::BankInterestPhase::AFTER
                 && !event.DistributesToStates()) return;
             const auto started = std::chrono::steady_clock::now();
@@ -226,6 +227,7 @@ namespace interest_bug_fix
                             session_epoch_ = access.session_epoch();
                             needs_cleanup_ = true;
                             failure_logged_ = false;
+                            no_eligible_logged_ = false;
                         }
                         InitializeDailyPass(access, date_raw, started);
                     }
@@ -424,6 +426,11 @@ namespace interest_bug_fix
 
         void Publish(FixResult &result, std::chrono::steady_clock::time_point started)
         {
+            if (result.status == FixStatus::no_eligible_savings && !no_eligible_logged_) {
+                no_eligible_logged_ = true;
+                logger().Warn(std::string("interest fix discarded a state pool with no positive-savings POPs for ")
+                    + result.country_tag + " state " + std::to_string(result.state_id));
+            }
             if (result.status != FixStatus::initialized
                 && result.status != FixStatus::paid
                 && result.status != FixStatus::no_eligible_savings
@@ -479,7 +486,19 @@ namespace interest_bug_fix
             if (!debug_) return;
             stop_.store(true, std::memory_order_release);
             if (worker_.joinable()) worker_.join();
+            ReportWriterFailure();
             output_.flush();
+        }
+
+        void ReportWriterFailure() noexcept
+        {
+            if (!writer_failed_.load(std::memory_order_acquire) || writer_failure_logged_) return;
+            writer_failure_logged_ = true;
+            try {
+                logger().Failure("interest fix diagnostic output failed; subsequent results are being dropped");
+            } catch (...) {
+                // A secondary logging failure must not terminate plugin unload.
+            }
         }
 
         void WriteResults()
@@ -498,7 +517,6 @@ namespace interest_bug_fix
                             << dropped_.load(std::memory_order_relaxed) << '\n';
                     if (!output_) {
                         writer_failed_.store(true, std::memory_order_release);
-                        logger().Failure("interest fix diagnostic output failed; subsequent results are being dropped");
                         return;
                     }
                     wrote = true;
@@ -507,7 +525,6 @@ namespace interest_bug_fix
                     output_.flush();
                     if (!output_) {
                         writer_failed_.store(true, std::memory_order_release);
-                        logger().Failure("interest fix diagnostic flush failed; subsequent results are being dropped");
                         return;
                     }
                 }
@@ -528,6 +545,8 @@ namespace interest_bug_fix
         bool needs_cleanup_ = true;
         bool debug_ = false;
         bool failure_logged_ = false;
+        bool no_eligible_logged_ = false;
+        bool writer_failure_logged_ = false;
         uint64_t session_epoch_ = 0;
         DailyPopSet paid_pops_{};
         std::atomic<uint64_t> dropped_{0};
