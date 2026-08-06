@@ -2039,6 +2039,14 @@ namespace smedley::launcher
                 loaded.run_timeout_seconds = *value;
             }
             if (const auto value = table["detach"].value<bool>()) loaded.detach = *value;
+            if (table.contains("interest_fix_debug")) {
+                const auto value = table["interest_fix_debug"].value<bool>();
+                if (!value) {
+                    AddDiagnostic(diagnostics, "profile.schema", "interest_fix_debug must be a boolean", path);
+                    return false;
+                }
+                loaded.interest_fix_debug = *value;
+            }
             if (table.contains("telemetry_enabled")) {
                 const auto value = table["telemetry_enabled"].value<bool>();
                 if (!value) {
@@ -2298,6 +2306,7 @@ namespace smedley::launcher
         output << "script_instruction_budget = " << profile.script_instruction_budget << "\n";
         output << "script_memory_bytes = " << profile.script_memory_bytes << "\n";
         output << "script_queue_capacity = " << profile.script_queue_capacity << "\n";
+        output << "interest_fix_debug = " << (profile.interest_fix_debug ? "true" : "false") << "\n";
         for (const auto &rule : profile.telemetry_captures) {
             output << "\n[[telemetry_captures]]\n";
             output << "family = \"" << EscapeToml(rule.family) << "\"\n";
@@ -2361,6 +2370,8 @@ namespace smedley::launcher
                 else if (field.key == "instruction_budget") setting.value = static_cast<std::int64_t>(profile.script_instruction_budget);
                 else if (field.key == "memory_bytes") setting.value = static_cast<std::int64_t>(profile.script_memory_bytes);
                 else if (field.key == "queue_capacity") setting.value = static_cast<std::int64_t>(profile.script_queue_capacity);
+            } else if (manifest.id == "interest_bug_fix") {
+                if (field.key == "debug") setting.value = profile.interest_fix_debug;
             }
             settings.push_back(std::move(setting));
         }
@@ -2530,6 +2541,8 @@ namespace smedley::launcher
                 else if (setting.key == "instruction_budget") { profile->script_instruction_budget = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
                 else if (setting.key == "memory_bytes") { profile->script_memory_bytes = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
                 else if (setting.key == "queue_capacity") { profile->script_queue_capacity = static_cast<int>(std::get<std::int64_t>(value)); applied = true; }
+            } else if (manifest.id == "interest_bug_fix") {
+                if (setting.key == "debug") { profile->interest_fix_debug = std::get<bool>(value); applied = true; }
             }
             if (!applied) {
                 AddDiagnostic(diagnostics, "plugin.settings_unsupported", "setting is not mapped by this built-in profile adapter", manifest.manifest_path);
@@ -2605,6 +2618,7 @@ namespace smedley::launcher
             bool campaign_runner_selected = false;
             bool telemetry_selected = false;
             bool scripting_selected = false;
+            bool interest_fix_selected = false;
 
             std::vector<std::wstring> arguments = {plan.game_executable.wstring()};
             std::vector<fs::path> selected_descriptors;
@@ -2665,6 +2679,7 @@ namespace smedley::launcher
                     if (manifest.id == "campaign_runner") campaign_runner_selected = true;
                     if (manifest.id == "telemetry") telemetry_selected = true;
                     if (manifest.id == "scripting") scripting_selected = true;
+                    if (manifest.id == "interest_bug_fix") interest_fix_selected = true;
                     if (IsX86PE(manifest.module_path, &plan.diagnostics, "plugin module", true)) {
                         HasPluginExport(manifest.module_path, &plan.diagnostics);
                     }
@@ -2677,6 +2692,9 @@ namespace smedley::launcher
                 }
                 if (plan.profile.telemetry_enabled && !telemetry_selected) {
                     AddDiagnostic(&plan.diagnostics, "telemetry.plugin", "telemetry requires the telemetry plugin");
+                }
+                if (plan.profile.interest_fix_debug && !interest_fix_selected) {
+                    AddDiagnostic(&plan.diagnostics, "interest_fix.plugin", "interest_fix_debug requires the interest_bug_fix plugin");
                 }
                 std::vector<fs::path> resolved_scripts;
                 const auto script_root = plan.profile.game_dir / L"scripts";
@@ -2821,6 +2839,9 @@ namespace smedley::launcher
                     arguments.push_back(L"-smedley-script-instruction-budget=" + std::to_wstring(plan.profile.script_instruction_budget));
                     arguments.push_back(L"-smedley-script-memory-bytes=" + std::to_wstring(plan.profile.script_memory_bytes));
                     arguments.push_back(L"-smedley-script-queue-capacity=" + std::to_wstring(plan.profile.script_queue_capacity));
+                }
+                if (plan.profile.interest_fix_debug && interest_fix_selected) {
+                    arguments.push_back(L"-smedley-interest-fix-debug=1");
                 }
             } else {
                 if (!plan.profile.plugins.empty()) AddWarning(&plan.diagnostics, "safe_mode.plugins_ignored", "plugins are ignored when injection is disabled");

@@ -63,7 +63,7 @@ All addresses below are RVAs in the cataloged Victoria II 3.04 executable.
 | State constructor `0x000cdc60` | `verified-static-callsites` | Three callers allocate `0x290` bytes. The constructor initializes 64-bit slots `+0x258` and `+0x260` to zero. |
 | State province vector `+0x48` | `verified-runtime` | Current code and the destination POP run agree that its four-byte elements are game-state province indices. All 346-661 destination provinces per creditor-bearing sample resolved to readable province POP vectors with no quality flag. |
 | State savings `+0x258` | `verified-runtime` | Current code converts POP savings through the global `1000.0` scale when updating this 64-bit state value. Across 12 live destination samples, summed `POP+0x250 / 1000` tracked it within 19-116 raw state units. |
-| State interest candidate `+0x260` | `provisional` | Its 64-bit shape and changing live values are established, but the `interest_payments` economic label still lacks an independently observed state-to-POP transfer. |
+| State interest pool `+0x260` | `verified-runtime` | Save serialization names the field `interest`. `CBank::DistributeInterest` at RVA `0x000f5bf0` adds savings-weighted state shares to it, and live daily snapshots observed the resulting accumulation. No state-to-POP consumer has been found. |
 | Province POP-list vector `+0x194` | `verified-runtime` | Current code indexes 16-byte list elements from `+0x194/+0x198`. The destination run walked exactly 13 list records for each of 346-661 resolved provinces without a mismatch. |
 | POP size and linked-list next | `verified-runtime` | Creation allocates `0x288` bytes, current list walks use next at `+0x27c`, and the destination run walked 2,635-5,565 entries per creditor-bearing sample with exact list count/tail agreement. |
 | POP savings `+0x250` and scale | `verified-runtime` | Current code divides this signed 64-bit value by fixed-point `1000.0` at RVA `0x00b0b168` when updating state `+0x258`. The live aggregate correlation confirms the scale while exposing small accumulated bookkeeping/rounding differences. |
@@ -301,16 +301,17 @@ The five complete nonzero cross-date transitions were:
 In every transition, global bank `+0x20` was zero at the next first-country
 entry. The engine therefore clears the complete `71,785` raw bank accumulator
 inside this bracket, while aggregate state `+0x260` rises by only `8,555`.
-Those state changes may include other activity, so this result proves neither a
-conversion ratio nor causation. It does prove that state `+0x260` is not an
-exact conserved representation of the cleared creditor interest and must not be
-used as the production payout total.
+Subsequent static analysis identified the split: banks whose 64-bit `+0x10`
+value is at most 33 add pending interest back to `+0x10`; banks above that
+threshold allocate it across states. State `+0x260` therefore intentionally is
+not an exact representation of all cleared creditor interest and must not be
+used as the production payout total without reproducing that policy.
 
-The production design should instead derive each payout from the exact
-per-destination bank delta across `PayDailyInterest`, which is already the
-verified debtor transfer amount. Depositor savings may determine shares, but
-must not determine or recompute the total interest. Both runs preserved the
-source-save hash and ended paused and responsive.
+The first production design therefore derived each payout from the exact
+per-destination bank delta across `PayDailyInterest`. Later static and runtime
+evidence below established that this bypasses native bank recapitalization and
+the intended bank-to-state allocation stage. Both runs preserved the source-save
+hash and ended paused and responsive.
 
 After adding the 512-country cap and extending callback timing over the global
 scans, one-day smoke run `f3416e70-4f81-46be-b389-6c3231ba60e9` produced all
@@ -318,6 +319,79 @@ scans, one-day smoke run `f3416e70-4f81-46be-b389-6c3231ba60e9` produced all
 unchanged source-save hash. The first and final global scans now appeared in
 `collection_us` at 3,376 and 3,370 microseconds respectively instead of being
 excluded from the reported callback cost.
+
+## Native state-interest pipeline
+
+`CBank::DistributeInterest` begins at VA `0x004f5bf0` (RVA `0x000f5bf0`). Its
+sole direct caller in the supported executable is the post-country loop at VA
+`0x00685f0f`, which loads every `CCountry+0xe88` bank after the country daily
+updates. The function reads the bank owner at `+0x08`, pending interest at
+`+0x20/+0x24`, and a denominator or reserve at `+0x10/+0x14`.
+
+For a positive pending amount, the native branches are:
+
+1. When bank `+0x10/+0x14` is at most the integer conversion of `33.268`, add
+   the pending amount back to that bank field.
+2. Otherwise walk `CCountry+0xe44`, weight the original pending amount by each
+   state's `+0x258/+0x25c` savings, clear the low 15 product bits before
+   dividing by bank `+0x10/+0x14`, clamp against the remaining pending amount,
+   and add the share to state `+0x260/+0x264`. The multiply and divide helpers
+   operate on signed 64-bit values, and division truncates toward zero.
+3. Clear bank `+0x20/+0x24` on every return path.
+
+The state loop maintains a remaining amount initialized to the positive pending
+amount. For each state it calculates a rounded share from the original pending
+amount, not from the remaining amount. A share no larger than the remaining
+amount is added to the state and subtracted from the local remainder. A larger
+share is clamped to the complete remainder, but that branch does not zero the
+local remainder before continuing the linked-list walk. Native safety therefore
+depends on the bank denominator and state-savings weights preventing the clamp
+before the final state.
+
+The function does not transfer a positive final remainder anywhere before it
+clears bank `+0x20/+0x24`. Consequently the distributable branch has no exact
+conservation guarantee: fixed-point truncation can discard a residual, while a
+denominator smaller than the traversed savings total can reach the clamp before
+the final state and over-allocate. A replacement must consume the state-pool
+increments actually produced by native code rather than reimplementing this
+formula or assuming that their sum equals the bank's pending amount.
+
+The benchmark save independently serializes the adjacent state fields as
+`savings` and `interest`. A complete direct-displacement scan found state
+interest references for construction, copying, save parsing, save formatting,
+and this bank-to-state writer. It found no gameplay subtraction, clear, or POP
+payout consumer. This negative static result does not exclude an aliased
+indirect access, so it was checked against native POP cash-flow telemetry.
+
+Read-only run `96be486d-b7b3-4943-b423-49929ff8ee77` advanced the unmodified
+benchmark save for seven exact days with `world.economy.credit` and
+`pop.cashflow.aggregate` capture, without the interest-fix plugin. Its 30,275
+records had no sequence gap or drop. Aggregate state interest progressed
+`0, 0, 1,268, 2,817, 4,560, 6,481, 8,586`. The native POP cash-flow hook emitted
+12,805 component records, including 1,135 bank records, but zero records for
+interest index 7. The trace SHA-256 was
+`cc5de77502f92fa4c9faf7a863c12ca9cc469c687b8f3ed7580b1cf73d6b6b57`, and the
+source save remained unchanged.
+
+The supported executable therefore implements creditor-to-bank and
+bank-to-state interest stages, but current static and runtime evidence finds no
+state-to-POP stage. The replacement should preserve native bank
+recapitalization, discard serialized state-interest balances when a campaign
+session is first observed, and discard retained failed-payout balances before
+the next native daily bank-distribution pass. Initialization must preflight the
+complete bounded state traversal and enable payouts only after every pool has
+been cleared successfully. Each subsequently observed
+complete state pool should be distributed among that state's positive-savings
+POPs. Exact largest-remainder allocation in POP money scale preserves each
+native state total despite the independently observed difference between stored
+state savings and recomputed POP savings.
+
+The state pool should be cleared only after a complete checked payout. A failure
+before the first POP mutation retains the pool for the remainder of that pass.
+Any partial mutation or postcondition failure latches payouts off through the
+same pass: native `CPop::GiveMoney` calls across multiple POPs are not atomic, so
+retrying the full retained pool could double-pay POPs already mutated. The next
+daily pass discards any retained pool before re-enabling payouts.
 
 ## Individual destination run
 
@@ -352,8 +426,8 @@ state. It writes payout/remainder fields and ordering scratch supplied by its
 caller, clearing payout/remainder output before every valid-buffer result. Its
 contract defines the production allocator behavior:
 
-1. The payout total is the verified individual destination-bank delta multiplied
-   by the verified `1000:1` state-to-POP money scale.
+1. The payout total is the complete native state interest pool multiplied by the
+   verified `1000:1` state-to-POP money scale.
 2. Only destination POPs with strictly positive stored savings participate.
    Zero or negative savings receive zero.
 3. Each base payout is the integer floor of `total * POP savings / summed
@@ -374,101 +448,80 @@ contract defines the production allocator behavior:
    production plugin must verify that their exact sum equals `transfer * 1000`
    before applying any entry.
 
-This largest-remainder policy is deterministic, exactly conservative in POP
-money units, and does not depend on the drifting state `+0x258` aggregate or the
-nonconserved state `+0x260` candidate. Win32 Release unit tests cover exact
+This largest-remainder policy is deterministic and exactly conservative in POP
+money units relative to the native state pool. It does not require recomputed
+POP savings to equal the drifting state `+0x258` aggregate. Win32 Release unit tests cover exact
 conservation, remainder ordering and ties, nonpositive savings, an empty
 eligible set, and conservative overflow rejection. No production mutation uses
 the allocator unless the separate `interest_bug_fix` manifest is selected.
 
 ## Optional production fix
 
-`interest_bug_fix` subscribes to the exact `PayDailyInterest` boundary and is
-disabled unless explicitly selected. It conflicts with historical `v2up`.
+`interest_bug_fix` subscribes around the sole post-country
+`CBank::DistributeInterest` call at RVA `0x00285f0f` and is disabled unless
+explicitly selected. It conflicts with historical `v2up`.
 
 ### Production mutation contract
 
-The hot boundary copies only country, creditor, treasury, and destination-bank
-state. It accumulates exact positive destination deltas by recipient ordinal and
-classifies self-tagged amounts as domestic and other named amounts as foreign.
-After every expected country pair for the date has completed, it processes each
-recipient once in ascending ordinal order:
+The callsite trampoline preserves registers and flags, dispatches a callback
+before native distribution only at loop index zero, and invokes the original
+function exactly once. It dispatches an after callback whenever the bank entered
+the native call with positive pending interest and marks whether its pre-call
+reserve selected the mapped state-distribution branch rather than bank
+recapitalization. The fix ignores recapitalization callbacks before game-state
+collection; other event subscribers retain the complete boundary.
+On the first trusted callback for a newly observed campaign session, the fix
+preflights every bounded state pool, discards serialized balances, and enables
+payouts only after all clears succeed. A failed or incomplete payout schedules
+the same cleanup before the next daily pass; a successful pass already leaves
+every consumed pool zero. Native recapitalization and bank-to-state allocation
+run unchanged.
 
-1. requires each debtor's individual nonzero-ordinal bank deltas to sum exactly;
-    ordinal-zero flows have no named destination and remain untouched and
-    unallocated;
-   duplicate destination ordinals collapse into one destination. At most 512
-   unique destinations are retained; the 513th sets
-   `SAMPLE_CREDITOR_DESTINATION_LIMIT` and rejects the debtor before mutation;
-2. sums transfers with checked arithmetic and retains no game pointers across
-   callbacks;
-3. traverses at most 4,096 recipient provinces and 100,000 POPs, rejecting
-   duplicate POP identities across the completed day;
-4. computes every payout in preallocated storage and requires their sum to equal
-   the bank transfer multiplied by 1,000;
-5. verifies all known `CPop::GiveMoney` write ranges are writable and all money
-   and cash-flow additions are representable before the first call; and
-6. invokes cash-flow index 7 in deterministic destination/province/list/POP
-   order, then verifies each POP's exact money, slot 7, total-flow, and unchanged
-   savings postconditions.
+After native distribution, the fix first scans copied state candidates without
+walking POPs. Countries with no positive state pool return immediately. For a
+country with interest it:
 
-The post-call sample re-resolves the pre-call destination identities and reads
-their current bank values directly. A creditor entry repaid and removed by the
-original function therefore remains measurable without retaining its pointer or
-requiring the mutable creditor vector to keep the same order.
+1. traverses at most 512 states and 4,096 province references, validates bounded
+   province resolution and duplicate province identity for every state, and
+   walks at most 100,000 POPs only in states with positive pools while rejecting
+   malformed traversed containers and duplicate identities;
+2. allocates each complete positive state pool among that state's positive-savings
+   POPs and requires the exact payout sum to equal the pool multiplied by 1,000;
+3. preflights every `CPop::GiveMoney` range and arithmetic result before the first
+   native call;
+4. invokes cash-flow index 7 in deterministic state/province/list/POP order and
+   verifies each POP's exact money, slot 7, total-flow, and unchanged-savings
+   postconditions; and
+5. clears the unchanged state pool only after every POP postcondition succeeds.
 
-Any structural, identity, budget, overflow, destination-transfer, or
-writable-memory failure skips that debtor pair or recipient before mutation.
-Treasury before/after movement is not checked: the bankruptcy-construction path
-is identified inside `PayDailyInterest` and can alter that delta. The refund's
-complete economic accounting remains unmapped, so treasury movement is not a
-named-transfer conservation identity.
-
-A postcondition failure disables later payouts and is reported. Callbacks
-perform no file I/O; a bounded worker writes `interest_bug_fix.csv`.
+A failure before the first POP mutation retains the pool for the rest of that
+daily pass. Any partial mutation, native postcondition failure, or failed pool
+clear disables later payouts in the same pass because retrying the complete pool
+could double-pay a POP. The next first-country boundary performs a complete
+checked discard before resetting that latch. Callbacks perform no file I/O; a
+bounded worker writes `interest_bug_fix.csv` only in diagnostic mode.
 
 The exact batched CSV header is:
 
 ```text
-date_raw,country,status,flags,source_count,pop_count,paid_pop_count,province_count,verified_pop_count,transfer_raw,domestic_transfer_raw,foreign_transfer_raw,payout_raw,allocation_status,callback_us,rejected_debtors,health_telemetry_result,value_telemetry_result,dropped_results,reconciliation_failure,reconciliation_creditor_count,reconciliation_destination_count,daily_max_creditor_count,daily_max_destination_count
+date_raw,country,state_id,status,flags,state_count,province_count,pop_count,paid_pop_count,verified_pop_count,state_pool_raw,payout_raw,discarded_raw,allocation_status,callback_us,health_telemetry_result,value_telemetry_result,dropped_results
 ```
 
-Possible statuses are `paid`, `invalid_pair`, `batch_invalid`, `day_incomplete`,
-`day_summary`, `day_partial`, `recipient_identity_invalid`, `collection_failed`,
+Possible statuses are `initialized`, `paid`, `collection_failed`,
 `no_eligible_savings`, `allocation_overflow`, `allocation_invalid`,
-`pop_balance_overflow`, `pop_not_writable`, `duplicate_pop`, `pop_identity_limit`,
+`pop_balance_overflow`, `pop_not_writable`, `duplicate_pop`,
 `mutation_unavailable`, `mutation_precondition_changed`, `partial_mutation`,
-`postcondition_failed`, and `conservation_failed`. `mutation_unavailable`
-disables later payouts because the callback, thread, phase, signature, or native
-runtime boundary is no longer trusted. `mutation_precondition_changed` is a
-pre-write revalidation failure. `partial_mutation` means at least one earlier
-POP in the recipient allocation was already written; no rollback is claimed and
-later payouts are disabled.
-`allocation_status` preserves
-the allocator's exact result. `reconciliation_failure` identifies why an
-`invalid_pair` debtor snapshot was rejected and is `none` for other result
-types. Its `flags` value combines both reconciliation snapshots with
-`INTEREST_RECONCILIATION_INVALID`; other result types retain their own snapshot
-flags. The reconciliation counts record the raw creditor vector and resolved
-unique destination counts from the pre-update snapshot on `invalid_pair` rows
-and are zero otherwise. Daily maximum fields are populated only on
-`day_summary` and `day_partial` rows. `dropped_results` is the cumulative bounded
-result-queue drop count when the row is written. Telemetry result codes
-follow the C ABI: 0 unavailable, 1 filtered, 2 accepted, 3 dropped, and 4
-invalid. `interest.fix.health` covers rejected debtor pairs, recipient outcomes,
-and one aggregate daily summary. Successful recipient rows remain complete in
-the CSV but are not duplicated into structured telemetry. `interest.fix.value`
-is emitted once only when every recipient for the day paid and the daily payout
-equals the named transfer multiplied by 1,000, so a failed or partial day cannot
-expose an intended payout as an observed result. On `day_partial`, transfer
-fields are attempted named-bank totals while payout and POP fields include only
-successful recipients; the individual failure rows identify every omission.
+`postcondition_failed`, `conservation_failed`, and `campaign_disabled`.
+`allocation_status` preserves the allocator's exact result. `dropped_results` is
+the cumulative bounded result-queue drop count when the row is written.
+Telemetry result codes follow the C ABI: 0 unavailable, 1 filtered, 2 accepted,
+3 dropped, and 4 invalid.
 
-The runtime evidence below through commit `f057bf5` describes the earlier
-per-debtor implementation. It remains provenance for mappings and exact
-mutation checks, not acceptance evidence for the batched implementation.
-`no_transfer` and `allocation_failed` below are historical per-debtor statuses;
-they are not part of the current batched CSV status vocabulary above.
+### Historical direct creditor implementation
+
+The runtime evidence below through commit `34b750f` describes the superseded
+creditor-bank implementation. It remains provenance for mappings, payout ABI,
+and exact mutation checks, not acceptance evidence for the state-pool design.
 
 Sixty-day regression run `b88ce485-ed56-4634-9bb0-0927b0a83117` exercised the
 ordinal-zero form after the diagnostic correction. It reached the exact target
@@ -639,6 +692,122 @@ All seven `interest.fix.health` summaries reported `flags=0`. Six days performed
 nonzero transfers; the final day reconciled raw transfer `20,472` to exact POP
 payout `20,472,000` across 1,115 post-write-verified POPs. The source save
 retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
+## Checked batch performance
+
+Run `c6e8e7f2-2637-42df-963e-18496bda36b0` exercised the production
+`interest_bug_fix` and campaign runner for 3,650 exact days with diagnostics and
+telemetry disabled. Callback-scoped batch mutation amortized session, signature,
+and memory-region validation while retaining complete preflight and immediate
+per-POP postconditions. The focused collector omitted economy aggregates not
+consumed by payout policy, and zero-destination debtors completed before their
+otherwise empty AFTER processing.
+
+The process exited through the bounded native path after 366.829 seconds, or
+9.95 game days per second. Repeated full runs of the optimized path ranged from
+9.93 to 10.09 game days per second, so 10 is within run-to-run variation rather
+than a guaranteed floor. The previous production implementation on the same
+fixture took 496.4 seconds (7.35 game days per second). The source save and the
+pre-existing diagnostics CSV remained byte-for-byte unchanged.
+
+## State-pool production validation
+
+Seven-day run `824f4a15-9f09-44a3-9c3f-908f5c8af6a4` exercised the production
+state-pool implementation with diagnostics enabled. All seven initialization
+passes covered 597 states. The run paid 48 complete state pools through 244
+verified POP writes with no quality flag, drop, mutation failure, or retained
+successful pool. Every paid row satisfied `payout_raw = state_pool_raw * 1000`.
+
+Matched 3,650-day lifecycle-only runs measured the cost from the same unchanged
+benchmark save:
+
+| Configuration | Run | Game days/s | Elapsed |
+| --- | --- | ---: | ---: |
+| No interest fix | `8cba1f79-f685-4827-91e9-5c27ba4f29c0` | 9.86682 | 369.927 s |
+| State-pool fix | `20053891-efd7-49e5-bc85-4c9544d46525` | 6.50531 | 561.080 s |
+
+Both traces completed at the exact target with zero sequence gaps, drops, or
+writer failures. Their SHA-256 values were respectively
+`6f9b00de663e4c995c67c2337036a4d56f055d2160a5a57522a28dae7f5486cd` and
+`e971f0bb23984dcaf41ff21e32213060a73c829d4d3449e2b7673d251350eec7`.
+The fix reduced throughput by 34.1 percent, or increased benchmark elapsed time
+by 51.7 percent. This is a material production cost, not telemetry loss: the
+fix performs checked native POP writes that the unmodified game omits.
+
+The source save retained SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`
+through all runs.
+
+## State-pool performance optimization
+
+Seven-day diagnostics run `ecbd9f74-c371-4995-b14c-3b7d0ad7ecf0` validated the
+optimized path. It performed one full session cleanup rather than seven daily
+campaign scans, paid 47 state pools through 180 verified POP writes, and had no
+failure, conservation error, or dropped result. Positive-pool country callback
+time totaled 12,898 microseconds, down from 29,829 microseconds before selective
+POP traversal on the same fixture shape.
+
+Final production run `1c0e4bc4-227e-41d6-861b-e308077c34ae` completed 3,650 exact
+days with diagnostics and telemetry disabled. Complete launcher-to-process-exit
+wall time was 339.478 seconds, a conservative 10.7518 game days per second that
+also includes launch, save loading, campaign entry, and shutdown. The matching
+no-fix Smedley configuration, run `1584444b-7c3f-4b3f-ad3e-70db4bf4d893`, took
+302.085 seconds or 12.0827 game days per second. The optimized fix therefore
+retained 89.0 percent of paired baseline throughput.
+
+The final path performs full campaign cleanup only for a new session or after a
+failed payout, ignores native recapitalization callbacks before collection,
+walks POP lists only for positive state pools, validates country membership once
+per callback, uses generation-tagged per-bank identity storage, and amortizes
+signature and session checks across each prepared country. Checked writable
+state spans, native `CPop::GiveMoney`, immediate POP postconditions, exact
+state-pool conservation, and clear-after-success ordering remain active.
+
+## Century acceptance run
+
+The first 36,500-day diagnostic run exposed 5,496 valid second-bank payouts that
+the initial day-scoped POP identity guard rejected. The same state had received
+and cleared one pool, then native distribution from a later bank created a new
+pool for it during the same daily bank loop. Commit `c357fd9` narrowed the guard
+to one bank callback. Duplicate POPs across states in that callback remain
+rejected by both collection and mutation preflight, while a later independently
+created pool can pay the same depositor again.
+
+Run `73859a8f-c876-45ea-9622-4b9a5f61e319` repeated the complete 36,500-day
+fixture after that correction with campaign runner, `interest_bug_fix`, and
+diagnostics enabled. It reached the exact target and exited through the bounded
+native path in 5,104.095 seconds. The 7.1511 game days per second includes
+diagnostic formatting and writing a 938,029,562-byte CSV, so it is not a
+production throughput benchmark.
+
+The closed CSV had SHA-256
+`e1f26d99fabc3e5413f8a9ac84e7a496cb2fcd3c186d183698731b9ab8db322d`.
+Its 12,945,293 data rows covered 36,499 completed native bank-distribution dates;
+the campaign runner pauses at the final target before that date's bank pass.
+
+| Outcome | Count or raw total |
+| --- | ---: |
+| Successful state pools | 11,695,674 |
+| Verified POP writes | 144,643,153 |
+| Paid state-pool raw total | 122,721,581,891 |
+| Exact POP payout raw total | 122,721,581,891,000 |
+| `no_eligible_savings` pools | 1,213,120 |
+| Retained no-savings pool raw total | 38,472,078,485 |
+| Subsequent initialization discard raw total | 38,470,779,489 |
+| Full cleanup passes | 31,749 |
+
+Every paid row satisfied `paid_pop_count = verified_pop_count` and
+`payout_raw = state_pool_raw * 1000`, with successful allocation status. There
+were zero quality flags, result drops, collection failures, duplicate-POP
+failures, overflow failures, unavailable mutations, changed preconditions,
+partial mutations, postcondition failures, or conservation failures. The only
+non-paid outcomes were the documented `no_eligible_savings` guard; those pools
+were retained and discarded before a later pass. The small difference between
+retained and discarded totals consists of pools created near the final target
+without a subsequent pass.
+
+The source save remained unchanged at SHA-256
 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
 
 ## Remaining validation

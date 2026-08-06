@@ -19,9 +19,12 @@ namespace interest_bug_fix
         constexpr size_t mask = daily_pop_set_capacity - 1;
         size_t slot = static_cast<size_t>((address >> 4) * uintptr_t{2654435761u}) & mask;
         for (size_t attempt = 0; attempt < daily_pop_set_capacity; ++attempt) {
-            if (entries_[slot] == address) return PointerInsertStatus::duplicate;
-            if (entries_[slot] == 0) {
+            if (generations_[slot] == generation_ && entries_[slot] == address) {
+                return PointerInsertStatus::duplicate;
+            }
+            if (generations_[slot] != generation_) {
                 entries_[slot] = address;
+                generations_[slot] = generation_;
                 ++size_;
                 return PointerInsertStatus::inserted;
             }
@@ -36,8 +39,8 @@ namespace interest_bug_fix
         constexpr size_t mask = daily_pop_set_capacity - 1;
         size_t slot = static_cast<size_t>((address >> 4) * uintptr_t{2654435761u}) & mask;
         for (size_t attempt = 0; attempt < daily_pop_set_capacity; ++attempt) {
+            if (generations_[slot] != generation_) return false;
             if (entries_[slot] == address) return true;
-            if (entries_[slot] == 0) return false;
             slot = (slot + 1) & mask;
         }
         return false;
@@ -45,7 +48,11 @@ namespace interest_bug_fix
 
     void DailyPopSet::Reset()
     {
-        entries_.fill(0);
+        ++generation_;
+        if (generation_ == 0) {
+            generations_.fill(0);
+            generation_ = 1;
+        }
         size_ = 0;
     }
 

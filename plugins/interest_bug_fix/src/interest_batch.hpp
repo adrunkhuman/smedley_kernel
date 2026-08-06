@@ -26,6 +26,8 @@ namespace interest_bug_fix
 
     private:
         std::array<uintptr_t, daily_pop_set_capacity> entries_{};
+        std::array<uint32_t, daily_pop_set_capacity> generations_{};
+        uint32_t generation_ = 1;
         size_t size_ = 0;
     };
 

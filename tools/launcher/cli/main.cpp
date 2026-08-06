@@ -41,6 +41,7 @@ struct Options
     std::optional<int> script_instruction_budget;
     std::optional<int> script_memory_bytes;
     std::optional<int> script_queue_capacity;
+    std::optional<bool> interest_fix_debug;
     bool dry_run = false;
     bool discover = false;
     bool history = false;
@@ -80,6 +81,7 @@ void PrintUsage()
         << "  --script-instruction-budget N  Per-callback Lua instruction limit (default: 100000)\n"
         << "  --script-memory-bytes N  Memory limit per Lua script (default: 8388608)\n"
         << "  --script-queue-capacity N  Bounded event queue from 16 through 4096 (default: 256)\n"
+        << "  --interest-fix-debug  Enable interest-fix CSV and telemetry diagnostics\n"
         << "  --detach        Return after Victoria 2 starts\n"
         << "  --discover      List GAME_DIR plugins and mods\n"
         << "  --history       List the 20 most recent launcher runs\n"
@@ -104,6 +106,7 @@ Options ParseArguments(int argc, wchar_t **argv)
         if (argument == L"--telemetry") { options.telemetry_enabled = true; continue; }
         if (argument == L"--no-telemetry") { options.telemetry_enabled = false; continue; }
         if (argument == L"--telemetry-overwrite") { options.telemetry_overwrite = true; continue; }
+        if (argument == L"--interest-fix-debug") { options.interest_fix_debug = true; continue; }
         if (argument == L"--speed" || argument == L"--telemetry-sample-days" || argument == L"--telemetry-queue-capacity"
             || argument == L"--telemetry-start-date-raw" || argument == L"--telemetry-end-date-raw"
             || argument == L"--run-days" || argument == L"--run-until-date-raw" || argument == L"--run-timeout-seconds"
@@ -312,6 +315,7 @@ int wmain(int argc, wchar_t **argv)
         if (options.script_instruction_budget) profile.script_instruction_budget = *options.script_instruction_budget;
         if (options.script_memory_bytes) profile.script_memory_bytes = *options.script_memory_bytes;
         if (options.script_queue_capacity) profile.script_queue_capacity = *options.script_queue_capacity;
+        if (options.interest_fix_debug) profile.interest_fix_debug = *options.interest_fix_debug;
         profile.mods.insert(profile.mods.end(), options.mods.begin(), options.mods.end());
         profile.plugins.insert(profile.plugins.end(), options.plugins.begin(), options.plugins.end());
         profile.scripts.insert(profile.scripts.end(), options.scripts.begin(), options.scripts.end());

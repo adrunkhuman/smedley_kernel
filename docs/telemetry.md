@@ -690,15 +690,15 @@ them to liquid balances can double-count value. `bank_interest_accumulator_raw`
 is the verified temporary destination of charged interest, not a national-bank
 cash balance. The plugin deliberately does not emit `world_money_supply`.
 
-With both `interest_bug_fix` and `telemetry` selected, the fix emits:
+With `interest_fix_debug` enabled and both `interest_bug_fix` and `telemetry`
+selected, the fix emits:
 
 | Event | Payload | Contract |
 | --- | --- | --- |
-| `interest.fix.health` | status, flags, source/province/POP counts, verified POP count, callback microseconds | One `---` daily aggregate plus any rejected debtor or recipient result. Complete paid-recipient detail remains in `interest_bug_fix.csv`. |
-| `interest.fix.value` | exact aggregate bank transfer, derived POP payout, domestic and foreign components | Emitted once for a fully successful day; failed or partial days emit no value record. |
+| `interest.fix.health` | status, flags, state ID, POP count, verified POP count, callback microseconds | One record for initialization and each nonzero state-pool outcome. Complete detail remains in `interest_bug_fix.csv`. |
+| `interest.fix.value` | state ID, consumed native state pool, derived POP payout, or initialization discard | Emitted for successful initialization and complete state payouts. Failed or partial payouts emit no value record. |
 
-Both records use `verified-runtime` quality. The health shape uses the ABI limit
-of eight combined entity/payload fields exactly. They use the reliable bounded
+Both records use `verified-runtime` quality. They use the reliable bounded
 emitter so lock contention alone cannot hide a fix result; unavailable,
 filtered, full-queue, or invalid telemetry remains independent of mutation and
 never changes whether the fix pays POPs. `interest_bug_fix.csv` records the two
@@ -706,9 +706,11 @@ telemetry result codes for independent diagnosis. This guarantee requires the
 bundled `SmedleyTelemetryEmitReliableV1`; an older compatible telemetry plugin
 without that symbol receives best-effort nonblocking publication.
 
-The fix CSV is separate from JSONL telemetry configuration. Selecting the fix
-opens and truncates `<GAME_DIR>/interest_bug_fix.csv`; telemetry output paths and
-overwrite policy do not change that fixed diagnostic file.
+The production interest fix creates no CSV, worker thread, or interest telemetry.
+Enable its advanced **interest-fix diagnostics** setting (CLI:
+`--interest-fix-debug`) only for a bounded investigation. That mode opens and
+truncates `<GAME_DIR>/interest_bug_fix.csv`; telemetry output paths and overwrite
+policy do not change that fixed diagnostic file.
 
 The project mapping inventory has historical status spellings, but telemetry
 uses only canonical project evidence levels.

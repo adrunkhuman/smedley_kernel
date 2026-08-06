@@ -1,6 +1,7 @@
 #include "event.hpp"
 #include "eventregistry.hpp"
 #include "events/console.hpp"
+#include "events/bankinterest.hpp"
 #include "events/dailyupdate.hpp"
 #include "events/dailyinterest.hpp"
 
@@ -13,6 +14,7 @@ using namespace smedley::events;
 DECLARE_REGISTRY(ConsoleCmdManagerInitEvent);
 DECLARE_REGISTRY(DailyUpdateEvent);
 DECLARE_REGISTRY(DailyInterestEvent);
+DECLARE_REGISTRY(BankInterestEvent);
 
 namespace smedley
 {

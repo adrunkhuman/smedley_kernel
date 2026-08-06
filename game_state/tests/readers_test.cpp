@@ -151,6 +151,15 @@ namespace smedley::game_state
             return {};
         }
 
+        ProvinceRef ResolveProvinceFromTable(const void *context, int32_t id)
+        {
+            const auto *table = static_cast<const CountryLookupTable *>(context);
+            for (size_t index = 0; index < table->count; ++index) {
+                if (table->entries[index].province_id == id) return Province(table->entries[index].province);
+            }
+            return {};
+        }
+
         CountryEconomySnapshot ReadResolvedCreditorDestinations(const std::vector<int32_t> &ordinals)
         {
             std::array<std::byte, 0xe9c> debtor{};
@@ -518,6 +527,11 @@ namespace smedley::game_state
         EXPECT_EQ(candidate_count, 1u);
         EXPECT_EQ(candidates[0].address.address(), reinterpret_cast<uintptr_t>(destination_pop.data()));
         EXPECT_EQ(candidates[0].savings_raw, destination_pop_savings);
+        EXPECT_EQ(pop_quality.state_savings_raw, 0);
+        EXPECT_EQ(pop_quality.state_interest_raw, 0);
+        EXPECT_EQ(pop_quality.bank_interest_raw, 0);
+        EXPECT_EQ(pop_quality.destination_pop_savings_raw, 0);
+        EXPECT_EQ(pop_quality.destination_pop_savings_state_scale_raw, 0);
         EXPECT_EQ(pop_quality.flags, 0u);
 
         pop_lists[0].count = 2;
@@ -541,6 +555,169 @@ namespace smedley::game_state
             Country(debtor.data()), 1234, ResolveCountry, ResolveProvince, &lookup);
         EXPECT_NE(duplicate.flags & SAMPLE_DUPLICATE_PROVINCE, 0u);
         EXPECT_NE(duplicate.flags & SAMPLE_DUPLICATE_POP, 0u);
+        EXPECT_EQ(duplicate.flags & SAMPLE_CREDITOR_DESTINATION_INVALID, 0u);
+        EXPECT_EQ(duplicate.creditor_destinations, 1u);
+        EXPECT_EQ(duplicate.destination_bank_interest_raw, destination_bank_interest);
+        EXPECT_EQ(duplicate.destination_state_savings_raw, destination_state_savings);
+        EXPECT_EQ(duplicate.destination_pop_savings_raw, destination_pop_savings * 2);
+    }
+
+    TEST(GameStateReadersTest, DetectsSharedPopAcrossCreditorDestinationsAfterAggregation)
+    {
+        std::array<std::byte, 0x1608> debtor{};
+        std::array<std::byte, 0x1608> england{};
+        std::array<std::byte, 0x1608> france{};
+        std::array<std::byte, 0x28> england_creditor{};
+        std::array<std::byte, 0x28> france_creditor{};
+        std::array<std::byte, 0x28> england_bank{};
+        std::array<std::byte, 0x28> france_bank{};
+        std::array<std::byte, 0x290> england_state{};
+        std::array<std::byte, 0x290> france_state{};
+        std::array<std::byte, 0x1a0> province{};
+        std::array<std::byte, 0x288> pop{};
+        std::array<void *, 2> creditors{england_creditor.data(), france_creditor.data()};
+        std::array<int32_t, 1> province_ids{3};
+        std::array<PopList, 1> pop_lists{{{pop.data(), pop.data(), 1, 0}}};
+        Node england_node{england_state.data(), nullptr, nullptr, 0, {}};
+        Node france_node{france_state.data(), nullptr, nullptr, 0, {}};
+        const char debtor_tag[4] = {'S', 'W', 'E', '\0'};
+        const char england_tag[4] = {'E', 'N', 'G', '\0'};
+        const char france_tag[4] = {'F', 'R', 'A', '\0'};
+        const void *creditor_begin = creditors.data();
+        const void *creditor_end = creditors.data() + creditors.size();
+        const void *province_begin = province_ids.data();
+        const void *province_end = province_ids.data() + province_ids.size();
+        const void *pop_list_begin = pop_lists.data();
+        const void *pop_list_end = pop_lists.data() + pop_lists.size();
+
+        Write(&debtor, 0x1c, debtor_tag);
+        Write(&debtor, 0xe8c, creditor_begin);
+        Write(&debtor, 0xe90, creditor_end);
+        Write(&debtor, 0xe94, creditor_end);
+        Write(&england, 0x1c, england_tag);
+        Write(&england, 0x20, 7);
+        Write(&france, 0x1c, france_tag);
+        Write(&france, 0x20, 8);
+        Write(&england, 0xe44, &england_node);
+        Write(&england, 0xe48, &england_node);
+        Write(&england, 0xe4c, 1);
+        Write(&france, 0xe44, &france_node);
+        Write(&france, 0xe48, &france_node);
+        Write(&france, 0xe4c, 1);
+        Write(&england, 0xe88, england_bank.data());
+        Write(&france, 0xe88, france_bank.data());
+        Write(&england_bank, 0x20, 40LL);
+        Write(&france_bank, 0x20, 60LL);
+        for (auto *state : {&england_state, &france_state}) {
+            Write(state, 0x48, province_begin);
+            Write(state, 0x4c, province_end);
+            Write(state, 0x50, province_end);
+        }
+        Write(&province, 0x194, pop_list_begin);
+        Write(&province, 0x198, pop_list_end);
+        Write(&province, 0x19c, pop_list_end);
+        Write(&pop, 0x250, 120000LL);
+        Write(&england_creditor, 0x08, england_tag);
+        Write(&england_creditor, 0x0c, 7);
+        Write(&england_creditor, 0x10, 15LL);
+        Write(&england_creditor, 0x18, 90LL);
+        Write(&england_creditor, 0x20, static_cast<uint8_t>(1));
+        Write(&france_creditor, 0x08, france_tag);
+        Write(&france_creditor, 0x0c, 8);
+        Write(&france_creditor, 0x10, 15LL);
+        Write(&france_creditor, 0x18, 90LL);
+        Write(&france_creditor, 0x20, static_cast<uint8_t>(1));
+        const std::array<CountryLookup, 2> entries{{{7, england.data(), 3, province.data()},
+            {8, france.data(), 3, province.data()}}};
+        const CountryLookupTable lookup{entries.data(), entries.size()};
+
+        const auto sample = ReadCountryEconomy(
+            Country(debtor.data()), 1234, ResolveCountryFromTable, ResolveProvinceFromTable, &lookup);
+        EXPECT_NE(sample.flags & SAMPLE_DUPLICATE_POP, 0u);
+        EXPECT_EQ(sample.flags & SAMPLE_CREDITOR_DESTINATION_INVALID, 0u);
+        EXPECT_EQ(sample.creditor_destinations, 2u);
+        EXPECT_EQ(sample.destination_bank_interest_raw, 100);
+        EXPECT_EQ(sample.destination_pop_savings_raw, 240000);
+    }
+
+    TEST(GameStateReadersTest, CollectsStateInterestPoolsWithStateScopedPops)
+    {
+        std::array<std::byte, 0xb10> game_state{};
+        std::array<std::byte, 0x1608> country{};
+        std::array<std::byte, 0x290> state{};
+        std::array<std::byte, 0x1a0> province{};
+        std::array<std::byte, 0x288> pop{};
+        std::array<void *, 1> provinces{province.data()};
+        std::array<int32_t, 1> province_ids{0};
+        std::array<PopList, 1> pop_lists{{{pop.data(), pop.data(), 1, 0}}};
+        Node node{state.data(), nullptr, nullptr, 0, {}};
+        const void *state_node = &node;
+        const int32_t state_count_reported = 1;
+        const int32_t state_id = 41;
+        const int64_t state_savings = 700;
+        const int64_t state_interest = 23;
+        const int64_t pop_savings = 9000;
+        const char tag[4] = {'E', 'N', 'G', '\0'};
+        const int32_t ordinal = 1;
+
+        WritePointerVector(&game_state, 0xacc, provinces.data(), provinces.data() + 1, provinces.data() + 1);
+        Write(&country, 0x1c, tag);
+        Write(&country, 0x20, ordinal);
+        Write(&country, 0xe44, state_node);
+        Write(&country, 0xe48, state_node);
+        Write(&country, 0xe4c, state_count_reported);
+        Write(&state, 0x0c, state_id);
+        WritePointerVector(&state, 0x48, province_ids.data(), province_ids.data() + 1, province_ids.data() + 1);
+        Write(&state, 0x258, state_savings);
+        Write(&state, 0x260, state_interest);
+        WritePointerVector(&province, 0x194, pop_lists.data(), pop_lists.data() + 1, pop_lists.data() + 1);
+        Write(&pop, 0x250, pop_savings);
+
+        std::array<StateInterestCandidate, 2> states{};
+        std::array<PopCandidate, 2> pops{};
+        uint32_t state_count = 0;
+        uint32_t pop_count = 0;
+        CountryEconomySnapshot quality{};
+        ASSERT_TRUE(CollectCountryStateInterest(Country(country.data()), GameState(game_state.data()), 1234,
+            states.data(), states.size(), &state_count, pops.data(), pops.size(),
+            max_sample_destination_provinces, &pop_count, &quality));
+        ASSERT_EQ(state_count, 1u);
+        ASSERT_EQ(pop_count, 1u);
+        EXPECT_EQ(states[0].state.address(), reinterpret_cast<uintptr_t>(state.data()));
+        EXPECT_EQ(states[0].state_id, state_id);
+        EXPECT_EQ(states[0].savings_raw, state_savings);
+        EXPECT_EQ(states[0].interest_raw, state_interest);
+        EXPECT_EQ(states[0].first_pop_index, 0u);
+        EXPECT_EQ(states[0].pop_count, 1u);
+        EXPECT_EQ(states[0].province_count, 1u);
+        EXPECT_EQ(pops[0].address.address(), reinterpret_cast<uintptr_t>(pop.data()));
+        EXPECT_EQ(pops[0].savings_raw, pop_savings);
+        EXPECT_EQ(quality.state_interest_raw, state_interest);
+        EXPECT_EQ(quality.destination_province_attempts, 1u);
+        EXPECT_EQ(quality.destination_pop_attempts, 1u);
+        EXPECT_EQ(quality.flags, 0u);
+
+        Write(&state, 0x260, int64_t{0});
+        pop_lists[0].count = 2;
+        state_count = 0;
+        pop_count = 0;
+        ASSERT_TRUE(CollectCountryStateInterest(Country(country.data()), GameState(game_state.data()), 1234,
+            states.data(), states.size(), &state_count, pops.data(), pops.size(),
+            max_sample_destination_provinces, &pop_count, &quality));
+        EXPECT_EQ(state_count, 1u);
+        EXPECT_EQ(pop_count, 0u);
+        EXPECT_EQ(states[0].pop_count, 0u);
+        EXPECT_EQ(quality.destination_province_attempts, 1u);
+        EXPECT_EQ(quality.destination_pop_attempts, 0u);
+        EXPECT_EQ(quality.flags, 0u);
+
+        state_count = 0;
+        pop_count = 0;
+        ASSERT_TRUE(CollectCountryStateInterest(Country(country.data()), GameState(game_state.data()), 1234,
+            states.data(), states.size(), &state_count, nullptr, 0, 0, &pop_count, &quality));
+        EXPECT_EQ(state_count, 1u);
+        EXPECT_EQ(pop_count, 0u);
+        EXPECT_EQ(states[0].pop_count, 0u);
     }
 
     TEST(GameStateReadersTest, ReadsCreditorDestinationBankWithoutStateTraversal)

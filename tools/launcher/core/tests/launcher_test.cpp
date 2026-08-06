@@ -80,6 +80,15 @@ namespace
                 / L"plugins" / L"scripting" / configuration_dir.filename() / L"scripting.dll";
         }
 
+        fs::path BuiltInterestFixPlugin() const
+        {
+            wchar_t executable[MAX_PATH];
+            EXPECT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
+            const auto configuration_dir = fs::path(executable).parent_path();
+            return fs::path(SMEDLEY_BUILD_DIR)
+                / L"plugins" / L"interest_bug_fix" / configuration_dir.filename() / L"interest_bug_fix.dll";
+        }
+
         fs::path BuiltAbiFixture() const
         {
             wchar_t executable[MAX_PATH];
@@ -258,7 +267,9 @@ TEST_F(LauncherCoreTest, ParsesBundledPluginSettingsSchemas)
     EXPECT_EQ(captures->item_schema, "telemetry_capture_v1");
     EXPECT_EQ(scripting->settings.fields.front().type, launcher::PluginSettingType::FileList);
     EXPECT_EQ(scripting->settings.fields.front().discovery_root, fs::path(L"scripts"));
-    EXPECT_TRUE(interest->settings.fields.empty());
+    ASSERT_EQ(interest->settings.fields.size(), 1u);
+    EXPECT_EQ(interest->settings.fields.front().key, "debug");
+    EXPECT_EQ(interest->settings.fields.front().type, launcher::PluginSettingType::Bool);
 }
 
 TEST_F(LauncherCoreTest, BuiltinSettingsAdapterRoundTripsAndPreservesTelemetryCaptures)
@@ -302,6 +313,7 @@ TEST_F(LauncherCoreTest, BuiltinSettingsAdapterRoundTripsAndPreservesTelemetryCa
     original.script_instruction_budget = 200000;
     original.script_memory_bytes = 4194304;
     original.script_queue_capacity = 128;
+    original.interest_fix_debug = true;
     launcher::Profile applied;
     applied.telemetry_captures = original.telemetry_captures;
     std::vector<launcher::Diagnostic> diagnostics;
@@ -322,6 +334,7 @@ TEST_F(LauncherCoreTest, BuiltinSettingsAdapterRoundTripsAndPreservesTelemetryCa
     EXPECT_EQ(applied.telemetry_captures[0].family, "world.daily");
     EXPECT_EQ(applied.scripts, original.scripts);
     EXPECT_EQ(applied.script_instruction_budget, original.script_instruction_budget);
+    EXPECT_EQ(applied.interest_fix_debug, original.interest_fix_debug);
     EXPECT_TRUE(diagnostics.empty());
 
     launcher::PluginManifest unknown;
@@ -787,6 +800,33 @@ TEST_F(LauncherCoreTest, WiresBenchmarkTargetsAndRejectsUnsafeCombinations)
     plan = launcher::BuildLaunchPlan(profile);
     EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
         return diagnostic.code == "safe_mode.run_target_ignored" && diagnostic.severity == launcher::Severity::Warning;
+    }));
+}
+
+TEST_F(LauncherCoreTest, EnablesInterestDiagnosticsOnlyWhenSelected)
+{
+    const auto plugin_binary = BuiltInterestFixPlugin();
+    ASSERT_TRUE(fs::is_regular_file(plugin_binary));
+    CopyBundledManifest("interest_bug_fix", "interest_bug_fix.dll");
+    fs::copy_file(plugin_binary, root / L"plugins" / L"interest_bug_fix.dll", fs::copy_options::overwrite_existing);
+    launcher::Profile profile;
+    profile.game_dir = root;
+    profile.plugins = {L"plugins/interest_bug_fix.toml"};
+
+    auto plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_EQ(plan.command_line.find(L"-smedley-interest-fix-debug=1"), std::wstring::npos);
+    EXPECT_FALSE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "interest_fix.plugin";
+    }));
+
+    profile.interest_fix_debug = true;
+    plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_NE(plan.command_line.find(L"-smedley-interest-fix-debug=1"), std::wstring::npos);
+
+    profile.plugins.clear();
+    plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "interest_fix.plugin";
     }));
 }
 

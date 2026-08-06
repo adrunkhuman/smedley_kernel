@@ -30,7 +30,10 @@ namespace telemetry_plugin
             const CountryEconomySnapshot credit_quality = ReadCountryEconomy(country, date);
             constexpr uint32_t credit_flag_mask = SAMPLE_SUM_OVERFLOW | SAMPLE_CREDITOR_VECTOR_INVALID
                 | SAMPLE_CREDITOR_UNREADABLE | SAMPLE_CREDITOR_TAG_INVALID;
+            constexpr uint32_t economy_flag_mask = SAMPLE_SUM_OVERFLOW
+                | SAMPLE_STATE_UNREADABLE | SAMPLE_BANK_UNREADABLE;
             snapshot.credit_flags |= credit_quality.flags & credit_flag_mask;
+            snapshot.collection_flags |= credit_quality.flags & economy_flag_mask;
             CountryEconomySnapshot quality{};
             uint32_t collected = 0;
             const uint32_t province_remaining = snapshot.province_count >= max_sample_destination_provinces
@@ -52,11 +55,11 @@ namespace telemetry_plugin
             snapshot.creditor_count += credit_quality.creditor_count;
             snapshot.creditors_was_paid += credit_quality.creditors_was_paid;
             if (credit_quality.creditor_count != 0) ++snapshot.countries_with_creditors;
-            if (quality.treasury_raw < 0) ++snapshot.countries_with_negative_treasury;
-            AddEconomicValue(quality.treasury_raw, &snapshot.treasury_observed_raw, &snapshot.snapshot_flags);
-            AddEconomicValue(quality.bank_interest_raw, &snapshot.bank_interest_accumulator_raw, &snapshot.snapshot_flags);
-            AddEconomicValue(quality.state_savings_raw, &snapshot.state_savings_candidate_raw, &snapshot.snapshot_flags);
-            AddEconomicValue(quality.state_interest_raw, &snapshot.state_interest_candidate_raw, &snapshot.snapshot_flags);
+            if (credit_quality.treasury_raw < 0) ++snapshot.countries_with_negative_treasury;
+            AddEconomicValue(credit_quality.treasury_raw, &snapshot.treasury_observed_raw, &snapshot.snapshot_flags);
+            AddEconomicValue(credit_quality.bank_interest_raw, &snapshot.bank_interest_accumulator_raw, &snapshot.snapshot_flags);
+            AddEconomicValue(credit_quality.state_savings_raw, &snapshot.state_savings_candidate_raw, &snapshot.snapshot_flags);
+            AddEconomicValue(credit_quality.state_interest_raw, &snapshot.state_interest_candidate_raw, &snapshot.snapshot_flags);
             AddEconomicValue(credit_quality.creditor_interest_raw,
                 &snapshot.creditor_interest_candidate_raw, &snapshot.credit_flags, SAMPLE_SUM_OVERFLOW);
             AddEconomicValue(credit_quality.creditor_debt_raw,

@@ -91,6 +91,17 @@ namespace smedley::game_state
         int64_t savings_raw = 0;
     };
 
+    struct StateInterestCandidate
+    {
+        StateRef state{};
+        int32_t state_id = -1;
+        int64_t savings_raw = 0;
+        int64_t interest_raw = 0;
+        uint32_t first_pop_index = 0;
+        uint32_t pop_count = 0;
+        uint32_t province_count = 0;
+    };
+
     struct PopDetailSnapshot
     {
         int32_t pop_id = -1;
@@ -316,6 +327,11 @@ namespace smedley::game_state
                             PopCandidate *candidates, size_t candidate_capacity,
                             uint32_t province_attempt_capacity, uint32_t *candidate_count,
                             CountryEconomySnapshot *quality);
+    bool CollectCountryStateInterest(CountryRef country, GameStateRef game_state, int32_t date_raw,
+                                     StateInterestCandidate *states, size_t state_capacity,
+                                     uint32_t *state_count, PopCandidate *pops, size_t pop_capacity,
+                                     uint32_t province_attempt_capacity, uint32_t *pop_count,
+                                     CountryEconomySnapshot *quality);
     bool ReadPopMoneySnapshot(PopRef pop, PopMoneySnapshot *snapshot);
     bool ReadPopDetailSnapshot(PopRef pop, PopDetailSnapshot *snapshot);
     bool ReadPopIdentityDimensions(PopRef pop, PopIdentityDimensions *identity);

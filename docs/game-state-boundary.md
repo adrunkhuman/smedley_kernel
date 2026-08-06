@@ -101,12 +101,20 @@ The interest plugin performs a complete preflight before its first write:
 
 1. It collects typed POP candidates and computes a deterministic allocation in
    plugin-owned storage.
-2. It checks allocation conservation and invokes `PreparePopInterest` for every
-   nonzero payout.
-3. It calls `ApplyPopInterest` only after every preflight succeeds. Apply does
-   not re-resolve POP identity or ownership; it rechecks access, signature, the
-   bound address and amount, writable range, and preflight money snapshot, then
-   verifies the expected POP-money postconditions.
+2. It checks allocation conservation and submits every nonzero payout to
+   `ApplyPopInterestBatch` in deterministic order.
+3. The checked runtime validates callback access and the native signature,
+   snapshots every POP, checks every addition and writable range, and performs
+   no write unless the complete batch preflight succeeds.
+4. Immediately before the first write it rechecks callback access and the
+   native signature. Each native call then requires immediate expected
+   POP-money postconditions against its preflight snapshot.
+
+Callback, session, signature, and memory-page checks are amortized across this
+synchronous game-thread operation. The batch does not re-resolve POP identity
+or ownership. The checked API exposes no raw mutation primitive; native plugins
+remain trusted DLLs with arbitrary process access and are not sandboxed by this
+source boundary.
 
 Preflight does not reserve engine state and application is not transactional
 across several POPs. A later POP can fail after earlier writes succeeded. There
@@ -223,7 +231,7 @@ are recorded in the corresponding mapping evidence files.
 
 | Plugin | Registered raw adapter sources | Raw access owned there | Concrete follow-up boundary |
 | --- | --- | --- | --- |
-| `interest_bug_fix` | None | None. Creditor and POP payout uses typed readers, copied snapshots, `CurrentGameSession`, `DailyInterestAccess`, and checked preflight/apply mutation. | Keep new creditor/POP engine facts in `smedley_game_state`; keep payout eligibility and allocation in the plugin. |
+| `interest_bug_fix` | None | None. State-pool and POP payout uses typed readers, copied snapshots, `CurrentGameSession`, callback-scoped `BankInterestAccess`, and checked discard/payout/clear mutation. | Keep new bank/state/POP engine facts in `smedley_game_state`; keep payout eligibility and allocation in the plugin. |
 | `telemetry` | None | None. The telemetry module consumes typed `PopRef`/`FactoryRef` hook records plus copied current-state, country, and province snapshots. Current-state resolution, daily-event `CountryRef` conversion, checked object snapshotting, hook patch/trampoline code, and thread-quiescence/unload draining live under `game_state/`. | Keep capture selection, filtering, aggregation, and publication in the telemetry module; put any new engine read, hook, offset, or native call in `smedley_game_state` or `smedley_game_runtime`. |
 | `campaign_runner` | None | None. The runner retains observer target/policy decisions, switch parsing, retries, state transitions, logging, and telemetry. `smedley_game_runtime` owns frontend, console capture/command replacement/removal, checked copied callback arguments, annex/message hooks, popup counters, mappings, and native calls. | Keep future engine access in `smedley_game_state` or `smedley_game_runtime`; runner inputs and observations remain copied. |
 | `scripting` | None | None. Its C++ daily handler requests a copied `DailyUpdateSnapshot` from the runtime, queues plugin-owned `EventSnapshot` values, and maps the checked pause-operation result to its established worker log semantics. Lua allocator and userdata `void*` values in `scripting_runtime.cpp` are not engine objects. | Keep new engine facts in `smedley_game_state` or `smedley_game_runtime`; retain copied Lua payloads and constrained queued operations. |
