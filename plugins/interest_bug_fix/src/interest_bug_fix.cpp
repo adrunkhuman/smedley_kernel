@@ -209,7 +209,6 @@ namespace interest_bug_fix
                     && event.GetCountryIndex() == 0) {
                     initialized_ = false;
                     disabled_ = true;
-                    paid_pops_.Reset();
                 }
                 BankInterestAccess access = BankInterestAccess::FromEvent(event);
                 int32_t date_raw = 0;
@@ -271,6 +270,7 @@ namespace interest_bug_fix
         void PayCountryPools(BankInterestAccess &access, int32_t date_raw,
                              std::chrono::steady_clock::time_point started)
         {
+            paid_pops_.Reset();
             uint32_t state_count = 0;
             uint32_t pop_count = 0;
             CountryEconomySnapshot quality{};
