@@ -5,6 +5,7 @@
 #include <smedley/game_state/pop_cash_flow_hook.hpp>
 
 #include <smedley/events/dailyinterest.hpp>
+#include <smedley/events/bankinterest.hpp>
 #include <smedley/eventregistry.hpp>
 #include <smedley/memory.hpp>
 
@@ -24,6 +25,8 @@ namespace smedley::game_state
     {
         static_assert(!std::is_copy_constructible_v<DailyInterestAccess>);
         static_assert(!std::is_copy_assignable_v<DailyInterestAccess>);
+        static_assert(!std::is_copy_constructible_v<BankInterestAccess>);
+        static_assert(!std::is_copy_assignable_v<BankInterestAccess>);
         static_assert(std::is_trivially_copyable_v<ArtisanSettlementHookRecord>);
         static_assert(std::is_trivially_copyable_v<FactorySettlementHookRecord>);
         static_assert(std::is_trivially_copyable_v<FactorySalesHookRecord>);
@@ -105,7 +108,7 @@ namespace smedley::game_state
                 return events::DailyInterestEvent(reinterpret_cast<v2::CCountry *>(1), events::DailyInterestPhase::AFTER);
             }
 
-            std::array<std::byte, 0x260> game_state_{};
+            std::array<std::byte, 0xb10> game_state_{};
             uint8_t *module_ = nullptr;
             uintptr_t previous_base_ = 0;
         };
@@ -186,6 +189,36 @@ namespace smedley::game_state
         auto before_access = DailyInterestAccess::FromEvent(before_event);
         EXPECT_EQ(ApplyPopInterestBatch(before_access, &entry, 1, &result),
             PopInterestMutationStatus::invalid_phase);
+    }
+
+    TEST_F(RuntimeFixture, RejectsUntrustedBankInterestCapabilities)
+    {
+        std::array<std::byte, 0x28> bank{};
+        std::array<std::byte, 0xe9c> country{};
+        std::array<const void *, 2> countries{nullptr, country.data()};
+        const ForeignVector country_vector{countries.data(), countries.data() + countries.size(),
+            countries.data() + countries.size()};
+        WriteField(&game_state_, game_state_countries_offset, country_vector);
+        const void *owner = country.data();
+        WriteField(&bank, 0x08, owner);
+        events::BankInterestEvent after_event(
+            reinterpret_cast<v2::CBank *>(bank.data()), events::BankInterestPhase::AFTER);
+        auto after_access = BankInterestAccess::FromEvent(after_event);
+        EXPECT_TRUE(after_access.first_country());
+        StateInterestCandidate state{};
+        state.state = StateRef{reinterpret_cast<const void *>(1)};
+        state.state_id = 1;
+        state.interest_raw = 1;
+        PopInterestBatchResult payout_result{};
+        EXPECT_EQ(ApplyStateInterestPayout(after_access, state, nullptr, 0, &payout_result),
+            PopInterestMutationStatus::invalid_context);
+
+        events::BankInterestEvent before_event(
+            reinterpret_cast<v2::CBank *>(bank.data()), events::BankInterestPhase::BEFORE);
+        auto before_access = BankInterestAccess::FromEvent(before_event);
+        StateInterestInitializationResult initialization{};
+        EXPECT_EQ(DiscardStateInterestPools(before_access, &initialization),
+            PopInterestMutationStatus::invalid_context);
     }
 
     TEST_F(RuntimeFixture, RejectsAccessFromAnotherThread)

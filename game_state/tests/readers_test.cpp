@@ -640,6 +640,72 @@ namespace smedley::game_state
         EXPECT_EQ(sample.destination_pop_savings_raw, 240000);
     }
 
+    TEST(GameStateReadersTest, CollectsStateInterestPoolsWithStateScopedPops)
+    {
+        std::array<std::byte, 0xb10> game_state{};
+        std::array<std::byte, 0x1608> country{};
+        std::array<std::byte, 0x290> state{};
+        std::array<std::byte, 0x1a0> province{};
+        std::array<std::byte, 0x288> pop{};
+        std::array<void *, 1> provinces{province.data()};
+        std::array<int32_t, 1> province_ids{0};
+        std::array<PopList, 1> pop_lists{{{pop.data(), pop.data(), 1, 0}}};
+        Node node{state.data(), nullptr, nullptr, 0, {}};
+        const void *state_node = &node;
+        const int32_t state_count_reported = 1;
+        const int32_t state_id = 41;
+        const int64_t state_savings = 700;
+        const int64_t state_interest = 23;
+        const int64_t pop_savings = 9000;
+        const char tag[4] = {'E', 'N', 'G', '\0'};
+        const int32_t ordinal = 1;
+
+        WritePointerVector(&game_state, 0xacc, provinces.data(), provinces.data() + 1, provinces.data() + 1);
+        Write(&country, 0x1c, tag);
+        Write(&country, 0x20, ordinal);
+        Write(&country, 0xe44, state_node);
+        Write(&country, 0xe48, state_node);
+        Write(&country, 0xe4c, state_count_reported);
+        Write(&state, 0x0c, state_id);
+        WritePointerVector(&state, 0x48, province_ids.data(), province_ids.data() + 1, province_ids.data() + 1);
+        Write(&state, 0x258, state_savings);
+        Write(&state, 0x260, state_interest);
+        WritePointerVector(&province, 0x194, pop_lists.data(), pop_lists.data() + 1, pop_lists.data() + 1);
+        Write(&pop, 0x250, pop_savings);
+
+        std::array<StateInterestCandidate, 2> states{};
+        std::array<PopCandidate, 2> pops{};
+        uint32_t state_count = 0;
+        uint32_t pop_count = 0;
+        CountryEconomySnapshot quality{};
+        ASSERT_TRUE(CollectCountryStateInterest(Country(country.data()), GameState(game_state.data()), 1234,
+            states.data(), states.size(), &state_count, pops.data(), pops.size(),
+            max_sample_destination_provinces, &pop_count, &quality));
+        ASSERT_EQ(state_count, 1u);
+        ASSERT_EQ(pop_count, 1u);
+        EXPECT_EQ(states[0].state.address(), reinterpret_cast<uintptr_t>(state.data()));
+        EXPECT_EQ(states[0].state_id, state_id);
+        EXPECT_EQ(states[0].savings_raw, state_savings);
+        EXPECT_EQ(states[0].interest_raw, state_interest);
+        EXPECT_EQ(states[0].first_pop_index, 0u);
+        EXPECT_EQ(states[0].pop_count, 1u);
+        EXPECT_EQ(states[0].province_count, 1u);
+        EXPECT_EQ(pops[0].address.address(), reinterpret_cast<uintptr_t>(pop.data()));
+        EXPECT_EQ(pops[0].savings_raw, pop_savings);
+        EXPECT_EQ(quality.state_interest_raw, state_interest);
+        EXPECT_EQ(quality.destination_province_attempts, 1u);
+        EXPECT_EQ(quality.destination_pop_attempts, 1u);
+        EXPECT_EQ(quality.flags, 0u);
+
+        state_count = 0;
+        pop_count = 0;
+        ASSERT_TRUE(CollectCountryStateInterest(Country(country.data()), GameState(game_state.data()), 1234,
+            states.data(), states.size(), &state_count, nullptr, 0, 0, &pop_count, &quality));
+        EXPECT_EQ(state_count, 1u);
+        EXPECT_EQ(pop_count, 0u);
+        EXPECT_EQ(states[0].pop_count, 0u);
+    }
+
     TEST(GameStateReadersTest, ReadsCreditorDestinationBankWithoutStateTraversal)
     {
         std::array<std::byte, 0xe9c> debtor{};

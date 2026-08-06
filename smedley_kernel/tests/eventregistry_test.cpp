@@ -1,5 +1,6 @@
 #include "eventregistry.hpp"
 #include "events/dailyupdate.hpp"
+#include "events/bankinterest.hpp"
 #include "events/dailyinterest.hpp"
 
 #include <gtest/gtest.h>
@@ -11,6 +12,8 @@ using smedley::EventRegistry;
 using smedley::events::DailyUpdateEvent;
 using smedley::events::DailyInterestEvent;
 using smedley::events::DailyInterestPhase;
+using smedley::events::BankInterestEvent;
+using smedley::events::BankInterestPhase;
 
 TEST(EventRegistryTests, UnregisterRemovesMatchingHandler)
 {
@@ -38,6 +41,21 @@ TEST(EventRegistryTests, PreservesDailyInterestBoundaryPhase)
     EventRegistry<DailyInterestEvent>::Unregister(nullptr, "interest-phase-test");
 
     EXPECT_EQ(observed, DailyInterestPhase::AFTER);
+}
+
+TEST(EventRegistryTests, PreservesBankInterestBoundaryPhase)
+{
+    BankInterestPhase observed = BankInterestPhase::BEFORE;
+    EventRegistry<BankInterestEvent>::Register(nullptr, "bank-interest-phase-test", [&observed](BankInterestEvent &event) {
+        observed = event.GetPhase();
+    });
+
+    BankInterestEvent event(nullptr, BankInterestPhase::AFTER, 7);
+    EventRegistry<BankInterestEvent>::Notify(event);
+    EventRegistry<BankInterestEvent>::Unregister(nullptr, "bank-interest-phase-test");
+
+    EXPECT_EQ(observed, BankInterestPhase::AFTER);
+    EXPECT_EQ(event.GetCountryIndex(), 7u);
 }
 
 TEST(EventRegistryTests, ContainsMutationAndContinuesNotification)

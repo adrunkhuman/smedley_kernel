@@ -695,11 +695,10 @@ selected, the fix emits:
 
 | Event | Payload | Contract |
 | --- | --- | --- |
-| `interest.fix.health` | status, flags, source/province/POP counts, verified POP count, callback microseconds | One `---` daily aggregate plus any rejected debtor or recipient result. Complete paid-recipient detail remains in `interest_bug_fix.csv`. |
-| `interest.fix.value` | exact aggregate bank transfer, derived POP payout, domestic and foreign components | Emitted once for a fully successful day; failed or partial days emit no value record. |
+| `interest.fix.health` | status, flags, state ID, POP count, verified POP count, callback microseconds | One record for initialization and each nonzero state-pool outcome. Complete detail remains in `interest_bug_fix.csv`. |
+| `interest.fix.value` | state ID, consumed native state pool, derived POP payout, or initialization discard | Emitted for successful initialization and complete state payouts. Failed or partial payouts emit no value record. |
 
-Both records use `verified-runtime` quality. The health shape uses the ABI limit
-of eight combined entity/payload fields exactly. They use the reliable bounded
+Both records use `verified-runtime` quality. They use the reliable bounded
 emitter so lock contention alone cannot hide a fix result; unavailable,
 filtered, full-queue, or invalid telemetry remains independent of mutation and
 never changes whether the fix pays POPs. `interest_bug_fix.csv` records the two

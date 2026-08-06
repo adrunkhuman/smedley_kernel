@@ -1,5 +1,5 @@
 id = "interest_bug_fix"
-name = "Creditor POP interest bug fix"
+name = "State POP interest bug fix"
 version = "0.1"
 module = "interest_bug_fix.dll"
 conflicts = ["v2up"]
@@ -11,7 +11,7 @@ version = 1
 key = "debug"
 type = "bool"
 label = "Enable interest-fix diagnostics"
-help = "Write per-recipient CSV diagnostics and emit interest telemetry. Disabled by default."
+help = "Write per-state CSV diagnostics and emit interest telemetry. Disabled by default."
 default = false
 advanced = true
 argv = { option = "-smedley-interest-fix-debug", codec = "bool_01" }

@@ -99,13 +99,17 @@ daily, every seven days, monthly, or yearly, with field and entity filters.
 Explicit daily all-entity polling is supported; it is opt-in and reports its
 delivery and collection cost rather than silently limiting the request.
 
-`interest_bug_fix` is the independently selectable gameplay fix. It restores each
-verified creditor-bank interest transfer to that bank's positive-savings POPs
-with exact deterministic integer conservation and records outcomes in
+`interest_bug_fix` is the independently selectable gameplay fix. It completes
+the native creditor-to-bank-to-state pipeline by distributing each state
+interest pool among that state's positive-savings POPs with exact deterministic
+integer conservation. Native bank recapitalization and bank-to-state allocation
+remain unchanged. The fix records outcomes in
 `<GAME_DIR>/interest_bug_fix.csv` plus structured health/value telemetry when
 `telemetry` is also selected. Each launch truncates this fixed CSV output. The
 fix is disabled unless its manifest is selected and intentionally returns
-interest omitted by vanilla to depositor POP balances. Comprehensive world-money
+interest omitted by vanilla to depositor POP balances. Existing or failed-payout
+state interest is discarded before each native daily bank-distribution pass;
+after a successful prior pass these pools are already zero. Comprehensive world-money
 supply remains unmapped, so no total-money effect is claimed. See the mapping
 document before enabling it.
 

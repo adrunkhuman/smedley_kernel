@@ -65,6 +65,22 @@ signature = "55 8b ec 6a ff 68 64 af b5 00"
 source = "callers at RVAs 0x000fc0cb, 0x00121785, and 0x001218fb allocate 0x290 bytes; constructor initializes 64-bit slots +0x258 and +0x260"
 
 [[symbols]]
+name = "CBank::DistributeInterest"
+rva = 0x000f5bf0
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 83 e4 f8 83 ec 10 53 8b 5f 20"
+source = "the post-country caller at RVA 0x00285f0f passes every CCountry+0xe88 bank; static flow either recapitalizes CBank+0x10 when it is at most 33 or allocates CBank+0x20 across CCountry+0xe44 states using CState+0x258 weights, adds shares to CState+0x260, and clears CBank+0x20; run 96be486d-b7b3-4943-b423-49929ff8ee77 observed the state pool rise on each subsequent day while native POP cash-flow index 7 remained absent"
+
+[[symbols]]
+name = "CBank::DistributeInterest post-country call"
+rva = 0x00285f0f
+kind = "hook"
+status = "verified-static-callsites"
+signature = "e8 dc fc e6 ff"
+source = "the complete five-byte call targets CBank::DistributeInterest at RVA 0x000f5bf0 with CCountry+0xe88 loaded in EDI; the containing loop walks every country bank after country daily updates and resumes at RVA 0x00285f14"
+
+[[symbols]]
 name = "Province POP-list traversal"
 rva = 0x000a9362
 kind = "label"
@@ -750,7 +766,7 @@ source = "size from existing flags.hpp; PMIA 1.9.0 calls CTernary<CFlag *>::Get(
 name = "CState"
 status = "provisional"
 size = 0x0290
-source = "constructor RVA 0x000cdc60 and three allocation call sites establish size; benchmark save and runtime correlate persistent ID +0x0c, province indices +0x48, factory list +0x60, embedded CPopProject +0x1c8, and scaled POP savings +0x258, while +0x260 semantics remain provisional"
+source = "constructor RVA 0x000cdc60 and three allocation call sites establish size; benchmark save and runtime correlate persistent ID +0x0c, province indices +0x48, factory list +0x60, embedded CPopProject +0x1c8, and scaled POP savings +0x258; save serialization names +0x260 interest and CBank::DistributeInterest at RVA 0x000f5bf0 writes its savings-weighted state shares there"
 fields = [
   { name = "persistent_state_id", offset = 0x000c },
   { name = "provinces_candidate", offset = 0x0048 },
@@ -760,7 +776,7 @@ fields = [
   { name = "pop_project", offset = 0x01c8 },
   { name = "region", offset = 0x0250 },
   { name = "savings_in_bank_candidate", offset = 0x0258 },
-  { name = "interest_payments_candidate", offset = 0x0260 },
+  { name = "interest_pool", offset = 0x0260 },
 ]
 
 [[layouts]]

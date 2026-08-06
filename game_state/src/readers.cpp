@@ -952,6 +952,134 @@ namespace smedley::game_state
             candidates, candidate_capacity, province_attempt_capacity, candidate_count, quality);
     }
 
+    bool CollectCountryStateInterest(CountryRef country_ref, GameStateRef game_state, int32_t date_raw,
+                                     StateInterestCandidate *states, size_t state_capacity,
+                                     uint32_t *state_count, PopCandidate *pops, size_t pop_capacity,
+                                     uint32_t province_attempt_capacity, uint32_t *pop_count,
+                                     CountryEconomySnapshot *quality)
+    {
+        if (states == nullptr || state_count == nullptr || pop_count == nullptr || quality == nullptr
+            || state_capacity > max_states || pop_capacity > max_pops
+            || (pop_capacity != 0 && pops == nullptr) || !game_state) {
+            return false;
+        }
+        *state_count = 0;
+        *pop_count = 0;
+        *quality = {};
+        quality->date_raw = date_raw;
+        const void *country = detail::RawPointer(country_ref);
+        if (!IsReadable(country, country_minimum_size)) {
+            quality->flags = SAMPLE_COUNTRY_UNREADABLE;
+            return false;
+        }
+        ReadAt(country, country_tag_offset, &quality->country_tag);
+        quality->country_tag[3] = '\0';
+        ReadAt(country, country_tag_offset + sizeof(uint32_t), &quality->country_ordinal);
+
+        const ListNode *node = nullptr;
+        const ListNode *tail = nullptr;
+        if (!ReadAt(country, country_states_offset, &node)
+            || !ReadAt(country, country_states_offset + 4, &tail)
+            || !ReadAt(country, country_states_offset + 8, &quality->state_count_reported)
+            || quality->state_count_reported < 0
+            || quality->state_count_reported > static_cast<int32_t>(max_states)) {
+            quality->flags |= SAMPLE_STATE_LIST_INVALID;
+            return false;
+        }
+
+        traversal_scratch.province_attempts = 0;
+        traversal_scratch.province_id_count = 0;
+        traversal_scratch.pop_attempts = 0;
+        traversal_scratch.pop_pointer_count = 0;
+        BeginPopIdentitySet(&traversal_scratch);
+        const uint32_t province_limit = (std::min)(province_attempt_capacity, max_destination_provinces);
+        const uint32_t pop_limit = static_cast<uint32_t>((std::min)(pop_capacity, static_cast<size_t>(max_pops)));
+        while (node != nullptr && quality->states_walked < max_states) {
+            ListNode current{};
+            if (!CopyReadable(&current, node, sizeof(current))) {
+                quality->flags |= SAMPLE_STATE_LIST_INVALID;
+                break;
+            }
+            if (current.deleted == 0 && current.data != nullptr) {
+                if (*state_count >= state_capacity || !IsReadable(current.data, state_size)) {
+                    quality->flags |= *state_count >= state_capacity ? SAMPLE_STATE_LIMIT : SAMPLE_STATE_UNREADABLE;
+                } else {
+                    bool duplicate_state = false;
+                    for (uint32_t index = 0; index < *state_count; ++index) {
+                        if (states[index].state.address() == reinterpret_cast<uintptr_t>(current.data)) {
+                            duplicate_state = true;
+                            break;
+                        }
+                    }
+                    if (duplicate_state) {
+                        quality->flags |= SAMPLE_STATE_LIST_INVALID;
+                    } else {
+                        StateInterestCandidate &candidate = states[*state_count];
+                        candidate = {};
+                        candidate.state = StateRef{static_cast<const void *>(current.data)};
+                        candidate.first_pop_index = traversal_scratch.pop_pointer_count;
+                        PointerVector provinces{};
+                        if (!ReadAt(current.data, state_id_offset, &candidate.state_id)
+                            || !ReadAt(current.data, state_savings_offset, &candidate.savings_raw)
+                            || !ReadAt(current.data, state_interest_offset, &candidate.interest_raw)
+                            || !ReadAt(current.data, state_provinces_offset, &provinces)
+                            || !VectorCount(provinces, sizeof(int32_t), max_provinces_per_state,
+                                &candidate.province_count)) {
+                            quality->flags |= SAMPLE_STATE_UNREADABLE;
+                        } else {
+                            if (candidate.province_count > (std::numeric_limits<uint32_t>::max)()
+                                - quality->province_element_candidates) {
+                                quality->flags |= SAMPLE_SUM_OVERFLOW;
+                            } else {
+                                quality->province_element_candidates += candidate.province_count;
+                            }
+                            if (candidate.savings_raw != 0) ++quality->states_with_savings;
+                            if (candidate.interest_raw != 0) ++quality->states_with_interest;
+                            AddChecked(candidate.savings_raw, &quality->state_savings_raw, &quality->flags);
+                            AddChecked(candidate.interest_raw, &quality->state_interest_raw, &quality->flags);
+                            if (pop_capacity != 0) {
+                                CollectPops(provinces, ResolveProvinceFromGameState, &game_state,
+                                    &traversal_scratch, nullptr, province_limit, pop_limit, false, quality);
+                                candidate.pop_count = traversal_scratch.pop_pointer_count - candidate.first_pop_index;
+                            }
+                            ++*state_count;
+                        }
+                    }
+                }
+            }
+            ++quality->states_walked;
+            if (current.next == node) {
+                quality->flags |= SAMPLE_STATE_LIST_INVALID;
+                break;
+            }
+            node = current.next;
+        }
+        if (node != nullptr) quality->flags |= SAMPLE_STATE_LIMIT;
+        if (quality->states_walked != static_cast<uint32_t>(quality->state_count_reported)) {
+            quality->flags |= SAMPLE_STATE_COUNT_MISMATCH;
+        }
+        if ((quality->state_count_reported == 0 && tail != nullptr)
+            || (quality->state_count_reported != 0 && tail == nullptr)) {
+            quality->flags |= SAMPLE_STATE_LIST_INVALID;
+        }
+        quality->destination_province_attempts = traversal_scratch.province_attempts;
+        quality->destination_pop_attempts = traversal_scratch.pop_attempts;
+        if (traversal_scratch.duplicate_pop) quality->flags |= SAMPLE_DUPLICATE_POP;
+        auto province_end = traversal_scratch.province_ids.begin() + traversal_scratch.province_id_count;
+        std::sort(traversal_scratch.province_ids.begin(), province_end);
+        if (std::adjacent_find(traversal_scratch.province_ids.begin(), province_end) != province_end) {
+            quality->flags |= SAMPLE_DUPLICATE_PROVINCE;
+        }
+        if (quality->flags != 0) return false;
+
+        for (uint32_t index = 0; index < traversal_scratch.pop_pointer_count; ++index) {
+            pops[index].address = PopRef{reinterpret_cast<const void *>(traversal_scratch.pop_pointers[index])};
+            pops[index].savings_raw = traversal_scratch.pop_savings[index];
+        }
+        *pop_count = traversal_scratch.pop_pointer_count;
+        return true;
+    }
+
     bool ReadPopMoneySnapshot(PopRef pop, PopMoneySnapshot *snapshot)
     {
         if (snapshot == nullptr) return false;

@@ -1,5 +1,6 @@
 #include <smedley/game_state/runtime.hpp>
 
+#include <smedley/events/bankinterest.hpp>
 #include <smedley/events/dailyinterest.hpp>
 #include <smedley/events/dailyupdate.hpp>
 #include <smedley/events/console.hpp>
@@ -72,6 +73,11 @@ namespace smedley::game_state
         constexpr size_t pop_interest_cash_flow_offset = 0x210;
         constexpr size_t pop_total_cash_flow_offset = 0x218;
         constexpr size_t pop_savings_offset = 0x250;
+        constexpr size_t bank_owner_offset = 0x08;
+        constexpr size_t state_size = 0x290;
+        constexpr size_t state_id_offset = 0x0c;
+        constexpr size_t state_interest_offset = 0x260;
+        constexpr uint32_t max_campaign_states = 4096;
         constexpr size_t pop_money_span = pop_total_cash_flow_offset + sizeof(int64_t) - pop_money_offset;
         constexpr size_t pop_snapshot_span = pop_savings_offset + sizeof(int64_t) - pop_money_offset;
         constexpr size_t pop_interest_identity_capacity = 131072;
@@ -2316,9 +2322,10 @@ namespace smedley::game_state
         return IsAccessible(reinterpret_cast<const void *>(address + pop_money_offset), pop_money_span, true);
     }
 
-    PopInterestMutationStatus ApplyPopInterestBatch(
-        DailyInterestAccess &access, PopInterestBatchEntry *entries, uint32_t entry_count,
-        PopInterestBatchResult *result)
+    template <typename AccessCheck, typename SignatureCheck>
+    PopInterestMutationStatus ApplyPopInterestBatchImpl(
+        PopInterestBatchEntry *entries, uint32_t entry_count, PopInterestBatchResult *result,
+        AccessCheck check_access, SignatureCheck check_signature)
     {
         if (result == nullptr) return PopInterestMutationStatus::invalid_context;
         *result = {};
@@ -2357,10 +2364,10 @@ namespace smedley::game_state
             }
         }
         if (entry_count == 0) return fail(PopInterestMutationStatus::success, 0);
-        if (const auto status = access.CheckMutationAccess(); status != PopInterestMutationStatus::success) {
+        if (const auto status = check_access(); status != PopInterestMutationStatus::success) {
             return fail(status, 0);
         }
-        if (const auto status = access.CheckSignature(); status != PopInterestMutationStatus::success) {
+        if (const auto status = check_signature(false); status != PopInterestMutationStatus::success) {
             return fail(status, 0);
         }
 
@@ -2386,10 +2393,10 @@ namespace smedley::game_state
             if (entry.status != PopInterestMutationStatus::success) return fail(entry.status, index);
         }
 
-        if (const auto status = access.CheckMutationAccess(); status != PopInterestMutationStatus::success) {
+        if (const auto status = check_access(); status != PopInterestMutationStatus::success) {
             return fail(status, 0);
         }
-        if (const auto status = access.CheckSignature(true); status != PopInterestMutationStatus::success) {
+        if (const auto status = check_signature(true); status != PopInterestMutationStatus::success) {
             return fail(status, 0);
         }
 
@@ -2413,4 +2420,216 @@ namespace smedley::game_state
         result->failed_index = entry_count;
         return result->status;
     }
+
+    PopInterestMutationStatus ApplyPopInterestBatch(
+        DailyInterestAccess &access, PopInterestBatchEntry *entries, uint32_t entry_count,
+        PopInterestBatchResult *result)
+    {
+        return ApplyPopInterestBatchImpl(entries, entry_count, result,
+            [&access] { return access.CheckMutationAccess(); },
+            [&access](bool recheck) { return access.CheckSignature(recheck); });
+    }
+
+    BankInterestAccess::BankInterestAccess(GameSession session, CountryRef country, const void *bank,
+                                           bool after, bool first_country, uint64_t generation) noexcept
+        : game_state_(session.game_state), country_(country), bank_(bank), thread_(std::this_thread::get_id()),
+          generation_(generation), session_epoch_(session.epoch), after_(after), first_country_(first_country)
+    {
+    }
+
+    BankInterestAccess BankInterestAccess::FromEvent(events::BankInterestEvent &event)
+    {
+        const uint64_t generation = events::BankInterestEvent::ActiveDispatchGeneration();
+        const uint64_t trusted_generation = events::BankInterestEvent::IsCurrentDispatch(event, generation)
+            ? generation : 0;
+        const void *bank = static_cast<const void *>(event.GetBank());
+        const void *country = nullptr;
+        ReadField(bank, bank_owner_offset, &country);
+        const GameSession session = CurrentGameSession();
+        return BankInterestAccess(session, CountryRef{country}, bank,
+            event.GetPhase() == events::BankInterestPhase::AFTER,
+            event.GetCountryIndex() == 0, trusted_generation);
+    }
+
+    PopInterestMutationStatus BankInterestAccess::CheckMutationAccess(bool require_after) const
+    {
+        if (!bank_ || !country_ || !game_state_) return PopInterestMutationStatus::invalid_context;
+        if (thread_ != std::this_thread::get_id()) return PopInterestMutationStatus::invalid_thread;
+        if (after_ != require_after) return PopInterestMutationStatus::invalid_phase;
+        if (!events::BankInterestEvent::IsDispatchActive(generation_)) {
+            return PopInterestMutationStatus::invalid_context;
+        }
+        const GameSession current_session = CurrentGameSession();
+        if (current_session.epoch != session_epoch_
+            || current_session.game_state.address() != game_state_.address()) {
+            return PopInterestMutationStatus::state_changed;
+        }
+        const void *owner = nullptr;
+        if (!ReadField(bank_, bank_owner_offset, &owner) || owner != detail::RawPointer(country_)) {
+            return PopInterestMutationStatus::state_changed;
+        }
+        return PopInterestMutationStatus::success;
+    }
+
+    PopInterestMutationStatus BankInterestAccess::CheckSignature(bool recheck)
+    {
+        if (!signature_checked_ || recheck) {
+            signature_checked_ = true;
+            VerifySignature(&signature_status_);
+        }
+        return signature_status_;
+    }
+
+    namespace
+    {
+        bool ValidateStatePool(const StateInterestCandidate &state, bool writable)
+        {
+            if (!state.state || state.state_id < 0 || state.interest_raw < 0) return false;
+            const uintptr_t address = state.state.address();
+            if (address > (std::numeric_limits<uintptr_t>::max)() - state_size
+                || !IsAccessible(reinterpret_cast<const void *>(address), state_size, false)
+                || !IsAccessible(reinterpret_cast<const void *>(address + state_interest_offset),
+                    sizeof(int64_t), writable)) {
+                return false;
+            }
+            int32_t state_id = -1;
+            int64_t interest = 0;
+            return ReadValue(address + state_id_offset, &state_id)
+                && ReadValue(address + state_interest_offset, &interest)
+                && state_id == state.state_id && interest == state.interest_raw;
+        }
+
+        bool ClearStatePool(const StateInterestCandidate &state)
+        {
+            if (!ValidateStatePool(state, true)) return false;
+            const int64_t zero = 0;
+            int64_t after = -1;
+            const uintptr_t address = state.state.address() + state_interest_offset;
+            return CopyWritable(reinterpret_cast<void *>(address), &zero, sizeof(zero))
+                && ReadValue(address, &after) && after == 0;
+        }
+
+        bool CountryContainsState(CountryRef country, GameStateRef game_state,
+                                  const StateInterestCandidate &state)
+        {
+            static thread_local std::array<StateInterestCandidate, 512> current_states{};
+            uint32_t current_state_count = 0;
+            uint32_t pop_count = 0;
+            CountryEconomySnapshot quality{};
+            if (!CollectCountryStateInterest(country, game_state, 0,
+                    current_states.data(), current_states.size(), &current_state_count,
+                    nullptr, 0, 0, &pop_count, &quality)) {
+                return false;
+            }
+            for (uint32_t index = 0; index < current_state_count; ++index) {
+                if (current_states[index].state.address() == state.state.address()
+                    && current_states[index].state_id == state.state_id
+                    && current_states[index].interest_raw == state.interest_raw) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+    }
+
+    PopInterestMutationStatus DiscardStateInterestPools(
+        BankInterestAccess &access, StateInterestInitializationResult *result)
+    {
+        if (result == nullptr) return PopInterestMutationStatus::invalid_context;
+        *result = {};
+        if (const auto status = access.CheckMutationAccess(false); status != PopInterestMutationStatus::success) {
+            return result->status = status;
+        }
+        uint32_t country_count = 0;
+        if (!ReadCountryCount(access.game_state_, &country_count)) {
+            return result->status = PopInterestMutationStatus::unavailable;
+        }
+        result->country_count = country_count > 0 ? country_count - 1 : 0;
+        static thread_local std::array<StateInterestCandidate, max_campaign_states> campaign_states{};
+        static thread_local std::array<StateInterestCandidate, 512> country_states{};
+        uint32_t campaign_state_count = 0;
+        for (uint32_t ordinal = 1; ordinal < country_count; ++ordinal) {
+            uint32_t state_count = 0;
+            uint32_t pop_count = 0;
+            CountryEconomySnapshot quality{};
+            const CountryRef country = ResolveCountry(access.game_state_, static_cast<int32_t>(ordinal));
+            if (!CollectCountryStateInterest(country, access.game_state_, 0,
+                    country_states.data(), country_states.size(), &state_count,
+                    nullptr, 0, 0, &pop_count, &quality)) {
+                result->flags |= quality.flags;
+                return result->status = PopInterestMutationStatus::unavailable;
+            }
+            if (state_count > max_campaign_states - campaign_state_count) {
+                return result->status = PopInterestMutationStatus::unavailable;
+            }
+            for (uint32_t state_index = 0; state_index < state_count; ++state_index) {
+                const StateInterestCandidate &candidate = country_states[state_index];
+                for (uint32_t prior = 0; prior < campaign_state_count; ++prior) {
+                    if (campaign_states[prior].state.address() == candidate.state.address()) {
+                        return result->status = PopInterestMutationStatus::state_changed;
+                    }
+                }
+                campaign_states[campaign_state_count++] = candidate;
+            }
+        }
+        result->state_count = campaign_state_count;
+        for (uint32_t index = 0; index < campaign_state_count; ++index) {
+            const StateInterestCandidate &state = campaign_states[index];
+            if (!ValidateStatePool(state, true)) {
+                return result->status = PopInterestMutationStatus::not_writable;
+            }
+            if (state.interest_raw > 0
+                && result->discarded_raw > (std::numeric_limits<int64_t>::max)() - state.interest_raw) {
+                return result->status = PopInterestMutationStatus::balance_overflow;
+            }
+            result->discarded_raw += state.interest_raw;
+        }
+        if (const auto status = access.CheckMutationAccess(false); status != PopInterestMutationStatus::success) {
+            return result->status = status;
+        }
+        for (uint32_t index = 0; index < campaign_state_count; ++index) {
+            if (campaign_states[index].interest_raw == 0) continue;
+            if (!ClearStatePool(campaign_states[index])) {
+                return result->status = PopInterestMutationStatus::postcondition_failed;
+            }
+            ++result->cleared_state_count;
+        }
+        return result->status = PopInterestMutationStatus::success;
+    }
+
+    PopInterestMutationStatus ApplyStateInterestPayout(
+        BankInterestAccess &access, const StateInterestCandidate &state,
+        PopInterestBatchEntry *entries, uint32_t entry_count,
+        PopInterestBatchResult *result)
+    {
+        if (result == nullptr) return PopInterestMutationStatus::invalid_context;
+        if (const auto status = access.CheckMutationAccess(true); status != PopInterestMutationStatus::success) {
+            *result = {};
+            result->status = status;
+            return status;
+        }
+        if (state.interest_raw <= 0 || !ValidateStatePool(state, true)) {
+            *result = {};
+            result->status = state.interest_raw <= 0
+                ? PopInterestMutationStatus::invalid_amount : PopInterestMutationStatus::state_changed;
+            return result->status;
+        }
+        if (!CountryContainsState(access.country_, access.game_state_, state)) {
+            *result = {};
+            return result->status = PopInterestMutationStatus::state_changed;
+        }
+
+        const PopInterestMutationStatus status = ApplyPopInterestBatchImpl(entries, entry_count, result,
+            [&access] { return access.CheckMutationAccess(true); },
+            [&access](bool recheck) { return access.CheckSignature(recheck); });
+        if (status != PopInterestMutationStatus::success) return status;
+        if (access.CheckMutationAccess(true) != PopInterestMutationStatus::success
+            || !CountryContainsState(access.country_, access.game_state_, state)
+            || !ClearStatePool(state)) {
+            return result->status = PopInterestMutationStatus::postcondition_failed;
+        }
+        return result->status;
+    }
+
 }

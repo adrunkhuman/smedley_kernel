@@ -8,6 +8,7 @@
 
 namespace smedley::events
 {
+    class BankInterestEvent;
     class DailyInterestEvent;
     class DailyUpdateEvent;
 }
@@ -50,6 +51,16 @@ namespace smedley::game_state
         uint32_t failed_index = 0;
         uint32_t write_count = 0;
         uint32_t verified_count = 0;
+    };
+
+    struct StateInterestInitializationResult
+    {
+        PopInterestMutationStatus status = PopInterestMutationStatus::invalid_context;
+        uint32_t country_count = 0;
+        uint32_t state_count = 0;
+        uint32_t cleared_state_count = 0;
+        int64_t discarded_raw = 0;
+        uint32_t flags = 0;
     };
 
     struct GameSession
@@ -502,6 +513,47 @@ namespace smedley::game_state
             PopInterestBatchResult *result);
     };
 
+    class BankInterestAccess
+    {
+    public:
+        BankInterestAccess(const BankInterestAccess &) = delete;
+        BankInterestAccess &operator=(const BankInterestAccess &) = delete;
+        BankInterestAccess(BankInterestAccess &&) = default;
+        BankInterestAccess &operator=(BankInterestAccess &&) = default;
+
+        static BankInterestAccess FromEvent(events::BankInterestEvent &event);
+
+        GameStateRef game_state() const noexcept { return game_state_; }
+        CountryRef country() const noexcept { return country_; }
+        uint64_t session_epoch() const noexcept { return session_epoch_; }
+        bool after() const noexcept { return after_; }
+        bool first_country() const noexcept { return first_country_; }
+
+    private:
+        BankInterestAccess(GameSession session, CountryRef country, const void *bank,
+                           bool after, bool first_country, uint64_t generation) noexcept;
+        PopInterestMutationStatus CheckMutationAccess(bool require_after) const;
+        PopInterestMutationStatus CheckSignature(bool recheck = false);
+
+        GameStateRef game_state_{};
+        CountryRef country_{};
+        const void *bank_ = nullptr;
+        std::thread::id thread_{};
+        uint64_t generation_ = 0;
+        uint64_t session_epoch_ = 0;
+        bool after_ = false;
+        bool first_country_ = false;
+        bool signature_checked_ = false;
+        PopInterestMutationStatus signature_status_ = PopInterestMutationStatus::unavailable;
+
+        friend PopInterestMutationStatus DiscardStateInterestPools(
+            BankInterestAccess &access, StateInterestInitializationResult *result);
+        friend PopInterestMutationStatus ApplyStateInterestPayout(
+            BankInterestAccess &access, const StateInterestCandidate &state,
+            PopInterestBatchEntry *entries, uint32_t entry_count,
+            PopInterestBatchResult *result);
+    };
+
     /** Checks the complete verified POP money write span without writing it. */
     bool IsPopInterestWritable(PopRef pop);
     /**
@@ -513,5 +565,13 @@ namespace smedley::game_state
      */
     PopInterestMutationStatus ApplyPopInterestBatch(
         DailyInterestAccess &access, PopInterestBatchEntry *entries, uint32_t entry_count,
+        PopInterestBatchResult *result);
+    /** Discards serialized orphan pools once before a campaign begins paying new interest. */
+    PopInterestMutationStatus DiscardStateInterestPools(
+        BankInterestAccess &access, StateInterestInitializationResult *result);
+    /** Pays one unchanged state pool and clears it only after every POP postcondition succeeds. */
+    PopInterestMutationStatus ApplyStateInterestPayout(
+        BankInterestAccess &access, const StateInterestCandidate &state,
+        PopInterestBatchEntry *entries, uint32_t entry_count,
         PopInterestBatchResult *result);
 }

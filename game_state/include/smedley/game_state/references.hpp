@@ -10,6 +10,7 @@ namespace smedley::game_state
     namespace detail
     {
         struct CountryReferenceCategory;
+        struct StateReferenceCategory;
         struct ProvinceReferenceCategory;
         struct PopReferenceCategory;
         struct FactoryReferenceCategory;
@@ -50,6 +51,7 @@ namespace smedley::game_state
     }
 
     using CountryRef = Reference<detail::CountryReferenceCategory>;
+    using StateRef = Reference<detail::StateReferenceCategory>;
     using ProvinceRef = Reference<detail::ProvinceReferenceCategory>;
     using PopRef = Reference<detail::PopReferenceCategory>;
     using FactoryRef = Reference<detail::FactoryReferenceCategory>;
