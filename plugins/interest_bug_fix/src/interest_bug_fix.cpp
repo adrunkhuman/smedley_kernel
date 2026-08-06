@@ -214,6 +214,10 @@ namespace interest_bug_fix
                 int32_t date_raw = 0;
                 if (!access.game_state() || !ReadCurrentDate(access.game_state(), &date_raw)) {
                     needs_cleanup_ = true;
+                    if (!failure_logged_) {
+                        failure_logged_ = true;
+                        logger().Failure("interest fix scheduled cleanup after an unreadable bank-interest callback");
+                    }
                     return;
                 }
                 if (!access.after()) {
@@ -221,6 +225,7 @@ namespace interest_bug_fix
                         if (session_epoch_ != access.session_epoch()) {
                             session_epoch_ = access.session_epoch();
                             needs_cleanup_ = true;
+                            failure_logged_ = false;
                         }
                         InitializeDailyPass(access, date_raw, started);
                     }
@@ -419,6 +424,15 @@ namespace interest_bug_fix
 
         void Publish(FixResult &result, std::chrono::steady_clock::time_point started)
         {
+            if (result.status != FixStatus::initialized
+                && result.status != FixStatus::paid
+                && result.status != FixStatus::no_eligible_savings
+                && !failure_logged_) {
+                failure_logged_ = true;
+                logger().Failure(std::string("interest fix scheduled cleanup after ")
+                    + StatusName(result.status) + " for " + result.country_tag
+                    + " state " + std::to_string(result.state_id));
+            }
             if (!debug_) return;
             result.callback_us = static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::steady_clock::now() - started).count());
@@ -443,7 +457,9 @@ namespace interest_bug_fix
                 result.value_telemetry_result = telemetry_.Emit(
                     "interest.fix.value", "verified-runtime", result.date_raw, &country, 1, value, 4, true);
             }
-            if (!queue_.TryPush(result)) dropped_.fetch_add(1, std::memory_order_relaxed);
+            if (writer_failed_.load(std::memory_order_acquire) || !queue_.TryPush(result)) {
+                dropped_.fetch_add(1, std::memory_order_relaxed);
+            }
         }
 
         void StartDiagnostics()
@@ -480,9 +496,21 @@ namespace interest_bug_fix
                             << AllocationStatusName(result.allocation_status) << ',' << result.callback_us << ','
                             << result.health_telemetry_result << ',' << result.value_telemetry_result << ','
                             << dropped_.load(std::memory_order_relaxed) << '\n';
+                    if (!output_) {
+                        writer_failed_.store(true, std::memory_order_release);
+                        logger().Failure("interest fix diagnostic output failed; subsequent results are being dropped");
+                        return;
+                    }
                     wrote = true;
                 }
-                if (wrote) output_.flush();
+                if (wrote) {
+                    output_.flush();
+                    if (!output_) {
+                        writer_failed_.store(true, std::memory_order_release);
+                        logger().Failure("interest fix diagnostic flush failed; subsequent results are being dropped");
+                        return;
+                    }
+                }
                 else std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
         }
@@ -499,10 +527,12 @@ namespace interest_bug_fix
         bool disabled_ = false;
         bool needs_cleanup_ = true;
         bool debug_ = false;
+        bool failure_logged_ = false;
         uint64_t session_epoch_ = 0;
         DailyPopSet paid_pops_{};
         std::atomic<uint64_t> dropped_{0};
         std::atomic<bool> stop_{false};
+        std::atomic<bool> writer_failed_{false};
         std::thread worker_;
     };
 }
