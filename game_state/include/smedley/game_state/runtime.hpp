@@ -533,7 +533,9 @@ namespace smedley::game_state
         BankInterestAccess(GameSession session, CountryRef country, const void *bank,
                            bool after, bool first_country, uint64_t generation) noexcept;
         PopInterestMutationStatus CheckMutationAccess(bool require_after) const;
+        PopInterestMutationStatus CheckPreparedMutationAccess() const;
         PopInterestMutationStatus CheckSignature(bool recheck = false);
+        bool ContainsPreparedState(const StateInterestCandidate &state) const;
 
         GameStateRef game_state_{};
         CountryRef country_{};
@@ -545,9 +547,13 @@ namespace smedley::game_state
         bool first_country_ = false;
         bool signature_checked_ = false;
         PopInterestMutationStatus signature_status_ = PopInterestMutationStatus::unavailable;
+        std::array<uintptr_t, 512> prepared_state_addresses_{};
+        uint32_t prepared_state_count_ = 0;
 
         friend PopInterestMutationStatus DiscardStateInterestPools(
             BankInterestAccess &access, StateInterestInitializationResult *result);
+        friend PopInterestMutationStatus PrepareCountryStateInterestPayouts(
+            BankInterestAccess &access, const StateInterestCandidate *states, uint32_t state_count);
         friend PopInterestMutationStatus ApplyStateInterestPayout(
             BankInterestAccess &access, const StateInterestCandidate &state,
             PopInterestBatchEntry *entries, uint32_t entry_count,
@@ -569,6 +575,9 @@ namespace smedley::game_state
     /** Discards serialized orphan pools once before a campaign begins paying new interest. */
     PopInterestMutationStatus DiscardStateInterestPools(
         BankInterestAccess &access, StateInterestInitializationResult *result);
+    /** Validates one complete country state snapshot for subsequent payouts in the same callback. */
+    PopInterestMutationStatus PrepareCountryStateInterestPayouts(
+        BankInterestAccess &access, const StateInterestCandidate *states, uint32_t state_count);
     /** Pays one unchanged state pool and clears it only after every POP postcondition succeeds. */
     PopInterestMutationStatus ApplyStateInterestPayout(
         BankInterestAccess &access, const StateInterestCandidate &state,

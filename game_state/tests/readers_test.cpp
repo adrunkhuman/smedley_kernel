@@ -697,6 +697,20 @@ namespace smedley::game_state
         EXPECT_EQ(quality.destination_pop_attempts, 1u);
         EXPECT_EQ(quality.flags, 0u);
 
+        Write(&state, 0x260, int64_t{0});
+        pop_lists[0].count = 2;
+        state_count = 0;
+        pop_count = 0;
+        ASSERT_TRUE(CollectCountryStateInterest(Country(country.data()), GameState(game_state.data()), 1234,
+            states.data(), states.size(), &state_count, pops.data(), pops.size(),
+            max_sample_destination_provinces, &pop_count, &quality));
+        EXPECT_EQ(state_count, 1u);
+        EXPECT_EQ(pop_count, 0u);
+        EXPECT_EQ(states[0].pop_count, 0u);
+        EXPECT_EQ(quality.destination_province_attempts, 1u);
+        EXPECT_EQ(quality.destination_pop_attempts, 0u);
+        EXPECT_EQ(quality.flags, 0u);
+
         state_count = 0;
         pop_count = 0;
         ASSERT_TRUE(CollectCountryStateInterest(Country(country.data()), GameState(game_state.data()), 1234,

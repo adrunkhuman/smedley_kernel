@@ -376,10 +376,11 @@ source save remained unchanged.
 The supported executable therefore implements creditor-to-bank and
 bank-to-state interest stages, but current static and runtime evidence finds no
 state-to-POP stage. The replacement should preserve native bank
-recapitalization and discard pre-existing state-interest balances before each
-native daily bank-distribution pass. Initialization must preflight the complete
-bounded state traversal and enable payouts only after every pool has been
-cleared successfully. Each subsequently observed
+recapitalization, discard serialized state-interest balances when a campaign
+session is first observed, and discard retained failed-payout balances before
+the next native daily bank-distribution pass. Initialization must preflight the
+complete bounded state traversal and enable payouts only after every pool has
+been cleared successfully. Each subsequently observed
 complete state pool should be distributed among that state's positive-savings
 POPs. Exact largest-remainder allocation in POP money scale preserves each
 native state total despite the independently observed difference between stored
@@ -463,20 +464,27 @@ explicitly selected. It conflicts with historical `v2up`.
 ### Production mutation contract
 
 The callsite trampoline preserves registers and flags, dispatches a callback
-before native distribution only at loop index zero, invokes the original
-function exactly once, then dispatches a callback only when the bank entered the
-native call with positive pending interest. On the first trusted callback
-for the first country in each native daily bank loop, the fix preflights every
-bounded state pool, discards existing or failed-payout balances, and enables
-payouts only after all clears succeed. Native recapitalization and bank-to-state
-allocation then run unchanged.
+before native distribution only at loop index zero, and invokes the original
+function exactly once. It dispatches an after callback whenever the bank entered
+the native call with positive pending interest and marks whether its pre-call
+reserve selected the mapped state-distribution branch rather than bank
+recapitalization. The fix ignores recapitalization callbacks before game-state
+collection; other event subscribers retain the complete boundary.
+On the first trusted callback for a newly observed campaign session, the fix
+preflights every bounded state pool, discards serialized balances, and enables
+payouts only after all clears succeed. A failed or incomplete payout schedules
+the same cleanup before the next daily pass; a successful pass already leaves
+every consumed pool zero. Native recapitalization and bank-to-state allocation
+run unchanged.
 
 After native distribution, the fix first scans copied state candidates without
 walking POPs. Countries with no positive state pool return immediately. For a
 country with interest it:
 
-1. traverses at most 512 states, 4,096 provinces, and 100,000 POPs while rejecting
-   malformed containers and duplicate state, province, or POP identities;
+1. traverses at most 512 states and 4,096 province references, validates bounded
+   province resolution and duplicate province identity for every state, and
+   walks at most 100,000 POPs only in states with positive pools while rejecting
+   malformed traversed containers and duplicate identities;
 2. allocates each complete positive state pool among that state's positive-savings
    POPs and requires the exact payout sum to equal the pool multiplied by 1,000;
 3. preflights every `CPop::GiveMoney` range and arithmetic result before the first
@@ -730,6 +738,31 @@ fix performs checked native POP writes that the unmodified game omits.
 The source save retained SHA-256
 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`
 through all runs.
+
+## State-pool performance optimization
+
+Seven-day diagnostics run `ecbd9f74-c371-4995-b14c-3b7d0ad7ecf0` validated the
+optimized path. It performed one full session cleanup rather than seven daily
+campaign scans, paid 47 state pools through 180 verified POP writes, and had no
+failure, conservation error, or dropped result. Positive-pool country callback
+time totaled 12,898 microseconds, down from 29,829 microseconds before selective
+POP traversal on the same fixture shape.
+
+Final production run `1c0e4bc4-227e-41d6-861b-e308077c34ae` completed 3,650 exact
+days with diagnostics and telemetry disabled. Complete launcher-to-process-exit
+wall time was 339.478 seconds, a conservative 10.7518 game days per second that
+also includes launch, save loading, campaign entry, and shutdown. The matching
+no-fix Smedley configuration, run `1584444b-7c3f-4b3f-ad3e-70db4bf4d893`, took
+302.085 seconds or 12.0827 game days per second. The optimized fix therefore
+retained 89.0 percent of paired baseline throughput.
+
+The final path performs full campaign cleanup only for a new session or after a
+failed payout, ignores native recapitalization callbacks before collection,
+walks POP lists only for positive state pools, validates country membership once
+per callback, uses generation-tagged daily identity storage, and amortizes
+signature and session checks across each prepared country. Checked writable
+state spans, native `CPop::GiveMoney`, immediate POP postconditions, exact
+state-pool conservation, and clear-after-success ordering remain active.
 
 ## Remaining validation
 

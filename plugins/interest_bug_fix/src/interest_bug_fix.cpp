@@ -201,6 +201,8 @@ namespace interest_bug_fix
     private:
         void OnBankInterest(smedley::events::BankInterestEvent &event)
         {
+            if (event.GetPhase() == smedley::events::BankInterestPhase::AFTER
+                && !event.DistributesToStates()) return;
             const auto started = std::chrono::steady_clock::now();
             try {
                 if (event.GetPhase() == smedley::events::BankInterestPhase::BEFORE
@@ -211,13 +213,23 @@ namespace interest_bug_fix
                 }
                 BankInterestAccess access = BankInterestAccess::FromEvent(event);
                 int32_t date_raw = 0;
-                if (!access.game_state() || !ReadCurrentDate(access.game_state(), &date_raw)) return;
+                if (!access.game_state() || !ReadCurrentDate(access.game_state(), &date_raw)) {
+                    needs_cleanup_ = true;
+                    return;
+                }
                 if (!access.after()) {
-                    if (access.first_country()) InitializeDailyPass(access, date_raw, started);
+                    if (access.first_country()) {
+                        if (session_epoch_ != access.session_epoch()) {
+                            session_epoch_ = access.session_epoch();
+                            needs_cleanup_ = true;
+                        }
+                        InitializeDailyPass(access, date_raw, started);
+                    }
                     return;
                 }
                 if (initialized_ && !disabled_) PayCountryPools(access, date_raw, started);
             } catch (...) {
+                needs_cleanup_ = true;
                 disabled_ = true;
                 logger().Failure("interest fix disabled after a state-payout exception");
             }
@@ -226,6 +238,17 @@ namespace interest_bug_fix
         void InitializeDailyPass(BankInterestAccess &access, int32_t date_raw,
                                  std::chrono::steady_clock::time_point started)
         {
+            if (!needs_cleanup_) {
+                initialized_ = true;
+                disabled_ = false;
+                if (debug_) {
+                    FixResult result{};
+                    result.date_raw = date_raw;
+                    result.status = FixStatus::initialized;
+                    Publish(result, started);
+                }
+                return;
+            }
             StateInterestInitializationResult initialization{};
             const PopInterestMutationStatus status = DiscardStateInterestPools(access, &initialization);
             FixResult result{};
@@ -237,6 +260,7 @@ namespace interest_bug_fix
                 ? FixStatus::initialized : MutationFixStatus(status, initialization.cleared_state_count != 0);
             Publish(result, started);
             if (status == PopInterestMutationStatus::success) {
+                needs_cleanup_ = false;
                 initialized_ = true;
                 disabled_ = false;
             } else {
@@ -260,11 +284,21 @@ namespace interest_bug_fix
                 has_interest = has_interest || states_[index].interest_raw > 0;
             }
             if (!has_interest) return;
-
             if (!CollectCountryStateInterest(access.country(), access.game_state(), date_raw,
                     states_.data(), states_.size(), &state_count, candidates_.data(), candidates_.size(),
                     max_sample_destination_provinces, &pop_count, &quality)) {
                 PublishCollectionFailure(date_raw, quality, started);
+                return;
+            }
+            const PopInterestMutationStatus prepare_status = PrepareCountryStateInterestPayouts(
+                access, states_.data(), state_count);
+            if (prepare_status != PopInterestMutationStatus::success) {
+                needs_cleanup_ = true;
+                FixResult result{};
+                result.date_raw = date_raw;
+                std::memcpy(result.country_tag, quality.country_tag, sizeof(result.country_tag));
+                result.status = MutationFixStatus(prepare_status, false);
+                Publish(result, started);
                 return;
             }
             for (uint32_t index = 0; index < state_count && !disabled_; ++index) {
@@ -276,6 +310,7 @@ namespace interest_bug_fix
         void PublishCollectionFailure(int32_t date_raw, const CountryEconomySnapshot &quality,
                                       std::chrono::steady_clock::time_point started)
         {
+            needs_cleanup_ = true;
             FixResult result{};
             result.date_raw = date_raw;
             std::memcpy(result.country_tag, quality.country_tag, sizeof(result.country_tag));
@@ -304,11 +339,13 @@ namespace interest_bug_fix
             result.allocation_status = AllocateInterest(state.interest_raw, allocations_.data(), state.pop_count,
                 order_scratch_.data(), order_scratch_.size());
             if (result.allocation_status != AllocationStatus::success) {
+                needs_cleanup_ = true;
                 result.status = AllocationFixStatus(result.allocation_status);
                 Publish(result, started);
                 return;
             }
             if (state.interest_raw > (std::numeric_limits<int64_t>::max)() / 1000) {
+                needs_cleanup_ = true;
                 result.status = FixStatus::conservation_failed;
                 Publish(result, started);
                 return;
@@ -320,12 +357,14 @@ namespace interest_bug_fix
                 const int64_t payout = allocations_[index].payout_raw;
                 if (payout == 0) continue;
                 if (paid_pops_.Contains(candidates_[first + index].address.address())) {
+                    needs_cleanup_ = true;
                     result.status = FixStatus::duplicate_pop;
                     disabled_ = true;
                     Publish(result, started);
                     return;
                 }
                 if (payout_total > (std::numeric_limits<int64_t>::max)() - payout) {
+                    needs_cleanup_ = true;
                     result.status = FixStatus::conservation_failed;
                     Publish(result, started);
                     return;
@@ -336,12 +375,14 @@ namespace interest_bug_fix
                 ++payment_count;
             }
             if (payout_total != state.interest_raw * 1000) {
+                needs_cleanup_ = true;
                 result.status = FixStatus::conservation_failed;
                 Publish(result, started);
                 return;
             }
             result.payout_raw = payout_total;
             if (payment_count > daily_pop_set_capacity - paid_pops_.size()) {
+                needs_cleanup_ = true;
                 result.status = FixStatus::duplicate_pop;
                 disabled_ = true;
                 Publish(result, started);
@@ -349,6 +390,7 @@ namespace interest_bug_fix
             }
             for (uint32_t index = 0; index < payment_count; ++index) {
                 if (paid_pops_.Insert(payments_[index].pop.address()) != PointerInsertStatus::inserted) {
+                    needs_cleanup_ = true;
                     result.status = FixStatus::duplicate_pop;
                     disabled_ = true;
                     Publish(result, started);
@@ -364,6 +406,7 @@ namespace interest_bug_fix
             if (status == PopInterestMutationStatus::success) {
                 result.status = FixStatus::paid;
             } else {
+                needs_cleanup_ = true;
                 const bool partial = batch_result.write_count != 0;
                 result.status = MutationFixStatus(status, partial);
                 if (IsUnsafeAppliedPopInterestFailure(status, partial)) {
@@ -454,7 +497,9 @@ namespace interest_bug_fix
         std::ofstream output_;
         bool initialized_ = false;
         bool disabled_ = false;
+        bool needs_cleanup_ = true;
         bool debug_ = false;
+        uint64_t session_epoch_ = 0;
         DailyPopSet paid_pops_{};
         std::atomic<uint64_t> dropped_{0};
         std::atomic<bool> stop_{false};

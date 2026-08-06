@@ -107,9 +107,10 @@ remain unchanged. The fix records outcomes in
 `<GAME_DIR>/interest_bug_fix.csv` plus structured health/value telemetry when
 `telemetry` is also selected. Each launch truncates this fixed CSV output. The
 fix is disabled unless its manifest is selected and intentionally returns
-interest omitted by vanilla to depositor POP balances. Existing or failed-payout
-state interest is discarded before each native daily bank-distribution pass;
-after a successful prior pass these pools are already zero. Comprehensive world-money
+interest omitted by vanilla to depositor POP balances. Serialized state interest
+is discarded when a campaign session is first observed. A failed or incomplete
+payout schedules another cleanup before the next native daily bank-distribution
+pass; successful payouts already leave their pools zero. Comprehensive world-money
 supply remains unmapped, so no total-money effect is claimed. See the mapping
 document before enabling it.
 

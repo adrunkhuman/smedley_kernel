@@ -46,8 +46,10 @@ TEST(EventRegistryTests, PreservesDailyInterestBoundaryPhase)
 TEST(EventRegistryTests, PreservesBankInterestBoundaryPhase)
 {
     BankInterestPhase observed = BankInterestPhase::BEFORE;
-    EventRegistry<BankInterestEvent>::Register(nullptr, "bank-interest-phase-test", [&observed](BankInterestEvent &event) {
+    bool distributes_to_states = false;
+    EventRegistry<BankInterestEvent>::Register(nullptr, "bank-interest-phase-test", [&](BankInterestEvent &event) {
         observed = event.GetPhase();
+        distributes_to_states = event.DistributesToStates();
     });
 
     BankInterestEvent event(nullptr, BankInterestPhase::AFTER, 7);
@@ -56,6 +58,7 @@ TEST(EventRegistryTests, PreservesBankInterestBoundaryPhase)
 
     EXPECT_EQ(observed, BankInterestPhase::AFTER);
     EXPECT_EQ(event.GetCountryIndex(), 7u);
+    EXPECT_TRUE(distributes_to_states);
 }
 
 TEST(EventRegistryTests, ContainsMutationAndContinuesNotification)

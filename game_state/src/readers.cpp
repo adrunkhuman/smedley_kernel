@@ -448,7 +448,7 @@ namespace smedley::game_state
         void CollectPops(const PointerVector &provinces, ProvinceResolver resolver,
                            const void *resolver_context, TraversalScratch *scratch,
                            PopRef *immediate_pop, uint32_t province_limit,
-                           uint32_t pop_limit, bool collect_savings_aggregates,
+                           uint32_t pop_limit, bool traverse_pops, bool collect_savings_aggregates,
                            CountryEconomySnapshot *sample)
         {
             uint32_t province_count = 0;
@@ -478,6 +478,7 @@ namespace smedley::game_state
                 }
                 ++sample->destination_provinces_resolved;
                 sample->destination_pop_lists += pop_list_count;
+                if (!traverse_pops) continue;
                 for (uint32_t list_index = 0; list_index < pop_list_count; ++list_index) {
                     PopList list{};
                     if (!ReadAt(pop_lists.begin, list_index * sizeof(PopList), &list) || list.count < 0) {
@@ -651,7 +652,7 @@ namespace smedley::game_state
                             if (collect_pops && province_resolver != nullptr) {
                                 CollectPops(provinces, province_resolver, resolver_context,
                                     scratch, immediate_pop, province_limit, pop_limit,
-                                    collect_economy_values, &sample);
+                                    true, collect_economy_values, &sample);
                             }
                             if (collect_economy_values) {
                                 int64_t savings = 0;
@@ -1039,7 +1040,8 @@ namespace smedley::game_state
                             AddChecked(candidate.interest_raw, &quality->state_interest_raw, &quality->flags);
                             if (pop_capacity != 0) {
                                 CollectPops(provinces, ResolveProvinceFromGameState, &game_state,
-                                    &traversal_scratch, nullptr, province_limit, pop_limit, false, quality);
+                                    &traversal_scratch, nullptr, province_limit, pop_limit,
+                                    candidate.interest_raw > 0, false, quality);
                                 candidate.pop_count = traversal_scratch.pop_pointer_count - candidate.first_pop_index;
                             }
                             ++*state_count;

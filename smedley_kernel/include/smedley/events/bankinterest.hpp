@@ -34,7 +34,8 @@ namespace smedley::events
         inline static std::atomic<uint64_t> callback_failures_{0};
         static void HookTrampoline();
         struct TrustedHookTag {};
-        BankInterestEvent(v2::CBank *bank, BankInterestPhase phase, uint32_t country_index, TrustedHookTag);
+        BankInterestEvent(v2::CBank *bank, BankInterestPhase phase, uint32_t country_index,
+                          bool distributes_to_states, TrustedHookTag);
 
         friend class detail::BankInterestHookBridge;
 
@@ -43,6 +44,7 @@ namespace smedley::events
         v2::CBank *GetBank() const noexcept;
         BankInterestPhase GetPhase() const noexcept;
         uint32_t GetCountryIndex() const noexcept;
+        bool DistributesToStates() const noexcept;
         static uint64_t ActiveDispatchGeneration() noexcept;
         static bool IsDispatchActive(uint64_t generation) noexcept;
         static bool IsCurrentDispatch(const BankInterestEvent &event, uint64_t generation) noexcept;
