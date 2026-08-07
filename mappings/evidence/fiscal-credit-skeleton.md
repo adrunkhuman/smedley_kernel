@@ -84,8 +84,13 @@ global read by `TakeLoan` and is a lead for the NBD→interest-rate link
 - Interest: paid daily in `PayDailyInterest` (`RVA 0x00123c30`) — **verified-runtime**.
 - Default/bankruptcy: shortfall handler `RVA 0x001241f0` (static; treasury reset
   observed at runtime but exact invocation unbracketed).
-- Repayment: **OPEN** — the boundary where loan principal returns to the lender
-  (`total_lent` down, creditor vector shrinks) is not yet located.
+- Repayment: runtime run `5d5db709` (15 days, all 271 countries) recorded
+  **zero creditor-count decreases** (e.g. SWE `0,2,3,3,...4`; SAR
+  `0,3,3,5,5,...9`; debt-free majors flat at `0`). This is a negative
+  `verified-runtime` result consistent with **no recurring principal
+  repayment** in normal play: government loans are taken, accrue interest, and
+  are removed only at bankruptcy. A repayment path under conditions not
+  exercised here (a country choosing to pay down debt) is not excluded.
 
 | Next | Hook the daily pass and watch `total_lent` / creditor vector for a repayment transition; identify the repayment callsite. |
 
