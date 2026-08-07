@@ -71,6 +71,14 @@ Assignment sites include `RVA 0x00505ec2` which writes the raw constant
 | **(unknown pool B)** | `+0x18` | verified-current as a distinct 64-bit field that tracks `+0x10` then plateaus; **not** the displayed loans in live comparisons — label withdrawn |
 | interest_payments | `+0x20` | verified-runtime (PayDailyInterest credits it; 12 exact pairs) |
 
+**National-bank balance is per-state.** Live observation: once deposits began,
+the on-screen bank balance was `0.05`, split `0.03 + 0.02` across the two states
+that had generated savings. This is consistent with the bank's displayed balance
+being the sum of `CCState+0x258` savings (already `verified-static-callsites` in
+`interest-payout.md` for the `CBank::DistributeInterest` weighting), not any
+single `CBank` field. The two states map to the `+0x258/+0x25c` savings that
+accrue as POPs deposit, which then drives the bank's interest payout weighting.
+
 Domain (player-facing) semantics, for framing: POPs with excess income deposit
 savings into the bank (`+0x10` grows); a borrower prefers its own bank first
 (domestic debt, already mapped via `TakeLoan`); repayment returns money to the

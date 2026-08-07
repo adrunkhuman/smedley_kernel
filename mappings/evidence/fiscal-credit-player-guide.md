@@ -12,9 +12,12 @@ have tucked away. Two large 64-bit fields inside the bank object (`+0x10`,
 `+0x18`) grow steadily and track each other — but a live in-game comparison
 showed that these are **not** the "national bank balance" or "loans given" on
 screen (the UI reads `0` for both while those fields already read tens of
-millions). So the bank's displayed cash/loans live at offsets not yet found;
-what `+0x10/+0x18` actually are is unresolved. The bank's owner pointer
-(`+0x08`) is confirmed to always point back to the country whose bank it is.
+millions). The displayed balance is instead **per state**: when deposits began,
+the on-screen balance was `0.05`, built from two states (`0.03 + 0.02`). So the
+bank's money is your states' POP savings pooled (the `CCState+0x258` savings the
+interest system already weighs), not the bank object's `+0x10`/`+0x18` pools.
+The owner pointer (`+0x08`) is confirmed to always point back to the country
+whose bank it is.
 
 Why players care: because the bank lends to you, your own citizens are your
 cheapest lender. When you run a deficit you borrow from the national bank first,
