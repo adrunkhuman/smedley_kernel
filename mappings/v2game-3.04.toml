@@ -944,8 +944,8 @@ fields = [
 
 [[layouts]]
 name = "CBank"
-status = "historical-unverified"
-source = "parent of commit 967a1a4 native/handles/CBank.hpp; interest_payments +0x20 alone is verified-runtime by PayDailyInterest static flow and 12 exact destination pairs"
+status = "verified-current"
+source = "parent of commit 967a1a4 native/handles/CBank.hpp; +0x20 verified-runtime by PayDailyInterest static flow and 12 exact destination pairs; +0x10/+0x18 are distinct 64-bit fields the game_state reader now samples (destination_bank_money_raw/total_lent_raw) and runtime run a9842147 observed to accumulate (SWE +0x10 15.5M->30.4M, +0x18 tracking then plateauing at 30.31M); economic names money/total_lent remain candidate; country +0x08 owner read is static-only"
 fields = [
   { name = "country", offset = 0x08 },
   { name = "money", offset = 0x10 },

@@ -110,6 +110,31 @@ The probe measured two reproducible boundaries plus the bankruptcy transition:
   callsite that performs the write-off is not bracketed by `DailyInterestEvent`,
   so it remains `verified-static-callsites`.
 
+## National-bank fields (run `a9842147`, 30-day `benchmark.v2`)
+
+To move the `CBank` layout out of `historical-unverified`, the `game_state`
+reader `ReadCountryCreditors`/`ReadCountryCreditorBalances` now also samples the
+destination nation's bank `+0x10` and `+0x18` into
+`destination_bank_money_raw` / `destination_bank_total_lent_raw` (both use the
+existing `AddChecked` overflow handling, so an unreadable field is emitted
+absent; the per-destination `+0x20` array is unchanged).
+
+Across the 30-day run, for the destination bank reached from SWE's creditors:
+
+- `+0x10` (`money`) grew monotonically `15,489,107 -> 30,384,692`.
+- `+0x18` (`total_lent`) tracked it closely, then plateaued at `30,312,608`
+  while `+0x10` kept growing (last few days: `+0x10` up, `+0x18` flat).
+- `+0x20` (`interest_payments`) accumulated the per-call interest credits
+  (`+4,947 ... +5,363`) as previously verified.
+
+This upgrades `CBank +0x10` and `+0x18` from `historical-unverified` to
+`verified-current` (reader bytes against the supported executable, distinct
+64-bit fields, runtime-observed to move and to diverge / plateau relative to
+each other). The economic names `money` and `total_lent` remain candidate
+(`historical-unverified`) labels: the near-equality and SWE that lends out most
+of its deposit base is consistent with a national bank, but ownership structure,
+deposit provenance, and loan mechanics are not yet resolved by this slice.
+
 ## Status against issue #29
 
 This is an in-progress evidence record, not a claim that #29 is complete.

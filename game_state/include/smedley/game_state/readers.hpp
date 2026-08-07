@@ -74,6 +74,8 @@ namespace smedley::game_state
         std::array<uint32_t, max_sample_creditor_destinations> destination_keys{};
         std::array<int32_t, max_sample_creditor_destinations> destination_ordinals{};
         std::array<int64_t, max_sample_creditor_destinations> destination_bank_interests_raw{};
+        int64_t destination_bank_money_raw = 0;
+        int64_t destination_bank_total_lent_raw = 0;
         uint32_t flags = 0;
     };
 
