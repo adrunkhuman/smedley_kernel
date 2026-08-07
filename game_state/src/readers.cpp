@@ -33,8 +33,6 @@ namespace smedley::game_state
         constexpr size_t state_savings_offset = 0x258;
         constexpr size_t state_interest_offset = 0x260;
         constexpr size_t bank_interest_offset = 0x20;
-        constexpr size_t bank_money_offset = 0x10;
-        constexpr size_t bank_total_lent_offset = 0x18;
         constexpr size_t bank_owner_offset = 0x08;
         constexpr size_t province_pop_lists_offset = 0x194;
         constexpr size_t province_id_offset = 0x58;
@@ -784,12 +782,8 @@ namespace smedley::game_state
             if (!collect_states && !collect_pops) {
                 const void *destination_bank = nullptr;
                 int64_t destination_bank_interest = 0;
-                int64_t destination_bank_money = 0;
-                int64_t destination_bank_total_lent = 0;
                 if (!ReadAt(destination, country_bank_offset, &destination_bank) || destination_bank == nullptr
-                    || !ReadAt(destination_bank, bank_interest_offset, &destination_bank_interest)
-                    || !ReadAt(destination_bank, bank_money_offset, &destination_bank_money)
-                    || !ReadAt(destination_bank, bank_total_lent_offset, &destination_bank_total_lent)) {
+                    || !ReadAt(destination_bank, bank_interest_offset, &destination_bank_interest)) {
                     sample.flags |= SAMPLE_CREDITOR_DESTINATION_INVALID;
                     continue;
                 }
@@ -798,8 +792,6 @@ namespace smedley::game_state
                 sample.destination_bank_interests_raw[sample.creditor_destinations] = destination_bank_interest;
                 ++sample.creditor_destinations;
                 AddChecked(destination_bank_interest, &sample.destination_bank_interest_raw, &sample.flags);
-                AddChecked(destination_bank_money, &sample.destination_bank_money_raw, &sample.flags);
-                AddChecked(destination_bank_total_lent, &sample.destination_bank_total_lent_raw, &sample.flags);
                 continue;
             }
             const CountryEconomySnapshot destination_sample = ReadCountryEconomyImpl(
@@ -885,15 +877,11 @@ namespace smedley::game_state
             int32_t destination_ordinal = -1;
             const void *bank = nullptr;
             int64_t bank_interest = 0;
-            int64_t bank_money = 0;
-            int64_t bank_total_lent = 0;
             if (!ReadAt(destination, country_tag_offset, &destination_key)
                 || !ReadAt(destination, country_tag_offset + sizeof(destination_key), &destination_ordinal)
                 || destination_key != key || destination_ordinal != ordinal
                 || !ReadAt(destination, country_bank_offset, &bank) || bank == nullptr
-                || !ReadAt(bank, bank_interest_offset, &bank_interest)
-                || !ReadAt(bank, bank_money_offset, &bank_money)
-                || !ReadAt(bank, bank_total_lent_offset, &bank_total_lent)) {
+                || !ReadAt(bank, bank_interest_offset, &bank_interest)) {
                 after.flags |= SAMPLE_CREDITOR_DESTINATION_INVALID;
                 continue;
             }
@@ -902,8 +890,6 @@ namespace smedley::game_state
             after.destination_bank_interests_raw[after.creditor_destinations] = bank_interest;
             ++after.creditor_destinations;
             AddChecked(bank_interest, &after.destination_bank_interest_raw, &after.flags);
-            AddChecked(bank_money, &after.destination_bank_money_raw, &after.flags);
-            AddChecked(bank_total_lent, &after.destination_bank_total_lent_raw, &after.flags);
             const void *bank_owner = nullptr;
             uint32_t owner_key = 0;
             int32_t owner_ordinal = -1;
