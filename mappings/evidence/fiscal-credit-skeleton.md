@@ -21,36 +21,47 @@ Shared anchor facts:
 | Aspect | Value |
 | --- | --- |
 | Boundary | POP income tax and trade tariffs collect into treasury. Static budget-source `add` clusters below are where these land; the per-POP tax amount begins at POP income fields (POP `+0x250` savings is separate). |
-| Evidence | `provisional` (candidates only; no runtime attribution). |
-| Next | Disassemble the `add` clusters (esp. `RVA 0x0050xxxx`, `0x0053xxxx`) to identify the POP-income → tax → treasury chain and name a tax field without shape-based inference; correlate a live country's budget screen tax line with a treasury delta. |
+| Evidence | `provisional` (candidates only; no runtime attribution yet). |
+| Identified mechanism | Daily per-entity income loops add a 64-bit income field to treasury. The `0x0053e5xx-0x0053e8ff` loop reads the iterated entity's `+0xb8/+0xbc` and `add`/`adc` it to `CCountry+0xe78/+0xe7c`; the `0x00508xxx` loop reads `[ebx+0xa0]` `+4`/`+8` and divides by `2^15` (`shrd eax,esi,0xf; sar esi,0xf` at `0x00508e5c`) before adding. Both walk an entity list indexed via the global `[0x1258738]+0xd` (`+0xd` field scaled by `8`). |
+| Open | Which entity the two loops iterate (POPs / goods / states) decides whether the credit is POP income-tax vs tariff/goods income. Next step: resolve `[CGameState-like 0x1258738]+0xd` list and the `+0xa0`/`+0xb8` object identity, then correlate one live country's budget tax/tariff line with a treasury delta. |
 
 ## Government budget sources and sinks
 
-Treasury `add` (inflow/source) clusters, `verified-static-callsites`:
+Treasury `add` (inflow/source), `verified-static-callsites`:
 
-- `RVA 0x00508c6d 0x00508ca4 0x00508cde 0x00508d1a 0x00508e6b 0x0050c262`
-- `RVA 0x00538404 0x00538438 0x005388bc 0x005388eb 0x0053e567 0x0053e69f 0x0053e781 0x0053e7ff`
-- `RVA 0x005235a4 0x00523697 0x00523819` (pre-interest daily income)
-- `RVA 0x0048893c 0x00488add`
+- Daily per-entity income loop `0x0053e567 0x0053e69f 0x0053e781 0x0053e7ff`
+  (entities: `+0xb8/+0xbc` income).
+- Daily per-entity income loop `0x00508c6d 0x00508ca4 0x00508cde 0x00508d1a`
+  (entities: `[+0xa0]` `+4`/`+8`; `/2^15` scale), plus `0x00508e6b` and a
+  `0x0050c262` site. `verified-static-callsites`.
+- Pre-interest `0x005235a4 0x00523697 0x00523819` and `0x0048893c 0x00488add`.
 
-Treasury `sub` (outflow/sink) sites:
+Treasury `sub` (outflow/sink):
 
-- `RVA 0x005239c0 0x00523a35` (daily expense deduction)
-- `RVA 0x005257fa` (money mutator sink)
-- Interest debit inside `PayDailyInterest` (`RVA 0x00123c30`): **verified-runtime**
+- Daily government expense function at `0x005238d0 .. 0x00523a7a`: `sub`/`sbb`
+  a 64-bit expense at `0x005239c0` and `0x00523a35`, each clamping the running
+  value at zero (`0x00523a27`). `verified-static-callsites`.
+- Money-mutator sink `0x005257fa` with a zero clamp (`0x00525806..0x00525810`).
+- Interest debit inside `PayDailyInterest` (`RVA 0x00123c30`): `verified-runtime`
   (reproduced, e.g. SWE `-32,814` raw/day).
 - Bankruptcy refund `add` at `RVA 0x005246f7` (inside the `0x001241f0` handler).
+
+The `/2^15` scale seen in the `0x00508xxx` source path and the `32768000`
+(= `1000.0` @ 15 frac bits) write at `RVA 0x00505ec2` indicate treasury-adjacent
+income is carried at a different fixed-point scale than the treasury field
+itself; reconciling those scales is part of the conservation item.
 
 Assignment sites include `RVA 0x00505ec2` which writes the raw constant
 `32768000` (`1000.0` at 15 fractional bits) to treasury (initialization/reset).
 
-| Next | For each `add` cluster, determine the source kind (POP income tax, tariff, gold conversion, interest) by reading the function that feeds the added value; then promote one to `verified-runtime` with a budget-line correlation. |
+| Next | Resolve the iterated-entity list identity for each source loop and name the income kind (tax/tariff/gold/interest); promote one source to `verified-runtime` with a visible budget-line correlation and record its fixed-point scale. |
+
 
 ## National bank (`CBank`, via `CCountry+0xe88`)
 
 | Field | Offset | Evidence |
 | --- | --- | --- |
-| country (owner) | `+0x08` | static (read by `CBank::DistributeInterest`), candidate |
+| country (owner) | `+0x08` | verified-runtime: reader resolves `+0x08` and confirmed, across all 4,065 boundary rows of run `5d5db709`, that each destination bank owner equals the destination country (same tag+ordinal, zero mismatches) |
 | money | `+0x10` | verified-current; runtime-observed to accumulate (SWE bank `15.5M -> 30.4M` in 30 days) |
 | total_lent | `+0x18` | verified-current; runtime-observed (tracks money then plateaus) |
 | interest_payments | `+0x20` | verified-runtime (PayDailyInterest credits it; 12 exact pairs) |

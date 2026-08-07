@@ -62,6 +62,7 @@ namespace fiscal_credit_probe
             int64_t bank_total_lent_before_raw = 0;
             int64_t bank_total_lent_after_raw = 0;
             int64_t bank_total_lent_delta_raw = 0;
+            uint32_t owner_invalid = 0;
             uint32_t flags = 0;
         };
 
@@ -166,6 +167,7 @@ namespace fiscal_credit_probe
                 row.bank_total_lent_before_raw = before_.destination_bank_total_lent_raw;
                 row.bank_total_lent_after_raw = after.destination_bank_total_lent_raw;
                 row.bank_total_lent_delta_raw = after.destination_bank_total_lent_raw - before_.destination_bank_total_lent_raw;
+                row.owner_invalid = after.invalid_destination_bank_owner;
                 row.flags = after.flags | (before_treasury_available_ && after_available ? 0u : 1u << 31);
                 Publish(row);
             } catch (...) {
@@ -188,7 +190,7 @@ namespace fiscal_credit_probe
             output_ << "date_raw,country,treasury_before_raw,treasury_after_raw,treasury_delta_raw,"
                        "creditor_count,creditor_destinations,bank_before_raw,bank_after_raw,bank_delta_raw,"
                        "bank_money_before_raw,bank_money_after_raw,bank_money_delta_raw,"
-                       "bank_lent_before_raw,bank_lent_after_raw,bank_lent_delta_raw,flags,dropped\n";
+                       "bank_lent_before_raw,bank_lent_after_raw,bank_lent_delta_raw,owner_invalid,flags,dropped\n";
             output_.flush();
             if (!output_) throw std::runtime_error("cannot initialize fiscal_credit_probe.csv");
             worker_ = std::thread([this] { WriteRows(); });
@@ -216,6 +218,7 @@ namespace fiscal_credit_probe
                             << row.bank_money_delta_raw << ','
                             << row.bank_total_lent_before_raw << ',' << row.bank_total_lent_after_raw << ','
                             << row.bank_total_lent_delta_raw << ','
+                            << row.owner_invalid << ','
                             << "0x" << std::hex << row.flags << std::dec << ','
                             << dropped_.load(std::memory_order_relaxed) << '\n';
                     if (!output_) {
