@@ -7,18 +7,14 @@ readers who do not care about them can ignore them.
 
 ## The national bank is your citizens' savings, lent back to you
 
-The national bank is not "your treasury." It is the savings your citizens have
-tucked away. The engine tracks that money and, crucially, most of it is lent
-back out (that is how the bank's "money" and "money lent" fields stay almost
-equal — for example Sweden's bank, measured over a month, kept its cash and its
-lent-out totals essentially equal, so it is lending almost everything it holds).
-
-- When your POPs earn more than they spend, the surplus goes into the bank
-  (`money`). [CBank `+0x10`]
-- The bank lends most of that out (`total_lent`). [CBank `+0x18`]
-- The bank belongs to the country [owner pointer `+0x08` was confirmed to always
-  point back to the country whose bank it is], so it is genuinely "your
-  citizens' bank," not a foreign institution.
+The national bank is not "your treasury." It is the savings your citizens
+have tucked away. Two large 64-bit fields inside the bank object (`+0x10`,
+`+0x18`) grow steadily and track each other — but a live in-game comparison
+showed that these are **not** the "national bank balance" or "loans given" on
+screen (the UI reads `0` for both while those fields already read tens of
+millions). So the bank's displayed cash/loans live at offsets not yet found;
+what `+0x10/+0x18` actually are is unresolved. The bank's owner pointer
+(`+0x08`) is confirmed to always point back to the country whose bank it is.
 
 Why players care: because the bank lends to you, your own citizens are your
 cheapest lender. When you run a deficit you borrow from the national bank first,
@@ -70,11 +66,10 @@ From a live observer run of the benchmark save, Sweden's early budget read:
 income tax on the poor ~41%, middle ~8%, rich ~3%, and tariffs ~50%. The
 probe captured over roughly a month of game days:
 
-- The national bank kept growing: `money` from `15.5M` to `26.4M` raw, and
-  `total_lent` tracking then flattening near the same value — the bank simply
-  lends out nearly everything it takes in as savings. That matches the
-  player-facing rule that rich/middle strata fuel the bank and the government
-  then borrows that same money back.
+- The probe's two big bank-object fields grew steadily (`+0x10` from `15.5M` to
+  `26.4M` raw, `+0x18` tracking then flattening); the on-screen "national bank
+  balance" stayed `0`, which is exactly why those fields are not the bank's
+  displayed funds. The real bank-balance offset is unresolved.
 - The interest-window treasury delta was small and steady (a few to ~18k raw)
   — that is the daily interest charge alone. The big swings in the treasury day
   to day come from tax + tariff income, spending, gold conversion, and loans all

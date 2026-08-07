@@ -945,7 +945,7 @@ fields = [
 [[layouts]]
 name = "CBank"
 status = "verified-current"
-source = "parent of commit 967a1a4 native/handles/CBank.hpp; +0x20 verified-runtime by PayDailyInterest static flow and 12 exact destination pairs; +0x10/+0x18 distinct 64-bit fields (destination_bank_money_raw/total_lent_raw) runtime-observed to accumulate (run a9842147 SWE +0x10 15.5M->30.4M, +0x18 plateaus at 30.31M) with names candidate; +0x08 owner pointer verified-runtime: 4,065 boundary rows of run 5d5db709 all resolved the owner back to the identical destination country (zero mismatches)"
+source = "parent of commit 967a1a4 native/handles/CBank.hpp; +0x20 verified-runtime by PayDailyInterest static flow and 12 exact destination pairs; +0x08 owner pointer verified-runtime (run 5d5db709, zero mismatches); +0x10/+0x18 are distinct accumulating 64-bit fields but live comparison against the in-game national-bank funds/loans shows they are NOT the bank's cash/loans, so the historical money/total_lent names are withdrawn and the pool identity is open"
 fields = [
   { name = "country", offset = 0x08 },
   { name = "money", offset = 0x10 },

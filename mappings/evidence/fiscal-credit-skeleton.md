@@ -62,8 +62,8 @@ Assignment sites include `RVA 0x00505ec2` which writes the raw constant
 | Field | Offset | Evidence |
 | --- | --- | --- |
 | country (owner) | `+0x08` | verified-runtime: reader resolves `+0x08` and confirmed, across all 4,065 boundary rows of run `5d5db709`, that each destination bank owner equals the destination country (same tag+ordinal, zero mismatches) |
-| money | `+0x10` | verified-current; runtime-observed to accumulate (SWE bank `15.5M -> 30.4M` in 30 days) |
-| total_lent | `+0x18` | verified-current; runtime-observed (tracks money then plateaus) |
+| **(unknown pool A)** | `+0x10` | verified-current as a distinct 64-bit field that accumulates (SWE `15.5M -> 30.4M`), but live comparisons show it is **not** the national bank's displayed funds/loans (UI reads 0 while `+0x10` reads tens of millions) — label withdrawn |
+| **(unknown pool B)** | `+0x18` | verified-current as a distinct 64-bit field that tracks `+0x10` then plateaus; **not** the displayed loans in live comparisons — label withdrawn |
 | interest_payments | `+0x20` | verified-runtime (PayDailyInterest credits it; 12 exact pairs) |
 
 Domain (player-facing) semantics, for framing: POPs with excess income deposit
