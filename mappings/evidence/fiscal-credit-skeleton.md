@@ -8,7 +8,12 @@ module-relative; the supported executable is HOD 3.04 (SHA-256
 conventions.
 
 Shared anchor facts:
-- Treasury is a signed 64-bit pair at `CCountry+0xe78` (low) / `+0xe7c` (high).
+- Treasury is a signed 64-bit pair at `CCountry+0xe78` (low) / `+0xe7c` (high),
+  at a `1/32768` (£) fixed-point scale. Scale **verified-runtime**: live SWE
+  on-screen treasury matched the probe raw, with `raw / 32768` equal to the
+  displayed pounds on two consecutive days (Jul 13 `4441.5`~`4446.8`, Jul 14
+  `4499.6`~`4501.6`), and the net daily change (`+58.1 £`) consistent with the
+  budget's tax+tariff income minus spending.
   `CCountry+0xe88` is the bank pointer, `+0xe8c` the creditor vector.
 - Static xref scan found 89 references to `+0xe78`; the treasury **add**
   (income/source) sites and **sub** (expense/sink) sites below are the fiscal
