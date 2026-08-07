@@ -126,10 +126,13 @@ Still outstanding (#29 required work):
   mutation boundaries for receipts (tax/tariff income, gold conversion) as well
   as the interest sink recorded here.
 - National-bank asset/liability/deposit/ownership semantics (only the bank
-  interest-receipt field `CBank+0x20` is mapped).
-- Loan origination/repayment lifecycle with creditor/debtor identity
-  (`TakeLoan` at `RVA 0x00122910`, the insufficient-funds helper at
-  `VA 0x005257a8`, and repayment outside the interest path).
+  interest-receipt field `CBank+0x20` is mapped; deposit and ownership structure
+  are unresolved).
+- Loan **repayment** lifecycle and the full default/bankruptcy transition with
+  retained creditor/debtor identity. (Loan *origination* is already
+  `verified-static-callsites` in `interest-payout.md`: `CCountry::TakeLoan` at
+  `RVA 0x00122910` for domestic creditor creation, the Shadowy Financiers
+  fallback, and the bankruptcy construction reach at `0x001257a8`.)
 - Conservation equations, units, rounding bounds, unavailable terms, and an
   explicit residual for unmapped treasury paths.
 - Bounded implementation slices for each retained-evidence boundary.
