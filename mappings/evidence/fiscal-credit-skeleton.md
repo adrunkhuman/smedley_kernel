@@ -120,6 +120,32 @@ global read by `TakeLoan` and is a lead for the NBD→interest-rate link
 - Residual: **OPEN** — an explicit expression for unmapped treasury paths
   (POPS wages, state/factory spending, subsidies) is not yet written.
 
+## Open mapping items (research queue)
+
+Verified API-port candidates (see the reader/telemetry sketch): treasury read,
+bank ownership, per-state bank balance.
+
+Remaining unverified/unknown mappings, each with a path to verification. Priority
+P1 = high value and tractable; P2 = needs the blocked loop/entity work; P3 = may
+resolve as a negative.
+
+| # | Mapping | Location | Current state | How to close | Priority |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Total-debt field | UI `2456.5 £` (SWE) vs creditor rows | unlocated | correlate live UI debt against creditor quantities | P1 |
+| 2 | Pool X | `CBank+0x10` | unidentified 64-bit pool | correlate against debt / cash-flow | P1 |
+| 3 | Pool Y | `CBank+0x18` | unidentified (tracks +0x10 then plateaus) | same | P1 |
+| 4 | Bank-balance UI scale | `Σ CCState+0x258` | part-resolved | nail the `0.05` display/ratio vs state sum | P1 |
+| 5 | Gold/cash conversion → treasury | — | unlocated | find the gold→treasury add path | P1 |
+| 6 | Budget-source loop kind A | `0x0053e5xx` (`+0xb8/+0xbc`) | located, un-attributed | identify source composition | P2 |
+| 7 | Budget-source loop kind B | `0x00508xxx` (`[+0xa0]`, `/2^15`) | located, un-attributed | same | P2 |
+| 8 | Iterated-entity identity | global `[0x1258738]+0xd0` | unknown | reify the array (POPs/goods/states?) | P2 |
+| 9 | Expense line → field | `0x005238d0` | static-as-expense | name which spending line each `sub` maps to | P2 |
+| 10 | Bankruptcy write-off callsite | inside `0x001241f0` | observed, not bracketed | bracket the exact refund instruction | P2 |
+| 11 | Money-accounting field | `CCountry+0x40/+0x44` | unknown | find pool consumers | P2 |
+| 12 | NBD → interest-rate global | `CGameState+0xb5c` | lead only | resolve and link to `LOAN_BASE_INTEREST` | P2 |
+| 13 | Treasury init/reset write | `0x00505ec2` (writes `32768000`) | located | identify the reset function | P2 |
+| 14 | Loan repayment | — | negative result | confirm none vs rare path | P3 |
+
 ## Status
 
 - Acceptance minimum met (one fiscal + one credit boundary, runtime evidence).
