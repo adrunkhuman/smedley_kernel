@@ -15,5 +15,6 @@ install(CODE "file(REMOVE
 
 add_subdirectory("campaign_runner")
 add_subdirectory("interest_bug_fix")
+add_subdirectory("fiscal_credit_probe")
 add_subdirectory("telemetry")
 add_subdirectory("scripting")

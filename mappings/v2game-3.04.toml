@@ -73,6 +73,14 @@ signature = "55 8b ec 83 e4 f8 83 ec 10 53 8b 5f 20"
 source = "the post-country caller at RVA 0x00285f0f passes every CCountry+0xe88 bank; static flow either recapitalizes CBank+0x10 when it is at most 33 or allocates CBank+0x20 across CCountry+0xe44 states using CState+0x258 weights, adds shares to CState+0x260, and clears CBank+0x20; run 96be486d-b7b3-4943-b423-49929ff8ee77 observed the state pool rise on each subsequent day while native POP cash-flow index 7 remained absent"
 
 [[symbols]]
+name = "CCountry::PayDailyInterest creditor shortfall handler"
+rva = 0x001241f0
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
+source = "called from PayDailyInterest at VA 0x005241cd only when the accumulated daily interest shortfall is positive; treasury is a signed 64-bit pair at CCountry+0xe78 (low) / +0xe7c (high); this path returns emergency funds to treasury (VA 0x005246f7 add +0xe78 low, adc +0xe7c high), refunds/removes creditor debt, and applies the bankruptcy administrative-reform modifier; static data flow only, runtime boundary not yet reproduced"
+
+[[symbols]]
 name = "CBank::DistributeInterest post-country call"
 rva = 0x00285f0f
 kind = "hook"
@@ -727,7 +735,7 @@ fields = [
   { name = "ai", offset = 0x0208 },
   { name = "states", offset = 0x0e44 },
   { name = "treasury", offset = 0x0e78 },
-  { name = "treasury_shadow", offset = 0x0e80 },
+  { name = "treasury_delta", offset = 0x0e80 },
   { name = "bank", offset = 0x0e88 },
   { name = "creditors", offset = 0x0e8c },
   { name = "stockpile", offset = 0x118c },
