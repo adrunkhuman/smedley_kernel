@@ -64,6 +64,23 @@ Why players care: that is why a country that is too deep in debt suddenly has a
 tiny positive treasury again and a lost-prestige ding — the game did not forgive
 the deficit, it forced a formal bankruptcy.
 
+## A worked example: Sweden at 3.4 February 1836
+
+From a live observer run of the benchmark save, Sweden's early budget read:
+income tax on the poor ~41%, middle ~8%, rich ~3%, and tariffs ~50%. The
+probe captured over roughly a month of game days:
+
+- The national bank kept growing: `money` from `15.5M` to `26.4M` raw, and
+  `total_lent` tracking then flattening near the same value — the bank simply
+  lends out nearly everything it takes in as savings. That matches the
+  player-facing rule that rich/middle strata fuel the bank and the government
+  then borrows that same money back.
+- The interest-window treasury delta was small and steady (a few to ~18k raw)
+  — that is the daily interest charge alone. The big swings in the treasury day
+  to day come from tax + tariff income, spending, gold conversion, and loans all
+  landing together, which is why separating tax from tariff by net treasury
+  alone does not work.
+
 ## What this does and does not yet explain
 
 Mapped with confidence (see the skeleton): treasury + bank ownership + bank

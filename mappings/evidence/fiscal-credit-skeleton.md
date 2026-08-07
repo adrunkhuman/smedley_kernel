@@ -23,7 +23,7 @@ Shared anchor facts:
 | Boundary | POP income tax and trade tariffs collect into treasury. Static budget-source `add` clusters below are where these land; the per-POP tax amount begins at POP income fields (POP `+0x250` savings is separate). |
 | Evidence | `provisional` (candidates only; no runtime attribution yet). |
 | Identified mechanism | Daily per-entity income loops add a 64-bit income field to treasury. The `0x0053e5xx-0x0053e8ff` loop reads the iterated entity's `+0xb8/+0xbc` and `add`/`adc` it to `CCountry+0xe78/+0xe7c`; the `0x00508xxx` loop reads `[ebx+0xa0]` `+4`/`+8` and divides by `2^15` (`shrd eax,esi,0xf; sar esi,0xf` at `0x00508e5c`) before adding. Both walk an entity list indexed via the global `[0x1258738]+0xd` (`+0xd` field scaled by `8`). |
-| Open | Which entity the two loops iterate (POPs / goods / states) decides whether the credit is POP income-tax vs tariff/goods income. Next step: resolve `[CGameState-like 0x1258738]+0xd` list and the `+0xa0`/`+0xb8` object identity, then correlate one live country's budget tax/tariff line with a treasury delta. |
+| Open | Which entity the two loops iterate (POPs / goods / states) decides whether the credit is POP income-tax vs tariff/goods income. Next step: instrument the two treasury-add VAs (`0x0053e5xx`, `0x00508xxx`) with a read-only per-add logger, or resolve the entity array behind the global `[0x1258738]+0xd0`, then correlate with one live country's budget tax/tariff lines (a live SWE reading at 3.4 Feb 1836 confirmed the rates but not the per-loop split, because net treasury merges income, spending, loans, and gold). |
 
 ## Government budget sources and sinks
 
