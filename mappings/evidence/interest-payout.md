@@ -55,10 +55,10 @@ All addresses below are RVAs in the cataloged Victoria II 3.04 executable.
 | Creditor destination bank path | `verified-runtime` | `PayDailyInterest` reads the current country creditor vector at `+0xe8c`. A nonzero ordinal at creditor `+0x0c` resolves a destination country and credits bank `+0x20`; the branch at VA `0x00524022` skips that credit when the ordinal is zero. A later diagnostic captured 22 entries with the same no-country key `0x2d2d2d` (`---`), ordinal zero, and paid byte one. The production fix allocates only nonzero-ordinal named destination-bank deltas; ordinal-zero flows remain untouched and unallocated. |
 | Domestic creditor creation | `verified-static-callsites` | `CCountry::TakeLoan` at RVA `0x00122910` passes the debtor's own tag/ordinal from `CCountry+0x1c/+0x20` through `CanTakeLoanFrom` and `TakeLoanFrom`. Domestic debt is therefore an explicit self-tagged creditor and follows the same verified nonzero-ordinal bank-credit path. |
 | Shadowy Financiers creation | `verified-static-callsites` | The fallback path writes literal `---`, zeroes the ordinal at VA `0x00522c24`-`0x00522c27`, and calls `TakeLoanFrom` at `0x00522c6a`. Localisation maps `SHADOWY_INVESTOR` to “Private Investors,” and `SHADOWY_FINANCIERS_MAX_LOAN_AMOUNT` is 1500 in vanilla. |
-| Creditor `+0x8/+0x10/+0x18/+0x20` | `verified-runtime` | Static code reads the tag/ordinal at `+0x8`, multiplies the 64-bit `+0x18` value by the 64-bit `+0x10` value in its payment calculation, and updates the byte at `+0x20` on payment. The destination run validated every tag/ordinal and observed `+0x20 == 1` for every paid entry; the economic names on the two 64-bit fields remain candidates. |
-| Destination bank `+0x20` | `verified-runtime` | The static add target and repeated exact before/after runs agree. The individual-destination run observed 40 positive transfers across 12 calls; every child sum exactly matched its aggregate bank delta. Other historical `CBank` fields remain unverified. |
+| Creditor `+0x8/+0x10/+0x18/+0x20` | `verified-runtime` | Static code reads destination tag/ordinal at `+0x8/+0x0c`, multiplies debt `+0x18` by interest `+0x10`, and updates paid byte `+0x20`. SWE save/runtime correlation maps interest `0.01999` to raw `655` and debt `14969.11719` to raw `490508032`; run `3f63c64b` bracketed 12 exact requested/treasury/debt repayment reductions with retained identities. |
+| Destination bank fields | `verified-runtime` | `+0x20` is the exact temporary interest destination (40 positive transfers across 12 interest calls). Save/runtime correlation maps `+0x10` to `money` and `+0x18` to `money_lent`; repayment reduces `money_lent` only for resolved nonzero-ordinal lenders and clamps it at zero. Ordinal-zero Shadowy Financiers have no destination-bank mutation. |
 | `PayDailyInterest` boundary `0x00108d3e` | `verified-runtime` | The kernel replaces the sole direct call with a register/flags-preserving trampoline, emits `before`, invokes the original callee, emits `after`, and resumes at `0x00108d43`. Both subscribed and unsubscribed runtime fixtures reached exact targets. |
-| Bankruptcy construction path | `verified-static-callsites` | The insufficient-funds helper reaches `TakeLoan` at `0x001257a8` after preparing debtor, zero, and the requested 64-bit amount. Bankruptcy construction refunds occur within `PayDailyInterest`; this is why its net treasury delta is not an independent named-transfer conservation signal. |
+| Default construction path | `verified-static-callsites` | The insufficient-funds helper reaches `TakeLoan` at `0x001257a8` after preparing debtor, zero, and the requested 64-bit amount. The shortfall handler can conditionally refund canceled construction amounts; this is why net treasury delta is not an independent named-transfer conservation signal. |
 | Country state list `+0xe44` | `verified-current` | Current country update code walks node data at `+0`, next at `+8`, and terminates at null. State-creation callers maintain head `+0xe44`, tail `+0xe48`, and count `+0xe4c`; the seven-day runtime probe walked every reported state without a mismatch. |
 | State constructor `0x000cdc60` | `verified-static-callsites` | Three callers allocate `0x290` bytes. The constructor initializes 64-bit slots `+0x258` and `+0x260` to zero. |
 | State province vector `+0x48` | `verified-runtime` | Current code and the destination POP run agree that its four-byte elements are game-state province indices. All 346-661 destination provinces per creditor-bearing sample resolved to readable province POP vectors with no quality flag. |
@@ -633,8 +633,9 @@ Every recipient payout equaled its transfer multiplied by 1,000; every paid POP
 passed money, interest-flow, total-flow, and unchanged-savings postconditions.
 All 3,650 daily transfer totals in the CSV exactly matched their structured
 `interest.fix.value` records. An earlier treasury-derived Private Investor
-measurement is not retained: bankruptcy construction refunds occur inside
-`PayDailyInterest`, so net treasury movement is not a conservation check. All
+measurement is not retained: conditional construction-cancellation refunds can
+occur inside the shortfall handler called by `PayDailyInterest`, so net treasury
+movement is not a conservation check. All
 daily summary flags were zero, and every health/value telemetry publication was
 accepted.
 
@@ -812,6 +813,6 @@ The source save remained unchanged at SHA-256
 
 ## Remaining validation
 
-1. Map the complete bankruptcy refund accounting and the missing
+1. Map the complete default accounting and the missing
     bank-cash/world-money categories before claiming effects on bankruptcy or
     total money supply.

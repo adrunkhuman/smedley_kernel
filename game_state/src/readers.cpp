@@ -33,7 +33,6 @@ namespace smedley::game_state
         constexpr size_t state_savings_offset = 0x258;
         constexpr size_t state_interest_offset = 0x260;
         constexpr size_t bank_interest_offset = 0x20;
-        constexpr size_t bank_owner_offset = 0x08;
         constexpr size_t province_pop_lists_offset = 0x194;
         constexpr size_t province_id_offset = 0x58;
         constexpr size_t province_rgo_capacity_offset = 0x1ac;
@@ -890,15 +889,6 @@ namespace smedley::game_state
             after.destination_bank_interests_raw[after.creditor_destinations] = bank_interest;
             ++after.creditor_destinations;
             AddChecked(bank_interest, &after.destination_bank_interest_raw, &after.flags);
-            const void *bank_owner = nullptr;
-            uint32_t owner_key = 0;
-            int32_t owner_ordinal = -1;
-            if (!ReadAt(bank, bank_owner_offset, &bank_owner) || bank_owner == nullptr
-                || !ReadAt(bank_owner, country_tag_offset, &owner_key)
-                || !ReadAt(bank_owner, country_tag_offset + sizeof(owner_key), &owner_ordinal)
-                || owner_key != key || owner_ordinal != ordinal) {
-                ++after.invalid_destination_bank_owner;
-            }
         }
         return after;
     }

@@ -5,36 +5,40 @@ modders, not reverse engineers. It explains what each mapped engine boundary
 means for how the game behaves. Technical offsets are in brackets for tracing;
 readers who do not care about them can ignore them.
 
-## The national bank is your citizens' savings, lent back to you
+## The national bank tracks cash, loans, and citizens' savings
 
-The national bank is not "your treasury." It is the savings your citizens
-have tucked away. Two large 64-bit fields inside the bank object (`+0x10`,
-`+0x18`) grow steadily and track each other — but a live in-game comparison
-showed that these are **not** the "national bank balance" or "loans given" on
-screen (the UI reads `0` for both while those fields already read tens of
-millions). The displayed balance is instead **per state**: when deposits began,
-the on-screen balance was `0.05`, built from two states (`0.03 + 0.02`). So the
-bank's money is your states' POP savings pooled (the `CCState+0x258` savings the
-interest system already weighs), not the bank object's `+0x10`/`+0x18` pools.
-The owner pointer (`+0x08`) is confirmed to always point back to the country
-whose bank it is.
+The national bank is not "your treasury." Its object stores serialized `money`
+and `money_lent` fields (`+0x10`, `+0x18`). An 1884 save/runtime comparison
+matched both exactly, and native repayment reduces `money_lent` with the
+borrower's matching debt. These raw fields still do not map directly to the two
+visible bank rows under all UI states. The displayed balance appears **per
+state**: when deposits began,
+the on-screen balance was `0.05`, built from two states (`0.03 + 0.02`). This is
+consistent with your states' `CCState+0x258` savings being pooled for display,
+but the exact raw aggregate-to-UI correlation remains incomplete. It is not the
+bank object's fields alone.
+The owner pointer (`+0x08`) matched the bank's country in all 4,065 sampled rows
+from the retained ownership run.
 
-Why players care: because the bank lends to you, your own citizens are your
-cheapest lender. When you run a deficit you borrow from the national bank first,
-and the interest you then pay comes back to your own people rather than a
-foreign country or the Shadowy Financiers.
+Why players care: when you run a deficit the game attempts domestic borrowing
+first, using your own country as the creditor identity, before falling back to
+other creditors or the Shadowy Financiers. The mapped native interest path does
+not complete the final state-to-POP payout by itself; that missing consumer is
+the bug addressed by `interest_bug_fix`.
 
 ## Your treasury is the cash in your hand; the budget feeds and drains it daily
 
 Your treasury is what the budget screen shows as cash on hand. The engine fills
 and empties it in a daily loop:
 
-- **Income in**: daily loops add your citizens' taxable income and your trade
-  (tariff) income into the treasury, per source. [treasury `+0xe78`; the daily
-  income loops are at `0x00508xxx` and `0x0053e5xx`]
-- **Spending out**: when your government spends (military, admin, etc.) it is
-  docked from the treasury daily, and for these routine expenses the account
-  cannot go below zero — it is clamped. [expense function `0x005238d0`]
+- **Income in**: poor-, middle-, and rich-tax receipts are now individually
+  mapped and match the save's tax-income arrays. Tariffs have a separate static
+  treasury callsite; gold and several other receipt families remain unnamed.
+  [tax VAs `0x00508ca4`, `0x00508cde`, `0x00508d1a`; tariff VA `0x00488add`]
+- **Spending out**: government expenses debit treasury, but the individual
+  military, administration, education, and subsidy callsites are not yet
+  attributed. The previously suspected function at `0x005238d0` is actually
+  principal repayment, not a generic budget-expense function.
 - So a balanced budget keeps treasury roughly flat; a deficit drains it toward
   the clamp, and surplus income builds it up.
 
@@ -44,35 +48,51 @@ Every day the engine pays interest to each of your creditors. If you have the
 cash, it is paid and the creditor is marked settled. [PayDailyInterest
 `0x00123c30`]
 
-- If you have the money, the creditor's bank gets the interest credited. That is
-  why, for example, Spain's bank interest row increased every day while its
-  treasury fell by an amount matching what it owed in interest.
-- Where the money ends up follows who lent it: your own national bank first
-  (your citizens), then foreign countries' banks, then the Shadowy Financiers.
+- If you have the money and the creditor resolves to a country, that country's
+  bank gets the interest credited. Across the retained named-creditor calls,
+  destination-bank increases exactly matched debtor treasury decreases
+  (`87,242` raw total).
+- Named credit can resolve to your own national bank or a foreign country's
+  bank. Ordinal-zero Shadowy Financiers have no destination-bank mutation; the
+  mapped path leaves that flow unallocated.
 
-## Bankruptcy is what happens when you can no longer pay the interest
+## Principal repayment reduces cash and the lender's outstanding loans
 
-If your treasury cannot cover the daily interest, the shortfall is not just
-ignored. The engine collects the unpaid amount, and when it crosses a threshold
-it forces the books to balance the only way it can: it writes the debts off and
-returns emergency money to the treasury. That is the "bankruptcy reset" —
-the country scrapes its slate (creditors are told the loans are gone) and starts
-again from a small positive cash position. [shortfall handler `0x001241f0`]
+The repayment path is separate from daily interest. Each native repayment
+reduces the borrower's treasury and creditor debt by exactly the requested
+amount. For a named lender it also reduces lender-bank `money_lent`, clamped at
+zero; Shadowy Financiers have no country bank to update. A seven-day 1884 run
+captured 12 exact repayments, including domestic SWE -> SWE and foreign
+D01 -> ENG / BRZ -> USA loans. [repayment RVA `0x001238d0`]
 
-Why players care: that is why a country that is too deep in debt suddenly has a
-tiny positive treasury again and a lost-prestige ding — the game did not forgive
-the deficit, it forced a formal bankruptcy.
+## The mapped shortfall path
 
-## A worked example: Sweden at 3.4 February 1836
+If your treasury cannot cover daily interest, the engine accumulates a
+shortfall. Static analysis links that condition to the handler at RVA
+`0x001241f0`. That handler applies default modifiers/notifications and cleans up
+construction and factory state; three runtime-bracketed calls did not erase
+creditor debt or change treasury. A separate test disproved `RemoveDebts(true)`
+as a deferred default path: it ran for unrelated country-cleanup cases and
+annexation, not for the forced-shortfall country. A forced negative-treasury run
+also observed treasury recover to a small positive position, but the source of
+that separate recovery remains unlocated.
+
+Why players care: default handling spans more than one engine boundary. The
+notification/modifier and construction cleanup are mapped, but current evidence
+does not show principal write-off. The observed treasury recovery is not yet
+attributed to the handler.
+
+## A worked example: Sweden in early 1836
 
 From a live observer run of the benchmark save, Sweden's early budget read:
 income tax on the poor ~41%, middle ~8%, rich ~3%, and tariffs ~50%. The
 probe captured over roughly a month of game days:
 
-- The probe's two big bank-object fields grew steadily (`+0x10` from `15.5M` to
-  `26.4M` raw, `+0x18` tracking then flattening); the on-screen "national bank
-  balance" stayed `0`, which is exactly why those fields are not the bank's
-  displayed funds. The real bank-balance offset is unresolved.
+- Bank `money` grew steadily while `money_lent` later plateaued; the on-screen
+  national-bank rows did not present those raw fields directly. When the
+  balance later reached `0.05`, the UI split it as
+  `0.03 + 0.02` across two states, consistent with the sum of per-state
+  `CCState+0x258` savings.
 - The interest-window treasury delta was small and steady (a few to ~18k raw)
   — that is the daily interest charge alone. The big swings in the treasury day
   to day come from tax + tariff income, spending, gold conversion, and loans all
@@ -81,15 +101,14 @@ probe captured over roughly a month of game days:
 
 ## What this does and does not yet explain
 
-Mapped with confidence (see the skeleton): treasury + bank ownership + bank
-money/lent, daily income sources, daily expense clamp, daily interest payment,
-and the bankruptcy reset.
+Mapped with confidence (see the skeleton): treasury and bank ownership,
+class-tax receipts, bank money/money-lent, creditor interest/debt, daily
+interest payment, and principal repayment. Tariffs are statically mapped. The
+per-state displayed bank-balance model remains a strong but incomplete
+correlation.
 
 Still being mapped / needing live-game help:
-- Which exact income source (income tax vs tariff vs gold) each daily loop
-  carries — needs one look at a running country's budget numbers.
-- Loan repayment is looking like a non-event in normal play: over a 15-day run
-  of all 271 countries, not one country's creditor count ever dropped (they
-  only grew). So government loans appear to persist and accrue interest until
-  bankruptcy writes them off, rather than being paid back over time. A
-  player-chosen pay-down is not ruled out, just never observed here.
+- Runtime correlation for tariff amounts, plus gold and other treasury sources.
+- The exact UI aggregation rule for state savings and bank fields.
+- Complete repayment entry removal, default modifier outcomes, and the
+  forced-treasury recovery source; ordinary principal reduction is verified.

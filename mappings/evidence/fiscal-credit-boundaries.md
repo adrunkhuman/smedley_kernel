@@ -1,19 +1,50 @@
 # Fiscal and credit boundary mapping (issue #29)
 
-Issue #29 requires reproducible fiscal and credit/loan boundaries. This note
-records the static disassembly stage and the planned runtime reproduction. It is
-an in-progress evidence record: every claim below is `verified-static-callsites`
-until a bounded runtime probe correlates it.
+Issue #29 requires fiscal and credit/loan boundaries supported by runtime
+evidence. This note records retained static and runtime observations. Each claim states its current
+evidence level and unknown paths remain explicit.
 
 ## Treasury boundary
 
-`CCountry` treasury is a signed 64-bit fixed-point pair at **+0x0xe78 (low)**
-and **+0x0xe7c (high)**. `CCountry::DailyUpdate` and the interest path read the
-low dword from `+0xe78` and the high dword from `+0xe7c` together. The existing
-catalog's `treasury_shadow = 0xe80` is the dword immediately following the
-64-bit value and is not yet established as a separate economic field; the
-mapping note `treasury_shadow` should be treated as the high half's neighbour
-until runtime evidence distinguishes them.
+`CCountry` treasury is a signed 64-bit fixed-point pair at **+0xe78 (low)**
+and **+0xe7c (high)**. `CCountry::DailyUpdate` and the interest path read the
+low dword from `+0xe78` and the high dword from `+0xe7c` together. The separate
+64-bit field beginning at `+0xe80` remains the neutral
+`field_0xe80_candidate`; this investigation did not establish its economic
+lifecycle.
+
+## Tax receipt boundaries (`CCountry::DailyUpdate`)
+
+Three consecutive treasury additions are now `verified-runtime` as class tax
+receipts:
+
+| Tax class | Treasury VA | Daily accounting slot | SWE raw | Save `tax_income` sum |
+| --- | --- | --- | ---: | ---: |
+| poor | `0x00508ca4` | `+0x00` | `778031` | `23743.63687` |
+| middle | `0x00508cde` | `+0x08` | `424367` | `12950.67673` |
+| rich | `0x00508d1a` | `+0x10` | `62756` | `1915.18658` |
+
+Run `767d2c76-e1f2-4ad2-8df7-a19de1829f9f` used unchanged
+`benchmark.v2` (SHA-256 `F24F4066...`) for one day. Its 271-row CSV had
+SHA-256 `5ABA189D...`, zero quality flags, and zero drops. For each SWE class:
+
+```text
+treasury receipt raw = floor(sum(serialized tax_income) * 32768 / 1000)
+```
+
+The three observed SWE tax receipts sum to
+`778031 + 424367 + 62756 = 1265154` raw. This identifies the three
+`CCountry+0xa0` tax-setting entries and their accounting slots without using
+expense-index shape.
+
+## Tariff receipt boundary
+
+Tariffs are `verified-static-callsites`. The trade-settlement path reads the
+serialized tariff setting at `CCountry+0x1440`, multiplies it by the computed
+trade amount, adds the fixed-point result to treasury at VA `0x00488add`, and
+adds the same result to daily accounting slot `+0x18` at VA `0x00488af7`.
+The exact per-call tariff amount has not been bracketed at runtime, so the
+callsite must not be promoted to `verified-runtime` yet.
 
 ## Interest payment boundary (`CCountry::PayDailyInterest`, RVA `0x00123c30`)
 
@@ -26,8 +57,7 @@ The function subscribes around its sole direct call (`RVA 0x00108d3e`,
    - sufficient: credits the resolved destination-country bank `+0xe88` + `0x20`
      and marks the creditor paid (`+0x20 = 1`) at VA `0x00524196`-`0x0052419c`;
    - insufficient: accumulates the shortfall into a local running total
-     (VA `0x00523fff`-`0x00524003`), calls the money mutator `0x00525770` with
-     the full treasury, and does **not** mark the creditor paid.
+     (VA `0x00523fff`-`0x00524003`) and does **not** mark the creditor paid.
 3. At function end if the accumulated shortfall is still positive and exceeds a
    threshold double at `0x00e45f08`, calls the shortfall handler at
    `RVA 0x001241f0` (VA `0x005241cd`).
@@ -40,35 +70,44 @@ the earlier interest evidence already correlated against a supplied save.
 
 Called only from the insufficient-funds tail of `PayDailyInterest`. Static flow:
 
-- Returns emergency funds to treasury: `add [ebx+0xe78], ecx; adc [ebx+0xe7c],
-  edi` at VA `0x005246f7`.
-- Adds the same amount to a money-accounting field (`[eax+0x40]/+0x44`) at VA
-  `0x00524715`.
-- Refunds and removes creditor debt entries and applies the `bankruptcy`
-  administrative-reform modifier (issue `bankruptcy` in `common/issues.txt`).
-- Traverses states/factories to clean up state-owned money under the shortfall.
+- Applies `bad_debtor` / `in_bankrupcy` modifiers or emits
+  `on_debtor_default_second` notifications with creditor identity, depending on
+  its date/cooldown branch.
+- Traverses construction/factory state for cleanup. A conditional
+  construction-cancellation branch refunds that construction's stored amount
+  to treasury at VA `0x005246f7` and accounting `+0x40` at VA `0x00524715`.
+  This is not a general bankruptcy refund.
+- Reads creditor identity for notifications but does not write creditor debt,
+  lender-bank principal, or the creditor vector.
 
-The bankruptcy refund-to-treasury is the main **fiscal source** of the
-boundary set. The exact threshold, the money-accounting field at `+0x40`, and
-the effective modifier application remain unverified runtime targets.
+The exact threshold and modifier duration remain unverified runtime targets.
 
-## Planned runtime reproduction
+A later temporary callsite bracket verified that the handler is invoked with
+the affected country pointer. On the unmodified 1884 fixture it captured VNZ
+and NZL; on a disposable copy with SWE treasury set to `-100000.0`, it captured
+SWE with self-creditor identity (`SWE`, ordinal 16). All three calls returned
+without an immediate treasury, creditor-principal, creditor-count, or own-bank
+principal change. This is retained negative evidence: the previously observed
+next-day treasury reset is not proven to occur synchronously at the handler's
+outer call boundary.
 
-A disposable **Smedley Bankruptcy Probe** mod was added under
-`game/mod/interestprobe/` (descriptor `game/mod/interestprobe.mod`). It fires an
-early-1836 `country_event` (`money = -99999`) for the tags SWE, SAR, FRA, ENG,
-PRU, RUS, AUS, and USA. Driving those treasuries deeply negative forces the
-native insufficient-funds tail and, in turn, the shortfall handler, so a bounded
-observer run can observe the fiscal source/sink under the `DailyInterestEvent`
-boundary.
+A separate all-country bracket disproved `CCountry::RemoveDebts(true)` at RVA
+`0x00108ace` as the deferred default boundary. Across three days it ran only for
+ITA, ALD, LIB, and JAN under a preceding list-membership condition, never for
+forced-shortfall SWE. Its only other direct caller is `CCountry::Annex` at RVA
+`0x00118ee6`. `RemoveDebts` can destroy creditors and adjust lender banks, but
+no call from the shortfall handler or a default-marked SWE path exists. No debt
+write-off should be claimed from the current evidence; the forced-treasury
+recovery and any formal principal treatment remain separate open questions.
 
-Pre-existing bankruptcy fixture saves also exist:
-`benchmark_interestprobe_bankruptcy.v2` (SHA-256 `0CB1784E...`) and
-`benchmark_interestprobe_clm_bankruptcy.v2` (SHA-256 `02FA2996...`).
+## Runtime setup used
 
-Acceptance requires: a bounded run that reproduces at least one treasury
-mutation and one credit/bank mutation with retained before/after evidence, then
-a reclassification from `verified-static-callsites` to `verified-runtime`.
+A disposable mod and read-only plugin were used for this investigation and
+removed afterward. The mod fired an early-1836 country event for SWE, SAR, FRA,
+ENG, PRU, RUS, AUS, and USA. `money = -99999` did not force bankruptcy;
+`money = -1000000000` drove the targeted treasuries deeply negative and
+reproduced the native reset transition. The mod, plugin, and local save fixtures
+were excluded from the repository after the observations were retained.
 
 ## Runtime evidence (30-day observer run, run `eb378356`)
 
@@ -81,101 +120,112 @@ The source `benchmark.v2` SHA-256 remained
 stayed empty, and the campaign reached its exact 30-day target. All 8,130
 boundary rows had `flags=0x0` and zero dropped results.
 
-The `money` event effect is in the same raw units as `CCountry+0xe78`: raw
-treasuries here span from single thousands up to `411,599,982,393`, so the
-initial `money = -99999` probe value was far too small to force a negative
-treasury (this is why the first attempt produced no bankruptcy). Setting
-`money = -1000000000` drove all targeted countries deeply negative.
+The initial `money = -99999` event did not force a negative treasury. Setting
+`money = -1000000000` drove all targeted countries deeply negative. This
+establishes the effective probe magnitudes, not a general event-effect scale.
 
-The probe measured two reproducible boundaries plus the bankruptcy transition:
+The probe measured two runtime boundaries plus a forced-treasury recovery:
 
 - **Fiscal sink**: the current country's own interest is debited from `+0xe78`
-  inside `PayDailyInterest`. Reproducible example: after the bankruptcy reset,
+  inside `PayDailyInterest`. Observed example: after the treasury recovery,
   SWE draws `-32,814` raw/day. The same column shows a large net movement from
   the `-1e9` forced drop on the firing day.
 - **Credit boundary**: the resolved destination-bank `+0x20` total is credited
-  inside the same call. Reproducible example: SWE `+64` raw/day, growing to
+  inside the same call. Observed example: SWE `+64` raw/day, growing to
   `+1,038` by day 30; larger countries show larger credits (for example an
   1884 fixture run recorded daily destination credits up to `+7,090,559`).
   These match the prior interest evidence and stay conservation-relevant to the
   same-call treasury interest debit only when no unrelated shortfall movement
   is bundled in.
-- **Forced bankruptcy transition**: on `benchmark.v2` with the `interestprobe`
+- **Forced negative-treasury/reset observation**: on `benchmark.v2` with the probe
   mod, all eight targeted tags (SWE, SAR, FRA, ENG, PRU, RUS, AUS, USA) show
   treasury `-2.7e9 .. -3.3e9` raw and `creditor_count = 0` on the firing day,
   then SWE/SAR/etc. reset to a small positive treasury the following day (for
   example SWE `-3,268,401,947` to `+490,036`) and resume the interest economy.
-  The reset moves `+0xe78` by billions, consistent with the static shortfall
-  handler `RVA 0x001241f0` "return funds to treasury" branch, but the exact
-  callsite that performs the write-off is not bracketed by `DailyInterestEvent`,
-  so it remains `verified-static-callsites`.
+  A later handler bracket produced no synchronous treasury/debt mutation, and
+  static re-analysis identified VA `0x005246f7` as a conditional construction
+  refund rather than a general default refund. The recovery therefore remains
+  unattributed and must not be presented as formal bankruptcy accounting.
 
-## National-bank fields (run `a9842147`, 30-day `benchmark.v2`)
+## National-bank fields
 
-To move the `CBank` layout out of `historical-unverified`, the `game_state`
-reader `ReadCountryCreditors`/`ReadCountryCreditorBalances` now also samples the
-destination nation's bank `+0x10` and `+0x18` into
-`destination_bank_money_raw` / `destination_bank_total_lent_raw` (both use the
-existing `AddChecked` overflow handling, so an unreadable field is emitted
-absent; the per-destination `+0x20` array is unchanged).
+A temporary probe sampled destination-bank `+0x10`, `+0x18`, and `+0x20`. The
+`+0x10`/`+0x18` sampling and probe were removed after the investigation; only
+the retained evidence below remains.
 
 Across the 30-day run, for the destination bank reached from SWE's creditors:
 
-- `+0x10` (`money`) grew monotonically `15,489,107 -> 30,384,692`.
-- `+0x18` (`total_lent`) tracked it closely, then plateaued at `30,312,608`
+- `+0x10` grew monotonically `15,489,107 -> 30,384,692`.
+- `+0x18` tracked it closely, then plateaued at `30,312,608`
   while `+0x10` kept growing (last few days: `+0x10` up, `+0x18` flat).
 - `+0x20` (`interest_payments`) accumulated the per-call interest credits
   (`+4,947 ... +5,363`) as previously verified.
 
-This upgrades `CBank +0x10` and `+0x18` from `historical-unverified` to
-`verified-current` (reader bytes against the supported executable, distinct
-64-bit fields, runtime-observed to move and to diverge / plateau relative to
-each other). The economic names `money` and `total_lent` remain candidate
-(`historical-unverified`) labels: the near-equality and SWE that lends out most
-of its deposit base is consistent with a national bank, but ownership structure,
-deposit provenance, and loan mechanics are not yet resolved by this slice.
+The 1884 save/runtime run resolves the two formerly neutral fields:
+
+- `CBank+0x10` is serialized `bank.money`: SWE save `75894.56842` maps to
+  runtime raw `2486913218` (`round(value * 32768)`). Static VA `0x00486f85`
+  adds the same deposit amount to `CCState+0x258`, then VA `0x00486fac` adds it
+  to the owner bank `+0x10`, before the corresponding POP-savings update.
+- `CBank+0x18` is serialized `bank.money_lent`: SWE save `21725.41159` maps to
+  runtime raw `711898287`. `CCountry::RepayLoan` subtracts principal from this
+  lender-bank field alongside the matching creditor debt.
+
+The earlier UI comparison only disproved a direct raw-to-visible balance/loan
+interpretation; it did not disprove the serialized field names. The catalog now
+uses `money` and `money_lent`, while the displayed national-bank balance's
+aggregate/rounding presentation remains a separate mapping question.
+
+## Loan repayment boundary
+
+`CCountry::RepayLoan` at RVA `0x001238d0` is `verified-runtime`. Static flow
+walks the debtor's `CCountry+0xe8c` creditor vector, subtracts the requested
+amount from `CCreditor+0x18`, debits debtor treasury, and removes entries that
+reach zero. For a nonzero lender ordinal it also subtracts from resolved
+`CBank+0x18` with a zero clamp; ordinal-zero Shadowy Financiers skip that bank
+mutation.
+
+Run `3f63c64b-601f-4828-a85b-9ab234de7f4c` bracketed the order caller at RVA
+`0x0018beec` for seven days of unchanged `benchmark_interestprobe.v2`. The
+12-row repayment CSV had SHA-256 `135047B2...`, zero flags, and zero drops. All
+12 positive calls satisfied:
+
+```text
+requested raw = -debtor treasury delta = -creditor debt delta
+```
+
+Retained identities include D01 -> ENG, BRZ -> USA, and SWE -> SWE. SWE's save
+debt `14969.11719` maps to raw `490508032`; one call requested `98304` raw
+(`3.0` pounds) and reduced both treasury and creditor debt by exactly `98304`.
+The next snapshot reduced SWE `bank.money_lent` by the same amount. No creditor
+entry reached zero during the seven-day run, so removal remains statically
+verified rather than runtime observed.
 
 ## Status against issue #29
 
-This is an in-progress evidence record, not a claim that #29 is complete.
+The issue's evidence milestone is met with runtime tax, interest, repayment,
+bank ownership, bank money/money-lent, and creditor interest/debt boundaries.
 
-Met (minimum acceptance): at least one fiscal boundary (treasury mutation at
-`PayDailyInterest`) and one banking/credit boundary (destination-bank `+0x20`)
-now have reproducible runtime evidence, with documented ownership, units, and
-lifecycle for those two fields.
+Explicit remaining unknowns:
 
-Still outstanding (#29 required work):
-
-- POP taxes and tariffs callsites/fields (no shape-based classifier).
-- Government budget sources and sinks beyond the interest debit; treasury
-  mutation boundaries for receipts (tax/tariff income, gold conversion) as well
-  as the interest sink recorded here.
-- National-bank asset/liability/deposit/ownership semantics (only the bank
-  interest-receipt field `CBank+0x20` is mapped; deposit and ownership structure
-  are unresolved).
-- Loan **repayment** lifecycle and the full default/bankruptcy transition with
-  retained creditor/debtor identity. (Loan *origination* is already
-  `verified-static-callsites` in `interest-payout.md`: `CCountry::TakeLoan` at
-  `RVA 0x00122910` for domestic creditor creation, the Shadowy Financiers
-  fallback, and the bankruptcy construction reach at `0x001257a8`.)
-- Conservation equations, units, rounding bounds, unavailable terms, and an
-  explicit residual for unmapped treasury paths.
-- Bounded implementation slices for each retained-evidence boundary.
+- Tariff amount runtime correlation and gold/other treasury receipt identities.
+- The displayed bank-balance aggregate and rounding rule.
+- Runtime observation of complete repayment entry removal.
+- Default principal treatment plus prestige/modifier outcomes; the handler
+  invocation is verified, with no synchronous debt or treasury mutation.
+- The source of the forced negative-treasury recovery.
 
 
-## Disposable probe
+## Disposable probe (removed)
 
-The `fiscal_credit_probe` plugin (source under
-`plugins/fiscal_credit_probe/`, manifest `fiscal_credit_probe.toml`,
-`-smedley-probe-debug=1`) is a temporary investigation artifact. It mutates
-nothing. It is registered in `plugins/CMakeLists.txt` only for this investigation
-and must be removed (source, CMake `add_subdirectory`, and installed
-`game/plugins/fiscal_credit_probe.*`) before any merge to `master`.
+The read-only fiscal/repayment/default and `RemoveDebts` probes, forcing mod,
+disposable save, and their build registrations were removed after retaining
+the evidence above. No investigation plugin ships in this branch.
 
 ## Note on why the earlier bankruptcy-mod attempt failed
 
 A `country_event` with a `year`/tag trigger and `mean_time_to_happen` loads and
 fires for AI, but the `money` amount must exceed the country's raw treasury.
-`ai_will_do` on an event option is required for AI auto-selection; a
+`ai_chance` on an event option is required for AI auto-selection; a
 `political_decisions` entry is not auto-taken by AI (GFM gates such decisions
 with `ai = no`).
