@@ -89,7 +89,7 @@ flags and unique POP identities across every country.
 | `pop_money_observed_raw` | bounded POP `+0x180` | Narrow field behavior is runtime verified by `CPop::GiveMoney`; completeness of the world traversal remains provisional. |
 | `pop_savings_observed_raw` | bounded POP `+0x250` | Runtime-verified savings storage and `1000:1` relation to state scale; it is a deposit/claim category, not liquid POP money. |
 | `bank_interest_accumulator_raw` | each country bank `+0x20` | Runtime-verified temporary interest destination, not bank cash. |
-| creditor counts and `was_paid` | bounded `CCreditor` vectors | Structure and paid byte are runtime verified. The interpretations of `+0x10` and `+0x18` remain provisional. |
+| creditor counts, interest, debt, and `was_paid` | bounded `CCreditor` vectors | `+0x10` interest and `+0x18` debt are runtime verified by save correlation and 12 exact repayment calls with creditor/debtor identity. The creditor interest/debt telemetry keys retain the `_candidate_raw` suffix for schema compatibility; for those keys, the suffix no longer describes mapping quality. |
 | state `+0x258`/`+0x260` | bounded country state lists | Savings correlation is runtime verified with rounding drift; `+0x260` is nonconserved and provisional. |
 
 The plugin emits observed components separately and makes no additive

@@ -46,7 +46,63 @@ rva = 0x00123c30
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
-source = "paired runtime observations verified exact resolved destination-bank +0x20 deltas on all 12 calls with creditor entries; bankruptcy refunds make net treasury deltas unsuitable for conservation claims; the sole direct caller at RVA 0x00108d3e and ret 4 cleanup are statically established"
+source = "paired runtime observations verified exact resolved destination-bank +0x20 deltas on all 12 calls with creditor entries; conditional construction refunds in the shortfall handler make net treasury deltas unsuitable for conservation claims; the sole direct caller at RVA 0x00108d3e and ret 4 cleanup are statically established"
+
+[[symbols]]
+name = "CCountry poor-tax treasury receipt"
+rva = 0x00108ca4
+kind = "label"
+status = "verified-runtime"
+signature = "01 8b 78 0e 00 00 8b 54 24 34 11 93 7c 0e 00 00"
+source = "CCountry::DailyUpdate adds tax_settings[0] to treasury and daily accounting +0x00; one-day benchmark run 767d2c76 measured SWE +778031 raw, exactly floor(sum(poor_tax.tax_income) * 32768 / 1000), with zero flags/drops"
+
+[[symbols]]
+name = "CCountry middle-tax treasury receipt"
+rva = 0x00108cde
+kind = "label"
+status = "verified-runtime"
+signature = "01 b3 78 0e 00 00 8b 7c 24 2c 8d 54 24 28 11 bb"
+source = "CCountry::DailyUpdate adds tax_settings[1] to treasury and daily accounting +0x08; one-day benchmark run 767d2c76 measured SWE +424367 raw, exactly floor(sum(middle_tax.tax_income) * 32768 / 1000), with zero flags/drops"
+
+[[symbols]]
+name = "CCountry rich-tax treasury receipt"
+rva = 0x00108d1a
+kind = "label"
+status = "verified-runtime"
+signature = "01 8b 78 0e 00 00 8b 54 24 2c 53 11 93 7c 0e 00"
+source = "CCountry::DailyUpdate adds tax_settings[2] to treasury and daily accounting +0x10; one-day benchmark run 767d2c76 measured SWE +62756 raw, exactly floor(sum(rich_tax.tax_income) * 32768 / 1000), with zero flags/drops"
+
+[[symbols]]
+name = "CCountry tariff treasury receipt"
+rva = 0x00088add
+kind = "label"
+status = "verified-static-callsites"
+signature = "01 86 78 0e 00 00 11 96 7c 0e 00 00 8b 0d 38 87"
+source = "trade settlement multiplies the computed tariff base by CCountry+0x1440, adds the fixed-point result to treasury at VA 0x00488add, and adds the same result to daily accounting +0x18; the serialized field is tariffs, but a per-call runtime amount is not yet retained"
+
+[[symbols]]
+name = "CCountry loan-repayment order call"
+rva = 0x0018beec
+kind = "hook"
+status = "verified-runtime"
+signature = "e8 df 79 f9 ff"
+source = "seven-day run 3f63c64b bracketed 12 calls from the order path to CCountry::RepayLoan with creditor/debtor identity; every requested amount exactly equaled both the debtor treasury debit and CCreditor debt reduction, with zero flags/drops"
+
+[[symbols]]
+name = "CCountry::RepayLoan"
+rva = 0x001238d0
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 6a ff 68 c8 e7 b9 00 64 a1 00 00 00 00"
+source = "static flow walks CCountry+0xe8c creditors, reduces CCreditor+0x18, debits CCountry+0xe78, and removes fully repaid entries; for a nonzero lender ordinal it also reduces resolved CBank+0x18 with a zero clamp, while ordinal-zero Shadowy Financiers skip the bank mutation; run 3f63c64b observed 12 exact requested/treasury/debt reductions through caller RVA 0x0018beec, while no entry reached zero"
+
+[[symbols]]
+name = "POP savings bank-deposit co-update"
+rva = 0x00086f85
+kind = "label"
+status = "verified-static-callsites"
+signature = "01 81 58 02 00 00 11 91 5c 02 00 00 8b 71 58 8b"
+source = "the same signed 64-bit amount is added to CState+0x258 and its owner CBank+0x10 before the POP+0x250 savings update; save/runtime correlation independently identifies CBank+0x10 as serialized bank money, but this instruction span was not bracketed at runtime"
 
 [[symbols]]
 name = "CCountry::Annex pre-game-over observer handoff"
@@ -71,6 +127,38 @@ kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 83 ec 10 53 8b 5f 20"
 source = "the post-country caller at RVA 0x00285f0f passes every CCountry+0xe88 bank; static flow either recapitalizes CBank+0x10 when it is at most 33 or allocates CBank+0x20 across CCountry+0xe44 states using CState+0x258 weights, adds shares to CState+0x260, and clears CBank+0x20; run 96be486d-b7b3-4943-b423-49929ff8ee77 observed the state pool rise on each subsequent day while native POP cash-flow index 7 remained absent"
+
+[[symbols]]
+name = "CCountry::PayDailyInterest creditor shortfall handler"
+rva = 0x001241f0
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00 6a ff 68 30 70 ba 00 50 64 89 25 00 00 00 00 a1 e8 88 25 01 8b 0d dc 86 25 01 81 ec"
+source = "called from PayDailyInterest at VA 0x005241cd after the accumulated shortfall threshold; runtime brackets retained VNZ, NZL, and forced-shortfall SWE country/creditor identity and observed no synchronous treasury/principal/count mutation; static flow applies bad_debtor/in_bankrupcy modifiers, emits creditor default notifications, and performs construction/factory cleanup; it does not directly write creditor debt or call RemoveDebts"
+
+[[symbols]]
+name = "CCountry conditional debt-cleanup call"
+rva = 0x00108ace
+kind = "hook"
+status = "verified-static-callsites"
+signature = "e8 6d 88 00 00"
+source = "CCountry::DailyUpdate calls RemoveDebts(true) only when the country is absent from two preceding membership searches; an all-country runtime bracket observed ITA, ALD, LIB, and JAN calls, never forced-shortfall SWE, so this call is not a verified default/write-off boundary"
+
+[[symbols]]
+name = "CCountry::RemoveDebts"
+rva = 0x00111340
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 83 ec 0c 53 56 57 8b 7d 08 8b 9f 8c 0e"
+source = "walks CCountry+0xe8c creditors, subtracts unpaid named principal from destination CBank money_lent and money, destroys creditor objects, compacts the vector, and updates +0xe90; direct callers are the conditional DailyUpdate cleanup at RVA 0x00108ace and CCountry::Annex at RVA 0x00118ee6, with no call from the shortfall handler"
+
+[[symbols]]
+name = "Default construction-cancellation treasury refund"
+rva = 0x001246f7
+kind = "label"
+status = "verified-static-callsites"
+signature = "01 8b 78 0e 00 00 8b 74 24 10 11 bb 7c 0e 00 00"
+source = "conditional branch inside the shortfall handler credits the affected country's treasury and accounting +0x40 with a canceled province-construction object's +0xb8/+0xbc amount before unlink/free; it is not a general bankruptcy refund and did not execute in three bracketed outer-handler calls"
 
 [[symbols]]
 name = "CBank::DistributeInterest post-country call"
@@ -727,7 +815,7 @@ fields = [
   { name = "ai", offset = 0x0208 },
   { name = "states", offset = 0x0e44 },
   { name = "treasury", offset = 0x0e78 },
-  { name = "treasury_shadow", offset = 0x0e80 },
+  { name = "field_0xe80_candidate", offset = 0x0e80 },
   { name = "bank", offset = 0x0e88 },
   { name = "creditors", offset = 0x0e8c },
   { name = "stockpile", offset = 0x118c },
@@ -738,11 +826,11 @@ fields = [
 [[layouts]]
 name = "CCreditor"
 status = "verified-runtime"
-source = "PayDailyInterest static data flow plus 12 exact supplied-save boundary pairs; tag/ordinal and paid semantics are verified while the two 64-bit economic names remain candidates"
+source = "PayDailyInterest and RepayLoan static data flow plus runtime/save correlation: SWE interest=0.01999 maps to +0x10 raw 655 and debt=14969.11719 maps to +0x18 raw 490508032; run 3f63c64b bracketed 12 exact principal reductions with retained creditor/debtor identity"
 fields = [
   { name = "destination_tag", offset = 0x08 },
-  { name = "interest_candidate", offset = 0x10 },
-  { name = "debt_candidate", offset = 0x18 },
+  { name = "interest", offset = 0x10 },
+  { name = "debt", offset = 0x18 },
   { name = "was_paid", offset = 0x20 },
 ]
 
@@ -936,12 +1024,12 @@ fields = [
 
 [[layouts]]
 name = "CBank"
-status = "historical-unverified"
-source = "parent of commit 967a1a4 native/handles/CBank.hpp; interest_payments +0x20 alone is verified-runtime by PayDailyInterest static flow and 12 exact destination pairs"
+status = "verified-runtime"
+source = "save/runtime correlation identifies +0x10 as serialized bank money (SWE 75894.56842 -> raw 2486913218) and +0x18 as money_lent (21725.41159 -> raw 711898287); RepayLoan statically reduces lender +0x18 and run 3f63c64b correlated exact creditor-principal reductions, including SWE's self-creditor; +0x08 ownership and +0x20 interest accumulation are separately runtime verified"
 fields = [
   { name = "country", offset = 0x08 },
   { name = "money", offset = 0x10 },
-  { name = "total_lent", offset = 0x18 },
+  { name = "money_lent", offset = 0x18 },
   { name = "interest_payments", offset = 0x20 },
 ]
 
