@@ -44,7 +44,7 @@ target_compile_definitions(smedley_scripting_core PRIVATE WIN32_LEAN_AND_MEAN NO
 
 add_library(scripting MODULE src/plugin.cpp)
 set_target_properties(scripting PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
-target_link_libraries(scripting PRIVATE smedley_kernel smedley_scripting_core shell32)
+target_link_libraries(scripting PRIVATE smedley_scripting_core shell32)
 target_include_directories(scripting PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 
 if(BUILD_TESTING)

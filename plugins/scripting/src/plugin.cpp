@@ -2,21 +2,42 @@
 
 #include <smedley/campaign_control_api.h>
 #include <smedley/event_api.h>
-#include <smedley/plugin.hpp>
+#include <smedley/logging_api.h>
+#define SMEDLEY_PLUGIN_BUILD
+#include <smedley/plugin_abi.h>
 
-#include <shellapi.h>
 #include <windows.h>
+#include <shellapi.h>
 
 #include <algorithm>
 #include <atomic>
+#include <cstring>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <stdexcept>
 
 namespace scripting_plugin
 {
     namespace
     {
+        void ReportLoadFailure(const char *message) noexcept
+        {
+            static constexpr char component[] = "scripting";
+            const HMODULE kernel = GetModuleHandleW(L"smedley_kernel.dll");
+            if (kernel == nullptr) return;
+            const auto get_api = reinterpret_cast<SmedleyGetLoggingApiV1Fn>(
+                GetProcAddress(kernel, SMEDLEY_LOGGING_GET_API_V1_SYMBOL));
+            if (get_api == nullptr) return;
+            SmedleyLoggingApiV1 api{};
+            api.struct_size = sizeof(api);
+            api.version = SMEDLEY_LOGGING_API_VERSION_V1;
+            if (get_api(&api) != SMEDLEY_LOGGING_SUCCESS) return;
+            api.write(SMEDLEY_LOG_FAILURE, component, sizeof(component) - 1, message,
+                static_cast<uint32_t>((std::min)(strlen(message),
+                    static_cast<size_t>(SMEDLEY_LOGGING_MAX_MESSAGE_BYTES))));
+        }
+
         std::vector<std::wstring> CommandLineArguments()
         {
             int count = 0;
@@ -29,10 +50,10 @@ namespace scripting_plugin
 
     }
 
-    class Plugin final : public smedley::Plugin
+    class Plugin final
     {
     public:
-        void OnLoad() override
+        void OnLoad()
         {
             const auto arguments = CommandLineArguments();
             const bool configured = std::any_of(arguments.begin(), arguments.end(), [](const std::wstring &argument) {
@@ -74,10 +95,10 @@ namespace scripting_plugin
                 runtime_.reset();
                 throw;
             }
-            logger().Info("started constrained Lua 5.1 scripting worker");
+            WriteLog(SMEDLEY_LOG_INFO, "started constrained Lua 5.1 scripting worker");
         }
 
-        void OnUnload() override
+        void OnUnload()
         {
             const int previous_pause_state = pause_request_state_.exchange(2, std::memory_order_acq_rel);
             if (daily_registration_ != 0) {
@@ -88,7 +109,7 @@ namespace scripting_plugin
             if (previous_pause_state == 1) runtime_->ReportPauseResult(smedley::scripting::PauseResult::Shutdown);
             runtime_->Stop();
             const auto stats = runtime_->stats();
-            logger().Info("scripting stopped: accepted=" + std::to_string(stats.accepted)
+            WriteLog(SMEDLEY_LOG_INFO, "scripting stopped: accepted=" + std::to_string(stats.accepted)
                 + " processed=" + std::to_string(stats.processed) + " dropped=" + std::to_string(stats.dropped)
                 + " script_errors=" + std::to_string(stats.script_errors)
                 + " disabled_scripts=" + std::to_string(stats.disabled_scripts)
@@ -101,8 +122,16 @@ namespace scripting_plugin
         void Log(bool failure, const std::string &message)
         {
             std::lock_guard<std::mutex> lock(log_mutex_);
-            if (failure) logger().Failure(message);
-            else logger().Info(message);
+            WriteLog(failure ? SMEDLEY_LOG_FAILURE : SMEDLEY_LOG_INFO, message);
+        }
+
+        void WriteLog(SmedleyLogLevel level, const std::string &message) noexcept
+        {
+            static constexpr char component[] = "scripting";
+            if (logging_api_.write != nullptr) {
+                logging_api_.write(level, component, sizeof(component) - 1, message.data(),
+                    static_cast<uint32_t>(std::min<size_t>(message.size(), SMEDLEY_LOGGING_MAX_MESSAGE_BYTES)));
+            }
         }
 
         void ApplyPauseRequest()
@@ -150,7 +179,9 @@ namespace scripting_plugin
                 GetProcAddress(kernel, SMEDLEY_EVENT_GET_API_V1_SYMBOL));
             const auto get_campaign_control_api = reinterpret_cast<SmedleyGetCampaignControlApiV1Fn>(
                 GetProcAddress(kernel, SMEDLEY_CAMPAIGN_CONTROL_GET_API_V1_SYMBOL));
-            if (get_event_api == nullptr || get_campaign_control_api == nullptr) {
+            const auto get_logging_api = reinterpret_cast<SmedleyGetLoggingApiV1Fn>(
+                GetProcAddress(kernel, SMEDLEY_LOGGING_GET_API_V1_SYMBOL));
+            if (get_event_api == nullptr || get_campaign_control_api == nullptr || get_logging_api == nullptr) {
                 throw std::runtime_error("required smedley kernel services are unavailable");
             }
             event_api_ = {};
@@ -159,8 +190,12 @@ namespace scripting_plugin
             campaign_control_api_ = {};
             campaign_control_api_.struct_size = sizeof(campaign_control_api_);
             campaign_control_api_.version = SMEDLEY_CAMPAIGN_CONTROL_API_VERSION_V1;
+            logging_api_ = {};
+            logging_api_.struct_size = sizeof(logging_api_);
+            logging_api_.version = SMEDLEY_LOGGING_API_VERSION_V1;
             if (get_event_api(&event_api_) != SMEDLEY_EVENT_SUCCESS
-                || get_campaign_control_api(&campaign_control_api_) != SMEDLEY_CAMPAIGN_CONTROL_SUCCESS) {
+                || get_campaign_control_api(&campaign_control_api_) != SMEDLEY_CAMPAIGN_CONTROL_SUCCESS
+                || get_logging_api(&logging_api_) != SMEDLEY_LOGGING_SUCCESS) {
                 throw std::runtime_error("required smedley kernel service versions are unavailable");
             }
         }
@@ -181,11 +216,72 @@ namespace scripting_plugin
         std::mutex log_mutex_;
         SmedleyEventApiV1 event_api_{};
         SmedleyCampaignControlApiV1 campaign_control_api_{};
+        SmedleyLoggingApiV1 logging_api_{};
         SmedleyEventRegistration daily_registration_ = 0;
     };
 }
 
-PLUGIN_API smedley::Plugin *CreatePlugin()
+namespace
 {
-    return new scripting_plugin::Plugin{};
+    SmedleyPluginResult SMEDLEY_PLUGIN_CALL CreateScripting(void *instance, uint32_t size)
+    {
+        if (instance == nullptr || size != sizeof(scripting_plugin::Plugin)) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
+        try {
+            new (instance) scripting_plugin::Plugin{};
+            return SMEDLEY_PLUGIN_SUCCESS;
+        } catch (const std::exception &error) {
+            scripting_plugin::ReportLoadFailure(error.what());
+            return SMEDLEY_PLUGIN_FAILURE;
+        } catch (...) {
+            scripting_plugin::ReportLoadFailure("scripting create failed with an unknown exception");
+            return SMEDLEY_PLUGIN_FAILURE;
+        }
+    }
+
+    SmedleyPluginResult SMEDLEY_PLUGIN_CALL LoadScripting(void *instance)
+    {
+        if (instance == nullptr) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
+        try {
+            static_cast<scripting_plugin::Plugin *>(instance)->OnLoad();
+            return SMEDLEY_PLUGIN_SUCCESS;
+        } catch (const std::exception &error) {
+            scripting_plugin::ReportLoadFailure(error.what());
+            return SMEDLEY_PLUGIN_FAILURE;
+        } catch (...) {
+            scripting_plugin::ReportLoadFailure("scripting load failed with an unknown exception");
+            return SMEDLEY_PLUGIN_FAILURE;
+        }
+    }
+
+    SmedleyPluginResult SMEDLEY_PLUGIN_CALL UnloadScripting(void *instance)
+    {
+        if (instance == nullptr) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
+        try {
+            static_cast<scripting_plugin::Plugin *>(instance)->OnUnload();
+            return SMEDLEY_PLUGIN_SUCCESS;
+        } catch (...) {
+            return SMEDLEY_PLUGIN_FAILURE;
+        }
+    }
+
+    void SMEDLEY_PLUGIN_CALL DestroyScripting(void *instance)
+    {
+        if (instance != nullptr) static_cast<scripting_plugin::Plugin *>(instance)->~Plugin();
+    }
+}
+
+SMEDLEY_PLUGIN_EXPORT SmedleyPluginResult SMEDLEY_PLUGIN_CALL SmedleyPluginGetApiV1(SmedleyPluginApiV1 *api)
+{
+    if (api == nullptr || api->struct_size != sizeof(SmedleyPluginApiV1)
+        || api->version != SMEDLEY_PLUGIN_ABI_VERSION_V1) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
+    for (const uint32_t reserved : api->reserved) {
+        if (reserved != 0) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
+    }
+    api->instance_size = sizeof(scripting_plugin::Plugin);
+    api->instance_alignment = alignof(scripting_plugin::Plugin);
+    api->create = &CreateScripting;
+    api->load = &LoadScripting;
+    api->unload = &UnloadScripting;
+    api->destroy = &DestroyScripting;
+    return SMEDLEY_PLUGIN_SUCCESS;
 }
