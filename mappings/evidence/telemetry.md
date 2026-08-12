@@ -5,7 +5,7 @@
 Telemetry raw adapters are implemented under `game_state/`: current-state,
 daily-event `CountryRef` conversion, and copied country/province snapshots in
 the telemetry runtime adapter; POP, artisan, factory-consumption, and
-factory-sales hooks are in `smedley_game_runtime`. The telemetry module receives
+factory-sales hooks are in the kernel-owned `game_state/` implementation. The telemetry module receives
 typed `PopRef`/`FactoryRef` records or copied reader snapshots and retains
 capture, filtering, aggregation, and publication policy.
 This ownership move preserves the evidence levels below; the post-migration

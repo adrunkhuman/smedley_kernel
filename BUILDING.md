@@ -28,6 +28,18 @@ Next, build the binaries:
 cmake --build build --config Release
 ```
 
+Run the complete test suite:
+
+```powershell
+ctest --test-dir build -C Release --output-on-failure
+```
+
+The suite includes `smedley_engine_ownership_audit` and
+`smedley_engine_ownership_tool_tests`. They reject recreated
+`smedley_game_state` or `smedley_game_runtime` targets, duplicate ownership of
+`game_state/src` implementation files, and internal game-state imports in
+migrated plugins.
+
 ## Installing
 
 Optionally install Smedley, its plugins, `smedley_launcher.exe`,
@@ -39,6 +51,17 @@ cmake --install build
 
 The installed kernel is unusable without the Smedley launcher and injection
 bootstrap path.
+
+## Validation limits
+
+Host tests verify the x86 ABI, checked failure paths, and source/build layering;
+they do not establish successful behavior in Victoria II. Before a runtime test,
+verify the exact supported executable identity and active mapping signatures,
+use an x86 Release build and a disposable save, and record enabled plugins,
+mods, settings, and mapping version. A successful launch alone does not prove
+injection, plugin initialization, campaign control, observer behavior, or
+telemetry completeness. See [`docs/game-state-boundary.md`](docs/game-state-boundary.md)
+for the engine boundary and retained runtime evidence.
 
 ## Regenerating bindings
 

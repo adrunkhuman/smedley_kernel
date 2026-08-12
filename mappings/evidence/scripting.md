@@ -7,11 +7,11 @@ symbols. The final x86 Release DLL exports only `CreatePlugin`.
 
 ## Data path
 
-The existing C++ daily event runs synchronously in the game update path and
-permits the checked pause transaction used by this first-party plugin. The
-runtime consumes its country pointer and returns a fixed-size
-`DailyUpdateSnapshot`; the plugin copies that snapshot and attempts a bounded
-queue lock without waiting. It performs no Lua
+The plugin registers through the versioned C daily-event service. The
+kernel-owned game-state implementation consumes the hook's country pointer,
+builds a checked fixed-size snapshot, and dispatches a copied
+`SmedleyDailyEventV1`; malformed or unavailable input suppresses dispatch. The
+plugin copies that record and attempts a bounded queue lock without waiting. It performs no Lua
 execution, script parsing, garbage collection, user logging, result logging, or
 filesystem access. One worker owns every private `lua_State` and converts copied
 snapshots into Lua tables.
@@ -34,7 +34,7 @@ Victoria II Lua value crosses to the worker.
 `smedley.request_pause()` sets a one-slot atomic request from the worker. A
 later daily callback on the game update path performs the transaction:
 
-1. The checked `smedley_game_runtime` adapter requires the kernel's supported
+1. The checked kernel-owned game-state adapter requires the kernel's supported
    executable identity and reads the current game-state and idler pointers only
    through readable spans.
 2. Require RTTI `.?AVCInGameIdler@@` at `CGameState+0xb24`.
@@ -52,12 +52,12 @@ later request from overwriting an earlier transaction outcome.
 Only pause is exposed: a paused simulation supplies no next daily callback for
 a symmetric queued unpause.
 
-The scripting plugin owns neither these addresses nor a game pointer. It calls
-`PauseGame`, the compatibility pause entry point over generalized
-`SetCampaignPaused(true)`, and maps the shared completed, outside-campaign,
-invalid-state, signature-mismatch, and readback-failed statuses to the existing
-`PauseResult` values and worker log messages. The public copied C daily event ABI
-remains observation-only and is not used to perform this mutation.
+The scripting plugin owns neither these addresses nor a game pointer. It
+acquires `SmedleyCampaignControlApiV1` and calls `set_paused(1)`, then maps the C
+success, outside-campaign, invalid-state, signature-mismatch, and
+readback-failed results to the existing `PauseResult` values and worker log
+messages. The copied C daily event remains observation-only; campaign control is
+a separate mutation capability.
 
 ## Runtime acceptance
 
@@ -80,9 +80,10 @@ runtime. It does not establish safe arbitrary mutation, save-persistent script
 state, crash-time teardown, deterministic multiplayer behavior, or support for
 another executable or mod.
 
-Post-migration run `d0cfef6e-ae3c-42ab-ada2-c3db7601ca13` repeated the same
-save, plugins, script, and speed with the checked `DailyUpdateSnapshot` and
-`PauseGame` boundaries. At raw date `59884128` the worker logged the queued
+Post-reader-migration run `d0cfef6e-ae3c-42ab-ada2-c3db7601ca13` repeated the same
+save, plugins, script, and speed with checked snapshot and pause boundaries. It
+predates the later C service-table migration and therefore validates the
+underlying engine adapters, not the new binary interface. At raw date `59884128` the worker logged the queued
 request, the next game-thread transaction logged paused readback, and the
 process remained responsive. Test cleanup then terminated the paused process;
 the source save retained the same SHA-256.

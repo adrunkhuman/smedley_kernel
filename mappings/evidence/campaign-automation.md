@@ -13,7 +13,7 @@ handlers run; the harness dispatches native GUI signals rather than coordinates.
    `0xa13dbc` and `0xa14ed0`; scalar deleting destructors at `0x354df0` and
    `0x36b030` invalidate the captures before object storage is released.
 3. Ten seconds after the Single Player controller appears, the checked
-   `smedley_game_runtime` frontend capability resolves
+   kernel-owned frontend capability resolves
    `mainmenu_panel/single_player_button` through the main controller's GUI
    registry at `+0x704`. Native main-menu update RVA `0x354f90` independently
    performs the same registry `+0x6c` and returned-panel `+0x34` lookups.
@@ -30,7 +30,7 @@ handlers run; the harness dispatches native GUI signals rather than coordinates.
    `+0x5bc`, and sets `+0x5bd`.
 7. The runtime resolves `play_button` through the lobby GUI registry at `+0x278`
    and emits the same native press/release sequence.
-8. `smedley_game_runtime` copies and validates the current campaign idler,
+8. The kernel-owned game-state implementation copies and validates the current campaign idler,
    proving `CGameState+0xb24` changed from RTTI `CFrontEnd` to `CInGameIdler`.
 9. When `--observe` is present, the runner invokes the native return-to-AI
    transition at RVA `0x287a70` for the current player country.
@@ -40,12 +40,12 @@ handlers run; the harness dispatches native GUI signals rather than coordinates.
 11. The runner invokes the registered native `debug` command with argument
     `fow`, verifies the process-global byte at RVA `0xb092fb` is `0`, and leaves the map fully
     visible.
-12. `smedley_game_runtime` invokes the native speed-up or speed-down handler until
+12. The kernel-owned game-state implementation invokes the native speed-up or speed-down handler until
     `CGameState+0xb28` matches the selected speed minus one, reading the field
     after every call. Both paths are runtime-verified against the supported
     executable; the retained speed-down probe selected speed 2 from a higher
     initial speed and checked each decrement.
-13. `smedley_game_runtime` checks the pause state at `CInGameIdler+0x1538`, invokes
+13. The kernel-owned game-state implementation checks the pause state at `CInGameIdler+0x1538`, invokes
     `CInGameIdler::TogglePause` at RVA `0x26a2c0` when the value differs from the
     requested state, and verifies the result. Observer mode rejects
     `start_paused` because its watchdog requires simulation advancement.
@@ -103,7 +103,7 @@ exact-target run may then request the verified native quit operation when
 `quit_after_run` is explicitly enabled. Failures never attempt an exit, and no
 terminal path writes a save.
 
-The benchmark is terminally paused before the exit request. `smedley_game_runtime`
+The benchmark is terminally paused before the exit request. The kernel-owned runtime
 validates the idler RTTI, exact vtable target, and post-call request flag. A failed
 validation or readback logs a failure and leaves the campaign paused and open.
 Before dispatch, the runner waits up to five seconds for the optional sibling
