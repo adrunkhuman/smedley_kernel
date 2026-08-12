@@ -228,6 +228,73 @@ Plugins acquire engine capabilities through versioned C service tables. The
 daily event API provides copied daily snapshots. The campaign-control v1 API
 provides a copied campaign snapshot and checked pause, speed, and quit
 operations. The scripting plugin uses only these C engine-service boundaries.
+
+## Domain C APIs
+
+The kernel exports three additional independently discoverable v1 tables. They
+are domain boundaries, not a general game-object API. Each discovery record and
+every caller-supplied output record requires its exact `struct_size`, `version`,
+and zero reserved fields. All records use fixed-width fields; arrays are caller
+owned and bounded by the documented capacity. A failed or partial read supplies
+no invented zero data.
+
+| Header | Discovery symbol | Scope |
+| --- | --- | --- |
+| `smedley/campaign_runtime_api.h` | `SmedleyGetCampaignRuntimeApiV1` | Campaign copied state plus checked pause, speed, quit, frontend-save, and observer operations. `SmedleyCampaignSession` and `SmedleyFrontendController` are opaque generation-bound handles. |
+| `smedley/interest_pool_api.h` | `SmedleyGetInterestPoolApiV1` | State/POP pool snapshots, prepare, payout, and cleanup. Each operation takes the `SmedleyBankInterestAuthority` supplied only to its synchronous bank-interest callback. |
+| `smedley/telemetry_game_api.h` | `SmedleyGetTelemetryGameApiV1` | World, market, country, province, POP, and factory copied snapshots plus bounded hook subscriptions and drain records. `SmedleyTelemetrySession` and `SmedleyTelemetryHookSubscription` are opaque handles. |
+
+Authority and session handles are process-local, opaque values. They must not be
+serialized, guessed, or retained beyond their callback/session. The interest
+authority is invalid immediately when its callback returns. Stale authority,
+session, controller, and subscription values fail closed without engine
+traversal. Hook records have at most 64 signed raw values; `drain_hooks` reports
+loss explicitly and never returns engine addresses. Capability installation and
+uninstallation stay inside the checked runtime.
+
+Sessions and hook subscriptions are thread-affine and must be closed on their
+creating thread. Closing a campaign session releases its frontend capabilities.
+Text arguments are counted byte spans: they must be nonempty ASCII-compatible
+text with no embedded NUL, and the kernel copies exactly that span into local
+NUL-terminated storage before calling the checked runtime. Interest state and
+POP handles select immutable kernel-captured candidates only. Prepare and apply
+ignore caller copies of candidate data; apply rejects duplicated POPs and POPs
+outside the selected state's captured contiguous membership range.
+
+The game-service metadata tables have one process-local owner thread. The first
+successful session open establishes it; another thread receives `wrong_thread`
+before mutable metadata or reader scratch is touched. Every controller records
+its owning session, epoch, and thread. A stale close only retires ABI bookkeeping
+and never calls the engine. Hook subscriptions are similarly bound to a live
+telemetry session, epoch, and thread. Hook entity IDs are per-subscription
+opaque generation-bound correlation IDs backed by a kernel-only address map,
+never engine addresses. A drain consumes all available
+kernel records; any records beyond the caller buffer increment `dropped` rather
+than being silently discarded. `subscribe_hooks` takes the owning telemetry
+session; drain and unsubscribe revalidate that session before reading a queue or
+changing hook state.
+
+Opening a later telemetry session retires subscriptions from an expired session
+without traversing its stale game objects or changing hook patches. Explicit
+close on a live session may use the existing checked uninstall path. The same
+fail-closed expiry policy retires campaign frontend ABI handles without invoking
+their stale engine tokens. A bounded bank-interest authority binding is required
+before a callback runs; if no binding slot is available, that callback is skipped
+without disabling its registration. A zero-capacity hook drain still consumes all
+selected queues and reports every consumed record and source-overflow counter as
+`dropped`.
+
+The initial telemetry game table is not yet a full replacement for the bundled
+telemetry plugin. It exposes the existing basic world/market/country/province,
+POP, factory, and hook capture subset, but does not yet expose the detailed
+country diplomacy/politics groups, POP identity/needs/artisan snapshots, RGO,
+factory inputs, country-economy/creditor snapshots, or the plugin's daily-event
+scheduling surface. The campaign table likewise does not yet replace frontend
+and campaign automation hook lifecycle/capture callbacks, console capture and
+tag-switch, message-popup controls, or process metrics. Those are required for
+a complete first-party C port and remain explicit follow-up work; first-party
+plugins therefore retain their transitional C++ contracts for those operations.
+
 The campaign runner, interest fix, and telemetry plugins still use exported
 kernel-private C++ declarations while their larger capability tables are split
 by domain; those declarations are transitional source contracts, not public ABI.
