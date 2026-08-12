@@ -29,6 +29,14 @@ Smedley uses GoogleTest and CTest. After building, run:
 ctest --test-dir build -C Release --output-on-failure
 ```
 
+This includes the engine ownership audit and its tool tests. For a focused
+check while changing target boundaries, run:
+
+```powershell
+python tools/check_engine_ownership.py --root .
+python tools/tests/check_engine_ownership_test.py
+```
+
 ## Submitting changes
 
 Keep pull requests focused. State the changed behavior and why it changed,

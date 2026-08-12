@@ -8,21 +8,28 @@ state and queued operations are sufficient.
 Bundled-plugin ownership and the internal typed-reader boundary are documented
 in [`game-state-boundary.md`](game-state-boundary.md).
 
-## Internal shared readers
+## Kernel-owned engine services
 
-`smedley_game_state` is a private static library for bounded, observational
-Victoria II state readers shared by bundled plugins. `smedley_game_runtime`
-adds callback-scoped native adapters with checked preconditions and
-postconditions. Neither target is a DLL, plugin, public ABI, or general
-game-services interface. Plugins retain lifecycle, publication, and gameplay
-policy; they do not own raw traversal or native calling conventions.
+`smedley_kernel.dll` is the single owner of bounded Victoria II readers,
+session and controller state, hook queues, and checked native mutations. The
+former `smedley_game_state` and `smedley_game_runtime` static targets no longer
+exist. Their implementation remains organized under `game_state/`, but CMake
+compiles it only into the kernel.
+
+Plugins retain lifecycle, publication, and gameplay policy; they do not own raw
+traversal or native calling conventions. `scripting` consumes only versioned C
+event and campaign-control services. `campaign_runner`, `interest_bug_fix`, and
+`telemetry` still import transitional internal C++ declarations while their
+larger service boundaries are migrated; those declarations are not public ABI.
 
 First-party plugins have no raw adapter exception. The layering CTest rejects raw engine
 headers, memory-map access, native POP-money wrappers, and game-object `void*`
 declarations, named engine RVAs/field offsets, and native x86 call stubs from
-every plugin production source. Raw engine work belongs in `smedley_game_state`
-or `smedley_game_runtime`; the ordinary mapping evidence and review requirements
-still apply.
+every plugin production source. Raw engine work belongs in the kernel-owned
+`game_state/` implementation; the ordinary mapping evidence and review
+requirements still apply. A separate ownership audit rejects recreated static
+runtime targets, duplicate engine-source ownership, and internal C++ imports in
+migrated plugins.
 
 ## Foreign engine objects
 
@@ -234,10 +241,45 @@ identifier copied from the current event, not a durable object handle or proof
 that the country will exist later. ABI v1 exposes no mutation and no way to
 dereference a tag outside the event.
 
+The kernel builds each daily record through checked readers. Unsupported
+executable identity, unreadable fields, malformed bounded container metadata, or
+an unavailable capture group suppresses dispatch instead of producing a partial
+or zero-filled event.
+
+## Campaign control capability v1
+
+[`include/smedley/campaign_control_api.h`](../include/smedley/campaign_control_api.h)
+exposes copied campaign state and checked pause, speed, and quit operations.
+Resolve `SmedleyGetCampaignControlApiV1` dynamically from `smedley_kernel.dll`.
+The caller zeroes `SmedleyCampaignControlApiV1`, sets its exact `struct_size` and
+`version`, leaves reserved fields zero, and retains the returned function table
+only while the kernel remains loaded.
+
+`read_campaign` accepts a caller-owned `SmedleyCampaignSnapshotV1` initialized
+the same way. A successful call copies the raw date, zero-based native speed
+index, and pause state (`0` or `1`); the snapshot contains no engine pointer.
+`set_paused` accepts only `0` or `1`. `set_speed_index` accepts native indices
+from `0` through `4`. `request_quit` invokes the verified in-campaign exit
+request; it is not a generic plugin-unload callback.
+
+| Result | Meaning |
+| --- | --- |
+| `SMEDLEY_CAMPAIGN_CONTROL_SUCCESS` | The checked operation and required readback completed |
+| `SMEDLEY_CAMPAIGN_CONTROL_INVALID_ARGUMENT` | A pointer, structure contract, reserved field, or scalar argument is invalid |
+| `SMEDLEY_CAMPAIGN_CONTROL_OUTSIDE_CAMPAIGN` | No validated `CInGameIdler` is active |
+| `SMEDLEY_CAMPAIGN_CONTROL_INVALID_STATE` | Required mapped state is unreadable or outside its supported range |
+| `SMEDLEY_CAMPAIGN_CONTROL_SIGNATURE_MISMATCH` | Executable identity or native operation bytes do not match |
+| `SMEDLEY_CAMPAIGN_CONTROL_READBACK_FAILED` | A native call returned without the required postcondition |
+
+Call these operations only from the game thread and a lifecycle phase that can
+observe a campaign. The current scripting plugin performs its queued pause from
+the synchronous daily-event callback.
+
 ## Validation
 
-The x86 Release tests compile both public headers as C, dynamically discover and
-run an independent C fixture DLL that resolves the event table, exercise
+The x86 Release tests compile the lifecycle, event, and campaign-control headers
+as C, dynamically discover and run an independent C fixture DLL that resolves
+the event table, exercise
 lifecycle failures, event registration, bounded capacity, self-unregister,
 callback disablement, exception containment, rollback, and v1-only launcher
 preflight. `dumpbin /exports` confirms that the fixture exposes only undecorated

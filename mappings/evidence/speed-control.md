@@ -15,7 +15,7 @@ The topbar binds `button_speedup` and `button_speeddown` to callbacks at RVAs
 `0x26a1b0`. Their message handlers at RVAs `0x32ee90` and `0x32efe0` update the
 speed index.
 
-`smedley_game_runtime` checks the invariant handler bodies after the
+The kernel-owned game-state implementation checks the invariant handler bodies after the
 ASLR-relocated global pointer before calling either message handler. It reads
 `CGameState+0xb28` after every call and rejects a transition that does not move
 exactly one index toward the requested profile speed. Both directions are
