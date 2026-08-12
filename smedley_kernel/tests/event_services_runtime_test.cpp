@@ -1,6 +1,7 @@
 #include "event_services_runtime.hpp"
 
 #include <smedley/campaign_runtime_api.h>
+#include <smedley/campaign_automation_api.h>
 #include <smedley/interest_pool_api.h>
 #include <smedley/telemetry_game_api.h>
 
@@ -362,6 +363,24 @@ TEST(GameServicesApiV1Test, DiscoversDomainTablesAndRejectsReservedFields)
     EXPECT_NE(campaign.open_session, nullptr);
     campaign.reserved[0] = 1;
     EXPECT_EQ(SmedleyGetCampaignRuntimeApiV1(&campaign), SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT);
+
+    SmedleyCampaignAutomationApiV1 automation{};
+    automation.struct_size = sizeof(automation);
+    automation.version = SMEDLEY_CAMPAIGN_AUTOMATION_API_VERSION_V1;
+    EXPECT_EQ(SmedleyGetCampaignAutomationApiV1(&automation), SMEDLEY_CAMPAIGN_AUTOMATION_SUCCESS);
+    EXPECT_NE(automation.install, nullptr);
+    EXPECT_NE(automation.read_process_metrics, nullptr);
+    automation.reserved[0] = 1;
+    EXPECT_EQ(SmedleyGetCampaignAutomationApiV1(&automation), SMEDLEY_CAMPAIGN_AUTOMATION_INVALID_ARGUMENT);
+
+    SmedleyCampaignAutomationOptionsV1 options{};
+    options.struct_size = sizeof(options);
+    options.version = 1;
+    SmedleyCampaignAutomation automation_handle = 0;
+    EXPECT_EQ(automation.install(UINT64_C(1), &options, &automation_handle),
+        SMEDLEY_CAMPAIGN_AUTOMATION_STALE_HANDLE);
+    EXPECT_EQ(automation.set_observer_mode(UINT64_C(1), 2),
+        SMEDLEY_CAMPAIGN_AUTOMATION_INVALID_ARGUMENT);
 
     SmedleyInterestPoolApiV1 interest{};
     interest.struct_size = sizeof(interest);

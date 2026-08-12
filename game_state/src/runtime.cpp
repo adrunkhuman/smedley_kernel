@@ -796,15 +796,26 @@ namespace smedley::game_state
         CapturedFrontendController captured_frontend{};
         CapturedFrontendController captured_main_menu{};
         std::atomic<bool> frontend_automation_active{};
+        std::atomic<bool> legacy_frontend_automation_active{};
+        std::atomic<bool> campaign_automation_frontend_active{};
         std::atomic<bool> frontend_hooks_installed{};
         std::atomic<bool> frontend_hooks_poisoned{};
         std::atomic<FrontendControllerCaptureCallback> frontend_capture_callback{};
+        std::atomic<FrontendControllerCaptureCallback> campaign_automation_frontend_capture_callback{};
         std::vector<uintptr_t> frontend_installed_hooks;
         constexpr std::array<uint8_t, 5> load_save_signature{0x55, 0x8b, 0xec, 0x6a, 0xff};
         void *frontend_constructor_original = nullptr;
         void *main_menu_constructor_original = nullptr;
         void *frontend_destructor_original = nullptr;
         void *main_menu_destructor_original = nullptr;
+
+        void RefreshFrontendAutomationActive() noexcept
+        {
+            frontend_automation_active.store(
+                legacy_frontend_automation_active.load(std::memory_order_acquire)
+                    || campaign_automation_frontend_active.load(std::memory_order_acquire),
+                std::memory_order_release);
+        }
 
         CapturedFrontendController &CapturedController(FrontendControllerKind kind)
         {
@@ -820,6 +831,8 @@ namespace smedley::game_state
             capture.generation.fetch_add(1, std::memory_order_acq_rel);
             const auto callback = frontend_capture_callback.load(std::memory_order_acquire);
             if (callback != nullptr) callback(kind);
+            const auto automation_callback = campaign_automation_frontend_capture_callback.load(std::memory_order_acquire);
+            if (automation_callback != nullptr) automation_callback(kind);
         }
 
         void ReleaseCapturedFrontendController(FrontendControllerKind kind, void *controller) noexcept
@@ -1026,7 +1039,8 @@ namespace smedley::game_state
         constexpr std::array<uint8_t, 10> signal_signature{0x56, 0x8b, 0x70, 0x04, 0x85, 0xf6, 0x74, 0x10, 0x8b, 0x0e};
         if (frontend_hooks_poisoned.load(std::memory_order_acquire)) return FrontendOperationStatus::readback_failed;
         if (frontend_hooks_installed.load(std::memory_order_acquire)) {
-            frontend_automation_active.store(true, std::memory_order_release);
+            legacy_frontend_automation_active.store(true, std::memory_order_release);
+            RefreshFrontendAutomationActive();
             return FrontendOperationStatus::completed;
         }
         if (!smedley::IsCurrentExecutableSupported()) return FrontendOperationStatus::signature_mismatch;
@@ -1078,14 +1092,16 @@ namespace smedley::game_state
         }
         frontend_installed_hooks = std::move(installed);
         frontend_hooks_installed.store(true, std::memory_order_release);
-        frontend_automation_active.store(true, std::memory_order_release);
+        legacy_frontend_automation_active.store(true, std::memory_order_release);
+        RefreshFrontendAutomationActive();
         return FrontendOperationStatus::completed;
     }
 
     FrontendOperationStatus RollbackFrontendAutomationHooks()
     {
-        frontend_automation_active.store(false, std::memory_order_release);
+        legacy_frontend_automation_active.store(false, std::memory_order_release);
         frontend_capture_callback.store(nullptr, std::memory_order_release);
+        RefreshFrontendAutomationActive();
         if (frontend_hooks_poisoned.load(std::memory_order_acquire)) return FrontendOperationStatus::readback_failed;
         // Published MinHook trampolines remain process-lifetime so an in-flight
         // capture cannot tail-jump through freed executable memory.
@@ -1094,12 +1110,15 @@ namespace smedley::game_state
 
     void DeactivateFrontendAutomation() noexcept
     {
-        frontend_automation_active.store(false, std::memory_order_release);
+        legacy_frontend_automation_active.store(false, std::memory_order_release);
         frontend_capture_callback.store(nullptr, std::memory_order_release);
-        ReleaseCapturedFrontendController(FrontendControllerKind::frontend,
-            reinterpret_cast<void *>(captured_frontend.address.load(std::memory_order_acquire)));
-        ReleaseCapturedFrontendController(FrontendControllerKind::main_menu,
-            reinterpret_cast<void *>(captured_main_menu.address.load(std::memory_order_acquire)));
+        RefreshFrontendAutomationActive();
+        if (!campaign_automation_frontend_active.load(std::memory_order_acquire)) {
+            ReleaseCapturedFrontendController(FrontendControllerKind::frontend,
+                reinterpret_cast<void *>(captured_frontend.address.load(std::memory_order_acquire)));
+            ReleaseCapturedFrontendController(FrontendControllerKind::main_menu,
+                reinterpret_cast<void *>(captured_main_menu.address.load(std::memory_order_acquire)));
+        }
     }
 
     FrontendOperationStatus SetFrontendControllerCaptureCallback(FrontendControllerCaptureCallback callback)
@@ -1109,6 +1128,37 @@ namespace smedley::game_state
         }
         frontend_capture_callback.store(callback, std::memory_order_release);
         return FrontendOperationStatus::completed;
+    }
+
+    FrontendOperationStatus SetCampaignAutomationFrontendCaptureCallback(FrontendControllerCaptureCallback callback)
+    {
+        if (!frontend_automation_active.load(std::memory_order_acquire)) return FrontendOperationStatus::unavailable;
+        campaign_automation_frontend_capture_callback.store(callback, std::memory_order_release);
+        return FrontendOperationStatus::completed;
+    }
+
+    FrontendOperationStatus ActivateCampaignAutomationFrontend()
+    {
+        const bool legacy_was_active = legacy_frontend_automation_active.load(std::memory_order_acquire);
+        const auto status = InstallFrontendAutomationHooks();
+        if (status != FrontendOperationStatus::completed) return status;
+        if (!legacy_was_active) legacy_frontend_automation_active.store(false, std::memory_order_release);
+        campaign_automation_frontend_active.store(true, std::memory_order_release);
+        RefreshFrontendAutomationActive();
+        return FrontendOperationStatus::completed;
+    }
+
+    void DeactivateCampaignAutomationFrontend() noexcept
+    {
+        campaign_automation_frontend_capture_callback.store(nullptr, std::memory_order_release);
+        campaign_automation_frontend_active.store(false, std::memory_order_release);
+        RefreshFrontendAutomationActive();
+        if (!legacy_frontend_automation_active.load(std::memory_order_acquire)) {
+            ReleaseCapturedFrontendController(FrontendControllerKind::frontend,
+                reinterpret_cast<void *>(captured_frontend.address.load(std::memory_order_acquire)));
+            ReleaseCapturedFrontendController(FrontendControllerKind::main_menu,
+                reinterpret_cast<void *>(captured_main_menu.address.load(std::memory_order_acquire)));
+        }
     }
 
     FrontendOperationStatus AcquireFrontendController(FrontendControllerKind kind, FrontendControllerToken *token)
@@ -1904,17 +1954,40 @@ namespace smedley::game_state
 
     namespace
     {
-        std::atomic<bool> campaign_observer_enabled{};
+        std::atomic<bool> legacy_campaign_observer_enabled{};
+        std::atomic<bool> campaign_automation_observer_enabled{};
         std::atomic<bool> campaign_console_ready{};
         std::atomic<CampaignAnnexationCallback> campaign_annexation_callback{};
+        std::atomic<CampaignAnnexationCallback> campaign_automation_annexation_callback{};
         std::atomic<CampaignConsoleCaptureCallback> campaign_console_capture_callback{};
+        std::atomic<CampaignConsoleCaptureCallback> campaign_automation_console_capture_callback{};
         std::atomic<CampaignConsoleCallback> campaign_console_callback{};
         std::atomic<bool> campaign_hooks_poisoned{};
+        std::atomic<bool> campaign_hooks_installed{};
         smedley::v2::CConsoleCmdManager *campaign_console_manager = nullptr;
+        Plugin *const campaign_automation_console_owner = reinterpret_cast<Plugin *>(UINTPTR_MAX);
+        std::atomic<bool> legacy_campaign_console_capture_registered{};
+        std::atomic<bool> campaign_automation_console_capture_registered{};
+        std::atomic<uint32_t> campaign_console_capture_registration_owner{};
+        std::atomic<Plugin *> campaign_console_capture_legacy_owner{};
         smedley::v2::CConsoleCmd::SCommandData *campaign_switch_command = nullptr;
         GameSession campaign_console_session{};
         volatile bool suppress_campaign_message_popups = false;
+        std::atomic<bool> legacy_campaign_message_popups_suppressed{};
+        std::atomic<bool> campaign_automation_message_popups_suppressed{};
         volatile long suppressed_campaign_message_count = 0;
+
+        bool CampaignObserverEnabled() noexcept
+        {
+            return legacy_campaign_observer_enabled.load(std::memory_order_acquire)
+                || campaign_automation_observer_enabled.load(std::memory_order_acquire);
+        }
+
+        void RefreshCampaignPopupSuppression() noexcept
+        {
+            suppress_campaign_message_popups = legacy_campaign_message_popups_suppressed.load(std::memory_order_acquire)
+                || campaign_automation_message_popups_suppressed.load(std::memory_order_acquire);
+        }
 
         CampaignConsoleArguments CopyCampaignConsoleArguments(
             const smedley::sstd::vector<smedley::sstd::string> &raw)
@@ -2029,7 +2102,7 @@ namespace smedley::game_state
         CampaignConsoleCaptureStatus CaptureCampaignConsoleCommandManager(smedley::v2::CConsoleCmdManager *raw)
         {
             if (raw == nullptr) return CampaignConsoleCaptureStatus::native_tag_unavailable;
-            if (!campaign_observer_enabled.load(std::memory_order_acquire)) {
+            if (!CampaignObserverEnabled()) {
                 return CampaignConsoleCaptureStatus::observer_disabled;
             }
             if (campaign_console_ready.load(std::memory_order_acquire) && campaign_console_manager == raw
@@ -2065,22 +2138,33 @@ namespace smedley::game_state
             const CampaignConsoleCaptureStatus status = CaptureCampaignConsoleCommandManager(event.cmd_mgr());
             const auto callback = campaign_console_capture_callback.load(std::memory_order_acquire);
             if (callback != nullptr) callback(status);
+            const auto automation_callback = campaign_automation_console_capture_callback.load(std::memory_order_acquire);
+            if (automation_callback != nullptr) automation_callback(status);
         }
     }
 
     void SetCampaignObserverMode(bool enabled) noexcept
     {
-        campaign_observer_enabled.store(enabled, std::memory_order_release);
-        suppress_campaign_message_popups = false;
+        legacy_campaign_observer_enabled.store(enabled, std::memory_order_release);
+        legacy_campaign_message_popups_suppressed.store(false, std::memory_order_release);
+        RefreshCampaignPopupSuppression();
         InterlockedExchange(&suppressed_campaign_message_count, 0);
     }
 
     bool RegisterCampaignConsoleCapture(Plugin *owner)
     {
         if (owner == nullptr) return false;
+        if (legacy_campaign_console_capture_registered.load(std::memory_order_acquire)) return true;
+        if (campaign_console_capture_registration_owner.load(std::memory_order_acquire) != 0) {
+            legacy_campaign_console_capture_registered.store(true, std::memory_order_release);
+            return true;
+        }
         try {
             EventRegistry<events::ConsoleCmdManagerInitEvent>::Register(
                 owner, "campaign_runner_console", &OnCampaignConsoleCaptured);
+            campaign_console_capture_legacy_owner.store(owner, std::memory_order_release);
+            campaign_console_capture_registration_owner.store(1, std::memory_order_release);
+            legacy_campaign_console_capture_registered.store(true, std::memory_order_release);
             return true;
         } catch (...) {
             return false;
@@ -2090,20 +2174,110 @@ namespace smedley::game_state
     void UnregisterCampaignConsoleCapture(Plugin *owner) noexcept
     {
         if (owner == nullptr) return;
+        if (!legacy_campaign_console_capture_registered.exchange(false, std::memory_order_acq_rel)) return;
+        if (campaign_automation_console_capture_registered.load(std::memory_order_acquire)) return;
         try {
-            EventRegistry<events::ConsoleCmdManagerInitEvent>::Unregister(owner, "campaign_runner_console");
+            if (campaign_console_capture_registration_owner.load(std::memory_order_acquire) == 1) {
+                EventRegistry<events::ConsoleCmdManagerInitEvent>::Unregister(owner, "campaign_runner_console");
+            } else {
+                EventRegistry<events::ConsoleCmdManagerInitEvent>::Unregister(
+                    campaign_automation_console_owner, "campaign_automation_console");
+            }
+            campaign_console_capture_registration_owner.store(0, std::memory_order_release);
+            campaign_console_capture_legacy_owner.store(nullptr, std::memory_order_release);
+            ForgetCampaignConsole(true);
         } catch (...) {
         }
     }
 
     void DeactivateCampaignAutomation() noexcept
     {
-        suppress_campaign_message_popups = false;
-        campaign_observer_enabled.store(false, std::memory_order_release);
+        legacy_campaign_message_popups_suppressed.store(false, std::memory_order_release);
+        legacy_campaign_observer_enabled.store(false, std::memory_order_release);
         campaign_annexation_callback.store(nullptr, std::memory_order_release);
         campaign_console_capture_callback.store(nullptr, std::memory_order_release);
         campaign_console_callback.store(nullptr, std::memory_order_release);
-        ForgetCampaignConsole(true);
+        RefreshCampaignPopupSuppression();
+        if (!campaign_automation_console_capture_registered.load(std::memory_order_acquire)) ForgetCampaignConsole(true);
+    }
+
+    void SetCampaignAutomationObserverMode(bool enabled) noexcept
+    {
+        campaign_automation_observer_enabled.store(enabled, std::memory_order_release);
+        campaign_automation_message_popups_suppressed.store(false, std::memory_order_release);
+        RefreshCampaignPopupSuppression();
+        InterlockedExchange(&suppressed_campaign_message_count, 0);
+    }
+
+    bool RegisterCampaignAutomationConsoleCapture()
+    {
+        if (campaign_automation_console_capture_registered.load(std::memory_order_acquire)) return true;
+        if (campaign_console_capture_registration_owner.load(std::memory_order_acquire) != 0) {
+            campaign_automation_console_capture_registered.store(true, std::memory_order_release);
+            return true;
+        }
+        try {
+            EventRegistry<events::ConsoleCmdManagerInitEvent>::Register(
+                campaign_automation_console_owner, "campaign_automation_console", &OnCampaignConsoleCaptured);
+            campaign_console_capture_registration_owner.store(2, std::memory_order_release);
+            campaign_automation_console_capture_registered.store(true, std::memory_order_release);
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+
+    void UnregisterCampaignAutomationConsoleCapture() noexcept
+    {
+        if (!campaign_automation_console_capture_registered.exchange(false, std::memory_order_acq_rel)) return;
+        if (!legacy_campaign_console_capture_registered.load(std::memory_order_acquire)) {
+            try {
+                if (campaign_console_capture_registration_owner.load(std::memory_order_acquire) == 1) {
+                    EventRegistry<events::ConsoleCmdManagerInitEvent>::Unregister(
+                        campaign_console_capture_legacy_owner.load(std::memory_order_acquire),
+                        "campaign_runner_console");
+                } else {
+                    EventRegistry<events::ConsoleCmdManagerInitEvent>::Unregister(
+                        campaign_automation_console_owner, "campaign_automation_console");
+                }
+                campaign_console_capture_registration_owner.store(0, std::memory_order_release);
+                campaign_console_capture_legacy_owner.store(nullptr, std::memory_order_release);
+            } catch (...) {
+                return;
+            }
+        }
+        if (!legacy_campaign_console_capture_registered.load(std::memory_order_acquire)) {
+            campaign_automation_message_popups_suppressed.store(false, std::memory_order_release);
+            campaign_automation_observer_enabled.store(false, std::memory_order_release);
+            RefreshCampaignPopupSuppression();
+            ForgetCampaignConsole(true);
+        }
+    }
+
+    void SetCampaignAutomationAnnexationCallback(CampaignAnnexationCallback callback) noexcept
+    {
+        campaign_automation_annexation_callback.store(callback, std::memory_order_release);
+    }
+
+    void SetCampaignAutomationConsoleCaptureCallback(CampaignConsoleCaptureCallback callback) noexcept
+    {
+        campaign_automation_console_capture_callback.store(callback, std::memory_order_release);
+    }
+
+    CampaignOperationStatus ActivateCampaignAutomationHooks()
+    {
+        const auto status = InstallCampaignAutomationHooks({});
+        if (status != CampaignOperationStatus::completed) return status;
+        return CampaignOperationStatus::completed;
+    }
+
+    void DeactivateCampaignAutomationHooks() noexcept
+    {
+        SetCampaignAutomationAnnexationCallback(nullptr);
+        SetCampaignAutomationConsoleCaptureCallback(nullptr);
+        SetCampaignAutomationObserverMode(false);
+        SetCampaignAutomationMessagePopupSuppression(false);
+        if (!legacy_campaign_console_capture_registered.load(std::memory_order_acquire)) ForgetCampaignConsole(true);
     }
 
     bool IsCampaignObserverConsoleReady() noexcept
@@ -2129,7 +2303,19 @@ namespace smedley::game_state
 
     void SetCampaignMessagePopupSuppression(bool enabled) noexcept
     {
-        suppress_campaign_message_popups = enabled;
+        legacy_campaign_message_popups_suppressed.store(enabled, std::memory_order_release);
+        RefreshCampaignPopupSuppression();
+    }
+
+    void SetCampaignAutomationMessagePopupSuppression(bool enabled) noexcept
+    {
+        campaign_automation_message_popups_suppressed.store(enabled, std::memory_order_release);
+        RefreshCampaignPopupSuppression();
+    }
+
+    bool IsCampaignMessagePopupSuppressionEnabled() noexcept
+    {
+        return suppress_campaign_message_popups;
     }
 
     int32_t CampaignSuppressedMessageCount() noexcept
@@ -2148,6 +2334,8 @@ namespace smedley::game_state
         {
             const auto callback = campaign_annexation_callback.load(std::memory_order_acquire);
             if (callback != nullptr) callback(annexed_ordinal);
+            const auto automation_callback = campaign_automation_annexation_callback.load(std::memory_order_acquire);
+            if (automation_callback != nullptr) automation_callback(annexed_ordinal);
         }
 
         __declspec(naked) void CountryAnnexTrampoline()
@@ -2216,6 +2404,12 @@ namespace smedley::game_state
         if (campaign_hooks_poisoned.load(std::memory_order_acquire)) {
             return CampaignOperationStatus::readback_failed;
         }
+        if (campaign_hooks_installed.load(std::memory_order_acquire)) {
+            if (callbacks.annexation != nullptr) campaign_annexation_callback.store(callbacks.annexation, std::memory_order_release);
+            if (callbacks.console_capture != nullptr) campaign_console_capture_callback.store(callbacks.console_capture, std::memory_order_release);
+            if (callbacks.console != nullptr) campaign_console_callback.store(callbacks.console, std::memory_order_release);
+            return CampaignOperationStatus::completed;
+        }
         const uintptr_t base = smedley::memory::Map::base_addr;
         uintptr_t country_annex = 0;
         if (!NativeSignatureMatches(0x118620, country_annex_signature.data(), country_annex_signature.size())
@@ -2278,6 +2472,7 @@ namespace smedley::game_state
         campaign_annexation_callback.store(callbacks.annexation, std::memory_order_release);
         campaign_console_capture_callback.store(callbacks.console_capture, std::memory_order_release);
         campaign_console_callback.store(callbacks.console, std::memory_order_release);
+        campaign_hooks_installed.store(true, std::memory_order_release);
         return CampaignOperationStatus::completed;
     }
 

@@ -6,7 +6,7 @@ add_library (smedley_kernel SHARED ${kernel_sources})
 # Transitional C++ plugin imports require kernel auto-export until issue #41 completes.
 set_target_properties(smedley_kernel PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL SMEDLEY_EVENT_BUILD SMEDLEY_EVENT_SERVICES_BUILD
-  SMEDLEY_CAMPAIGN_CONTROL_BUILD SMEDLEY_CAMPAIGN_RUNTIME_BUILD SMEDLEY_INTEREST_POOL_BUILD
+  SMEDLEY_CAMPAIGN_CONTROL_BUILD SMEDLEY_CAMPAIGN_RUNTIME_BUILD SMEDLEY_CAMPAIGN_AUTOMATION_BUILD SMEDLEY_INTEREST_POOL_BUILD
   SMEDLEY_TELEMETRY_GAME_BUILD SMEDLEY_LOGGING_BUILD LUA_BUILD_AS_DLL LUA_LIB)
 target_link_libraries(smedley_kernel PRIVATE bcrypt shell32 minhook)
 target_include_directories(smedley_kernel PUBLIC
