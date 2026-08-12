@@ -7,6 +7,7 @@
 
 namespace smedley
 {
+    void ConfigureServiceLogPath(const std::string &path);
 
     /**
      * Logger interface for writing messages at different levels.
@@ -35,6 +36,7 @@ namespace smedley
         void Warn(const std::string &msg) { Log(Level::WARN, msg); }
         void Failure(const std::string &msg) { Log(Level::FAILURE, msg); }
         void Critical(const std::string &msg) { Log(Level::CRITICAL, msg); }
+        void SetPrefix(std::string prefix) { _prefix = std::move(prefix); }
     protected:
         virtual void Write(const std::string &data) = 0;
     };
@@ -48,6 +50,7 @@ namespace smedley
         std::ofstream _ostream;
     public:
         FileLogger(const std::string &filename, const std::string &prefix = "", bool use_stderr = true);
+        bool Good() const { return _ostream.good(); }
     protected:
         void Write(const std::string &data) override
         {

@@ -285,6 +285,29 @@ Call these operations only from the game thread and a lifecycle phase that can
 observe a campaign. The current scripting plugin performs its queued pause from
 the synchronous daily-event callback.
 
+## Logging capability v1
+
+[`include/smedley/logging_api.h`](../include/smedley/logging_api.h) exposes a
+bounded append-only logging service. Resolve `SmedleyGetLoggingApiV1`
+dynamically from `smedley_kernel.dll`. The caller zeroes
+`SmedleyLoggingApiV1`, sets its exact `struct_size` and `version`, and leaves its
+reserved fields zero. The returned table and function pointers remain valid
+only while `smedley_kernel.dll` remains loaded.
+
+`write` accepts a level from `SMEDLEY_LOG_DEBUG` through
+`SMEDLEY_LOG_CRITICAL`, a component of 1 through 64 bytes, and a message of 1
+through 4096 bytes. Inputs are explicit UTF-8 byte slices and do not need
+trailing NULs. V1 does not validate encoding, and embedded NUL bytes are
+preserved. The call is serialized and performs allocation and file I/O, so do
+not use it from a game hook or synchronous event callback.
+
+| Result | Meaning |
+| --- | --- |
+| `SMEDLEY_LOGGING_SUCCESS` | The bounded record was submitted to the configured log |
+| `SMEDLEY_LOGGING_INVALID_ARGUMENT` | The table contract, level, pointer, or byte count is invalid |
+| `SMEDLEY_LOGGING_UNAVAILABLE` | The loader has not configured the shared log path |
+| `SMEDLEY_LOGGING_WRITE_FAILED` | Constructing or writing the record failed |
+
 ## Validation
 
 The x86 Release tests compile the lifecycle, event, and campaign-control headers
