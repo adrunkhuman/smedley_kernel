@@ -796,13 +796,14 @@ namespace smedley::game_state
         CapturedFrontendController captured_main_menu{};
         std::atomic<bool> frontend_automation_active{};
         std::atomic<bool> frontend_hooks_installed{};
+        std::atomic<bool> frontend_hooks_poisoned{};
         std::atomic<FrontendControllerCaptureCallback> frontend_capture_callback{};
-        std::vector<std::pair<uintptr_t, std::vector<uint8_t>>> frontend_installed_hooks;
+        std::vector<uintptr_t> frontend_installed_hooks;
         constexpr std::array<uint8_t, 5> load_save_signature{0x55, 0x8b, 0xec, 0x6a, 0xff};
-        uintptr_t frontend_constructor_return_address = 0;
-        uintptr_t main_menu_constructor_return_address = 0;
-        uintptr_t frontend_destructor_return_address = 0;
-        uintptr_t main_menu_destructor_return_address = 0;
+        void *frontend_constructor_original = nullptr;
+        void *main_menu_constructor_original = nullptr;
+        void *frontend_destructor_original = nullptr;
+        void *main_menu_destructor_original = nullptr;
 
         CapturedFrontendController &CapturedController(FrontendControllerKind kind)
         {
@@ -861,10 +862,7 @@ namespace smedley::game_state
                 call OnFrontendConstructed
                 popad
                 popfd
-                push ebp
-                mov ebp, esp
-                push 0xffffffff
-                jmp frontend_constructor_return_address
+                jmp dword ptr [frontend_constructor_original]
             }
         }
 
@@ -878,10 +876,7 @@ namespace smedley::game_state
                 call OnMainMenuConstructed
                 popad
                 popfd
-                push ebp
-                mov ebp, esp
-                push 0xffffffff
-                jmp main_menu_constructor_return_address
+                jmp dword ptr [main_menu_constructor_original]
             }
         }
 
@@ -894,11 +889,7 @@ namespace smedley::game_state
                 call OnFrontendDestroyed
                 popad
                 popfd
-                push ebp
-                mov ebp, esp
-                push esi
-                mov esi, ecx
-                jmp frontend_destructor_return_address
+                jmp dword ptr [frontend_destructor_original]
             }
         }
 
@@ -911,11 +902,7 @@ namespace smedley::game_state
                 call OnMainMenuDestroyed
                 popad
                 popfd
-                push ebp
-                mov ebp, esp
-                push esi
-                mov esi, ecx
-                jmp main_menu_destructor_return_address
+                jmp dword ptr [main_menu_destructor_original]
             }
         }
 
@@ -1036,6 +1023,7 @@ namespace smedley::game_state
         constexpr std::array<uint8_t, 5> constructor_signature{0x55, 0x8b, 0xec, 0x6a, 0xff};
         constexpr std::array<uint8_t, 6> destructor_signature{0x55, 0x8b, 0xec, 0x56, 0x8b, 0xf1};
         constexpr std::array<uint8_t, 10> signal_signature{0x56, 0x8b, 0x70, 0x04, 0x85, 0xf6, 0x74, 0x10, 0x8b, 0x0e};
+        if (frontend_hooks_poisoned.load(std::memory_order_acquire)) return FrontendOperationStatus::readback_failed;
         if (frontend_hooks_installed.load(std::memory_order_acquire)) {
             frontend_automation_active.store(true, std::memory_order_release);
             return FrontendOperationStatus::completed;
@@ -1066,28 +1054,27 @@ namespace smedley::game_state
                 load_save, load_save_signature.data(), load_save_signature.size())) {
             return FrontendOperationStatus::signature_mismatch;
         }
-        frontend_constructor_return_address = frontend_constructor + constructor_signature.size();
-        main_menu_constructor_return_address = main_menu_constructor + constructor_signature.size();
-        frontend_destructor_return_address = frontend_destructor + destructor_signature.size();
-        main_menu_destructor_return_address = main_menu_destructor + destructor_signature.size();
-        std::vector<std::pair<uintptr_t, std::vector<uint8_t>>> installed;
-        const auto install = [&installed](uintptr_t address, void *trampoline, size_t size) {
-            std::vector<uint8_t> original;
-            if (!smedley::memory::Hook(address, trampoline, static_cast<int>(size), &original)) {
-                throw std::runtime_error("frontend hook is too short");
+        std::vector<uintptr_t> installed;
+        const auto install = [&installed](uintptr_t address, void *detour, void **original) {
+            if (!smedley::memory::InstallDetour(address, detour, original)) {
+                throw std::runtime_error("MinHook could not install frontend detour");
             }
-            installed.emplace_back(address, std::move(original));
+            installed.push_back(address);
         };
         try {
             installed.reserve(4);
-            install(frontend_constructor, reinterpret_cast<void *>(&FrontendConstructorTrampoline), constructor_signature.size());
-            install(main_menu_constructor, reinterpret_cast<void *>(&MainMenuConstructorTrampoline), constructor_signature.size());
-            install(frontend_destructor, reinterpret_cast<void *>(&FrontendDestructorTrampoline), destructor_signature.size());
-            install(main_menu_destructor, reinterpret_cast<void *>(&MainMenuDestructorTrampoline), destructor_signature.size());
+            install(frontend_constructor, reinterpret_cast<void *>(&FrontendConstructorTrampoline), &frontend_constructor_original);
+            install(main_menu_constructor, reinterpret_cast<void *>(&MainMenuConstructorTrampoline), &main_menu_constructor_original);
+            install(frontend_destructor, reinterpret_cast<void *>(&FrontendDestructorTrampoline), &frontend_destructor_original);
+            install(main_menu_destructor, reinterpret_cast<void *>(&MainMenuDestructorTrampoline), &main_menu_destructor_original);
         } catch (...) {
             bool restored = true;
             for (auto hook = installed.rbegin(); hook != installed.rend(); ++hook) {
-                restored = smedley::memory::RestoreHook(hook->first, hook->second) && restored;
+                restored = smedley::memory::RemoveDetour(*hook) && restored;
+            }
+            if (!restored) {
+                frontend_installed_hooks = std::move(installed);
+                frontend_hooks_poisoned.store(true, std::memory_order_release);
             }
             return restored ? FrontendOperationStatus::unavailable : FrontendOperationStatus::readback_failed;
         }
@@ -1101,13 +1088,9 @@ namespace smedley::game_state
     {
         frontend_automation_active.store(false, std::memory_order_release);
         frontend_capture_callback.store(nullptr, std::memory_order_release);
-        bool restored = true;
-        for (auto hook = frontend_installed_hooks.rbegin(); hook != frontend_installed_hooks.rend(); ++hook) {
-            restored = smedley::memory::RestoreHook(hook->first, hook->second) && restored;
-        }
-        if (!restored) return FrontendOperationStatus::readback_failed;
-        frontend_installed_hooks.clear();
-        frontend_hooks_installed.store(false, std::memory_order_release);
+        if (frontend_hooks_poisoned.load(std::memory_order_acquire)) return FrontendOperationStatus::readback_failed;
+        // Published MinHook trampolines remain process-lifetime so an in-flight
+        // capture cannot tail-jump through freed executable memory.
         return FrontendOperationStatus::completed;
     }
 
@@ -2138,7 +2121,7 @@ namespace smedley::game_state
 
     namespace
     {
-        uintptr_t country_annex_return_address = 0;
+        void *country_annex_original = nullptr;
         uintptr_t message_dispatch_return_addresses[9]{};
         uintptr_t message_dispatch_popup_addresses[9]{};
         uintptr_t message_dispatch_suppressed_addresses[9]{};
@@ -2159,10 +2142,7 @@ namespace smedley::game_state
                 call NotifyCampaignAnnexation
                 popad
                 popfd
-                push ebp
-                mov ebp, esp
-                and esp, 0xfffffff8
-                jmp country_annex_return_address
+                jmp dword ptr [country_annex_original]
             }
         }
 
@@ -2232,7 +2212,6 @@ namespace smedley::game_state
                 return CampaignOperationStatus::signature_mismatch;
             }
         }
-        country_annex_return_address = country_annex + country_annex_signature.size();
         for (size_t index = 0; index < dispatch_rvas.size(); ++index) {
             if (!AddOffset(dispatch_addresses[index], dispatch_edi_signature.size(), &message_dispatch_return_addresses[index])
                 || !AddOffset(base, popup_rvas[index], &message_dispatch_popup_addresses[index])
@@ -2256,13 +2235,21 @@ namespace smedley::game_state
             installed.emplace_back(address, std::move(original));
         };
         try {
-            installed.reserve(10);
-            install(country_annex, reinterpret_cast<void *>(&CountryAnnexTrampoline));
+            installed.reserve(9);
+            if (!smedley::memory::InstallDetour(
+                    country_annex, reinterpret_cast<void *>(&CountryAnnexTrampoline), &country_annex_original)) {
+                throw std::runtime_error("MinHook could not install campaign annexation detour");
+            }
             for (size_t index = 0; index < dispatch_rvas.size(); ++index) install(dispatch_addresses[index], trampolines[index]);
         } catch (...) {
             bool restored = true;
             for (auto hook = installed.rbegin(); hook != installed.rend(); ++hook) {
                 restored = smedley::memory::RestoreHook(hook->first, hook->second) && restored;
+            }
+            if (country_annex_original != nullptr) {
+                const bool annex_removed = smedley::memory::RemoveDetour(country_annex);
+                restored = annex_removed && restored;
+                if (annex_removed) country_annex_original = nullptr;
             }
             return restored ? CampaignOperationStatus::invalid_state : CampaignOperationStatus::readback_failed;
         }

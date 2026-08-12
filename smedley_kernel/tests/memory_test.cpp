@@ -6,6 +6,37 @@
 
 namespace
 {
+    using DetourFixtureFn = int(__cdecl *)(int);
+    DetourFixtureFn detour_fixture_original = nullptr;
+
+    __declspec(noinline) int __cdecl DetourFixture(int value)
+    {
+        volatile int preserved = value;
+        return preserved + 1;
+    }
+
+    int __cdecl DetourFixtureReplacement(int value)
+    {
+        return detour_fixture_original(value) + 10;
+    }
+
+    TEST(MinHookAdapterTest, CallsRelocatedOriginalAndRestoresTarget)
+    {
+        ASSERT_EQ(DetourFixture(2), 3);
+        ASSERT_TRUE(smedley::memory::InstallDetour(reinterpret_cast<uintptr_t>(&DetourFixture),
+            reinterpret_cast<void *>(&DetourFixtureReplacement), reinterpret_cast<void **>(&detour_fixture_original)));
+        ASSERT_NE(detour_fixture_original, nullptr);
+        EXPECT_EQ(DetourFixture(2), 13);
+        ASSERT_TRUE(smedley::memory::RemoveDetour(reinterpret_cast<uintptr_t>(&DetourFixture)));
+        EXPECT_EQ(DetourFixture(2), 3);
+
+        detour_fixture_original = nullptr;
+        ASSERT_TRUE(smedley::memory::InstallDetour(reinterpret_cast<uintptr_t>(&DetourFixture),
+            reinterpret_cast<void *>(&DetourFixtureReplacement), reinterpret_cast<void **>(&detour_fixture_original)));
+        EXPECT_EQ(DetourFixture(2), 13);
+        EXPECT_TRUE(smedley::memory::RemoveDetour(reinterpret_cast<uintptr_t>(&DetourFixture)));
+    }
+
     TEST(CodePatchRegistryTest, AcceptsOriginalBeforePatchAndExactRegisteredReplacementAfterPatch)
     {
         std::array<uint8_t, 4> bytes{{0x55, 0x8b, 0xec, 0x83}};
