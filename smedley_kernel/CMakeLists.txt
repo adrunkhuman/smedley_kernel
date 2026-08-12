@@ -3,6 +3,8 @@
 FILE(GLOB_RECURSE kernel_sources src/*.cpp)
 
 add_library (smedley_kernel SHARED ${kernel_sources})
+# Transitional C++ plugin imports require kernel auto-export until issue #41 completes.
+set_target_properties(smedley_kernel PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL SMEDLEY_EVENT_BUILD
   SMEDLEY_CAMPAIGN_CONTROL_BUILD LUA_BUILD_AS_DLL LUA_LIB)
 target_link_libraries(smedley_kernel PRIVATE bcrypt shell32)

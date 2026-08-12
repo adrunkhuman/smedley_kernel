@@ -21,6 +21,16 @@ traversal or native calling conventions. `scripting` consumes only versioned C
 event and campaign-control services. `campaign_runner`, `interest_bug_fix`, and
 `telemetry` still import transitional internal C++ declarations while their
 larger service boundaries are migrated; those declarations are not public ABI.
+The build makes this exception visible: plugin DLLs have exact export sets,
+while `smedley_dll_boundary_audit` lists their remaining mangled kernel imports.
+Kernel automatic export generation remains enabled only until those imports are
+replaced by C services under issue #41; this migration is not complete.
+
+The current export sets are `CreatePlugin` for `campaign_runner`,
+`interest_bug_fix`, and `scripting`; telemetry additionally exports
+`SmedleyTelemetryEmitV1`, `SmedleyTelemetryEmitReliableV1`, and
+`SmedleyTelemetryDrainV1`. The audit rejects any additional plugin export or an
+increase in the frozen transitional kernel-import counts.
 
 First-party plugins have no raw adapter exception. The layering CTest rejects raw engine
 headers, memory-map access, native POP-money wrappers, and game-object `void*`
