@@ -56,8 +56,9 @@ kernel import so migration progress remains visible.
 
 Production plugin targets disable CMake automatic exports. The kernel retains
 automatic exports only as an active temporary compatibility boundary for #41:
-`campaign_runner`, `interest_bug_fix`, `scripting`, and `telemetry` still import
-C++ symbols. Removing those imports through versioned C services is required
+`campaign_runner`, `interest_bug_fix`, and `telemetry` still import C++ symbols.
+`scripting` now resolves only versioned C services and has no kernel imports.
+Removing the remaining imports through versioned C services is required
 before kernel automatic exports can be disabled.
 
 ## Installing

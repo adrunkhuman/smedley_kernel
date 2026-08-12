@@ -99,8 +99,10 @@ the country tag or remember `date_raw` when a script needs lower volume.
 
 ## Host API
 
-`smedley.log(message)` writes at most 512 bytes to `smedley.log` with the script
-filename. It performs file I/O only on the script worker.
+`smedley.log(message)` submits at most 512 bytes through the kernel logging C
+API under the `scripting` component, with the script filename in the message.
+It performs file I/O only on the script worker. Logging is best effort: the Lua
+call does not fail when the shared log is unavailable or rejects the record.
 
 `smedley.after_days(days, callback)` schedules a Lua callback against the
 current event's raw date using the runtime-verified 24 raw units per game day.
@@ -133,6 +135,8 @@ attempt. Full or contended queues drop the snapshot; accepted, processed,
 dropped, error, disabled-script, and high-water counters are logged on orderly
 unload together with a terminal worker-failure flag. Lua parsing, allocation,
 garbage collection, user logging, and callback execution remain on the worker.
+The plugin dynamically resolves the event, campaign-control, and logging C API
+tables and has no link-time dependency on `smedley_kernel.dll`.
 
 Every chunk and callback runs under `lua_pcall` and an instruction-count hook.
 Allocator exhaustion or runtime errors count against that script. Three
