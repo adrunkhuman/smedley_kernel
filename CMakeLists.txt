@@ -2,7 +2,6 @@
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS ON)
 
 if(NOT V2_GAME_DIR)
 	set(V2_GAME_DIR "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Victoria 2")
@@ -72,4 +71,14 @@ if(BUILD_TESTING)
     NAME smedley_engine_ownership_tool_tests
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tools/tests/check_engine_ownership_test.py)
+  add_test(
+    NAME smedley_dll_boundary_audit
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/audit_dll_boundaries.py
+      --linker ${CMAKE_LINKER}
+      --kernel $<TARGET_FILE:smedley_kernel>
+      --baseline ${PROJECT_SOURCE_DIR}/tools/dll_import_baseline.json
+      --campaign-runner $<TARGET_FILE:campaign_runner>
+      --interest-bug-fix $<TARGET_FILE:interest_bug_fix>
+      --scripting $<TARGET_FILE:scripting>
+      --telemetry $<TARGET_FILE:telemetry>)
 endif()

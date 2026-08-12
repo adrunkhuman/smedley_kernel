@@ -3,6 +3,7 @@ target_include_directories(interest_bug_fix_core PUBLIC "${CMAKE_CURRENT_SOURCE_
 target_link_libraries(interest_bug_fix_core PUBLIC smedley_kernel)
 
 add_library(interest_bug_fix MODULE src/interest_bug_fix.cpp src/telemetry_bridge.cpp)
+set_target_properties(interest_bug_fix PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 target_link_libraries(interest_bug_fix PRIVATE
   interest_bug_fix_core
   smedley_kernel
