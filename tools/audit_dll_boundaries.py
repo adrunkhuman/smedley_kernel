@@ -14,7 +14,7 @@ from pathlib import Path
 EXPECTED_EXPORTS = {
     "campaign_runner": {"CreatePlugin"},
     "interest_bug_fix": {"CreatePlugin"},
-    "scripting": {"CreatePlugin"},
+    "scripting": {"SmedleyPluginGetApiV1"},
     "telemetry": {
         "CreatePlugin",
         "SmedleyTelemetryDrainV1",
@@ -27,9 +27,10 @@ REQUIRED_KERNEL_EXPORTS = {
     "LoadPluginsThread",
     "SmedleyGetCampaignControlApiV1",
     "SmedleyGetEventApiV1",
+    "SmedleyGetLoggingApiV1",
 }
 EXPORT_LINE = re.compile(r"^\s*\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)", re.MULTILINE)
-IMPORT_LINE = re.compile(r"^\s+[0-9A-F]+\s+(\S.*)$", re.MULTILINE)
+IMPORT_NAME_LINE = re.compile(r"^\s+[0-9A-F]+\s+(\S.*)$")
 
 
 def dump(dumpbin: Path, option: str, dll: Path) -> str:
@@ -58,7 +59,12 @@ def kernel_imports(dumpbin: Path, dll: Path) -> list[str]:
     next_dll = re.search(r"^\s+\S+\.dll\s*$", section, re.IGNORECASE | re.MULTILINE)
     if next_dll:
         section = section[: next_dll.start()]
-    return [name.strip() for name in IMPORT_LINE.findall(section) if name.strip().startswith("?")]
+    imports = []
+    for line in section.splitlines():
+        match = IMPORT_NAME_LINE.match(line)
+        if match and not match.group(1).startswith(("Import ", "time date", "Index ")):
+            imports.append(match.group(1).strip())
+    return imports
 
 
 def main() -> int:
@@ -88,8 +94,9 @@ def main() -> int:
         if actual != expected:
             failures.append(f"{dll.name} exports {sorted(actual)}; expected {sorted(expected)}")
         imports = kernel_imports(dumpbin, dll)
-        current_imports[plugin] = sorted(imports)
-        print(f"{dll.name}: {len(imports)} transitional smedley_kernel.dll imports")
+        baseline_imports = imports if plugin == "scripting" else [name for name in imports if name.startswith("?")]
+        current_imports[plugin] = sorted(baseline_imports)
+        print(f"{dll.name}: {len(imports)} smedley_kernel.dll imports")
         for imported in imports:
             print(f"  {imported}")
 

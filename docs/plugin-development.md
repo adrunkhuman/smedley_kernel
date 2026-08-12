@@ -18,16 +18,17 @@ compiles it only into the kernel.
 
 Plugins retain lifecycle, publication, and gameplay policy; they do not own raw
 traversal or native calling conventions. `scripting` consumes only versioned C
-event and campaign-control services. `campaign_runner`, `interest_bug_fix`, and
-`telemetry` still import transitional internal C++ declarations while their
-larger service boundaries are migrated; those declarations are not public ABI.
+event, campaign-control, and logging services. `campaign_runner`,
+`interest_bug_fix`, and `telemetry` still import transitional internal C++
+declarations while their larger service boundaries are migrated; those
+declarations are not public ABI.
 The build makes this exception visible: plugin DLLs have exact export sets,
 while `smedley_dll_boundary_audit` lists their remaining mangled kernel imports.
 Kernel automatic export generation remains enabled only until those imports are
 replaced by C services under issue #41; this migration is not complete.
 
-The current export sets are `CreatePlugin` for `campaign_runner`,
-`interest_bug_fix`, and `scripting`; telemetry additionally exports
+The current export sets are `CreatePlugin` for `campaign_runner` and
+`interest_bug_fix`, `SmedleyPluginGetApiV1` for `scripting`, and telemetry exports
 `SmedleyTelemetryEmitV1`, `SmedleyTelemetryEmitReliableV1`, and
 `SmedleyTelemetryDrainV1`. The audit rejects any additional plugin export or an
 increase in the frozen transitional kernel-import counts.
@@ -69,7 +70,7 @@ prefers the `SmedleyPluginGetApiV1` export. Existing bundled plugins continue to
 work through the legacy `CreatePlugin` C++ interface.
 
 ABI v1 deliberately exposes lifecycle only. It does not expose Victoria II
-objects, logging, or mutation operations. Separate versioned C interfaces expose
+objects, logging, or mutation operations itself. Separate versioned C interfaces expose
 bounded capabilities with their own ownership and thread contracts; do not cast
 host pointers or copy the legacy C++ classes into an ABI-v1 plugin.
 
@@ -285,11 +286,37 @@ Call these operations only from the game thread and a lifecycle phase that can
 observe a campaign. The current scripting plugin performs its queued pause from
 the synchronous daily-event callback.
 
+## Logging capability v1
+
+[`include/smedley/logging_api.h`](../include/smedley/logging_api.h) exposes a
+bounded append-only logging service. Resolve `SmedleyGetLoggingApiV1`
+dynamically from `smedley_kernel.dll`. The caller zeroes
+`SmedleyLoggingApiV1`, sets its exact `struct_size` and `version`, and leaves its
+reserved fields zero. The returned table and its function pointers remain valid only while
+`smedley_kernel.dll` remains loaded.
+
+`write` accepts a level from `SMEDLEY_LOG_DEBUG` through
+`SMEDLEY_LOG_CRITICAL`, a component of 1 through 64 bytes, and a message of 1
+through 4096 bytes. Inputs are explicit byte slices and do not need trailing
+NULs. Inputs should contain UTF-8; v1 does not validate encoding, and embedded
+NUL bytes are preserved as message data. The kernel copies both slices before
+writing them to the configured Smedley log. The call is serialized and performs
+allocation and file I/O, so do not use it from a game hook or synchronous event
+callback. Worker and lifecycle threads may use it when blocking file I/O is
+acceptable.
+
+| Result | Meaning |
+| --- | --- |
+| `SMEDLEY_LOGGING_SUCCESS` | The bounded record was submitted to the configured log |
+| `SMEDLEY_LOGGING_INVALID_ARGUMENT` | The table contract, level, pointer, or byte count is invalid |
+| `SMEDLEY_LOGGING_UNAVAILABLE` | The loader has not configured the shared log path |
+| `SMEDLEY_LOGGING_WRITE_FAILED` | Constructing or writing the record raised an internal failure |
+
 ## Validation
 
-The x86 Release tests compile the lifecycle, event, and campaign-control headers
-as C, dynamically discover and run an independent C fixture DLL that resolves
-the event table, exercise
+The x86 Release tests compile the lifecycle, event, campaign-control, and logging
+headers as C, dynamically discover and run an independent C fixture DLL that
+resolves the event table, exercise
 lifecycle failures, event registration, bounded capacity, self-unregister,
 callback disablement, exception containment, rollback, and v1-only launcher
 preflight. `dumpbin /exports` confirms that the fixture exposes only undecorated
