@@ -256,6 +256,37 @@ executable identity, unreadable fields, malformed bounded container metadata, or
 an unavailable capture group suppresses dispatch instead of producing a partial
 or zero-filled event.
 
+## Event services capability v1
+
+[`include/smedley/event_services_api.h`](../include/smedley/event_services_api.h)
+adds bounded C registrations for the remaining hook boundaries without changing
+the legacy `EventRegistry` paths. Resolve `SmedleyGetEventServicesApiV1`
+dynamically from `smedley_kernel.dll`; callers must zero the table, set its exact
+`struct_size` and `version`, and leave every reserved field zero. The returned
+table remains valid only while the kernel is loaded.
+
+`register_bank_interest` supplies a 48-byte copied record with the before/after
+phase, country index, and distribution mode. Its `authority` is an opaque,
+non-pointer value that is valid only for that synchronous callback, its game
+thread, and its active campaign session. V1 exposes no operation that accepts
+the authority yet; it exists to bind later narrow mutation capabilities to this
+exact boundary without exposing an engine object.
+
+`register_campaign_console` receives copied, bounded console input and may fill
+a copied result. Input contains the command kind, argument validity/count, and
+at most the first 128-byte argument. A result is considered only when its exact
+size/version, reserved fields, boolean fields, and message byte count are valid.
+The first callback that returns `handled = 1` supplies the native console reply;
+later registrations still run but cannot replace it. If no service handles the
+command, the existing campaign-runner callback remains active unchanged.
+
+Both registration families use opaque 64-bit handles, have independent fixed
+capacities (32 bank-interest and 16 console), contain thrown C++ exceptions, and
+disable a callback returning `DISABLE` or an unknown value. `unregister` waits
+for a callback already acquired and returns `SMEDLEY_EVENT_SERVICES_BUSY` from
+that callback itself. Game callbacks must not allocate, log, perform I/O, block,
+retain record pointers or authority tokens, throw, or unregister.
+
 ## Campaign control capability v1
 
 [`include/smedley/campaign_control_api.h`](../include/smedley/campaign_control_api.h)

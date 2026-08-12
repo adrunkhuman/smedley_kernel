@@ -4,6 +4,7 @@
 #include <smedley/events/dailyinterest.hpp>
 #include <smedley/events/dailyupdate.hpp>
 #include <smedley/events/console.hpp>
+#include <smedley/event_services_runtime.hpp>
 #include <smedley/eventregistry.hpp>
 #include <smedley/executable_identity.hpp>
 #include <smedley/memory.hpp>
@@ -1963,9 +1964,24 @@ namespace smedley::game_state
             if (!IsCampaignObserverConsoleReady()) {
                 return smedley::v2::CConsoleCmd::SResult("observer unavailable", false);
             }
+            const CampaignConsoleArguments arguments = CopyCampaignConsoleArguments(raw);
+            SmedleyCampaignConsoleInputV1 input{};
+            input.struct_size = sizeof(input);
+            input.version = SMEDLEY_CAMPAIGN_CONSOLE_INPUT_VERSION_V1;
+            input.command = command == CampaignConsoleCommand::native_tag
+                ? SMEDLEY_CAMPAIGN_CONSOLE_NATIVE_TAG : SMEDLEY_CAMPAIGN_CONSOLE_OBSERVER_SWITCH;
+            input.argument_count = arguments.count;
+            input.arguments_valid = arguments.valid ? 1 : 0;
+            std::memcpy(input.first_argument, arguments.first, sizeof(input.first_argument));
+            SmedleyCampaignConsoleResultV1 result{};
+            if (smedley::DispatchCampaignConsoleEventServices(input, &result)) {
+                char message[SMEDLEY_CAMPAIGN_CONSOLE_MAX_RESULT_BYTES + 1]{};
+                std::memcpy(message, result.message, result.message_bytes);
+                return smedley::v2::CConsoleCmd::SResult(message, result.success != 0);
+            }
             const auto callback = campaign_console_callback.load(std::memory_order_acquire);
             if (callback == nullptr) return smedley::v2::CConsoleCmd::SResult("observer unavailable", false);
-            const CampaignConsoleResponse response = callback(command, CopyCampaignConsoleArguments(raw));
+            const CampaignConsoleResponse response = callback(command, arguments);
             return smedley::v2::CConsoleCmd::SResult(response.message, response.success);
         }
 
