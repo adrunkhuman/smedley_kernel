@@ -1318,12 +1318,11 @@ namespace smedley::game_state
         return CountryRef{static_cast<const void *>(event.GetCountry())};
     }
 
-    bool ReadDailyUpdateSnapshot(events::DailyUpdateEvent &event, DailyUpdateSnapshot *snapshot)
+    bool ReadDailyUpdateSnapshot(CountryRef country_ref, DailyUpdateSnapshot *snapshot)
     {
         if (snapshot == nullptr) return false;
         TelemetryCurrentState current{};
         TelemetryCountrySnapshot country{};
-        const CountryRef country_ref = DailyUpdateCountry(event);
         if (!ReadTelemetryCurrentState(&current) || !current.world_daily_available()
             || !ReadTelemetryCountry(country_ref, &country) || !country.daily_available()) return false;
 
@@ -1341,6 +1340,11 @@ namespace smedley::game_state
         value.human_control_present = current.human_control_present_value;
         *snapshot = value;
         return true;
+    }
+
+    bool ReadDailyUpdateSnapshot(events::DailyUpdateEvent &event, DailyUpdateSnapshot *snapshot)
+    {
+        return ReadDailyUpdateSnapshot(DailyUpdateCountry(event), snapshot);
     }
 
     bool TelemetryCurrentState::ongoing_war_count_candidate(int *count) const noexcept

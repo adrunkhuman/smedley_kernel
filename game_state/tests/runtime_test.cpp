@@ -1,3 +1,4 @@
+#include <smedley/campaign_control_api.h>
 #include <smedley/game_state/runtime.hpp>
 #include <smedley/game_state/artisan_consumption_hook.hpp>
 #include <smedley/game_state/factory_consumption_hook.hpp>
@@ -296,6 +297,33 @@ namespace smedley::game_state
         EXPECT_EQ(SetCampaignSpeedIndex(0), CampaignOperationStatus::signature_mismatch);
         EXPECT_EQ(RequestCampaignQuit(), CampaignOperationStatus::signature_mismatch);
         EXPECT_EQ(InstallCampaignAutomationHooks({}), CampaignOperationStatus::signature_mismatch);
+    }
+
+    TEST(CampaignControlApiV1Test, ExposesCheckedOperationsWithoutCppRuntimeTypes)
+    {
+        SmedleyCampaignControlApiV1 malformed{};
+        malformed.struct_size = sizeof(malformed);
+        malformed.version = SMEDLEY_CAMPAIGN_CONTROL_API_VERSION_V1;
+        malformed.reserved[0] = 1;
+        EXPECT_EQ(SmedleyGetCampaignControlApiV1(&malformed), SMEDLEY_CAMPAIGN_CONTROL_INVALID_ARGUMENT);
+
+        SmedleyCampaignControlApiV1 api{};
+        api.struct_size = sizeof(api);
+        api.version = SMEDLEY_CAMPAIGN_CONTROL_API_VERSION_V1;
+        ASSERT_EQ(SmedleyGetCampaignControlApiV1(&api), SMEDLEY_CAMPAIGN_CONTROL_SUCCESS);
+        ASSERT_NE(api.read_campaign, nullptr);
+        ASSERT_NE(api.set_paused, nullptr);
+        ASSERT_NE(api.set_speed_index, nullptr);
+        ASSERT_NE(api.request_quit, nullptr);
+
+        SmedleyCampaignSnapshotV1 snapshot{};
+        snapshot.struct_size = sizeof(snapshot);
+        snapshot.version = SMEDLEY_CAMPAIGN_SNAPSHOT_VERSION_V1;
+        EXPECT_EQ(api.read_campaign(&snapshot), SMEDLEY_CAMPAIGN_CONTROL_SIGNATURE_MISMATCH);
+        EXPECT_EQ(api.set_paused(2), SMEDLEY_CAMPAIGN_CONTROL_INVALID_ARGUMENT);
+        EXPECT_EQ(api.set_paused(1), SMEDLEY_CAMPAIGN_CONTROL_SIGNATURE_MISMATCH);
+        EXPECT_EQ(api.set_speed_index(-1), SMEDLEY_CAMPAIGN_CONTROL_INVALID_ARGUMENT);
+        EXPECT_EQ(api.request_quit(), SMEDLEY_CAMPAIGN_CONTROL_SIGNATURE_MISMATCH);
     }
 
     TEST(TelemetryHookOperationTest, FailsClosedOutsideTheSupportedGame)
