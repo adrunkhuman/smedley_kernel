@@ -57,4 +57,12 @@ if(BUILD_TESTING)
     NAME smedley_game_layering_tool_tests
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tools/tests/check_game_layering_test.py)
+  add_test(
+    NAME smedley_engine_ownership_audit
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/check_engine_ownership.py
+      --root ${PROJECT_SOURCE_DIR})
+  add_test(
+    NAME smedley_engine_ownership_tool_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tools/tests/check_engine_ownership_test.py)
 endif()

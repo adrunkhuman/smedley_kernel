@@ -3,7 +3,8 @@
 FILE(GLOB_RECURSE kernel_sources src/*.cpp)
 
 add_library (smedley_kernel SHARED ${kernel_sources})
-target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL SMEDLEY_EVENT_BUILD LUA_BUILD_AS_DLL LUA_LIB)
+target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL SMEDLEY_EVENT_BUILD
+  SMEDLEY_CAMPAIGN_CONTROL_BUILD LUA_BUILD_AS_DLL LUA_LIB)
 target_link_libraries(smedley_kernel PRIVATE bcrypt shell32)
 target_include_directories(smedley_kernel PUBLIC
   "${PROJECT_SOURCE_DIR}/include"
@@ -23,6 +24,9 @@ if(BUILD_TESTING)
 
   add_library(smedley_event_api_c_compile_test OBJECT tests/event_api_header_c_test.c)
   target_include_directories(smedley_event_api_c_compile_test PRIVATE "${CMAKE_SOURCE_DIR}/include")
+
+  add_library(smedley_campaign_control_api_c_compile_test OBJECT tests/campaign_control_api_header_c_test.c)
+  target_include_directories(smedley_campaign_control_api_c_compile_test PRIVATE "${CMAKE_SOURCE_DIR}/include")
 
   add_library(smedley_plugin_abi_test_plugin MODULE tests/test_plugins/plugin_abi_test_plugin.c)
   set_target_properties(smedley_plugin_abi_test_plugin PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)

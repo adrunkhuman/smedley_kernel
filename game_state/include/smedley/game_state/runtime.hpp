@@ -211,6 +211,7 @@ namespace smedley::game_state
 
     bool ReadTelemetryCurrentState(TelemetryCurrentState *state);
     CountryRef DailyUpdateCountry(events::DailyUpdateEvent &event);
+    bool ReadDailyUpdateSnapshot(CountryRef country, DailyUpdateSnapshot *snapshot);
     bool ReadDailyUpdateSnapshot(events::DailyUpdateEvent &event, DailyUpdateSnapshot *snapshot);
     bool ReadTelemetryCountry(CountryRef country, TelemetryCountrySnapshot *snapshot);
     bool ReadTelemetryProvince(ProvinceRef province, TelemetryProvinceSnapshot *snapshot);
