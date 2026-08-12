@@ -233,19 +233,21 @@ The kernel uses pinned MinHook v1.3.4 for function-entry detours. MinHook decode
 and relocates complete overwritten x86 instructions, coordinates threads while
 enabling or disabling a detour, and supplies the callable original trampoline.
 Smedley still verifies the exact supported executable and expected target bytes
-before creating each detour. Failed unpublished installation removes prior
-detours in reverse order; a removal failure retains the continuation and reports
-`readback_failed` rather than freeing executable memory still reachable by a thread.
-The campaign annexation detour is intentionally process-lifetime after a
-successful install. Partial campaign installation removes it; normal campaign
-deactivation clears callbacks but does not remove the detour.
+before creating each detour. Once enabled, a detour and its original trampoline
+remain process-lifetime because another thread may already be executing the
+detour before its tail jump. A later installation failure deactivates callbacks,
+marks the hook group poisoned, and reports `readback_failed` instead of freeing
+reachable executable memory. Normal deactivation also clears callbacks without
+removing published detours.
 
 Call-site replacements are not function-entry detours. Daily event hooks,
 interest boundaries, heap capture, telemetry capture calls, and message popup
 dispatch branches retain their exact checked byte patches because they replace a
 specific call or branch and may have several verified continuation targets.
-They keep explicit page-protection, instruction-cache, thread-quiescence, and
-rollback contracts rather than pretending to be MinHook function entries.
+They keep explicit page-protection, instruction-cache, and rollback contracts
+rather than pretending to be MinHook function entries. Each hook documents its
+own quiescence requirements; installing a raw campaign patch does not itself
+suspend other threads.
 
 ## Raw-access inventory
 

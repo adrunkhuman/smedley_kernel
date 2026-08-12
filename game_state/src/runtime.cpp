@@ -1068,15 +1068,12 @@ namespace smedley::game_state
             install(frontend_destructor, reinterpret_cast<void *>(&FrontendDestructorTrampoline), &frontend_destructor_original);
             install(main_menu_destructor, reinterpret_cast<void *>(&MainMenuDestructorTrampoline), &main_menu_destructor_original);
         } catch (...) {
-            bool restored = true;
-            for (auto hook = installed.rbegin(); hook != installed.rend(); ++hook) {
-                restored = smedley::memory::RemoveDetour(*hook) && restored;
-            }
-            if (!restored) {
+            if (!installed.empty()) {
                 frontend_installed_hooks = std::move(installed);
                 frontend_hooks_poisoned.store(true, std::memory_order_release);
+                return FrontendOperationStatus::readback_failed;
             }
-            return restored ? FrontendOperationStatus::unavailable : FrontendOperationStatus::readback_failed;
+            return FrontendOperationStatus::unavailable;
         }
         frontend_installed_hooks = std::move(installed);
         frontend_hooks_installed.store(true, std::memory_order_release);
@@ -1907,6 +1904,7 @@ namespace smedley::game_state
         std::atomic<CampaignAnnexationCallback> campaign_annexation_callback{};
         std::atomic<CampaignConsoleCaptureCallback> campaign_console_capture_callback{};
         std::atomic<CampaignConsoleCallback> campaign_console_callback{};
+        std::atomic<bool> campaign_hooks_poisoned{};
         smedley::v2::CConsoleCmdManager *campaign_console_manager = nullptr;
         smedley::v2::CConsoleCmd::SCommandData *campaign_switch_command = nullptr;
         GameSession campaign_console_session{};
@@ -2195,6 +2193,9 @@ namespace smedley::game_state
         constexpr std::array<uint8_t, 5> suppressed_edi_signature{0x8b, 0x5d, 0x10, 0xeb, 0x89};
         constexpr std::array<uint8_t, 6> suppressed_ebx_signature{0x80, 0x7b, 0x11, 0x00, 0x0f, 0x84};
         constexpr std::array<bool, 9> ebx_dispatch{false, true, false, false, true, false, false, false, false};
+        if (campaign_hooks_poisoned.load(std::memory_order_acquire)) {
+            return CampaignOperationStatus::readback_failed;
+        }
         const uintptr_t base = smedley::memory::Map::base_addr;
         uintptr_t country_annex = 0;
         if (!NativeSignatureMatches(0x118620, country_annex_signature.data(), country_annex_signature.size())
@@ -2247,9 +2248,10 @@ namespace smedley::game_state
                 restored = smedley::memory::RestoreHook(hook->first, hook->second) && restored;
             }
             if (country_annex_original != nullptr) {
-                const bool annex_removed = smedley::memory::RemoveDetour(country_annex);
-                restored = annex_removed && restored;
-                if (annex_removed) country_annex_original = nullptr;
+                // A published MinHook trampoline may still be reached by a
+                // detour already executing on another thread.
+                campaign_hooks_poisoned.store(true, std::memory_order_release);
+                return CampaignOperationStatus::readback_failed;
             }
             return restored ? CampaignOperationStatus::invalid_state : CampaignOperationStatus::readback_failed;
         }
