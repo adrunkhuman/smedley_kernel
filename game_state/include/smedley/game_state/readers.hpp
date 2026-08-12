@@ -219,6 +219,15 @@ namespace smedley::game_state
         FACTORY_INPUTS = 1u << 4,
     };
 
+    enum WorldMarketCaptureGroup : uint32_t
+    {
+        MARKET_PRICE = 1u << 0,
+        MARKET_SUPPLY = 1u << 1,
+        MARKET_DEMAND = 1u << 2,
+        MARKET_SALES = 1u << 3,
+        MARKET_ALL = MARKET_PRICE | MARKET_SUPPLY | MARKET_DEMAND | MARKET_SALES,
+    };
+
     struct FactorySnapshot
     {
         FactoryRef address{};
@@ -347,7 +356,9 @@ namespace smedley::game_state
                                   uint32_t *input_count, uint32_t groups, uint32_t *flags,
                                   uint32_t loaded_goods_count_override = 0);
     bool CollectWorldMarket(GameStateRef game_state, WorldMarketSnapshot *snapshots,
-                             size_t snapshot_capacity, uint32_t *snapshot_count);
+                              size_t snapshot_capacity, uint32_t *snapshot_count);
+    bool CollectWorldMarketGroups(GameStateRef game_state, WorldMarketSnapshot *snapshots,
+                                  size_t snapshot_capacity, uint32_t *snapshot_count, uint32_t groups);
     EmploymentRegistryRef ResolveStateEmploymentRegistry();
     bool ReadProvinceRgo(EmploymentRegistryRef registry, ProvinceRef province, int32_t province_id,
                           size_t province_count, uint32_t groups, RgoSnapshot *snapshot);

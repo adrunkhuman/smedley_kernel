@@ -2,6 +2,7 @@
 #include <smedley/campaign_automation_api.h>
 #include <smedley/interest_pool_api.h>
 #include <smedley/telemetry_game_api.h>
+#include <smedley/telemetry_observation_api.h>
 
 #include <smedley/events/bankinterest.hpp>
 #include <smedley/game_state/artisan_consumption_hook.hpp>
@@ -934,9 +935,23 @@ namespace
         return InterestResult(status, internal.cleared_state_count != 0 && status != PopInterestMutationStatus::success);
     }
 
-    struct TelemetrySessionSlot { uint64_t handle = 0; uint64_t epoch = 0; std::thread::id thread{}; };
+    struct TelemetrySessionSlot {
+        static constexpr uint32_t identity_capacity = max_sample_pops + max_sample_factories;
+        uint64_t handle = 0;
+        uint64_t epoch = 0;
+        std::thread::id thread{};
+        smedley::game_state::TelemetryEntityIndex<identity_capacity> identities{};
+    };
     std::array<TelemetrySessionSlot, 8> telemetry_sessions{};
     uint64_t next_telemetry_session = 1;
+    void ResetTelemetrySession(TelemetrySessionSlot *slot)
+    {
+        if (slot == nullptr) return;
+        slot->handle = 0;
+        slot->epoch = 0;
+        slot->thread = {};
+        slot->identities.reset();
+    }
     SmedleyTelemetryGameResult TelemetrySessionStatus(SmedleyTelemetrySession handle)
     {
         if (!IsServiceOwnerThread()) return SMEDLEY_TELEMETRY_GAME_WRONG_THREAD;
@@ -950,7 +965,24 @@ namespace
         }
         return SMEDLEY_TELEMETRY_GAME_STALE_HANDLE;
     }
+    TelemetrySessionSlot *FindTelemetrySession(SmedleyTelemetrySession handle)
+    {
+        for (auto &slot : telemetry_sessions) if (slot.handle == handle && handle != 0) return &slot;
+        return nullptr;
+    }
+    uint64_t OpaqueTelemetryEntityId(TelemetrySessionSlot *slot, uintptr_t address) noexcept
+    {
+        if (slot == nullptr || address == 0) return 0;
+        return smedley::game_state::TelemetryOpaqueEntityHandle(
+            static_cast<uint32_t>(slot->handle), slot->identities.find_or_insert(address));
+    }
+    uintptr_t OpaqueTelemetryEntityAddress(const TelemetrySessionSlot *slot, uint64_t handle) noexcept
+    {
+        if (slot == nullptr || handle == 0 || (handle >> 32) != static_cast<uint32_t>(slot->handle)) return 0;
+        return slot->identities.find(static_cast<uint32_t>(handle));
+    }
     void RetireTelemetrySubscriptions(SmedleyTelemetrySession session, uint64_t epoch, bool current);
+    void RetireTelemetryObservations(SmedleyTelemetrySession session);
     SmedleyTelemetryGameResult SMEDLEY_TELEMETRY_GAME_CALL OpenTelemetrySession(SmedleyTelemetrySession *session)
     {
         if (session == nullptr) return SMEDLEY_TELEMETRY_GAME_INVALID_ARGUMENT;
@@ -962,13 +994,14 @@ namespace
         for (auto &slot : telemetry_sessions) {
             if (slot.handle != 0 && slot.epoch != current.epoch) {
                 RetireTelemetrySubscriptions(slot.handle, slot.epoch, false);
-                slot = {};
+                RetireTelemetryObservations(slot.handle);
+                ResetTelemetrySession(&slot);
             }
             if (slot.handle != 0) continue;
+            if (next_telemetry_session > UINT32_MAX) return SMEDLEY_TELEMETRY_GAME_CAPACITY;
             slot.epoch = current.epoch;
             slot.thread = std::this_thread::get_id();
             slot.handle = next_telemetry_session++;
-            if (slot.handle == 0) slot.handle = next_telemetry_session++;
             *session = slot.handle;
             return SMEDLEY_TELEMETRY_GAME_SUCCESS;
         }
@@ -983,7 +1016,8 @@ namespace
             if (slot.thread != std::this_thread::get_id()) return SMEDLEY_TELEMETRY_GAME_WRONG_THREAD;
             const bool current = CurrentGameSession().epoch == slot.epoch;
             RetireTelemetrySubscriptions(session, slot.epoch, current);
-            slot = {};
+            RetireTelemetryObservations(session);
+            ResetTelemetrySession(&slot);
             return SMEDLEY_TELEMETRY_GAME_SUCCESS;
         }
         return SMEDLEY_TELEMETRY_GAME_STALE_HANDLE;
@@ -1107,20 +1141,544 @@ namespace
         return SMEDLEY_TELEMETRY_GAME_SUCCESS;
     }
 
+    struct TelemetryObservationSessionSlot
+    {
+        uint64_t handle = 0;
+        SmedleyTelemetrySession parent = 0;
+        uint64_t epoch = 0;
+        std::thread::id thread{};
+    };
+    std::array<TelemetryObservationSessionSlot, 8> telemetry_observation_sessions{};
+    uint64_t next_telemetry_observation_session = 1;
+
+    SmedleyTelemetryObservationResult ObservationSessionStatus(SmedleyTelemetryObservationSession session,
+                                                                 TelemetryObservationSessionSlot **result = nullptr)
+    {
+        if (!IsServiceOwnerThread()) return SMEDLEY_TELEMETRY_OBSERVATION_WRONG_THREAD;
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        for (auto &slot : telemetry_observation_sessions) {
+            if (session == 0 || slot.handle != session) continue;
+            if (slot.thread != std::this_thread::get_id()) return SMEDLEY_TELEMETRY_OBSERVATION_WRONG_THREAD;
+            const auto parent = TelemetrySessionStatus(slot.parent);
+            if (parent == SMEDLEY_TELEMETRY_GAME_WRONG_THREAD) return SMEDLEY_TELEMETRY_OBSERVATION_WRONG_THREAD;
+            if (parent != SMEDLEY_TELEMETRY_GAME_SUCCESS || CurrentGameSession().epoch != slot.epoch) {
+                return SMEDLEY_TELEMETRY_OBSERVATION_STALE_HANDLE;
+            }
+            if (result != nullptr) *result = &slot;
+            return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+        }
+        return SMEDLEY_TELEMETRY_OBSERVATION_STALE_HANDLE;
+    }
+    bool ValidDailyEvent(const SmedleyDailyEventV1 *event)
+    {
+        if (event == nullptr || event->struct_size != sizeof(*event) || event->version != SMEDLEY_DAILY_EVENT_VERSION_V1
+            || event->country_tag[3] != '\0') return false;
+        for (const auto value : event->reserved) if (value != 0) return false;
+        for (uint32_t index = 0; index < 3; ++index) {
+            const char value = event->country_tag[index];
+            if (!((value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9'))) return false;
+        }
+        return true;
+    }
+    CountryRef ResolveObservationCountry(const void *context, int32_t ordinal)
+    {
+        return ResolveCountry(*static_cast<const GameStateRef *>(context), ordinal);
+    }
+    ProvinceRef ResolveObservationProvince(const void *context, int32_t id)
+    {
+        return ResolveProvince(*static_cast<const GameStateRef *>(context), id);
+    }
+    uint32_t ObservationCountryFlags(const TelemetryCountrySnapshot &value)
+    {
+        return (value.daily_available() ? SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_COUNTRY_DAILY : 0)
+            | (value.power_available() ? SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_COUNTRY_POWER : 0)
+            | (value.politics_available() ? SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_COUNTRY_POLITICS : 0)
+            | (value.military_available() ? SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_COUNTRY_MILITARY : 0)
+            | (value.diplomacy_status_available() ? SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_COUNTRY_DIPLOMACY_STATUS : 0)
+            | (value.diplomacy_relations_available() ? SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_COUNTRY_DIPLOMACY_RELATIONS : 0);
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL OpenObservationSession(
+        SmedleyTelemetrySession parent_session, SmedleyTelemetryObservationSession *session)
+    {
+        if (session == nullptr) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        if (const auto status = TelemetrySessionStatus(parent_session); status != SMEDLEY_TELEMETRY_GAME_SUCCESS) {
+            return status == SMEDLEY_TELEMETRY_GAME_WRONG_THREAD ? SMEDLEY_TELEMETRY_OBSERVATION_WRONG_THREAD
+                : SMEDLEY_TELEMETRY_OBSERVATION_STALE_HANDLE;
+        }
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        *session = 0;
+        const auto current = CurrentGameSession();
+        for (auto &slot : telemetry_observation_sessions) {
+            if (slot.handle != 0) continue;
+            slot.handle = next_telemetry_observation_session++;
+            if (slot.handle == 0) slot.handle = next_telemetry_observation_session++;
+            slot.epoch = current.epoch;
+            slot.parent = parent_session;
+            slot.thread = std::this_thread::get_id();
+            *session = slot.handle;
+            return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+        }
+        return SMEDLEY_TELEMETRY_OBSERVATION_CAPACITY;
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL CloseObservationSession(
+        SmedleyTelemetryObservationSession session)
+    {
+        if (!IsServiceOwnerThread()) return SMEDLEY_TELEMETRY_OBSERVATION_WRONG_THREAD;
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        for (auto &slot : telemetry_observation_sessions) {
+            if (slot.handle != session || session == 0) continue;
+            if (slot.thread != std::this_thread::get_id()) return SMEDLEY_TELEMETRY_OBSERVATION_WRONG_THREAD;
+            slot = {};
+            return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+        }
+        return SMEDLEY_TELEMETRY_OBSERVATION_STALE_HANDLE;
+    }
+    void RetireTelemetryObservations(SmedleyTelemetrySession session)
+    {
+        for (auto &observation : telemetry_observation_sessions) {
+            if (observation.parent == session) observation = {};
+        }
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL ReadObservationWorld(
+        SmedleyTelemetryObservationSession session, SmedleyTelemetryWorldObservationV1 *world)
+    {
+        if (!ValidRecord(world, 1)) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        if (const auto status = ObservationSessionStatus(session); status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        TelemetryCurrentState source{};
+        if (!ReadTelemetryCurrentState(&source)) return SMEDLEY_TELEMETRY_OBSERVATION_UNAVAILABLE;
+        world->date_raw = source.date_raw;
+        world->country_count = source.country_count();
+        world->country_ai_count = source.country_ai_count();
+        world->human_control_present = source.has_human_controlled_country() ? 1u : 0u;
+        world->province_count = static_cast<uint32_t>(source.province_count());
+        world->ongoing_war_count = source.ongoing_war_count_value;
+        world->availability_flags = (source.world_daily_available() ? SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_WORLD_DAILY : 0)
+            | (source.military_available() ? SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_WORLD_MILITARY : 0);
+        return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL ReadObservationMarket(
+        SmedleyTelemetryObservationSession session, uint32_t groups, SmedleyTelemetryMarketObservationV1 *markets,
+        uint32_t capacity, uint32_t *count)
+    {
+        if (count == nullptr || (capacity != 0 && markets == nullptr)
+            || capacity > SMEDLEY_TELEMETRY_OBSERVATION_MAX_GOODS || groups == 0
+            || (groups & ~(SMEDLEY_TELEMETRY_OBSERVATION_GROUP_MARKET_PRICE | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_MARKET_SUPPLY
+                | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_MARKET_DEMAND | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_MARKET_SALES)) != 0) {
+            return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        }
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        if (const auto status = ObservationSessionStatus(session); status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        *count = 0;
+        static std::array<WorldMarketSnapshot, SMEDLEY_TELEMETRY_OBSERVATION_MAX_GOODS> source{};
+        uint32_t source_count = 0;
+        uint32_t source_groups = 0;
+        if ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_MARKET_PRICE) != 0) source_groups |= MARKET_PRICE;
+        if ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_MARKET_SUPPLY) != 0) source_groups |= MARKET_SUPPLY;
+        if ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_MARKET_DEMAND) != 0) source_groups |= MARKET_DEMAND;
+        if ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_MARKET_SALES) != 0) source_groups |= MARKET_SALES;
+        if (!CollectWorldMarketGroups(CurrentGameSession().game_state, source.data(), source.size(), &source_count, source_groups)) {
+            return SMEDLEY_TELEMETRY_OBSERVATION_UNAVAILABLE;
+        }
+        const uint32_t copied = (std::min)(capacity, source_count);
+        for (uint32_t index = 0; index < copied; ++index) {
+            auto &out = markets[index]; out = {}; out.struct_size = sizeof(out); out.version = 1;
+            out.good_ordinal = source[index].good_ordinal;
+            out.availability_flags = SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_MARKET;
+            out.group_flags = groups;
+            out.price_raw = source[index].price_raw; out.last_price_raw = source[index].last_price_raw;
+            out.supply_raw = source[index].supply_raw; out.last_supply_raw = source[index].last_supply_raw;
+            out.worldmarket_stock_raw = source[index].worldmarket_stock_raw; out.demand_raw = source[index].demand_raw;
+            out.real_demand_raw = source[index].real_demand_raw; out.actual_sold_raw = source[index].actual_sold_raw;
+            out.actual_sold_world_raw = source[index].actual_sold_world_raw;
+        }
+        *count = copied;
+        return copied == source_count ? SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS : SMEDLEY_TELEMETRY_OBSERVATION_TRUNCATED;
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL ResolveObservationDailyCountry(
+        SmedleyTelemetryObservationSession session, const SmedleyDailyEventV1 *event, int32_t *country_ordinal)
+    {
+        if (!ValidDailyEvent(event) || country_ordinal == nullptr) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        if (const auto status = ObservationSessionStatus(session); status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        *country_ordinal = -1;
+        uint32_t countries = 0;
+        const auto game_state = CurrentGameSession().game_state;
+        if (!ReadCountryCount(game_state, &countries)) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_SOURCE;
+        for (uint32_t ordinal = 0; ordinal < countries; ++ordinal) {
+            const auto country = ResolveCountry(game_state, static_cast<int32_t>(ordinal));
+            if (!country) continue;
+            TelemetryCountrySnapshot source{};
+            if (!ReadTelemetryCountry(country, &source)) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_SOURCE;
+            if (std::memcmp(source.tag().value, event->country_tag, sizeof(event->country_tag)) == 0) {
+                *country_ordinal = static_cast<int32_t>(ordinal);
+                return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+            }
+        }
+        return SMEDLEY_TELEMETRY_OBSERVATION_UNAVAILABLE;
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL ReadObservationCountry(
+        SmedleyTelemetryObservationSession session, int32_t ordinal, SmedleyTelemetryCountryObservationV1 *country)
+    {
+        if (!ValidRecord(country, 1) || ordinal < 0) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        if (const auto status = ObservationSessionStatus(session); status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        const auto source_country = ResolveCountry(CurrentGameSession().game_state, ordinal);
+        TelemetryCountrySnapshot source{};
+        if (!source_country || !ReadTelemetryCountry(source_country, &source)) return SMEDLEY_TELEMETRY_OBSERVATION_UNAVAILABLE;
+        country->ordinal = ordinal;
+        std::memcpy(country->tag, source.tag().value, sizeof(country->tag));
+        std::memcpy(country->overlord_tag, source.overlord_candidate().value, sizeof(country->overlord_tag));
+        std::memcpy(country->sphere_leader_tag, source.sphere_leader_candidate().value, sizeof(country->sphere_leader_tag));
+        country->availability_flags = ObservationCountryFlags(source);
+        country->mobilized = source.mobilized_candidate() ? 1u : 0u;
+        country->substate = source.substate_candidate() ? 1u : 0u;
+        country->vassal = source.vassal_candidate() ? 1u : 0u;
+        country->unit_count = source.unit_count_candidate_value;
+        country->scheduled_mobilization_count = source.scheduled_mobilization_count_candidate_value;
+        country->sphereling_count = source.sphereling_count_candidate_value;
+        country->vassal_count = source.vassal_count_candidate_value;
+        country->ally_count = source.ally_count_candidate_value;
+        country->guarantee_count = source.guaranteed_count_candidate_value;
+        country->neighbor_count = source.neighbor_count_candidate_value;
+        country->ranking = source.ranking_candidate(); country->military_ranking = source.military_ranking_candidate();
+        country->industrial_ranking = source.industrial_ranking_candidate(); country->prestige_ranking = source.prestige_ranking_candidate();
+        country->treasury_raw = source.treasury_raw(); country->prestige_raw = source.prestige_candidate_raw();
+        country->infamy_raw = source.infamy_candidate_raw(); country->plurality_raw = source.plurality_candidate_raw();
+        country->war_exhaustion_raw = source.war_exhaustion_candidate_raw();
+        country->diplomatic_points_raw = source.diplomatic_points_candidate_raw();
+        country->research_points_raw = source.research_points_candidate_raw(); country->leadership_raw = source.leadership_candidate_raw();
+        return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL ReadObservationProvince(
+        SmedleyTelemetryObservationSession session, int32_t province_id, SmedleyTelemetryProvinceObservationV1 *province)
+    {
+        if (!ValidRecord(province, 1) || province_id < 0) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        if (const auto status = ObservationSessionStatus(session); status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        TelemetryProvinceSnapshot source{};
+        const auto value = ResolveProvince(CurrentGameSession().game_state, province_id);
+        if (!value || !ReadTelemetryProvince(value, &source)) return SMEDLEY_TELEMETRY_OBSERVATION_UNAVAILABLE;
+        province->province_id = source.id_candidate();
+        std::memcpy(province->owner_tag, source.owner_candidate().value, sizeof(province->owner_tag));
+        std::memcpy(province->controller_tag, source.controller_candidate().value, sizeof(province->controller_tag));
+        province->colonial_level = source.colonial_level_candidate();
+        province->life_rating = source.life_rating_candidate();
+        province->infrastructure_raw = source.infrastructure_candidate();
+        province->building_slot_count = static_cast<uint32_t>(source.building_slot_count_value);
+        province->construction_count = source.construction_count_value;
+        province->availability_flags = (source.daily_available()
+                ? SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_PROVINCE_DAILY : 0)
+            | (source.production_available() ? SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_PROVINCE_PRODUCTION : 0);
+        return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL ReadObservationCountryEconomy(
+        SmedleyTelemetryObservationSession session, int32_t ordinal, SmedleyTelemetryCountryEconomyObservationV1 *economy,
+        SmedleyTelemetryCreditorDestinationObservationV1 *destinations, uint32_t capacity, uint32_t *count)
+    {
+        if (!ValidRecord(economy, 1) || ordinal < 0 || count == nullptr || (capacity != 0 && destinations == nullptr)
+            || capacity > SMEDLEY_TELEMETRY_OBSERVATION_MAX_CREDITOR_DESTINATIONS) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        if (const auto status = ObservationSessionStatus(session); status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        *count = 0;
+        const auto game_state = CurrentGameSession().game_state;
+        const auto country = ResolveCountry(game_state, ordinal);
+        if (!country) return SMEDLEY_TELEMETRY_OBSERVATION_UNAVAILABLE;
+        int32_t date_raw = 0;
+        if (!ReadCurrentDate(game_state, &date_raw)) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_SOURCE;
+        const auto source = ReadCountryEconomy(country, date_raw, ResolveObservationCountry, ResolveObservationProvince,
+            &game_state);
+        economy->country_ordinal = ordinal; economy->date_raw = source.date_raw;
+        economy->state_count_reported = source.state_count_reported; std::memcpy(economy->country_tag, source.country_tag, 4);
+        economy->states_walked = source.states_walked; economy->province_element_candidates = source.province_element_candidates;
+        economy->states_with_savings = source.states_with_savings; economy->states_with_interest = source.states_with_interest;
+        economy->creditor_count = source.creditor_count; economy->creditor_destinations = source.creditor_destinations;
+        economy->creditors_was_paid = source.creditors_was_paid; economy->availability_flags = SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_ECONOMY;
+        economy->source_flags = source.flags; economy->treasury_raw = source.treasury_raw;
+        economy->state_savings_raw = source.state_savings_raw; economy->state_interest_raw = source.state_interest_raw;
+        economy->bank_interest_raw = source.bank_interest_raw; economy->creditor_interest_raw = source.creditor_interest_raw;
+        economy->creditor_debt_raw = source.creditor_debt_raw; economy->destination_bank_interest_raw = source.destination_bank_interest_raw;
+        economy->destination_state_savings_raw = source.destination_state_savings_raw;
+        economy->destination_state_interest_raw = source.destination_state_interest_raw;
+        economy->destination_pop_savings_raw = source.destination_pop_savings_raw;
+        economy->destination_pop_savings_state_scale_raw = source.destination_pop_savings_state_scale_raw;
+        const uint32_t copied = (std::min)(capacity, source.creditor_destinations);
+        for (uint32_t index = 0; index < copied; ++index) {
+            auto &out = destinations[index]; out = {}; out.struct_size = sizeof(out); out.version = 1;
+            std::memcpy(out.tag, &source.destination_keys[index], sizeof(out.tag));
+            out.country_ordinal = source.destination_ordinals[index];
+            out.bank_interest_raw = source.destination_bank_interests_raw[index];
+            out.availability_flags = SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_ECONOMY;
+        }
+        *count = copied;
+        if (source.flags != 0) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_SOURCE;
+        return copied == source.creditor_destinations ? SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS : SMEDLEY_TELEMETRY_OBSERVATION_TRUNCATED;
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL ReadObservationPops(
+        SmedleyTelemetryObservationSession session, int32_t ordinal, SmedleyTelemetryPopObservationV1 *pops,
+        uint32_t capacity, uint32_t *count, uint32_t *source_flags)
+    {
+        if (ordinal < 0 || count == nullptr || source_flags == nullptr || (capacity != 0 && pops == nullptr)
+            || capacity > SMEDLEY_TELEMETRY_OBSERVATION_MAX_POP_RECORDS) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        TelemetryObservationSessionSlot *slot = nullptr;
+        if (const auto status = ObservationSessionStatus(session, &slot); status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        *count = 0; *source_flags = 0;
+        static std::array<PopCandidate, max_sample_pops> candidates{};
+        uint32_t candidate_count = 0;
+        CountryEconomySnapshot quality{};
+        const auto game_state = CurrentGameSession().game_state;
+        const auto country = ResolveCountry(game_state, ordinal);
+        if (!country || !CollectCountryPops(country, game_state, 0, candidates.data(), candidates.size(),
+                max_sample_destination_provinces, &candidate_count, &quality)) {
+            *source_flags = quality.flags;
+            return quality.flags == 0 ? SMEDLEY_TELEMETRY_OBSERVATION_UNAVAILABLE : SMEDLEY_TELEMETRY_OBSERVATION_INVALID_SOURCE;
+        }
+        *source_flags = quality.flags;
+        const uint32_t copied = (std::min)(capacity, candidate_count);
+        for (uint32_t index = 0; index < copied; ++index) {
+            PopDetailSnapshot source{};
+            if (!ReadPopDetailSnapshot(candidates[index].address, &source)) {
+                *source_flags = quality.flags;
+                return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_SOURCE;
+            }
+            auto &out = pops[index]; out = {}; out.struct_size = sizeof(out); out.version = 1;
+            out.pop = OpaqueTelemetryEntityId(FindTelemetrySession(slot->parent), candidates[index].address.address());
+            if (out.pop == 0) return SMEDLEY_TELEMETRY_OBSERVATION_CAPACITY;
+            out.pop_id = source.pop_id; out.province_id_candidate = source.province_id_candidate;
+            out.pop_type_id_candidate = source.pop_type_id_candidate; out.size_candidate = source.size_candidate;
+            out.employed_candidate = source.employed_candidate;
+            out.availability_flags = SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_POP_DETAIL;
+            out.money_raw = source.economy.money_raw; out.savings_raw = source.economy.savings_raw;
+            out.interest_cash_flow_raw = source.economy.interest_cash_flow_raw;
+            out.total_cash_flow_raw = source.economy.total_cash_flow_raw;
+            out.consciousness_candidate_raw = source.consciousness_candidate_raw;
+            out.militancy_candidate_raw = source.militancy_candidate_raw; out.literacy_candidate_raw = source.literacy_candidate_raw;
+        }
+        *count = copied;
+        return copied == candidate_count && (quality.flags & SAMPLE_POP_LIMIT) == 0
+            ? SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS : SMEDLEY_TELEMETRY_OBSERVATION_TRUNCATED;
+    }
+    SmedleyTelemetryObservationResult ObservationPop(SmedleyTelemetryObservationSession session,
+        SmedleyTelemetryOpaquePop pop, TelemetryObservationSessionSlot **slot, PopRef *source)
+    {
+        if (slot == nullptr || source == nullptr) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        const auto status = ObservationSessionStatus(session, slot);
+        if (status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        const uintptr_t address = OpaqueTelemetryEntityAddress(FindTelemetrySession((*slot)->parent), pop);
+        if (address == 0) return SMEDLEY_TELEMETRY_OBSERVATION_STALE_HANDLE;
+        *source = PopRef{reinterpret_cast<const void *>(address)};
+        return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL ReadObservationPopIdentity(
+        SmedleyTelemetryObservationSession session, SmedleyTelemetryOpaquePop pop, SmedleyTelemetryPopIdentityObservationV1 *identity)
+    {
+        if (!ValidRecord(identity, 1)) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        TelemetryObservationSessionSlot *slot = nullptr; PopRef source{};
+        if (const auto status = ObservationPop(session, pop, &slot, &source); status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        PopIdentityDimensions values{};
+        if (!ReadPopIdentityDimensions(source, &values)) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_SOURCE;
+        identity->pop = pop; std::memcpy(identity->pop_type_tag, values.pop_type_tag_candidate, sizeof(identity->pop_type_tag));
+        std::memcpy(identity->culture_tag, values.culture_tag_candidate, sizeof(identity->culture_tag));
+        std::memcpy(identity->religion_tag, values.religion_tag_candidate, sizeof(identity->religion_tag));
+        identity->availability_flags = SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_POP_IDENTITY;
+        return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL ReadObservationPopNeeds(
+        SmedleyTelemetryObservationSession session, SmedleyTelemetryOpaquePop pop, SmedleyTelemetryPopNeedsObservationV1 *needs)
+    {
+        if (!ValidRecord(needs, 1)) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        TelemetryObservationSessionSlot *slot = nullptr; PopRef source{};
+        if (const auto status = ObservationPop(session, pop, &slot, &source); status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        PopNeedsSnapshot values{};
+        if (!ReadPopNeedsSnapshot(source, &values)) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_SOURCE;
+        needs->pop = pop; needs->life_satisfaction_raw = values.life_satisfaction_candidate_raw;
+        needs->everyday_satisfaction_raw = values.everyday_satisfaction_candidate_raw;
+        needs->luxury_satisfaction_raw = values.luxury_satisfaction_candidate_raw;
+        needs->availability_flags = SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_POP_NEEDS;
+        return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL ReadObservationArtisan(
+        SmedleyTelemetryObservationSession session, SmedleyTelemetryOpaquePop pop, uint32_t groups, SmedleyTelemetryArtisanObservationV1 *artisan,
+        SmedleyTelemetryArtisanInputObservationV1 *inputs, uint32_t capacity, uint32_t *count, SmedleyTelemetryArtisanFailureV1 *failure)
+    {
+        constexpr uint32_t all_groups = SMEDLEY_TELEMETRY_OBSERVATION_GROUP_ARTISAN_IDENTITY
+            | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_ARTISAN_PRODUCTION | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_ARTISAN_INPUTS
+            | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_ARTISAN_FINANCE;
+        if (!ValidRecord(artisan, 1) || count == nullptr || (capacity != 0 && inputs == nullptr)
+            || capacity > SMEDLEY_TELEMETRY_OBSERVATION_MAX_GOODS || groups == 0 || (groups & ~all_groups) != 0
+            || (failure != nullptr && !ValidRecord(failure, 1))) {
+            return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        }
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        TelemetryObservationSessionSlot *slot = nullptr; PopRef source{};
+        if (const auto status = ObservationPop(session, pop, &slot, &source); status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        *count = 0;
+        int32_t inactive_pop_id = -1;
+        if (ReadInactiveArtisan(source, &inactive_pop_id)) {
+            *artisan = {};
+            artisan->struct_size = sizeof(*artisan); artisan->version = 1;
+            artisan->pop = pop; artisan->pop_id = inactive_pop_id; artisan->inactive = 1;
+            artisan->availability_flags = SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_ARTISAN;
+            return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+        }
+        static std::array<ArtisanInputSnapshot, SMEDLEY_TELEMETRY_OBSERVATION_MAX_GOODS> source_inputs{};
+        ArtisanSnapshot values{}; ArtisanReadFailure source_failure{}; uint32_t source_count = 0;
+        uint32_t source_groups = 0;
+        if ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_ARTISAN_IDENTITY) != 0) source_groups |= ARTISAN_IDENTITY;
+        if ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_ARTISAN_PRODUCTION) != 0) source_groups |= ARTISAN_PRODUCTION;
+        if ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_ARTISAN_INPUTS) != 0) source_groups |= ARTISAN_INPUTS;
+        if ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_ARTISAN_FINANCE) != 0) source_groups |= ARTISAN_FINANCE;
+        if (!ReadArtisanSnapshot(source, &values, source_inputs.data(), source_inputs.size(), &source_count,
+                source_groups, &source_failure)) {
+            if (failure != nullptr) {
+                failure->reason = static_cast<uint32_t>(source_failure.reason); failure->pop_id = source_failure.pop_id;
+                failure->offending_raw = source_failure.offending_raw;
+            }
+            return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_SOURCE;
+        }
+        artisan->pop = pop; artisan->pop_id = values.pop_id; artisan->output_good_ordinal = values.output_good_ordinal;
+        std::memcpy(artisan->production_type, values.production_type, sizeof(artisan->production_type));
+        std::memcpy(artisan->output_good, values.output_good, sizeof(artisan->output_good));
+        artisan->availability_flags = SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_ARTISAN;
+        artisan->group_flags = groups;
+        artisan->base_output_raw = values.base_output_raw; artisan->current_producing_raw = values.current_producing_raw;
+        artisan->gross_output_raw = values.gross_output_raw; artisan->last_spending_raw = values.last_spending_raw;
+        artisan->percent_afforded_raw = values.percent_afforded_raw; artisan->percent_sold_domestic_raw = values.percent_sold_domestic_raw;
+        artisan->percent_sold_export_raw = values.percent_sold_export_raw; artisan->leftover_raw = values.leftover_raw;
+        artisan->throttle_raw = values.throttle_raw; artisan->needs_cost_raw = values.needs_cost_raw;
+        artisan->production_income_raw = values.production_income_raw;
+        const uint32_t copied = (std::min)(capacity, source_count);
+        for (uint32_t index = 0; index < copied; ++index) {
+            auto &out = inputs[index]; out = {}; out.struct_size = sizeof(out); out.version = 1;
+            out.good_ordinal = source_inputs[index].good_ordinal; out.stockpile_raw = source_inputs[index].stockpile_raw;
+            out.need_raw = source_inputs[index].need_raw;
+        }
+        *count = copied;
+        return copied == source_count ? SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS : SMEDLEY_TELEMETRY_OBSERVATION_TRUNCATED;
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL ReadObservationFactories(
+        SmedleyTelemetryObservationSession session, int32_t ordinal, uint32_t groups, SmedleyTelemetryFactoryObservationV1 *factories,
+        uint32_t factory_capacity, uint32_t *factory_count, SmedleyTelemetryFactoryInputObservationV1 *inputs,
+        uint32_t input_capacity, uint32_t *input_count, uint32_t *source_flags)
+    {
+        constexpr uint32_t all_groups = SMEDLEY_TELEMETRY_OBSERVATION_GROUP_FACTORY_IDENTITY
+            | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_FACTORY_EMPLOYMENT | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_FACTORY_PRODUCTION
+            | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_FACTORY_FINANCE | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_FACTORY_INPUTS;
+        if (ordinal < 0 || factory_count == nullptr || input_count == nullptr || source_flags == nullptr
+            || (factory_capacity != 0 && factories == nullptr) || (input_capacity != 0 && inputs == nullptr)
+            || factory_capacity > SMEDLEY_TELEMETRY_OBSERVATION_MAX_FACTORY_RECORDS
+            || input_capacity > SMEDLEY_TELEMETRY_OBSERVATION_MAX_FACTORY_INPUTS || groups == 0 || (groups & ~all_groups) != 0) {
+            return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        }
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        TelemetryObservationSessionSlot *slot = nullptr;
+        if (const auto status = ObservationSessionStatus(session, &slot); status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        *factory_count = 0; *input_count = 0; *source_flags = 0;
+        static std::array<FactorySnapshot, max_sample_factories> source{};
+        static std::array<FactoryInputSnapshot, max_sample_factory_inputs> source_inputs{};
+        uint32_t source_count = 0, source_input_count = 0;
+        const auto country = ResolveCountry(CurrentGameSession().game_state, ordinal);
+        uint32_t source_groups = 0;
+        if ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_FACTORY_IDENTITY) != 0) source_groups |= FACTORY_IDENTITY;
+        if ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_FACTORY_EMPLOYMENT) != 0) source_groups |= FACTORY_EMPLOYMENT;
+        if ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_FACTORY_PRODUCTION) != 0) source_groups |= FACTORY_PRODUCTION;
+        if ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_FACTORY_FINANCE) != 0) source_groups |= FACTORY_FINANCE;
+        if ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_FACTORY_INPUTS) != 0) source_groups |= FACTORY_INPUTS;
+        if (!country || !CollectCountryFactories(country, source.data(), source.size(), &source_count,
+                source_inputs.data(), source_inputs.size(), &source_input_count,
+                source_groups, source_flags)) {
+            return *source_flags == 0 ? SMEDLEY_TELEMETRY_OBSERVATION_UNAVAILABLE : SMEDLEY_TELEMETRY_OBSERVATION_INVALID_SOURCE;
+        }
+        const uint32_t copied_factories = (std::min)(factory_capacity, source_count);
+        for (uint32_t index = 0; index < copied_factories; ++index) {
+            auto &out = factories[index]; out = {}; out.struct_size = sizeof(out); out.version = 1;
+            out.factory = OpaqueTelemetryEntityId(FindTelemetrySession(slot->parent), source[index].address.address());
+            if (out.factory == 0) return SMEDLEY_TELEMETRY_OBSERVATION_CAPACITY;
+            out.observation_index = index; out.state_index = source[index].state_index; out.factory_index = source[index].factory_index;
+            out.availability_flags = SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_FACTORY;
+            out.group_flags = groups;
+            out.state_id = source[index].state_id; out.anchor_province_id_candidate = source[index].anchor_province_id_candidate;
+            out.level = source[index].level; out.employee_count = source[index].employee_count;
+            out.craftsmen_count = source[index].craftsmen_count; out.clerk_count = source[index].clerk_count;
+            out.output_raw = source[index].output_raw; out.output_good_ordinal = source[index].output_good_ordinal;
+            out.base_output_raw = source[index].base_output_raw; out.subsidized = source[index].subsidized ? 1 : 0;
+            out.closed = source[index].closed ? 1 : 0;
+            std::memcpy(out.state_region_key, source[index].state_region_key, sizeof(out.state_region_key));
+            std::memcpy(out.factory_type, source[index].factory_type, sizeof(out.factory_type));
+            std::memcpy(out.output_good, source[index].output_good, sizeof(out.output_good));
+            out.budget_raw = source[index].budget_raw; out.market_spending_raw = source[index].market_spending_raw;
+            out.sales_income_raw = source[index].sales_income_raw; out.paychecks_raw = source[index].paychecks_raw;
+            out.investment_raw = source[index].investment_raw;
+        }
+        bool inputs_omitted = false;
+        for (uint32_t index = 0; index < source_input_count; ++index) {
+            if (source_inputs[index].factory_snapshot_index >= copied_factories) continue;
+            if (*input_count == input_capacity) { inputs_omitted = true; continue; }
+            auto &out = inputs[*input_count]; out = {}; out.struct_size = sizeof(out); out.version = 1;
+            out.factory = factories[source_inputs[index].factory_snapshot_index].factory;
+            out.factory_observation_index = source_inputs[index].factory_snapshot_index;
+            out.good_ordinal = source_inputs[index].good_ordinal; out.stockpile_raw = source_inputs[index].stockpile_raw;
+            out.requested_raw = source_inputs[index].requested_raw;
+            ++*input_count;
+        }
+        *factory_count = copied_factories;
+        const bool factories_complete = copied_factories == source_count;
+        const bool inputs_requested = (groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_FACTORY_INPUTS) != 0;
+        return factories_complete && (!inputs_requested || !inputs_omitted)
+                && (*source_flags & FACTORY_LIMIT) == 0
+            ? SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS : SMEDLEY_TELEMETRY_OBSERVATION_TRUNCATED;
+    }
+    SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL ReadObservationRgo(
+        SmedleyTelemetryObservationSession session, int32_t province_id, uint32_t groups, SmedleyTelemetryRgoObservationV1 *rgo)
+    {
+        constexpr uint32_t all_groups = SMEDLEY_TELEMETRY_OBSERVATION_GROUP_RGO_IDENTITY | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_RGO_EMPLOYMENT
+            | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_RGO_PRODUCTION | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_RGO_FINANCE
+            | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_RGO_MODIFIERS | SMEDLEY_TELEMETRY_OBSERVATION_GROUP_RGO_SALES;
+        if (!ValidRecord(rgo, 1) || province_id < 0 || groups == 0 || (groups & ~all_groups) != 0) {
+            return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+        }
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        if (const auto status = ObservationSessionStatus(session); status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        const auto game_state = CurrentGameSession().game_state;
+        const auto province = ResolveProvince(game_state, province_id);
+        const auto registry = ResolveStateEmploymentRegistry();
+        RgoSnapshot source{};
+        TelemetryCurrentState world{};
+        if (!province || !registry || !ReadTelemetryCurrentState(&world) || !world.province_count_available_value
+            || !ReadProvinceRgo(registry, province, province_id, world.province_count_value,
+                ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_RGO_IDENTITY) ? RGO_IDENTITY : 0)
+                    | ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_RGO_EMPLOYMENT) ? RGO_EMPLOYMENT : 0)
+                    | ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_RGO_PRODUCTION) ? RGO_PRODUCTION : 0)
+                    | ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_RGO_FINANCE) ? RGO_FINANCE : 0)
+                    | ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_RGO_MODIFIERS) ? RGO_MODIFIERS : 0)
+                    | ((groups & SMEDLEY_TELEMETRY_OBSERVATION_GROUP_RGO_SALES) ? RGO_SALES : 0), &source)) {
+            return SMEDLEY_TELEMETRY_OBSERVATION_UNAVAILABLE;
+        }
+        rgo->province_id = source.province_id; rgo->output_good_ordinal = source.output_good_ordinal;
+        rgo->employment_capacity = source.employment_capacity; rgo->employed = source.employed;
+        rgo->owner_population = source.owner_population; rgo->state_rgo_employment_capacity = source.state_rgo_employment_capacity;
+        std::memcpy(rgo->production_type, source.production_type, sizeof(rgo->production_type));
+        std::memcpy(rgo->output_good, source.output_good, sizeof(rgo->output_good));
+        rgo->availability_flags = SMEDLEY_TELEMETRY_OBSERVATION_AVAILABLE_RGO;
+        rgo->group_flags = groups;
+        rgo->base_output_per_size_raw = source.base_output_per_size_raw; rgo->base_size_raw = source.base_size_raw;
+        rgo->output_efficiency_raw = source.output_efficiency_raw; rgo->throughput_raw = source.throughput_raw;
+        rgo->gross_output_raw = source.gross_output_raw; rgo->owner_output_modifier_raw = source.owner_output_modifier_raw;
+        rgo->income_raw = source.income_raw; rgo->percent_sold_domestic_raw = source.percent_sold_domestic_raw;
+        rgo->percent_sold_export_raw = source.percent_sold_export_raw; rgo->leftover_raw = source.leftover_raw;
+        return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+    }
+
     struct HookSubscriptionSlot
     {
-        struct Identity {
-            uintptr_t address = 0;
-            uint32_t id = 0;
-        };
-        static constexpr uint32_t identity_capacity = 131072;
         uint64_t handle = 0;
         SmedleyTelemetrySession session = 0;
         uint64_t epoch = 0;
         uint32_t hooks = 0;
-        uint32_t next_identity = 1;
         std::thread::id thread{};
-        std::array<Identity, identity_capacity> identities{};
     };
     std::array<HookSubscriptionSlot, 2> hook_subscriptions{};
     uint64_t next_hook_subscription = 1;
@@ -1140,18 +1698,7 @@ namespace
     }
     uint64_t OpaqueHookEntityId(HookSubscriptionSlot *slot, uintptr_t address) noexcept
     {
-        const uint32_t mask = HookSubscriptionSlot::identity_capacity - 1;
-        uint32_t index = static_cast<uint32_t>((address >> 4) ^ (address >> 17)) & mask;
-        for (uint32_t attempt = 0; attempt <= mask; ++attempt, index = (index + 1) & mask) {
-            auto &identity = slot->identities[index];
-            if (identity.address == address) return (slot->handle << 32) | identity.id;
-            if (identity.address != 0) continue;
-            identity.address = address;
-            identity.id = slot->next_identity++;
-            if (identity.id == 0) identity.id = slot->next_identity++;
-            return (slot->handle << 32) | identity.id;
-        }
-        return 0;
+        return slot == nullptr ? 0 : OpaqueTelemetryEntityId(FindTelemetrySession(slot->session), address);
     }
     bool InstallHook(uint32_t hook, const uint32_t *artisan_country_keys, uint32_t artisan_country_count)
     {
@@ -1408,6 +1955,29 @@ SmedleyGetTelemetryGameApiV1(SmedleyTelemetryGameApiV1 *api)
     return SMEDLEY_TELEMETRY_GAME_SUCCESS;
 }
 
+SMEDLEY_TELEMETRY_OBSERVATION_EXPORT SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL
+SmedleyGetTelemetryObservationApiV1(SmedleyTelemetryObservationApiV1 *api)
+{
+    if (api == nullptr || api->struct_size != sizeof(*api)
+        || api->version != SMEDLEY_TELEMETRY_OBSERVATION_API_VERSION_V1
+        || api->reserved[0] != 0 || api->reserved[1] != 0) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
+    api->open_session = &OpenObservationSession;
+    api->close_session = &CloseObservationSession;
+    api->read_world = &ReadObservationWorld;
+    api->read_market = &ReadObservationMarket;
+    api->resolve_daily_country = &ResolveObservationDailyCountry;
+    api->read_country = &ReadObservationCountry;
+    api->read_province = &ReadObservationProvince;
+    api->read_country_economy = &ReadObservationCountryEconomy;
+    api->read_pops = &ReadObservationPops;
+    api->read_pop_identity = &ReadObservationPopIdentity;
+    api->read_pop_needs = &ReadObservationPopNeeds;
+    api->read_artisan = &ReadObservationArtisan;
+    api->read_factories = &ReadObservationFactories;
+    api->read_rgo = &ReadObservationRgo;
+    return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+}
+
 static_assert(sizeof(SmedleyCampaignRuntimeSnapshotV1) == 32, "campaign runtime snapshot ABI v1 layout changed");
 static_assert(sizeof(SmedleyFrontendSaveSnapshotV1) == 288, "frontend save ABI v1 layout changed");
 static_assert(sizeof(SmedleyObserverCountrySnapshotV1) == 44, "observer country ABI v1 layout changed");
@@ -1437,3 +2007,7 @@ static_assert(sizeof(SmedleyTelemetryCountrySnapshotV1) == 48, "telemetry countr
 static_assert(sizeof(SmedleyTelemetryProvinceSnapshotV1) == 64, "telemetry province ABI v1 layout changed");
 static_assert(sizeof(SmedleyTelemetryPopSnapshotV1) == 64, "telemetry POP ABI v1 layout changed");
 static_assert(sizeof(SmedleyTelemetryFactorySnapshotV1) == 64, "telemetry factory ABI v1 layout changed");
+static_assert(sizeof(SmedleyTelemetryObservationApiV1) == 72, "telemetry observation API ABI v1 layout changed");
+static_assert(sizeof(SmedleyTelemetryWorldObservationV1) == 48, "telemetry observation world ABI v1 layout changed");
+static_assert(sizeof(SmedleyTelemetryProvinceObservationV1) == 64, "telemetry observation province ABI v1 layout changed");
+static_assert(sizeof(SmedleyTelemetryFactoryObservationV1) == 328, "telemetry observation factory ABI v1 layout changed");

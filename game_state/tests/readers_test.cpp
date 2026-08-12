@@ -1046,7 +1046,13 @@ namespace smedley::game_state
         Write(&state, 0x48, null_pointer); Write(&state, 0x4c, null_pointer); Write(&state, 0x50, null_pointer);
         ASSERT_TRUE(CollectCountryFactories(Country(country.data()), snapshots.data(), snapshots.size(), &captured,
             inputs.data(), inputs.size(), &input_count, FACTORY_FINANCE, &flags));
-        EXPECT_EQ(captured, 1u); Write(&state, 0x48, province_begin); Write(&state, 0x4c, province_end); Write(&state, 0x50, province_end);
+        EXPECT_EQ(captured, 1u);
+        std::memset(definition.data() + 0x20, 0, factory_type_size);
+        ASSERT_TRUE(CollectCountryFactories(Country(country.data()), snapshots.data(), snapshots.size(), &captured,
+            inputs.data(), inputs.size(), &input_count, FACTORY_FINANCE, &flags));
+        EXPECT_EQ(captured, 1u); EXPECT_EQ(snapshots[0].budget_raw, budget);
+        std::memcpy(definition.data() + 0x20, factory_type, sizeof(factory_type));
+        Write(&state, 0x48, province_begin); Write(&state, 0x4c, province_end); Write(&state, 0x50, province_end);
         factory_node.data[0x31] = std::byte{1};
         EXPECT_FALSE(CollectCountryFactories(Country(country.data()), snapshots.data(), snapshots.size(), &captured,
             inputs.data(), inputs.size(), &input_count, FACTORY_INPUTS, &flags, 48)); EXPECT_NE(flags & FACTORY_UNREADABLE, 0u);
@@ -1067,8 +1073,9 @@ namespace smedley::game_state
         EXPECT_FALSE(CollectCountryFactories(Country(country.data()), snapshots.data(), snapshots.size(), &captured,
             inputs.data(), inputs.size(), &input_count, FACTORY_IDENTITY, &flags)); EXPECT_NE(flags & FACTORY_LIST_INVALID, 0u);
         factory_node.next = nullptr; Write(&state, 0x68, factory_count);
-        EXPECT_FALSE(CollectCountryFactories(Country(country.data()), snapshots.data(), 0, &captured,
-            inputs.data(), inputs.size(), &input_count, FACTORY_IDENTITY, &flags)); EXPECT_NE(flags & FACTORY_LIMIT, 0u);
+        EXPECT_TRUE(CollectCountryFactories(Country(country.data()), snapshots.data(), 0, &captured,
+            inputs.data(), inputs.size(), &input_count, FACTORY_IDENTITY, &flags));
+        EXPECT_EQ(captured, 0u); EXPECT_NE(flags & FACTORY_LIMIT, 0u);
     }
 
     TEST(GameStateReadersTest, CollectsAndValidatesWorldMarketPools)
@@ -1090,6 +1097,10 @@ namespace smedley::game_state
         EXPECT_EQ(snapshots[0].good_ordinal, 0); EXPECT_EQ(snapshots[0].supply_raw, 100); EXPECT_EQ(snapshots[0].last_supply_raw, 200);
         EXPECT_EQ(snapshots[0].worldmarket_stock_raw, 300); EXPECT_EQ(snapshots[0].demand_raw, 400); EXPECT_EQ(snapshots[0].real_demand_raw, 500);
         EXPECT_EQ(snapshots[0].price_raw, 600); EXPECT_EQ(snapshots[0].last_price_raw, 700); EXPECT_EQ(snapshots[0].actual_sold_raw, 800); EXPECT_EQ(snapshots[0].actual_sold_world_raw, 900);
+        world_market[offsets[6] + 0x08] = std::byte{0};
+        EXPECT_FALSE(CollectWorldMarketGroups(GameState(game_state.data()), snapshots.data(), snapshots.size(), &captured,
+            MARKET_PRICE | MARKET_SALES));
+        world_market[offsets[6] + 0x08] = std::byte{1};
         world_market[offsets[5] + 0x09] = std::byte{1}; EXPECT_FALSE(CollectWorldMarket(GameState(game_state.data()), snapshots.data(), snapshots.size(), &captured));
         std::array<std::array<int64_t, 65>, 9> dense_values{};
         for (size_t pool = 0; pool < offsets.size(); ++pool) {
@@ -1176,6 +1187,9 @@ namespace smedley::game_state
         std::memcpy(pop_type.data() + 0x08, artisan_key, sizeof(artisan_key)); Write(&pop_type, 0x18, static_cast<uint32_t>(sizeof(artisan_key) - 1)); Write(&pop_type, 0x1c, uint32_t{15});
         Write(&pop, 0x0c, int32_t{42}); Write(&pop, 0x68, pop_type_pointer); Write(&pop, 0x1d4, economy_pointer);
         int32_t pop_id = -1; EXPECT_TRUE(ReadInactiveArtisan(Pop(pop.data()), &pop_id)); EXPECT_EQ(pop_id, 42);
+        ArtisanSnapshot snapshot{}; std::array<ArtisanInputSnapshot, 1> inputs{}; uint32_t input_count = 0;
+        EXPECT_TRUE(ReadArtisanSnapshot(Pop(pop.data()), &snapshot, inputs.data(), inputs.size(), &input_count, ARTISAN_FINANCE));
+        EXPECT_EQ(snapshot.pop_id, 42); EXPECT_EQ(input_count, 0u);
         const void *active_production = pop_type.data(); Write(&economy, 0xb0, active_production); EXPECT_FALSE(ReadInactiveArtisan(Pop(pop.data()), &pop_id));
     }
 

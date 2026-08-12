@@ -1,5 +1,40 @@
 # Telemetry
 
+## Observation service API
+
+`telemetry_observation_api.h` is the separately discoverable C observation API
+for native telemetry consumers. It leaves the unchanged
+`telemetry_game_api.h` v1 layouts and table intact, and does not schedule callbacks: consumers use
+`event_api.h` daily events, then read on that callback's game thread.
+
+The v1 observation table provides checked, caller-buffered reads for full world
+market fields and ongoing wars; daily-event tag resolution; country metrics,
+military, diplomacy, economy, and bounded creditor destinations; detailed POP
+economy/demographics; POP identity, needs, artisan records and inputs; factory
+records and bounded inputs; province daily and production fields with independent
+availability flags; and RGO records by province ID. All records are
+fixed-width, pointer-free, versioned, and require zero reserved fields.
+
+Observation sessions open against an existing v1 telemetry session and are
+owner-thread and game-session-epoch bound. POP and factory handles share that
+parent session's opaque identity namespace with v1 hook `entity_id` values.
+The high 32 bits are a nonzero parent-session ID and the low 32 bits are an
+opaque per-session entity serial; native address bits are never encoded. Parent
+session IDs never exceed 32 bits, so the encoding cannot truncate or alias.
+Handles are invalidated when the parent closes or stales. Factory IDs exist solely
+for hook correlation, alongside a per-read `observation_index`; no native
+address is exposed. Market, artisan, factory, and RGO reads require a nonzero,
+known group mask and traverse only requested reader groups. Every bulk
+read uses caller-owned bounded buffers and returns `TRUNCATED` after writing the
+available prefix. `INVALID_SOURCE` means the checked game reader rejected source
+metadata; `UNAVAILABLE` means the requested game state is absent.
+
+The service does not implement cadence, date regression, aggregation, lifecycle
+diffing, valuation, reconciliation, or JSON shaping. Those policies remain
+plugin-side. Calls make no allocations in game callbacks; adapters use bounded
+static scratch storage and retain no native game address outside the session's
+opaque POP map.
+
 `telemetry` is Smedley's first-party, opt-in native JSON Lines plugin. It is a
 trusted DLL, not a sandbox. Enable `telemetry_enabled` and select
 `plugins/telemetry.toml`; the shared launcher preflight rejects an enabled

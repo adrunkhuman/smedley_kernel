@@ -927,13 +927,12 @@ namespace smedley::game_state
         }
         if (traversal_scratch.pop_pointer_count > candidate_capacity) sample.flags |= SAMPLE_POP_LIMIT;
         *quality = sample;
-        if (sample.flags != 0) return false;
         for (uint32_t index = 0; index < traversal_scratch.pop_pointer_count; ++index) {
             candidates[index].address = PopRef{reinterpret_cast<const void *>(traversal_scratch.pop_pointers[index])};
             candidates[index].savings_raw = traversal_scratch.pop_savings[index];
         }
         *candidate_count = traversal_scratch.pop_pointer_count;
-        return true;
+        return (sample.flags & ~SAMPLE_POP_LIMIT) == 0;
     }
 
     namespace
@@ -1413,10 +1412,10 @@ namespace smedley::game_state
                         *flags |= FACTORY_LIST_INVALID;
                         break;
                     }
-                    if (current_factory.deleted == 0) {
-                        if (*snapshot_count >= snapshot_capacity || *snapshot_count >= max_sample_factories) {
-                            *flags |= FACTORY_LIMIT;
-                            break;
+                        if (current_factory.deleted == 0) {
+                            if (*snapshot_count >= snapshot_capacity || *snapshot_count >= max_sample_factories) {
+                                *flags |= FACTORY_LIMIT;
+                                return true;
                         }
                         FactorySnapshot snapshot{};
                         snapshot.address = FactoryRef{static_cast<const void *>(factory_node)};
@@ -1428,7 +1427,9 @@ namespace smedley::game_state
                             std::memcpy(snapshot.state_region_key, state_region_key, sizeof(state_region_key));
                         }
                         const void *definition = nullptr;
-                        std::memcpy(&definition, current_factory.data.data() + state_building_definition_offset, sizeof(definition));
+                        if ((groups & (FACTORY_IDENTITY | FACTORY_PRODUCTION)) != 0) {
+                            std::memcpy(&definition, current_factory.data.data() + state_building_definition_offset, sizeof(definition));
+                        }
                         if ((groups & FACTORY_IDENTITY) != 0) {
                             std::memcpy(&snapshot.level, current_factory.data.data() + state_building_level_offset, sizeof(snapshot.level));
                             const uint8_t subsidized = current_factory.data[state_building_subsidized_offset];
@@ -1440,7 +1441,8 @@ namespace smedley::game_state
                             snapshot.subsidized = subsidized != 0;
                             snapshot.closed = closed != 0;
                         }
-                        if (!ReadNormalizedKey(definition, building_definition_key_offset,
+                        if ((groups & FACTORY_IDENTITY) != 0
+                            && !ReadNormalizedKey(definition, building_definition_key_offset,
                                 snapshot.factory_type, sizeof(snapshot.factory_type))) {
                             *flags |= FACTORY_DEFINITION_INVALID;
                             break;
@@ -1502,7 +1504,7 @@ namespace smedley::game_state
                                 if (std::strcmp(pop_type_key, "craftsmen") == 0) snapshot.craftsmen_count += assigned;
                                 else if (std::strcmp(pop_type_key, "clerks") == 0) snapshot.clerk_count += assigned;
                             }
-                            if (*flags != 0) break;
+                            if ((*flags & ~FACTORY_LIMIT) != 0) break;
                             if (assigned_total != snapshot.employee_count) {
                                 *flags |= FACTORY_UNREADABLE;
                                 break;
@@ -1510,6 +1512,7 @@ namespace smedley::game_state
                         }
 
                         if ((groups & FACTORY_INPUTS) != 0) {
+                            const uint32_t input_start = *input_count;
                             PointerVector stockpile_values{};
                             PointerVector requested_values{};
                             uint32_t stockpile_value_count = 0;
@@ -1565,6 +1568,7 @@ namespace smedley::game_state
                                 }
                                 if (*input_count >= input_capacity || *input_count >= max_sample_factory_inputs) {
                                     *flags |= FACTORY_LIMIT;
+                                    *input_count = input_start;
                                     break;
                                 }
                                 if (stockpile_value_index != 0) seen_stockpile_indices[stockpile_value_index] = true;
@@ -1612,6 +1616,7 @@ namespace smedley::game_state
                     }
                     factory_node = current_factory.next;
                 }
+                if ((*flags & FACTORY_LIMIT) != 0) return true;
                 if (*flags != 0) break;
                 if (factories_walked != static_cast<uint32_t>(factory_count)
                     || (factory_count != 0 && previous_factory_node != factory_tail)) {
@@ -1631,11 +1636,18 @@ namespace smedley::game_state
             || (state_count != 0 && previous_state_node != state_tail)) {
             *flags |= FACTORY_STATE_LIST_INVALID;
         }
-        return *flags == 0;
+        return (*flags & ~FACTORY_LIMIT) == 0;
     }
 
     bool CollectWorldMarket(GameStateRef game_state_ref, WorldMarketSnapshot *snapshots,
                             size_t snapshot_capacity, uint32_t *snapshot_count)
+    {
+        return CollectWorldMarketGroups(
+            game_state_ref, snapshots, snapshot_capacity, snapshot_count, MARKET_ALL);
+    }
+
+    bool CollectWorldMarketGroups(GameStateRef game_state_ref, WorldMarketSnapshot *snapshots,
+                                  size_t snapshot_capacity, uint32_t *snapshot_count, uint32_t groups)
     {
         const void *game_state = detail::RawPointer(game_state_ref);
         if (game_state == nullptr || snapshots == nullptr || snapshot_count == nullptr) return false;
@@ -1649,24 +1661,33 @@ namespace smedley::game_state
         std::array<bool, 64> supply_present{}, last_supply_present{}, stock_present{};
         std::array<bool, 64> demand_present{}, real_demand_present{}, price_present{};
         std::array<bool, 64> last_price_present{}, actual_sold_present{}, actual_sold_world_present{};
-        if (!ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_supply_offset, &supply, &supply_present)
-            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_last_supply_offset, &last_supply, &last_supply_present)
-            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_stock_offset, &stock, &stock_present)
-            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_demand_offset, &demand, &demand_present)
-            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_real_demand_offset, &real_demand, &real_demand_present)
-            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_price_offset, &price, &price_present)
-            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_last_price_offset, &last_price, &last_price_present)
-            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_actual_sold_offset, &actual_sold, &actual_sold_present)
-            || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_actual_sold_world_offset,
-                &actual_sold_world, &actual_sold_world_present)) return false;
+        if (groups == 0 || (groups & ~MARKET_ALL) != 0) return false;
+        if (((groups & MARKET_SUPPLY) != 0 && (!ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_supply_offset, &supply, &supply_present)
+                || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_last_supply_offset, &last_supply, &last_supply_present)
+                || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_stock_offset, &stock, &stock_present)))
+            || ((groups & MARKET_DEMAND) != 0 && (!ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_demand_offset, &demand, &demand_present)
+                || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_real_demand_offset, &real_demand, &real_demand_present)))
+            || ((groups & MARKET_PRICE) != 0 && (!ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_price_offset, &price, &price_present)
+                || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_last_price_offset, &last_price, &last_price_present)))
+            || ((groups & MARKET_SALES) != 0 && (!ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_actual_sold_offset, &actual_sold, &actual_sold_present)
+                || !ReadGoodsPool(static_cast<const uint8_t *>(world_market) + market_actual_sold_world_offset,
+                    &actual_sold_world, &actual_sold_world_present)))) return false;
 
         for (uint32_t ordinal = 0; ordinal < price_present.size(); ++ordinal) {
-            if (!price_present[ordinal]) continue;
-            if (!last_price_present[ordinal] || *snapshot_count >= snapshot_capacity
-                || price[ordinal] < 0 || last_price[ordinal] < 0 || supply[ordinal] < 0
-                || last_supply[ordinal] < 0 || stock[ordinal] < 0 || demand[ordinal] < 0
-                || real_demand[ordinal] < 0 || actual_sold[ordinal] < 0
-                || actual_sold_world[ordinal] < 0) return false;
+            const bool requested_value_present = ((groups & MARKET_PRICE) != 0 && price_present[ordinal])
+                || ((groups & MARKET_SUPPLY) != 0 && supply_present[ordinal])
+                || ((groups & MARKET_DEMAND) != 0 && demand_present[ordinal])
+                || ((groups & MARKET_SALES) != 0 && actual_sold_present[ordinal]);
+            if (!requested_value_present) continue;
+            if (*snapshot_count >= snapshot_capacity
+                || ((groups & MARKET_PRICE) != 0 && (!price_present[ordinal] || !last_price_present[ordinal]
+                    || price[ordinal] < 0 || last_price[ordinal] < 0))
+                || ((groups & MARKET_SUPPLY) != 0 && (!supply_present[ordinal] || !last_supply_present[ordinal]
+                    || !stock_present[ordinal] || supply[ordinal] < 0 || last_supply[ordinal] < 0 || stock[ordinal] < 0))
+                || ((groups & MARKET_DEMAND) != 0 && (!demand_present[ordinal] || !real_demand_present[ordinal]
+                    || demand[ordinal] < 0 || real_demand[ordinal] < 0))
+                || ((groups & MARKET_SALES) != 0 && (!actual_sold_present[ordinal] || !actual_sold_world_present[ordinal]
+                    || actual_sold[ordinal] < 0 || actual_sold_world[ordinal] < 0))) return false;
             WorldMarketSnapshot snapshot{};
             snapshot.good_ordinal = static_cast<int32_t>(ordinal);
             snapshot.price_raw = price[ordinal];
