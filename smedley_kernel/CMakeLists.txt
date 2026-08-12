@@ -7,7 +7,7 @@ add_library (smedley_kernel SHARED ${kernel_sources})
 set_target_properties(smedley_kernel PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL SMEDLEY_EVENT_BUILD
   SMEDLEY_CAMPAIGN_CONTROL_BUILD LUA_BUILD_AS_DLL LUA_LIB)
-target_link_libraries(smedley_kernel PRIVATE bcrypt shell32)
+target_link_libraries(smedley_kernel PRIVATE bcrypt shell32 minhook)
 target_include_directories(smedley_kernel PUBLIC
   "${PROJECT_SOURCE_DIR}/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/include"

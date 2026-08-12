@@ -34,6 +34,14 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+## MinHook v1.3.4
+
+The kernel fetches MinHook v1.3.4 from
+<https://github.com/TsudaKageyu/minhook> at commit
+`c3fcafdc10146beb5919319d0683e44e3c30d537` and links it privately for x86
+detour installation. MinHook is licensed under the 2-clause BSD license; its
+license is retained at [`third_party/minhook-LICENSE.txt`](third_party/minhook-LICENSE.txt).
+
 ## toml++ v3.3.0
 
 The kernel and launcher bundle toml++ v3.3.0 at
