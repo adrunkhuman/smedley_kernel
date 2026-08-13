@@ -28,6 +28,13 @@ namespace
     std::atomic<uint64_t> next_registration{1};
     std::atomic<uint32_t> active_registrations{0};
     thread_local SmedleyEventRegistration current_registration = 0;
+    thread_local uint32_t daily_dispatch_depth = 0;
+
+    struct DailyDispatchScope
+    {
+        DailyDispatchScope() noexcept { ++daily_dispatch_depth; }
+        ~DailyDispatchScope() { --daily_dispatch_depth; }
+    };
 
     SmedleyEventRegistration NextRegistration()
     {
@@ -101,9 +108,15 @@ SMEDLEY_EVENT_EXPORT SmedleyEventResult SMEDLEY_EVENT_CALL SmedleyGetEventApiV1(
 
 namespace smedley
 {
+    bool IsDailyEventApiDispatchThread() noexcept
+    {
+        return daily_dispatch_depth != 0;
+    }
+
     void DispatchDailyEventApi(const SmedleyDailyEventV1 &event) noexcept
     {
         if (active_registrations.load(std::memory_order_acquire) == 0) return;
+        const DailyDispatchScope dispatch_scope;
         for (auto &slot : daily_registrations) {
             auto control = slot.control.load(std::memory_order_acquire);
             for (;;) {

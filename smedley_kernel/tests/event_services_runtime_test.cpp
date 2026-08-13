@@ -1,9 +1,12 @@
 #include "event_services_runtime.hpp"
 
+#include <smedley/game_state/game_services_abi.hpp>
+
 #include <smedley/campaign_runtime_api.h>
 #include <smedley/campaign_automation_api.h>
 #include <smedley/interest_pool_api.h>
 #include <smedley/telemetry_game_api.h>
+#include <smedley/telemetry_observation_api.h>
 
 #include <gtest/gtest.h>
 
@@ -397,6 +400,83 @@ TEST(GameServicesApiV1Test, DiscoversDomainTablesAndRejectsReservedFields)
     world.struct_size = sizeof(world);
     world.version = 1;
     EXPECT_EQ(telemetry.read_world(UINT64_C(1), &world), SMEDLEY_TELEMETRY_GAME_STALE_HANDLE);
+
+    SmedleyTelemetryObservationApiV1 observations{};
+    observations.struct_size = sizeof(observations);
+    observations.version = SMEDLEY_TELEMETRY_OBSERVATION_API_VERSION_V1;
+    EXPECT_EQ(SmedleyGetTelemetryObservationApiV1(&observations), SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS);
+    EXPECT_NE(observations.open_session, nullptr);
+    EXPECT_NE(observations.read_artisan, nullptr);
+    EXPECT_NE(observations.read_province, nullptr);
+    SmedleyTelemetryObservationSession observation_session = 0;
+    EXPECT_EQ(observations.open_session(UINT64_C(1), &observation_session), SMEDLEY_TELEMETRY_OBSERVATION_STALE_HANDLE);
+    SmedleyTelemetryObservationResult cross_thread = SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
+    SmedleyTelemetryWorldObservationV1 cross_thread_world{};
+    cross_thread_world.struct_size = sizeof(cross_thread_world);
+    cross_thread_world.version = 1;
+    std::thread wrong_thread([&] { cross_thread = observations.read_world(UINT64_C(1), &cross_thread_world); });
+    wrong_thread.join();
+    EXPECT_EQ(cross_thread, SMEDLEY_TELEMETRY_OBSERVATION_WRONG_THREAD);
+    SmedleyTelemetryObservationApiV1 malformed_observations = observations;
+    malformed_observations.reserved[0] = 1;
+    EXPECT_EQ(SmedleyGetTelemetryObservationApiV1(&malformed_observations), SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT);
+
+    SmedleyTelemetryWorldObservationV1 observation_world{};
+    observation_world.struct_size = sizeof(observation_world);
+    observation_world.version = 1;
+    EXPECT_EQ(observations.read_world(UINT64_C(1), &observation_world), SMEDLEY_TELEMETRY_OBSERVATION_STALE_HANDLE);
+    observation_world.reserved[0] = 1;
+    EXPECT_EQ(observations.read_world(UINT64_C(1), &observation_world), SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT);
+
+    int32_t country_ordinal = 0;
+    EXPECT_EQ(observations.resolve_daily_country(UINT64_C(1), nullptr, &country_ordinal),
+        SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT);
+    SmedleyDailyEventV1 daily{};
+    daily.struct_size = sizeof(daily);
+    daily.version = SMEDLEY_DAILY_EVENT_VERSION_V1;
+    std::memcpy(daily.country_tag, "PRU", sizeof(daily.country_tag));
+    daily.reserved[0] = 1;
+    EXPECT_EQ(observations.resolve_daily_country(UINT64_C(1), &daily, &country_ordinal),
+        SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT);
+    uint32_t market_count = 0;
+    EXPECT_EQ(observations.read_market(UINT64_C(1), 0, nullptr, 0, &market_count),
+        SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT);
+    EXPECT_EQ(observations.read_market(UINT64_C(1), UINT32_C(1) << 31, nullptr, 0, &market_count),
+        SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT);
+}
+
+TEST(GameServicesApiV1Test, EncodesSharedTelemetryIdentityWithoutNativeAddressBits)
+{
+    const uint64_t observation = smedley::game_state::TelemetryOpaqueEntityHandle(7, 41);
+    const uint64_t hook = smedley::game_state::TelemetryOpaqueEntityHandle(7, 41);
+
+    EXPECT_EQ(observation, hook);
+    EXPECT_NE(observation, smedley::game_state::TelemetryOpaqueEntityHandle(8, 41));
+    EXPECT_NE(observation, smedley::game_state::TelemetryOpaqueEntityHandle(7, 42));
+    EXPECT_EQ(smedley::game_state::TelemetryOpaqueEntityHandle(0, 41), 0u);
+    EXPECT_EQ(smedley::game_state::TelemetryOpaqueEntityHandle(7, 0), 0u);
+    EXPECT_EQ(observation >> 32, 7u);
+    EXPECT_EQ(static_cast<uint32_t>(observation), 41u);
+}
+
+TEST(GameServicesApiV1Test, ResolvesTelemetryEntitiesByOpaqueSerial)
+{
+    smedley::game_state::TelemetryEntityIndex<4> identities{};
+    constexpr uintptr_t first_address = UINT32_C(0x12345000);
+    constexpr uintptr_t second_address = UINT32_C(0x56789000);
+
+    const uint32_t first_id = identities.find_or_insert(first_address);
+    EXPECT_EQ(identities.find_or_insert(first_address), first_id);
+    EXPECT_EQ(identities.find_or_insert(second_address), 2u);
+    EXPECT_EQ(identities.find(first_id), first_address);
+    EXPECT_EQ(identities.find(2), second_address);
+    EXPECT_EQ(identities.find(3), 0u);
+    EXPECT_EQ(identities.find_or_insert(0), 0u);
+
+    smedley::game_state::TelemetryEntityIndex<1> full{};
+    EXPECT_EQ(full.find_or_insert(first_address), 1u);
+    EXPECT_EQ(full.find_or_insert(first_address), 1u);
+    EXPECT_EQ(full.find_or_insert(second_address), 0u);
 }
 
 TEST(GameServicesApiV1Test, InterestAuthorityExpiresAfterItsCallback)

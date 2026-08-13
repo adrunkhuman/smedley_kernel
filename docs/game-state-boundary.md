@@ -253,8 +253,10 @@ traversal. Hook records have at most 64 signed raw values; `drain_hooks` reports
 loss explicitly and never returns engine addresses. Capability installation and
 uninstallation stay inside the checked runtime.
 
-Sessions and hook subscriptions are thread-affine and must be closed on their
-creating thread. Closing a campaign session releases its frontend capabilities.
+Session reads and hook operations are thread-affine. Telemetry sessions may be
+opened and read from a synchronous daily-event callback; process-owner lifecycle
+code closes them after callback dispatch has drained. Closing a campaign session
+releases its frontend capabilities.
 Text arguments are counted byte spans: they must be nonempty ASCII-compatible
 text with no embedded NUL, and the kernel copies exactly that span into local
 NUL-terminated storage before calling the checked runtime. Interest state and
@@ -262,9 +264,11 @@ POP handles select immutable kernel-captured candidates only. Prepare and apply
 ignore caller copies of candidate data; apply rejects duplicated POPs and POPs
 outside the selected state's captured contiguous membership range.
 
-The game-service metadata tables have one process-local owner thread. The first
-successful session open establishes it; another thread receives `wrong_thread`
-before mutable metadata or reader scratch is touched. Every controller records
+The game-service metadata tables have one process-local lifecycle owner thread.
+The first successful lifecycle session open establishes it. Telemetry reads also
+accept the currently executing synchronous daily-event callback thread; unrelated
+threads receive `wrong_thread` before mutable metadata or reader scratch is
+touched. Every controller records
 its owning session, epoch, and thread. A stale close only retires ABI bookkeeping
 and never calls the engine. Hook subscriptions are similarly bound to a live
 telemetry session, epoch, and thread. Hook entity IDs are per-subscription

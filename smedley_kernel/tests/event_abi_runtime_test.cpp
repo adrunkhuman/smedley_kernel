@@ -13,6 +13,7 @@ namespace
     struct CallbackState
     {
         int calls = 0;
+        bool ran_in_daily_dispatch = false;
         SmedleyDailyEventV1 event{};
         SmedleyEventApiV1 *api = nullptr;
         SmedleyEventRegistration registration = 0;
@@ -23,6 +24,7 @@ namespace
     {
         auto *state = static_cast<CallbackState *>(context);
         ++state->calls;
+        state->ran_in_daily_dispatch = smedley::IsDailyEventApiDispatchThread();
         state->event = *event;
         return SMEDLEY_EVENT_CALLBACK_CONTINUE;
     }
@@ -83,12 +85,15 @@ namespace
 
 TEST(EventApiV1Test, RegistersCopiesAndUnregistersDailySnapshot)
 {
+    EXPECT_FALSE(smedley::IsDailyEventApiDispatchThread());
     auto api = Api();
     CallbackState state;
     ASSERT_EQ(api.register_daily(&Capture, &state, &state.registration), SMEDLEY_EVENT_SUCCESS);
     const auto event = Event();
     smedley::DispatchDailyEventApi(event);
     ASSERT_EQ(state.calls, 1);
+    EXPECT_TRUE(state.ran_in_daily_dispatch);
+    EXPECT_FALSE(smedley::IsDailyEventApiDispatchThread());
     EXPECT_EQ(state.event.treasury_raw, event.treasury_raw);
     EXPECT_EQ(state.event.game_date_raw, event.game_date_raw);
     EXPECT_EQ(std::string(state.event.country_tag, 3), "ENG");
