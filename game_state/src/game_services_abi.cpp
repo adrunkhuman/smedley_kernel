@@ -6,6 +6,7 @@
 
 #include <smedley/events/bankinterest.hpp>
 #include <smedley/event_abi_runtime.hpp>
+#include <smedley/executable_identity.hpp>
 #include <smedley/game_state/artisan_consumption_hook.hpp>
 #include <smedley/game_state/factory_consumption_hook.hpp>
 #include <smedley/game_state/factory_sales_hook.hpp>
@@ -99,6 +100,7 @@ namespace
         std::atomic<SmedleyCampaignFrontendCaptureCallbackV1Fn> frontend_capture{nullptr};
         std::atomic<SmedleyCampaignAnnexationCallbackV1Fn> annexation{nullptr};
         std::atomic<SmedleyCampaignConsoleCaptureCallbackV1Fn> console_capture{nullptr};
+        std::atomic<bool> observer_enabled{false};
     };
     std::array<CampaignAutomationSlot, SMEDLEY_CAMPAIGN_AUTOMATION_MAX_REGISTRATIONS> campaign_automation_slots{};
     uint64_t next_campaign_automation = 1;
@@ -215,10 +217,7 @@ namespace
         std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
         *session = 0;
         const auto current = CurrentGameSession();
-        CampaignRuntimeSnapshot snapshot{};
-        if (ReadCampaignRuntime(&snapshot) != CampaignRuntimeObservationStatus::completed || !current.game_state) {
-            return SMEDLEY_CAMPAIGN_RUNTIME_UNAVAILABLE;
-        }
+        if (!smedley::IsCurrentExecutableSupported()) return SMEDLEY_CAMPAIGN_RUNTIME_UNAVAILABLE;
         for (auto &slot : campaign_sessions) {
             if (slot.handle != 0 && slot.epoch != current.epoch) {
                 RetireCampaignFrontendSlots(slot.handle);
@@ -526,6 +525,7 @@ namespace
         slot->frontend_capture.store(nullptr, std::memory_order_release);
         slot->annexation.store(nullptr, std::memory_order_release);
         slot->console_capture.store(nullptr, std::memory_order_release);
+        slot->observer_enabled.store(false, std::memory_order_release);
         slot->context.store(0, std::memory_order_release);
         slot->epoch.store(0, std::memory_order_release);
         slot->session.store(0, std::memory_order_release);
@@ -567,6 +567,17 @@ namespace
         const auto context = slot->context.load(std::memory_order_acquire);
         const auto epoch = CurrentGameSession().epoch;
         slot->epoch.store(epoch, std::memory_order_release);
+        if (slot->observer_enabled.load(std::memory_order_acquire)) {
+            ObserverStateSnapshot before{};
+            if (ReadObserverState(&before) == ObserverObservationStatus::completed
+                && before.view_country.tag.ordinal == annexed_ordinal) {
+                ObserverCountrySnapshot target{};
+                ObserverStateSnapshot after{};
+                if (FindHealthyObserverCountry(annexed_ordinal, &target) == ObserverObservationStatus::completed) {
+                    SetObserverViewCountry(target, &after);
+                }
+            }
+        }
         if (callback == nullptr) {
             ReleaseCampaignAutomationCallback(slot); return;
         }
@@ -634,12 +645,13 @@ namespace
         slot.frontend_capture.store(options->frontend_capture, std::memory_order_relaxed);
         slot.annexation.store(options->annexation, std::memory_order_relaxed);
         slot.console_capture.store(options->console_capture, std::memory_order_relaxed);
+        slot.observer_enabled.store(false, std::memory_order_relaxed);
         slot.session.store(session, std::memory_order_relaxed);
         slot.epoch.store(CurrentGameSession().epoch, std::memory_order_relaxed);
         slot.handle.store(handle, std::memory_order_relaxed);
         slot.control.store(automation_active, std::memory_order_release);
         SetCampaignAutomationFrontendCaptureCallback(options->frontend_capture == nullptr ? nullptr : &OnCampaignAutomationFrontendCapture);
-        SetCampaignAutomationAnnexationCallback(options->annexation == nullptr ? nullptr : &OnCampaignAutomationAnnexation);
+        SetCampaignAutomationAnnexationCallback(&OnCampaignAutomationAnnexation);
         SetCampaignAutomationConsoleCaptureCallback(options->console_capture == nullptr ? nullptr : &OnCampaignAutomationConsoleCapture);
         *automation = handle;
         return SMEDLEY_CAMPAIGN_AUTOMATION_SUCCESS;
@@ -663,6 +675,7 @@ namespace
         if (enabled > 1) return SMEDLEY_CAMPAIGN_AUTOMATION_INVALID_ARGUMENT;
         auto *slot = FindCampaignAutomation(automation);
         if (const auto status = CampaignAutomationStatus(slot); status != SMEDLEY_CAMPAIGN_AUTOMATION_SUCCESS) return status;
+        slot->observer_enabled.store(enabled != 0, std::memory_order_release);
         SetCampaignAutomationObserverMode(enabled != 0);
         return SMEDLEY_CAMPAIGN_AUTOMATION_SUCCESS;
     }

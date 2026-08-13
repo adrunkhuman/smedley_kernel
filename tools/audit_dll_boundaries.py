@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 EXPECTED_EXPORTS = {
-    "campaign_runner": {"CreatePlugin"},
+    "campaign_runner": {"SmedleyPluginGetApiV1"},
     "interest_bug_fix": {"CreatePlugin"},
     "scripting": {"SmedleyPluginGetApiV1"},
     "telemetry": {
@@ -26,6 +26,7 @@ REQUIRED_KERNEL_EXPORTS = {
     "LoadPlugins",
     "LoadPluginsThread",
     "SmedleyGetCampaignControlApiV1",
+    "SmedleyGetCampaignAutomationApiV1",
     "SmedleyGetCampaignRuntimeApiV1",
     "SmedleyGetEventApiV1",
     "SmedleyGetEventServicesApiV1",
@@ -99,7 +100,11 @@ def main() -> int:
         if actual != expected:
             failures.append(f"{dll.name} exports {sorted(actual)}; expected {sorted(expected)}")
         imports = kernel_imports(dumpbin, dll)
-        baseline_imports = imports if plugin == "scripting" else [name for name in imports if name.startswith("?")]
+        baseline_imports = (
+            imports
+            if plugin in {"campaign_runner", "scripting"}
+            else [name for name in imports if name.startswith("?")]
+        )
         current_imports[plugin] = sorted(baseline_imports)
         print(f"{dll.name}: {len(imports)} smedley_kernel.dll imports")
         for imported in imports:

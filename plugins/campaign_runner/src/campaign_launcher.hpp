@@ -1,6 +1,6 @@
 #pragma once
 
-#include <smedley/game_state/runtime.hpp>
+#include "campaign_services.hpp"
 #include "campaign_telemetry.hpp"
 #include "benchmark_controller.hpp"
 #include "campaign_launch_arguments.hpp"
@@ -26,6 +26,8 @@ namespace campaign_runner
                    bool quit_after_run, CampaignRunCondition condition);
         void Stop();
         void OnConsoleCommandManagerCaptured(smedley::game_state::CampaignConsoleCaptureStatus status);
+        bool QueueConsoleCommand(uint32_t command, uint32_t argument_count, uint32_t arguments_valid,
+                                 const char *first_argument) noexcept;
         // Called before native Annex captures the player tag. Observer mode
         // changes only the view and logs failure if no healthy AI target exists.
         void PrepareObserverForAnnexation(int annexed_ordinal);
@@ -35,9 +37,6 @@ namespace campaign_runner
         static void __stdcall NotifyObserverAnnexation(int annexed_ordinal) noexcept;
         static void __stdcall NotifyConsoleCommandManagerCaptured(
             smedley::game_state::CampaignConsoleCaptureStatus status) noexcept;
-        static smedley::game_state::CampaignConsoleResponse __stdcall HandleCampaignConsoleCommand(
-            smedley::game_state::CampaignConsoleCommand command,
-            const smedley::game_state::CampaignConsoleArguments &arguments) noexcept;
 
     private:
         static void CALLBACK SaveTimerCallback(HWND, UINT, UINT_PTR timer, DWORD) noexcept;
@@ -54,7 +53,9 @@ namespace campaign_runner
         bool ObserverInvariantsValid() const;
         bool EmitObserverConfiguredIfReady();
         void OnFrontendControllerCaptured(smedley::game_state::FrontendControllerKind kind);
-        smedley::game_state::CampaignConsoleResponse RequestObserverSwitch(std::string requested_tag);
+        bool RequestObserverSwitch(std::string requested_tag, std::string *message = nullptr);
+        void DrainHookWork();
+        void DrainConsoleRequest();
 
         smedley::Logger &logger_;
         std::wstring save_path_;
@@ -95,5 +96,10 @@ namespace campaign_runner
         bool telemetry_dropped_logged_ = false;
         smedley::game_state::FrontendControllerToken frontend_controller_;
         smedley::game_state::FrontendControllerToken main_menu_controller_;
+        std::atomic<uint32_t> console_capture_status_{UINT32_MAX};
+        std::atomic<uint32_t> console_request_state_{0};
+        std::atomic<uint32_t> console_request_argument_count_{0};
+        std::atomic<uint32_t> console_request_arguments_valid_{0};
+        std::atomic<char> console_request_argument_[SMEDLEY_CAMPAIGN_CONSOLE_MAX_ARGUMENT_BYTES]{};
     };
 }

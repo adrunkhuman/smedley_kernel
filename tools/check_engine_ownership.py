@@ -18,7 +18,7 @@ ENGINE_SOURCES = {
     "src/pop_cash_flow_hook.cpp",
 }
 REMOVED_TARGETS = ("add_library(smedley_game_state", "add_library(smedley_game_runtime")
-MIGRATED_PLUGINS = (Path("plugins/scripting"),)
+MIGRATED_PLUGINS = (Path("plugins/campaign_runner"), Path("plugins/scripting"))
 
 
 def audit(root: Path) -> list[str]:
