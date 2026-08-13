@@ -1,5 +1,8 @@
 #include "event_services_runtime.hpp"
 
+#include <smedley/events/bankinterest.hpp>
+#include <smedley/game_state/game_services_abi.hpp>
+
 #include <windows.h>
 
 #include <array>
@@ -197,9 +200,36 @@ namespace smedley
             const auto previous_registration = current_registration;
             current_registration = slot.handle.load(std::memory_order_relaxed);
             SmedleyEventServicesCallbackResult result = SMEDLEY_EVENT_SERVICES_CALLBACK_DISABLE;
-            try {
-                result = slot.callback(slot.context, &event);
-            } catch (...) {
+            try { result = slot.callback(slot.context, &event); } catch (...) {}
+            current_registration = previous_registration;
+            DisableIfRequested(slot, active_bank_slots, result);
+            slot.control.fetch_sub(1, std::memory_order_release);
+        }
+    }
+
+    void DispatchBankInterestEventServices(events::BankInterestEvent &bank_event) noexcept
+    {
+        if (active_bank_slots.load(std::memory_order_acquire) == 0) return;
+        for (auto &slot : bank_slots) {
+            if (!Acquire(slot)) continue;
+            BankAuthorityScope authority(static_cast<uint32_t>(bank_event.GetPhase()), bank_event.GetCountryIndex());
+            SmedleyBankInterestEventV1 event{};
+            event.struct_size = sizeof(event);
+            event.version = SMEDLEY_BANK_INTEREST_EVENT_VERSION_V1;
+            event.authority = authority.authority;
+            event.phase = static_cast<uint32_t>(bank_event.GetPhase());
+            event.country_index = bank_event.GetCountryIndex();
+            event.distributes_to_states = bank_event.DistributesToStates() ? 1 : 0;
+            const auto previous_registration = current_registration;
+            current_registration = slot.handle.load(std::memory_order_relaxed);
+            SmedleyEventServicesCallbackResult result = SMEDLEY_EVENT_SERVICES_CALLBACK_CONTINUE;
+            if (game_state::BindBankInterestGameServices(authority.authority, bank_event)) {
+                try {
+                    result = slot.callback(slot.context, &event);
+                } catch (...) {
+                    result = SMEDLEY_EVENT_SERVICES_CALLBACK_DISABLE;
+                }
+                game_state::UnbindBankInterestGameServices(authority.authority);
             }
             current_registration = previous_registration;
             DisableIfRequested(slot, active_bank_slots, result);

@@ -2,6 +2,7 @@ target_sources(smedley_kernel PRIVATE
   src/readers.cpp
   src/runtime.cpp
   src/campaign_control_abi.cpp
+  src/game_services_abi.cpp
   src/artisan_consumption_hook.cpp
   src/factory_consumption_hook.cpp
   src/factory_sales_hook.cpp

@@ -161,7 +161,7 @@ namespace smedley::events
                     distributes_to_states != 0, BankInterestEvent::TrustedHookTag{});
                 DispatchScope scope(event);
                 BankInterestEvent::RecordCallbackFailures(EventRegistry<BankInterestEvent>::NotifyContained(event));
-                smedley::DispatchBankInterestEventServices(phase, country_index, distributes_to_states != 0);
+                smedley::DispatchBankInterestEventServices(event);
             }
         };
     }

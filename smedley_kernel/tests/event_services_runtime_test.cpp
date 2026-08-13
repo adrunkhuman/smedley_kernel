@@ -1,5 +1,9 @@
 #include "event_services_runtime.hpp"
 
+#include <smedley/campaign_runtime_api.h>
+#include <smedley/interest_pool_api.h>
+#include <smedley/telemetry_game_api.h>
+
 #include <gtest/gtest.h>
 
 #include <array>
@@ -17,6 +21,39 @@ namespace
         SmedleyBankInterestEventV1 event{};
         bool authority_active = false;
     };
+
+    struct InterestAuthorityState
+    {
+        SmedleyInterestPoolApiV1 *api = nullptr;
+        SmedleyInterestPoolResult during = SMEDLEY_INTEREST_POOL_UNAVAILABLE;
+        SmedleyBankInterestAuthority authority = 0;
+    };
+
+    struct CrossThreadAuthorityState
+    {
+        SmedleyInterestPoolApiV1 *api = nullptr;
+        SmedleyInterestPoolResult result = SMEDLEY_INTEREST_POOL_SUCCESS;
+    };
+
+    SmedleyEventServicesCallbackResult SMEDLEY_EVENT_SERVICES_CALL CheckAuthorityThread(
+        void *context, const SmedleyBankInterestEventV1 *event)
+    {
+        auto *state = static_cast<CrossThreadAuthorityState *>(context);
+        std::thread caller([&] {
+            state->result = state->api->collect(event->authority, nullptr, 0, nullptr, nullptr, 0, nullptr, nullptr);
+        });
+        caller.join();
+        return SMEDLEY_EVENT_SERVICES_CALLBACK_CONTINUE;
+    }
+
+    SmedleyEventServicesCallbackResult SMEDLEY_EVENT_SERVICES_CALL CaptureInterestAuthority(
+        void *context, const SmedleyBankInterestEventV1 *event)
+    {
+        auto *state = static_cast<InterestAuthorityState *>(context);
+        state->authority = event->authority;
+        state->during = state->api->collect(event->authority, nullptr, 0, nullptr, nullptr, 0, nullptr, nullptr);
+        return SMEDLEY_EVENT_SERVICES_CALLBACK_CONTINUE;
+    }
 
     struct AuthorityIsolationState
     {
@@ -314,4 +351,91 @@ TEST(EventServicesApiV1Test, ContainsThrowingCallbackAndDisablesIt)
     smedley::DispatchBankInterestEventServices(SMEDLEY_BANK_INTEREST_AFTER, 3, true);
     EXPECT_EQ(calls, 1);
     EXPECT_EQ(api.unregister(registration), SMEDLEY_EVENT_SERVICES_SUCCESS);
+}
+
+TEST(GameServicesApiV1Test, DiscoversDomainTablesAndRejectsReservedFields)
+{
+    SmedleyCampaignRuntimeApiV1 campaign{};
+    campaign.struct_size = sizeof(campaign);
+    campaign.version = SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1;
+    EXPECT_EQ(SmedleyGetCampaignRuntimeApiV1(&campaign), SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS);
+    EXPECT_NE(campaign.open_session, nullptr);
+    campaign.reserved[0] = 1;
+    EXPECT_EQ(SmedleyGetCampaignRuntimeApiV1(&campaign), SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT);
+
+    SmedleyInterestPoolApiV1 interest{};
+    interest.struct_size = sizeof(interest);
+    interest.version = SMEDLEY_INTEREST_POOL_API_VERSION_V1;
+    EXPECT_EQ(SmedleyGetInterestPoolApiV1(&interest), SMEDLEY_INTEREST_POOL_SUCCESS);
+    EXPECT_EQ(interest.collect(UINT64_C(1), nullptr, 0, nullptr, nullptr, 0, nullptr, nullptr),
+        SMEDLEY_INTEREST_POOL_STALE_AUTHORITY);
+
+    SmedleyTelemetryGameApiV1 telemetry{};
+    telemetry.struct_size = sizeof(telemetry);
+    telemetry.version = SMEDLEY_TELEMETRY_GAME_API_VERSION_V1;
+    EXPECT_EQ(SmedleyGetTelemetryGameApiV1(&telemetry), SMEDLEY_TELEMETRY_GAME_SUCCESS);
+    SmedleyTelemetryWorldSnapshotV1 world{};
+    world.struct_size = sizeof(world);
+    world.version = 1;
+    EXPECT_EQ(telemetry.read_world(UINT64_C(1), &world), SMEDLEY_TELEMETRY_GAME_STALE_HANDLE);
+}
+
+TEST(GameServicesApiV1Test, InterestAuthorityExpiresAfterItsCallback)
+{
+    SmedleyEventServicesApiV1 events = Api();
+    SmedleyInterestPoolApiV1 interest{};
+    interest.struct_size = sizeof(interest);
+    interest.version = SMEDLEY_INTEREST_POOL_API_VERSION_V1;
+    ASSERT_EQ(SmedleyGetInterestPoolApiV1(&interest), SMEDLEY_INTEREST_POOL_SUCCESS);
+    InterestAuthorityState state{&interest};
+    SmedleyEventServicesRegistration registration = 0;
+    ASSERT_EQ(events.register_bank_interest(&CaptureInterestAuthority, &state, &registration), SMEDLEY_EVENT_SERVICES_SUCCESS);
+    smedley::DispatchBankInterestEventServices(SMEDLEY_BANK_INTEREST_AFTER, 7, true);
+    EXPECT_NE(state.authority, 0u);
+    EXPECT_EQ(interest.collect(state.authority, nullptr, 0, nullptr, nullptr, 0, nullptr, nullptr),
+        SMEDLEY_INTEREST_POOL_STALE_AUTHORITY);
+    EXPECT_EQ(events.unregister(registration), SMEDLEY_EVENT_SERVICES_SUCCESS);
+}
+
+TEST(GameServicesApiV1Test, BankAuthorityIsThreadLocal)
+{
+    SmedleyEventServicesApiV1 events = Api();
+    SmedleyInterestPoolApiV1 interest{};
+    interest.struct_size = sizeof(interest);
+    interest.version = SMEDLEY_INTEREST_POOL_API_VERSION_V1;
+    ASSERT_EQ(SmedleyGetInterestPoolApiV1(&interest), SMEDLEY_INTEREST_POOL_SUCCESS);
+    CrossThreadAuthorityState state{&interest};
+    SmedleyEventServicesRegistration registration = 0;
+    ASSERT_EQ(events.register_bank_interest(&CheckAuthorityThread, &state, &registration), SMEDLEY_EVENT_SERVICES_SUCCESS);
+    smedley::DispatchBankInterestEventServices(SMEDLEY_BANK_INTEREST_AFTER, 7, true);
+    EXPECT_EQ(state.result, SMEDLEY_INTEREST_POOL_STALE_AUTHORITY);
+    EXPECT_EQ(events.unregister(registration), SMEDLEY_EVENT_SERVICES_SUCCESS);
+}
+
+TEST(GameServicesApiV1Test, RejectsBoundedTextWithEmbeddedNulWithoutReadingPastInput)
+{
+    SmedleyCampaignRuntimeApiV1 campaign{};
+    campaign.struct_size = sizeof(campaign);
+    campaign.version = SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1;
+    ASSERT_EQ(SmedleyGetCampaignRuntimeApiV1(&campaign), SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS);
+    const char embedded_nul[] = {'a', '\0', 'b'};
+    EXPECT_EQ(campaign.request_save(UINT64_C(1), embedded_nul, sizeof(embedded_nul)),
+        SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT);
+    EXPECT_EQ(campaign.dispatch_frontend_control(UINT64_C(1), embedded_nul, sizeof(embedded_nul)),
+        SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT);
+    const char exact_text[] = {'a', 'b', 'c'};
+    EXPECT_EQ(campaign.request_save(UINT64_C(1), exact_text, sizeof(exact_text)), SMEDLEY_CAMPAIGN_RUNTIME_STALE_HANDLE);
+    EXPECT_EQ(campaign.close_session(UINT64_C(1)), SMEDLEY_CAMPAIGN_RUNTIME_STALE_HANDLE);
+
+    SmedleyTelemetryGameApiV1 telemetry{};
+    telemetry.struct_size = sizeof(telemetry);
+    telemetry.version = SMEDLEY_TELEMETRY_GAME_API_VERSION_V1;
+    ASSERT_EQ(SmedleyGetTelemetryGameApiV1(&telemetry), SMEDLEY_TELEMETRY_GAME_SUCCESS);
+    EXPECT_EQ(telemetry.close_session(UINT64_C(1)), SMEDLEY_TELEMETRY_GAME_STALE_HANDLE);
+    SmedleyTelemetryHookOptionsV1 hooks{};
+    hooks.struct_size = sizeof(hooks);
+    hooks.version = 1;
+    hooks.hooks = SMEDLEY_TELEMETRY_HOOK_POP_CASH_FLOW;
+    SmedleyTelemetryHookSubscription subscription = 0;
+    EXPECT_EQ(telemetry.subscribe_hooks(UINT64_C(1), &hooks, &subscription), SMEDLEY_TELEMETRY_GAME_STALE_HANDLE);
 }

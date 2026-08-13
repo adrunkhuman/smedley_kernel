@@ -6,7 +6,8 @@ add_library (smedley_kernel SHARED ${kernel_sources})
 # Transitional C++ plugin imports require kernel auto-export until issue #41 completes.
 set_target_properties(smedley_kernel PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL SMEDLEY_EVENT_BUILD SMEDLEY_EVENT_SERVICES_BUILD
-  SMEDLEY_CAMPAIGN_CONTROL_BUILD SMEDLEY_LOGGING_BUILD LUA_BUILD_AS_DLL LUA_LIB)
+  SMEDLEY_CAMPAIGN_CONTROL_BUILD SMEDLEY_CAMPAIGN_RUNTIME_BUILD SMEDLEY_INTEREST_POOL_BUILD
+  SMEDLEY_TELEMETRY_GAME_BUILD SMEDLEY_LOGGING_BUILD LUA_BUILD_AS_DLL LUA_LIB)
 target_link_libraries(smedley_kernel PRIVATE bcrypt shell32 minhook)
 target_include_directories(smedley_kernel PUBLIC
   "${PROJECT_SOURCE_DIR}/include"
@@ -32,6 +33,9 @@ if(BUILD_TESTING)
 
   add_library(smedley_campaign_control_api_c_compile_test OBJECT tests/campaign_control_api_header_c_test.c)
   target_include_directories(smedley_campaign_control_api_c_compile_test PRIVATE "${CMAKE_SOURCE_DIR}/include")
+
+  add_library(smedley_game_services_api_c_compile_test OBJECT tests/game_services_api_header_c_test.c)
+  target_include_directories(smedley_game_services_api_c_compile_test PRIVATE "${CMAKE_SOURCE_DIR}/include")
 
   add_library(smedley_logging_api_c_compile_test OBJECT tests/logging_api_header_c_test.c)
   target_include_directories(smedley_logging_api_c_compile_test PRIVATE "${CMAKE_SOURCE_DIR}/include")
