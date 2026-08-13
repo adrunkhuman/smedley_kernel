@@ -158,9 +158,10 @@ as the user running Victoria II. Install only open, trusted plugins. Ordinary
 Victoria II data mods do not cross this native-code trust boundary.
 
 The current release supports Windows, MSVC x86, and the executable identified
-above. The native C ABI currently covers lifecycle, not game services. Plugin
-dependency versions, general third-party plugin settings, broad AI decision
-telemetry, profiling, and profiler-backed engine optimizations are still in
-active development. A generic pre-exit callback for plugins other than telemetry
-remains unimplemented. GitHub issues track future work; see
+above. Versioned C APIs cover plugin lifecycle, copied daily events, and checked
+campaign controls; other bundled game capabilities still use transitional C++
+imports from the kernel. Plugin dependency versions, general third-party plugin
+settings, broad AI decision telemetry, profiling, and profiler-backed engine
+optimizations are still in active development. A generic pre-exit callback for
+plugins other than telemetry remains unimplemented. GitHub issues track future work; see
 [`mappings/`](mappings/) for reverse-engineering evidence.

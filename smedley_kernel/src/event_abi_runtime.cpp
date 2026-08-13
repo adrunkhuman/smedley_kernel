@@ -1,7 +1,6 @@
 #include "event_abi_runtime.hpp"
 
-#include "v2/country.hpp"
-#include "v2/gamestate.hpp"
+#include <smedley/game_state/runtime.hpp>
 
 #include <windows.h>
 
@@ -140,21 +139,21 @@ namespace smedley
     void NotifyDailyEventApi(v2::CCountry *country) noexcept
     {
         if (active_registrations.load(std::memory_order_acquire) == 0 || country == nullptr) return;
-        auto *game_state = v2::CCurrentGameState::instance();
-        if (game_state == nullptr) return;
-        const auto tag = country->tag().str();
+        game_state::DailyUpdateSnapshot snapshot{};
+        if (!game_state::ReadDailyUpdateSnapshot(
+                game_state::CountryRef{static_cast<const void *>(country)}, &snapshot)) return;
         SmedleyDailyEventV1 event{};
         event.struct_size = sizeof(event);
         event.version = SMEDLEY_DAILY_EVENT_VERSION_V1;
-        event.treasury_raw = country->treasury_raw();
-        event.game_date_raw = game_state->current_date_raw();
-        event.country_slot_count = static_cast<uint32_t>(game_state->country_count());
-        event.ai_scheduler_entry_count = static_cast<uint32_t>(game_state->country_ai_count());
-        event.country_tag[0] = tag[0];
-        event.country_tag[1] = tag[1];
-        event.country_tag[2] = tag[2];
-        event.has_owned_province = country->exists() ? 1 : 0;
-        event.human_control_present = game_state->has_human_controlled_country() ? 1 : 0;
+        event.treasury_raw = snapshot.treasury_raw;
+        event.game_date_raw = snapshot.date_raw;
+        event.country_slot_count = snapshot.country_slot_count;
+        event.ai_scheduler_entry_count = snapshot.ai_scheduler_entry_count;
+        event.country_tag[0] = snapshot.country_tag.value[0];
+        event.country_tag[1] = snapshot.country_tag.value[1];
+        event.country_tag[2] = snapshot.country_tag.value[2];
+        event.has_owned_province = snapshot.country_exists ? 1 : 0;
+        event.human_control_present = snapshot.human_control_present ? 1 : 0;
         DispatchDailyEventApi(event);
     }
 }

@@ -9,8 +9,8 @@ foreign-object assumptions.
 
 | Layer | Owns | Must not own |
 | --- | --- | --- |
-| Kernel and mappings | Hook installation, raw engine headers, executable identity, signatures, and engine adapters | Plugin gameplay policy or allocation choices |
-| `smedley_game_state` and `smedley_game_runtime` | Typed non-owning references, bounded reads, copied snapshots, and the narrow checked interest mutation boundary | Plugin lifecycle, telemetry policy, file I/O, or allocation policy |
+| `smedley_kernel.dll` and mappings | Hook installation, raw engine headers, executable identity, signatures, session/controller state, bounded reads, copied snapshots, and checked mutations | Plugin gameplay policy or allocation choices |
+| Kernel-private game state implementation | Typed non-owning references and engine adapters compiled only into `smedley_kernel.dll` | A separately linked plugin runtime or a stable C++ plugin ABI |
 | Plugins | Feature selection, deterministic allocation, result publication, lifecycle, and failure policy | Raw offsets, engine ABI mirrors, native calls, or retained game pointers |
 
 The static audit `tools/check_game_layering.py`, registered as the
@@ -129,7 +129,8 @@ service must not silently choose those gameplay semantics.
 
 ## Pause mutation
 
-`PauseGame` owns the scripting pause engine boundary. It first requires the
+The campaign-control `set_paused(1)` operation owns the scripting pause engine
+boundary. It first requires the
 kernel's executable-identity verdict, then reads the current game-state and
 idler pointers through guarded spans, validates the `CInGameIdler` RTTI name,
 checks pause state `0` or `1`, checks the native pause prologue, invokes
@@ -138,15 +139,15 @@ It retains no pointer. The scripting plugin owns only its one-slot request
 state, maps the checked statuses to its existing Lua-worker result messages,
 and unregisters its daily event handler before shutdown reporting.
 
-The existing C++ daily event remains the mutation-capable scheduling boundary.
-`ReadDailyUpdateSnapshot` consumes it inside `smedley_game_runtime` and returns
-only copied values. The plugin never calls `GetCountry` and receives no country
-or game-state reference while queueing Lua work. The separate public copied C
-event ABI remains observation-only.
+The C daily-event callback is the game-thread scheduling boundary. The kernel
+builds `SmedleyDailyEventV1` through checked readers and suppresses dispatch when
+required fields or bounded container metadata are unavailable. The plugin never
+receives a country or game-state reference while queueing Lua work. The event
+record remains observation-only; pause uses the separate campaign-control table.
 
 ## Campaign runtime
 
-`smedley_game_runtime` owns the checked campaign runtime boundary. It returns a
+The kernel-private game runtime owns the checked campaign runtime boundary. It returns a
 copied `CampaignRuntimeSnapshot` only after executable identity, current
 game-state/idler resolution, idler RTTI, readable date/speed/pause fields, and
 their supported ranges pass. The snapshot is synchronous and non-owning; an
@@ -154,7 +155,7 @@ unavailable observation is not a zero date, speed, or pause value.
 
 `SetCampaignPaused`, `SetCampaignSpeedIndex`, and `RequestCampaignQuit` return
 explicit fail-closed statuses. Pause is the same generalized native transaction
-used by `PauseGame`, so scripting and campaign automation share RTTI, signature,
+used by the campaign-control API, so scripting and campaign automation share RTTI, signature,
 and readback checks. Speed verifies both native handler bodies and every
 one-index readback. Quit verifies the idler vtable target and its request-flag
 postcondition. `SampleProcessMetrics` returns optional copied Windows process
@@ -167,7 +168,7 @@ access for those responsibilities.
 
 ## Frontend runtime
 
-`smedley_game_runtime` owns the checked frontend/main-menu boundary. It
+The kernel-owned game-state implementation owns the checked frontend/main-menu boundary. It
 transactionally installs the supported constructor and scalar-deleting-destructor
 hooks, preserves their displaced prologues, and invalidates a capture before
 native storage can be released. A bundled runner receives only a generation-bound
@@ -189,7 +190,7 @@ failure paths.
 
 ## Observer runtime
 
-`smedley_game_runtime` owns the checked observer engine boundary.
+The kernel-owned game-state implementation owns the checked observer engine boundary.
 `ObserverStateSnapshot` and `ObserverCountrySnapshot` copy normalized tags,
 ordinals, existence, human-control, AI/scheduler, country-count, scheduler-count,
 and FOW state. They retain no country, AI, game-state, or container pointer.
@@ -215,7 +216,21 @@ record is reclaimed only after verified removal from a live manager; otherwise
 the runtime intentionally retains the small allocation rather than risk freeing
 engine-referenced storage. Runner callbacks receive no console object.
 
-## Public boundaries
+## Binary ownership and public boundaries
+
+The `game_state/src` implementation is compiled directly into
+`smedley_kernel.dll`. No plugin or separate static runtime target receives a
+second copy of its hook queues, session epoch, controller captures, callback
+state, or mutation capabilities. `smedley_engine_ownership_audit` enforces this
+build boundary.
+
+Plugins acquire engine capabilities through versioned C service tables. The
+daily event API provides copied daily snapshots. The campaign-control v1 API
+provides a copied campaign snapshot and checked pause, speed, and quit
+operations. The scripting plugin uses only these C engine-service boundaries.
+The campaign runner, interest fix, and telemetry plugins still use exported
+kernel-private C++ declarations while their larger capability tables are split
+by domain; those declarations are transitional source contracts, not public ABI.
 
 Do not duplicate a public C API merely to expose game objects. The copied daily
 event C API and the Lua-facing copied APIs remain valid external boundaries:
@@ -223,7 +238,7 @@ they provide data and queued/constrained operations without lending object
 pointers. New external capabilities should follow that model, with their own
 version, ownership, lifetime, and thread contract.
 
-The `game_state` C++ headers are internal source contracts for bundled plugins.
+The `game_state` C++ headers are transitional internal source contracts for bundled plugins.
 Their symbols, layouts, and source interfaces may change with the repository;
 they provide no third-party binary or source compatibility promise.
 
@@ -257,10 +272,10 @@ are recorded in the corresponding mapping evidence files.
 
 | Plugin | Registered raw adapter sources | Raw access owned there | Concrete follow-up boundary |
 | --- | --- | --- | --- |
-| `interest_bug_fix` | None | None. State-pool and POP payout uses typed readers, copied snapshots, `CurrentGameSession`, callback-scoped `BankInterestAccess`, and checked discard/payout/clear mutation. | Keep new bank/state/POP engine facts in `smedley_game_state`; keep payout eligibility and allocation in the plugin. |
-| `telemetry` | None | None. The telemetry module consumes typed `PopRef`/`FactoryRef` hook records plus copied current-state, country, and province snapshots. Current-state resolution, daily-event `CountryRef` conversion, checked object snapshotting, hook patch/trampoline code, and thread-quiescence/unload draining live under `game_state/`. | Keep capture selection, filtering, aggregation, and publication in the telemetry module; put any new engine read, hook, offset, or native call in `smedley_game_state` or `smedley_game_runtime`. |
-| `campaign_runner` | None | None. The runner retains observer target/policy decisions, switch parsing, retries, state transitions, logging, and telemetry. `smedley_game_runtime` owns frontend, console capture/command replacement/removal, checked copied callback arguments, annex/message hooks, popup counters, mappings, and native calls. | Keep future engine access in `smedley_game_state` or `smedley_game_runtime`; runner inputs and observations remain copied. |
-| `scripting` | None | None. Its C++ daily handler requests a copied `DailyUpdateSnapshot` from the runtime, queues plugin-owned `EventSnapshot` values, and maps the checked pause-operation result to its established worker log semantics. Lua allocator and userdata `void*` values in `scripting_runtime.cpp` are not engine objects. | Keep new engine facts in `smedley_game_state` or `smedley_game_runtime`; retain copied Lua payloads and constrained queued operations. |
+| `interest_bug_fix` | None | None. State-pool and POP payout uses typed readers, copied snapshots, `CurrentGameSession`, callback-scoped `BankInterestAccess`, and checked discard/payout/clear mutation. | Keep new bank/state/POP engine facts in the kernel-owned `game_state/` implementation; keep payout eligibility and allocation in the plugin. |
+| `telemetry` | None | None. The telemetry module consumes typed `PopRef`/`FactoryRef` hook records plus copied current-state, country, and province snapshots. Current-state resolution, checked object snapshotting, hook patch/trampoline code, and thread-quiescence/unload draining live under `game_state/`. | Keep capture selection, filtering, aggregation, and publication in the telemetry module; put any new engine read, hook, offset, or native call in the kernel-owned implementation. |
+| `campaign_runner` | None | None. The runner retains observer target/policy decisions, switch parsing, retries, state transitions, logging, and telemetry. The kernel-owned implementation owns frontend, console capture/command replacement/removal, checked copied callback arguments, annex/message hooks, popup counters, mappings, and native calls. | Keep future engine access in the kernel-owned implementation; runner inputs and observations remain copied. |
+| `scripting` | None | None. Its C daily handler copies `SmedleyDailyEventV1`, queues plugin-owned `EventSnapshot` values, and maps campaign-control results to its established worker log semantics. Lua allocator and userdata `void*` values in `scripting_runtime.cpp` are not engine objects. | Keep new engine facts in kernel C services; retain copied Lua payloads and constrained queued operations. |
 
 No first-party production source outside this table may include `smedley/v2`,
 `smedley/clausewitz`, `smedley/std`, or `smedley/memory.hpp`, access
