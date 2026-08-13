@@ -241,6 +241,7 @@ no invented zero data.
 | Header | Discovery symbol | Scope |
 | --- | --- | --- |
 | `smedley/campaign_runtime_api.h` | `SmedleyGetCampaignRuntimeApiV1` | Campaign copied state plus checked pause, speed, quit, frontend-save, and observer operations. `SmedleyCampaignSession` and `SmedleyFrontendController` are opaque generation-bound handles. |
+| `smedley/campaign_automation_api.h` | `SmedleyGetCampaignAutomationApiV1` | Campaign automation lifecycle, copied frontend/annexation/console-capture notifications, console/tag-switch control, popup suppression readback, and optional copied process metrics. `SmedleyCampaignAutomation` is opaque and session/epoch bound. |
 | `smedley/interest_pool_api.h` | `SmedleyGetInterestPoolApiV1` | State/POP pool snapshots, prepare, payout, and cleanup. Each operation takes the `SmedleyBankInterestAuthority` supplied only to its synchronous bank-interest callback. |
 | `smedley/telemetry_game_api.h` | `SmedleyGetTelemetryGameApiV1` | World, market, country, province, POP, and factory copied snapshots plus bounded hook subscriptions and drain records. `SmedleyTelemetrySession` and `SmedleyTelemetryHookSubscription` are opaque handles. |
 
@@ -284,16 +285,36 @@ without disabling its registration. A zero-capacity hook drain still consumes al
 selected queues and reports every consumed record and source-overflow counter as
 `dropped`.
 
+The campaign automation table has one bounded registration. Installation activates
+checked frontend and campaign hooks and kernel-owned console capture; it exports
+no controller, console manager, native handler, or game pointer. Frontend,
+annexation, and console-capture callbacks receive fixed-size copied records on
+hook paths. They must not allocate, block, perform I/O, unregister, deactivate,
+retain record memory, or call engine services; returning `disable` makes that
+callback inert. Explicit deactivation is owner-thread-only, disables C callback
+sinks before waiting for already-acquired callbacks, unregisters C console
+capture, restores/removes commands only through the checked runtime, and
+invalidates the opaque handle. Self-deactivation from a callback returns `busy`.
+Legacy and C automation have independent ownership of shared process-lifetime
+hooks, captures, observer mode, popup suppression, and console registration;
+releasing either side leaves the other active. One shared console-capture event
+registration performs console mutation once and dispatches one notification to
+each active consumer. Transitional C++ runner callbacks remain separate and
+work concurrently. Console command handling stays
+in bounded `event_services`: automation owns console capture/status and checked
+native tag-switch, while the event service supplies copied arguments and a
+bounded copied response. Process metrics use availability bits instead of
+invented zero values. Popup suppression and its counter are scoped to a live
+automation handle and reset by observer-mode changes or deactivation.
+
 The initial telemetry game table is not yet a full replacement for the bundled
 telemetry plugin. It exposes the existing basic world/market/country/province,
 POP, factory, and hook capture subset, but does not yet expose the detailed
 country diplomacy/politics groups, POP identity/needs/artisan snapshots, RGO,
 factory inputs, country-economy/creditor snapshots, or the plugin's daily-event
-scheduling surface. The campaign table likewise does not yet replace frontend
-and campaign automation hook lifecycle/capture callbacks, console capture and
-tag-switch, message-popup controls, or process metrics. Those are required for
-a complete first-party C port and remain explicit follow-up work; first-party
-plugins therefore retain their transitional C++ contracts for those operations.
+scheduling surface. The campaign automation table covers the remaining
+engine-facing runner surface; the runner remains on its transitional C++ contract
+until a later policy and scheduling port.
 
 The campaign runner, interest fix, and telemetry plugins still use exported
 kernel-private C++ declarations while their larger capability tables are split

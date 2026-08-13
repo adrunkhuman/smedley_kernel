@@ -321,6 +321,10 @@ namespace smedley::game_state
     FrontendOperationStatus RollbackFrontendAutomationHooks();
     /** Registers the one bundled automation notification without exposing a controller address. */
     FrontendOperationStatus SetFrontendControllerCaptureCallback(FrontendControllerCaptureCallback callback);
+    /** Adds a separate bounded C-automation capture sink without replacing legacy callbacks. */
+    FrontendOperationStatus SetCampaignAutomationFrontendCaptureCallback(FrontendControllerCaptureCallback callback);
+    FrontendOperationStatus ActivateCampaignAutomationFrontend();
+    void DeactivateCampaignAutomationFrontend() noexcept;
     /** Makes lifecycle callbacks inert and invalidates every controller capability. */
     void DeactivateFrontendAutomation() noexcept;
     /** Copies a capability only while the matching controller capture remains current. */
@@ -459,9 +463,16 @@ namespace smedley::game_state
     CampaignOperationStatus InstallCampaignAutomationHooks(CampaignAutomationCallbacks callbacks);
     /** Enables observer-only command replacement and resets the copied popup counter. */
     void SetCampaignObserverMode(bool enabled) noexcept;
+    void SetCampaignAutomationObserverMode(bool enabled) noexcept;
     /** Registers runtime-owned console capture; no engine console object crosses into the plugin. */
     bool RegisterCampaignConsoleCapture(Plugin *owner);
     void UnregisterCampaignConsoleCapture(Plugin *owner) noexcept;
+    bool RegisterCampaignAutomationConsoleCapture();
+    void UnregisterCampaignAutomationConsoleCapture() noexcept;
+    CampaignOperationStatus ActivateCampaignAutomationHooks();
+    void DeactivateCampaignAutomationHooks() noexcept;
+    void SetCampaignAutomationAnnexationCallback(CampaignAnnexationCallback callback) noexcept;
+    void SetCampaignAutomationConsoleCaptureCallback(CampaignConsoleCaptureCallback callback) noexcept;
     /** Makes callbacks inert, restores/removes observer commands, and disables popup suppression. */
     void DeactivateCampaignAutomation() noexcept;
     bool IsCampaignObserverConsoleReady() noexcept;
@@ -471,6 +482,8 @@ namespace smedley::game_state
     /** Validates and invokes the native debug fow command, then requires visibility readback. */
     ObserverOperationStatus EnableObserverFullMapVisibility();
     void SetCampaignMessagePopupSuppression(bool enabled) noexcept;
+    void SetCampaignAutomationMessagePopupSuppression(bool enabled) noexcept;
+    bool IsCampaignMessagePopupSuppressionEnabled() noexcept;
     int32_t CampaignSuppressedMessageCount() noexcept;
 
     /**
