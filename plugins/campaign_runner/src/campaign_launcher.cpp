@@ -209,8 +209,8 @@ namespace campaign_runner
         }
         smedley::game_state::DeactivateFrontendAutomation();
         smedley::game_state::DeactivateCampaignAutomation();
-        // Plugin modules remain loaded. Leave callbacks inert rather than
-        // rewriting executable memory without a process-wide quiescence protocol.
+        // Plugin modules remain loaded. Leave callbacks inert rather than rewriting
+        // executable memory without a process-wide quiescence protocol.
     }
 
     void CampaignLauncher::OnConsoleCommandManagerCaptured(
