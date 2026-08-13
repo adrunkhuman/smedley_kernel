@@ -1,4 +1,5 @@
 #include "trace.hpp"
+#include <smedley/telemetry_registry.hpp>
 
 #include <windows.h>
 
@@ -345,6 +346,19 @@ namespace smedley::trace
             if (!Scalars(*entities, &record->entities) || !Scalars(*payload, &record->payload)) {
                 *error = "entity and payload keys must be stable identifiers";
                 return false;
+            }
+            if (const auto *metric = smedley::telemetry::FindMetricEvent(record->event); metric != nullptr) {
+                std::vector<std::string_view> entity_keys;
+                std::vector<std::string_view> payload_keys;
+                entity_keys.reserve(record->entities.size());
+                payload_keys.reserve(record->payload.size());
+                for (const auto &[key, value] : record->entities) { (void)value; entity_keys.push_back(key); }
+                for (const auto &[key, value] : record->payload) { (void)value; payload_keys.push_back(key); }
+                if (!smedley::telemetry::MetricEventMatchesSchema(
+                        *metric, entity_keys.data(), entity_keys.size(), payload_keys.data(), payload_keys.size())) {
+                    *error = record->event + " does not match the metric registry schema";
+                    return false;
+                }
             }
             return true;
         }
@@ -1164,12 +1178,39 @@ namespace smedley::trace
             return true;
         }
 
+        bool HealthyFamilySummary(const Record &record, std::string_view expected_family, bool require_polls,
+                                  int64_t *polls, std::string *error)
+        {
+            const auto *family = Entity(record, "family");
+            int64_t dropped = -1, invalid = -1, accepted_bytes = -1, dropped_bytes = -1;
+            if (record.category != "lifecycle" || record.mapping_id != "v2game-3.04"
+                || record.quality != "verified-current" || record.game_date_raw
+                || family == nullptr || family->kind != JsonKind::String || family->text != expected_family
+                || smedley::telemetry::FindMetricFamily(family->text) == nullptr
+                || !IntegerField(record, "dropped", &dropped) || dropped != 0
+                || !IntegerField(record, "invalid", &invalid) || invalid != 0
+                || !IntegerField(record, "accepted_bytes", &accepted_bytes) || accepted_bytes < 0
+                || !IntegerField(record, "dropped_bytes", &dropped_bytes) || dropped_bytes != 0) {
+                *error = "telemetry.family.summary is unhealthy or malformed";
+                return false;
+            }
+            if (require_polls && (!IntegerField(record, "polls_due", polls) || *polls < 0)) {
+                *error = "telemetry.family.summary is unhealthy or malformed";
+                return false;
+            }
+            return true;
+        }
+
         bool CaptureFamilyHealth(const Record &record, bool *factory_seen, bool *market_seen, std::string *error)
         {
             const auto *family = Entity(record, "family");
-            if (record.category != "lifecycle" || record.mapping_id != "v2game-3.04"
-                || record.quality != "verified-current" || record.game_date_raw || family == nullptr
-                || family->kind != JsonKind::String) {
+            if (record.category != "lifecycle" || record.quality != "verified-current" || record.game_date_raw
+                || family == nullptr || family->kind != JsonKind::String) {
+                *error = "telemetry.family.summary is unhealthy or malformed";
+                return false;
+            }
+            const auto *definition = smedley::telemetry::FindMetricFamily(family->text);
+            if (definition == nullptr || record.mapping_id != definition->mapping_id) {
                 *error = "telemetry.family.summary is unhealthy or malformed";
                 return false;
             }
@@ -1177,12 +1218,7 @@ namespace smedley::trace
             if (family->text == "state.factory") seen = factory_seen;
             else if (family->text == "world.market") seen = market_seen;
             else return true;
-            int64_t dropped = -1, invalid = -1;
-            if (!IntegerField(record, "dropped", &dropped) || !IntegerField(record, "invalid", &invalid)
-                || dropped != 0 || invalid != 0) {
-                *error = "telemetry.family.summary is unhealthy or malformed";
-                return false;
-            }
+            if (!HealthyFamilySummary(record, family->text, false, nullptr, error)) return false;
             if (*seen) { *error = "duplicate telemetry.family.summary record"; return false; }
             *seen = true;
             return true;
@@ -1230,12 +1266,25 @@ namespace smedley::trace
             if (record.event == "telemetry.capture.rule") {
                 const auto *cadence = Field(record, "cadence");
                 bool all_fields = false, bounded_dates = false;
-                int64_t country_count = -1, province_count = -1;
+                int64_t country_count = -1, province_count = -1, projected_count = -1;
+                bool projection_bounded = false;
+                const auto *definition = smedley::telemetry::FindMetricFamily(family->text);
+                const auto *admission = Field(record, "operational_admission");
                 if (rule.seen || cadence == nullptr || cadence->kind != JsonKind::String
+                    || definition == nullptr
                     || !BooleanField(record, "all_fields", &all_fields)
                     || !BooleanField(record, "bounded_dates", &bounded_dates)
                     || !IntegerField(record, "country_filter_count", &country_count) || country_count < 0
-                    || !IntegerField(record, "province_filter_count", &province_count) || province_count < 0) {
+                    || !IntegerField(record, "province_filter_count", &province_count) || province_count < 0
+                    || !IntegerField(record, "projected_entity_count", &projected_count)
+                    || !BooleanField(record, "projection_bounded", &projection_bounded)
+                    || projection_bounded != (projected_count >= 0)
+                    || (projection_bounded && projected_count != country_count + province_count)
+                    || (!projection_bounded && projected_count != -1)
+                    || admission == nullptr || admission->kind != JsonKind::String
+                    || admission->text != (smedley::telemetry::MetricFamilyAdmission(
+                        *definition, static_cast<size_t>(country_count), static_cast<size_t>(province_count))
+                        == smedley::telemetry::MetricAdmission::Reliable ? "reliable" : "best-effort")) {
                     *error = "telemetry.capture.rule is malformed or duplicated";
                     return false;
                 }
@@ -1278,13 +1327,8 @@ namespace smedley::trace
             static const std::set<std::string> required = {
                 "world.market", "state.factory", "province.rgo", "pop.artisan", "pop.aggregate"};
             if (required.find(family->text) == required.end()) return true;
-            int64_t dropped = -1, invalid = -1, polls_due = -1;
-            if (!IntegerField(record, "dropped", &dropped) || !IntegerField(record, "invalid", &invalid)
-                || !IntegerField(record, "polls_due", &polls_due) || polls_due < 0
-                || dropped != 0 || invalid != 0) {
-                *error = "telemetry.family.summary is unhealthy or malformed";
-                return false;
-            }
+            int64_t polls_due = -1;
+            if (!HealthyFamilySummary(record, family->text, true, &polls_due, error)) return false;
             if (!seen->insert(family->text).second) {
                 *error = "duplicate telemetry.family.summary record";
                 return false;
@@ -1886,11 +1930,7 @@ namespace smedley::trace
                 if (family == nullptr || family->kind != JsonKind::String) return true;
                 if (family->text != "state.factory" && family->text != "province.rgo"
                     && family->text != "pop.artisan") return true;
-                int64_t dropped = -1, invalid = -1;
-                if (record.category != "lifecycle" || record.mapping_id != "v2game-3.04"
-                    || record.quality != "verified-current" || record.game_date_raw
-                    || !IntegerField(record, "dropped", &dropped) || dropped != 0
-                    || !IntegerField(record, "invalid", &invalid) || invalid != 0
+                if (!HealthyFamilySummary(record, family->text, false, nullptr, visitor_error)
                     || !healthy_families.insert(family->text).second) {
                     *visitor_error = "producer sales family health is missing, duplicated, or unhealthy";
                     return false;
@@ -1900,11 +1940,11 @@ namespace smedley::trace
             if (record.event == "telemetry.summary") {
                 return CaptureTerminalHealth(record, &terminal_health_sequence, visitor_error);
             }
-            std::string family;
-            if (record.event.rfind("state.factory.sales.", 0) == 0) family = "state.factory";
-            else if (record.event.rfind("province.rgo.sales.", 0) == 0) family = "province.rgo";
-            else if (record.event.rfind("pop.artisan.sales.", 0) == 0) family = "pop.artisan";
-            else return true;
+            const auto *definition = smedley::telemetry::FindMetricFamilyForEvent(record.event);
+            if (definition == nullptr || (definition->id != "state.factory" && definition->id != "province.rgo"
+                && definition->id != "pop.artisan")) return true;
+            if (record.event.find(".sales.") == std::string::npos) return true;
+            const std::string family(definition->id);
             event_families.insert(family);
             if (record.category != "state" || record.mapping_id != "v2game-3.04"
                 || record.quality != "provisional" || !record.game_date_raw) {
@@ -2148,11 +2188,7 @@ namespace smedley::trace
                 const auto *family = Entity(record, "family");
                 if (family == nullptr || family->kind != JsonKind::String
                     || family->text != "pop.cashflow.aggregate") return true;
-                int64_t dropped = -1, invalid = -1;
-                if (family_health_seen || record.category != "lifecycle" || record.mapping_id != "v2game-3.04"
-                    || record.quality != "verified-current" || record.game_date_raw
-                    || !IntegerField(record, "dropped", &dropped) || dropped != 0
-                    || !IntegerField(record, "invalid", &invalid) || invalid != 0) {
+                if (family_health_seen || !HealthyFamilySummary(record, family->text, false, nullptr, visitor_error)) {
                     *visitor_error = "POP cash-flow family health is missing, duplicated, or unhealthy";
                     return false;
                 }
@@ -2423,12 +2459,8 @@ namespace smedley::trace
                 const auto *family = Entity(record, "family");
                 if (family == nullptr || family->kind != JsonKind::String
                     || (family->text != "pop.aggregate" && family->text != "pop.lifecycle")) return true;
-                int64_t dropped = -1, invalid = -1, polls_due = -1;
-                if (record.category != "lifecycle" || record.mapping_id != "v2game-3.04"
-                    || record.quality != "verified-current" || record.game_date_raw
-                    || !IntegerField(record, "dropped", &dropped) || dropped != 0
-                    || !IntegerField(record, "invalid", &invalid) || invalid != 0
-                    || !IntegerField(record, "polls_due", &polls_due) || polls_due < 0
+                int64_t polls_due = -1;
+                if (!HealthyFamilySummary(record, family->text, true, &polls_due, visitor_error)
                     || !family_health.insert(family->text).second) {
                     *visitor_error = "POP stock/lifecycle family health is missing, duplicated, or unhealthy";
                     return false;

@@ -18,6 +18,7 @@
 #include <windows.h>
 
 #include <smedley/telemetry.h>
+#include <smedley/telemetry_registry.hpp>
 
 namespace smedley::telemetry
 {
@@ -26,15 +27,6 @@ namespace smedley::telemetry
     constexpr int kMaxQueueCapacity = 32768;
     constexpr int kMaxSampleDays = 365;
     constexpr size_t kMaxCaptureRules = 32;
-
-    enum class CaptureCadence : uint8_t
-    {
-        FixedDays,
-        Daily,
-        Weekly,
-        Monthly,
-        Yearly,
-    };
 
     struct CaptureRule
     {
@@ -116,6 +108,12 @@ namespace smedley::telemetry
         size_t sequence_offset = 0;
     };
 
+    struct PublicationResult
+    {
+        SmedleyTelemetryResult status = SMEDLEY_TELEMETRY_UNAVAILABLE;
+        size_t formatted_bytes = 0;
+    };
+
     std::string EscapeJson(std::string_view value);
     std::string FormatEnvelope(const Envelope &envelope);
     bool ValidateRecordV1(const SmedleyTelemetryRecordV1 *record, std::string *error);
@@ -125,10 +123,10 @@ namespace smedley::telemetry
                          std::string_view wall_time_utc, uint64_t monotonic_us, PreparedRecordV1 *prepared, std::string *error);
     bool FinalizeRecordV1(const PreparedRecordV1 &prepared, uint64_t sequence, std::string *line);
     bool PrepareEnvelope(const Envelope &envelope, PreparedRecordV1 *prepared);
-    SmedleyTelemetryResult PublishPreparedRecord(const PreparedRecordV1 &prepared, std::atomic<uint64_t> *sequence,
-                                                 std::mutex *emission_mutex, bool blocking,
-                                                 const std::function<bool(std::string_view)> &enqueue,
-                                                 const std::function<void()> &mark_dropped);
+    PublicationResult PublishPreparedRecord(const PreparedRecordV1 &prepared, std::atomic<uint64_t> *sequence,
+                                             std::mutex *emission_mutex, bool blocking,
+                                             const std::function<bool(std::string_view)> &enqueue,
+                                             const std::function<void()> &mark_dropped);
     SmedleyTelemetryResult DispatchRecordV1(const Config *config, const SmedleyTelemetryRecordV1 *record,
                                             uint64_t *sequence, const std::function<bool(std::string_view)> &enqueue);
     bool ValidateConfig(const Config &config, std::string *error);
