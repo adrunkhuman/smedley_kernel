@@ -940,9 +940,9 @@ namespace campaign_runner
             }
         }
         if (!launcher->lobby_requested_) {
-            if (smedley::game_state::AcquireFrontendController(
-                    smedley::game_state::FrontendControllerKind::main_menu, &launcher->main_menu_controller_)
-                != smedley::game_state::FrontendOperationStatus::completed) {
+            const auto acquire_main_menu = smedley::game_state::AcquireFrontendController(
+                smedley::game_state::FrontendControllerKind::main_menu, &launcher->main_menu_controller_);
+            if (acquire_main_menu != smedley::game_state::FrontendOperationStatus::completed) {
                 launcher->ScheduleTimer(1'000, "failed to schedule main-menu controller check");
                 return;
             }
