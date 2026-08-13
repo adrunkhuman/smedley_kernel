@@ -6,13 +6,12 @@ list(REMOVE_ITEM kernel_sources "${CMAKE_CURRENT_SOURCE_DIR}/src/entry.cpp")
 add_library(smedley_kernel_runtime OBJECT ${kernel_sources})
 target_compile_definitions(smedley_kernel_runtime PRIVATE SMEDLEY_KERNEL SMEDLEY_EVENT_BUILD SMEDLEY_EVENT_SERVICES_BUILD
   SMEDLEY_CAMPAIGN_CONTROL_BUILD SMEDLEY_CAMPAIGN_RUNTIME_BUILD SMEDLEY_CAMPAIGN_AUTOMATION_BUILD SMEDLEY_INTEREST_POOL_BUILD
-  SMEDLEY_TELEMETRY_GAME_BUILD SMEDLEY_TELEMETRY_OBSERVATION_BUILD SMEDLEY_LOGGING_BUILD LUA_BUILD_AS_DLL LUA_LIB)
+  SMEDLEY_TELEMETRY_GAME_BUILD SMEDLEY_TELEMETRY_OBSERVATION_BUILD SMEDLEY_LOGGING_BUILD)
 target_include_directories(smedley_kernel_runtime PUBLIC
   "${PROJECT_SOURCE_DIR}/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/include/smedley"
-  "${PROJECT_SOURCE_DIR}/third_party/toml/include"
-  PRIVATE "${PROJECT_SOURCE_DIR}/third_party/victoria2-lua/include")
+  "${PROJECT_SOURCE_DIR}/third_party/toml/include")
 target_link_libraries(smedley_kernel_runtime PRIVATE minhook)
 
 add_library(smedley_kernel SHARED src/entry.cpp src/smedley_kernel.def $<TARGET_OBJECTS:smedley_kernel_runtime>)
@@ -22,8 +21,7 @@ target_include_directories(smedley_kernel PUBLIC
   "${PROJECT_SOURCE_DIR}/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/include"
   "${CMAKE_CURRENT_SOURCE_DIR}/include/smedley"
-  "${PROJECT_SOURCE_DIR}/third_party/toml/include"
-  PRIVATE "${PROJECT_SOURCE_DIR}/third_party/victoria2-lua/include")
+  "${PROJECT_SOURCE_DIR}/third_party/toml/include")
 
 if(BUILD_TESTING)
   FILE(GLOB_RECURSE test_sources CONFIGURE_DEPENDS tests/*_test.cpp)

@@ -1,19 +1,11 @@
 # Third-Party Notices
 
-## Victoria II-facing Lua 5.1.4 headers
-
-The kernel uses checked-in Lua 5.1.4 headers matching Victoria II. They are
-bundled at [`third_party/victoria2-lua/include`](third_party/victoria2-lua/include),
-including the MIT license in
-[`COPYRIGHT`](third_party/victoria2-lua/include/COPYRIGHT).
-
 ## Scripting Lua 5.1.5 runtime
 
 The optional scripting plugin fetches and compiles its private Lua 5.1.5 runtime
-from <https://www.lua.org/ftp/lua-5.1.5.tar.gz>. It does not use the Victoria
-II-facing headers.
+from <https://www.lua.org/ftp/lua-5.1.5.tar.gz>. It does not use Victoria II's
+Lua state or Lua DLLs.
 
-Copyright (C) 1994-2008 Lua.org, PUC-Rio.
 Copyright (C) 1994-2012 Lua.org, PUC-Rio.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of

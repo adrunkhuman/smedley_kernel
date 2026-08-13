@@ -33,9 +33,6 @@ EXPECTED_KERNEL_EXPORTS = {
     "SmedleyGetLoggingApiV1",
     "SmedleyGetTelemetryGameApiV1",
     "SmedleyGetTelemetryObservationApiV1",
-    "luaL_loadstring",
-    "lua_pcall",
-    "lua_tolstring",
 }
 EXPORT_LINE = re.compile(r"^\s*\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)", re.MULTILINE)
 IMPORT_LINE = re.compile(r"^\s+[0-9A-F]+\s+(\S.*)$", re.MULTILINE)
