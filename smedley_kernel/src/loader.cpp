@@ -104,6 +104,7 @@ namespace smedley
         _userdir = documents_path + "\\Paradox Interactive\\Victoria II";
         _plugindir = _gamedir + "\\plugins";
         _log_filepath = _userdir + "\\logs\\smedley.log";
+        ConfigureServiceLogPath(_log_filepath);
 
         _logger = std::make_unique<FileLogger>(_log_filepath, "smedley");
         _logger->Info("initializing plugin loader...");

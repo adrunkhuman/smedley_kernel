@@ -27,6 +27,7 @@ REQUIRED_KERNEL_EXPORTS = {
     "LoadPluginsThread",
     "SmedleyGetCampaignControlApiV1",
     "SmedleyGetEventApiV1",
+    "SmedleyGetLoggingApiV1",
 }
 EXPORT_LINE = re.compile(r"^\s*\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)", re.MULTILINE)
 IMPORT_LINE = re.compile(r"^\s+[0-9A-F]+\s+(\S.*)$", re.MULTILINE)

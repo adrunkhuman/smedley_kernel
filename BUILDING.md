@@ -48,7 +48,8 @@ migrated plugins.
 
 `smedley_dll_boundary_audit` requires kernel exports `LoadPlugins`,
 `LoadPluginsThread`, `SmedleyGetEventApiV1`, and
-`SmedleyGetCampaignControlApiV1`; it also checks exact plugin export sets. The
+`SmedleyGetCampaignControlApiV1`, and `SmedleyGetLoggingApiV1`; it also checks
+exact plugin export sets. The
 test fails for missing required kernel exports, unexpected plugin exports, or an
 increase in a plugin's frozen transitional import count. It prints each mangled
 kernel import so migration progress remains visible.
