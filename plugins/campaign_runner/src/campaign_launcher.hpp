@@ -96,7 +96,6 @@ namespace campaign_runner
         bool telemetry_dropped_logged_ = false;
         smedley::game_state::FrontendControllerToken frontend_controller_;
         smedley::game_state::FrontendControllerToken main_menu_controller_;
-        std::atomic<bool> frontend_captured_{false};
         std::atomic<uint32_t> console_capture_status_{UINT32_MAX};
         std::atomic<uint32_t> console_request_state_{0};
         std::atomic<uint32_t> console_request_argument_count_{0};

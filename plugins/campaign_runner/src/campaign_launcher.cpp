@@ -60,9 +60,12 @@ namespace campaign_runner
 
     void __stdcall CampaignLauncher::NotifyFrontendControllerCaptured(smedley::game_state::FrontendControllerKind kind) noexcept
     {
-        auto *launcher = launcher_instance.load(std::memory_order_acquire);
-        if (launcher != nullptr && kind == smedley::game_state::FrontendControllerKind::frontend)
-            launcher->frontend_captured_.store(true, std::memory_order_release);
+        try {
+            const std::lock_guard<std::recursive_mutex> lock(launcher_callback_mutex);
+            auto *launcher = launcher_instance.load(std::memory_order_acquire);
+            if (launcher != nullptr) launcher->OnFrontendControllerCaptured(kind);
+        } catch (...) {
+        }
     }
 
     void __stdcall CampaignLauncher::NotifyObserverAnnexation(int annexed_ordinal) noexcept
@@ -180,33 +183,34 @@ namespace campaign_runner
             return false;
         }
         logger_.Info("waiting for the frontend before unattended save loading");
-        ScheduleTimer(1'000, "failed to schedule frontend hook polling");
         return true;
     }
 
     void CampaignLauncher::Stop()
     {
-        const std::lock_guard<std::recursive_mutex> lock(launcher_callback_mutex);
-        if (observer_view_switch_pending_) {
-            smedley::game_state::ObserverCountrySnapshot target{};
-            if (smedley::game_state::ReadObserverCountry(observer_target_ordinal_, &target)
-                    == smedley::game_state::ObserverObservationStatus::completed
-                && target.exists && target.human_controlled && !target.has_ai) {
-                smedley::game_state::ReturnObserverCountryToAI(target);
+        {
+            const std::lock_guard<std::recursive_mutex> lock(launcher_callback_mutex);
+            if (observer_view_switch_pending_) {
+                smedley::game_state::ObserverCountrySnapshot target{};
+                if (smedley::game_state::ReadObserverCountry(observer_target_ordinal_, &target)
+                        == smedley::game_state::ObserverObservationStatus::completed
+                    && target.exists && target.human_controlled && !target.has_ai) {
+                    smedley::game_state::ReturnObserverCountryToAI(target);
+                }
             }
-        }
-        if (save_timer_ != 0) {
-            KillTimer(nullptr, save_timer_);
-            save_timer_ = 0;
+            if (save_timer_ != 0) {
+                KillTimer(nullptr, save_timer_);
+                save_timer_ = 0;
+            }
+            frontend_controller_ = {};
+            main_menu_controller_ = {};
+            observer_console_ready_ = false;
+            launcher_instance.store(nullptr, std::memory_order_release);
         }
         smedley::game_state::DeactivateFrontendAutomation();
-        frontend_controller_ = {};
-        main_menu_controller_ = {};
         smedley::game_state::DeactivateCampaignAutomation();
-        observer_console_ready_ = false;
-        // Legacy plugin modules remain loaded. Leave callbacks inert rather than
+        // Plugin modules remain loaded. Leave callbacks inert rather than
         // rewriting executable memory without a process-wide quiescence protocol.
-        launcher_instance.store(nullptr, std::memory_order_release);
     }
 
     void CampaignLauncher::OnConsoleCommandManagerCaptured(
@@ -411,8 +415,6 @@ namespace campaign_runner
 
     void CampaignLauncher::DrainHookWork()
     {
-        if (frontend_captured_.exchange(false, std::memory_order_acq_rel))
-            OnFrontendControllerCaptured(smedley::game_state::FrontendControllerKind::frontend);
         const uint32_t status = console_capture_status_.exchange(UINT32_MAX, std::memory_order_acq_rel);
         if (status != UINT32_MAX) OnConsoleCommandManagerCaptured(
             static_cast<smedley::game_state::CampaignConsoleCaptureStatus>(status));
