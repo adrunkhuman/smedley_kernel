@@ -405,6 +405,16 @@ namespace
     std::mutex bank_authority_mutex;
     thread_local BankAuthoritySlot *bank_authority = nullptr;
 
+    void ResetBankAuthoritySlot(BankAuthoritySlot *slot) noexcept
+    {
+        slot->previous = nullptr;
+        slot->authority = 0;
+        slot->thread = {};
+        slot->access.reset();
+        slot->state_count = 0;
+        slot->pop_count = 0;
+    }
+
     SmedleyInterestPoolResult InterestResult(PopInterestMutationStatus status, bool partial = false)
     {
         if (status == PopInterestMutationStatus::success) return SMEDLEY_INTEREST_POOL_SUCCESS;
@@ -947,7 +957,7 @@ namespace smedley::game_state
             break;
         }
         if (binding == nullptr) return false;
-        *binding = {};
+        ResetBankAuthoritySlot(binding);
         binding->previous = bank_authority;
         binding->authority = authority;
         binding->thread = std::this_thread::get_id();
@@ -961,7 +971,7 @@ namespace smedley::game_state
             std::lock_guard<std::mutex> lock(bank_authority_mutex);
             auto *previous = bank_authority->previous;
             const auto index = static_cast<size_t>(bank_authority - bank_authority_slots.data());
-            *bank_authority = {};
+            ResetBankAuthoritySlot(bank_authority);
             bank_authority_slot_active[index] = false;
             bank_authority = previous;
         }
