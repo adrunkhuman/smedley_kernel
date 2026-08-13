@@ -645,6 +645,7 @@ namespace
     SmedleyCampaignAutomationResult SMEDLEY_CAMPAIGN_AUTOMATION_CALL DeactivateCampaignAutomation(
         SmedleyCampaignAutomation automation)
     {
+        if (!IsServiceOwnerThread()) return SMEDLEY_CAMPAIGN_AUTOMATION_WRONG_THREAD;
         auto *slot = FindCampaignAutomation(automation);
         if (callback_automation == automation) return SMEDLEY_CAMPAIGN_AUTOMATION_BUSY;
         if (slot == nullptr) return SMEDLEY_CAMPAIGN_AUTOMATION_STALE_HANDLE;
