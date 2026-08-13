@@ -1,20 +1,6 @@
 {
   "campaign_runner": [],
-  "interest_bug_fix": [
-    "??0Plugin@smedley@@QAE@XZ",
-    "?ApplyStateInterestPayout@game_state@smedley@@YA?AW4PopInterestMutationStatus@12@AAVBankInterestAccess@12@ABUStateInterestCandidate@12@PAUPopInterestBatchEntry@12@IPAUPopInterestBatchResult@12@@Z",
-    "?CollectCountryStateInterest@game_state@smedley@@YA_NV?$Reference@UCountryReferenceCategory@detail@game_state@smedley@@@12@V?$Reference@UGameStateReferenceCategory@detail@game_state@smedley@@@12@HPAUStateInterestCandidate@12@IPAIPAUPopCandidate@12@II3PAUCountryEconomySnapshot@12@@Z",
-    "?DiscardStateInterestPools@game_state@smedley@@YA?AW4PopInterestMutationStatus@12@AAVBankInterestAccess@12@PAUStateInterestInitializationResult@12@@Z",
-    "?DistributesToStates@BankInterestEvent@events@smedley@@QBE_NXZ",
-    "?FromEvent@BankInterestAccess@game_state@smedley@@SA?AV123@AAVBankInterestEvent@events@3@@Z",
-    "?GetCountryIndex@BankInterestEvent@events@smedley@@QBEIXZ",
-    "?GetPhase@BankInterestEvent@events@smedley@@QBE?AW4BankInterestPhase@23@XZ",
-    "?Log@Logger@smedley@@QAEXW4Level@12@ABV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z",
-    "?PrepareCountryStateInterestPayouts@game_state@smedley@@YA?AW4PopInterestMutationStatus@12@AAVBankInterestAccess@12@PBUStateInterestCandidate@12@I@Z",
-    "?ReadCurrentDate@game_state@smedley@@YA_NV?$Reference@UGameStateReferenceCategory@detail@game_state@smedley@@@12@PAH@Z",
-    "?_handlers@?$EventRegistry@VBankInterestEvent@events@smedley@@@smedley@@1V?$vector@UHandler@?$EventRegistry@VBankInterestEvent@events@smedley@@@smedley@@V?$allocator@UHandler@?$EventRegistry@VBankInterestEvent@events@smedley@@@smedley@@@std@@@std@@A",
-    "?_notification_depth@?$EventRegistry@VBankInterestEvent@events@smedley@@@smedley@@1IA"
-  ],
+  "interest_bug_fix": [],
   "scripting": [],
   "telemetry": [
     "??0Plugin@smedley@@QAE@XZ",

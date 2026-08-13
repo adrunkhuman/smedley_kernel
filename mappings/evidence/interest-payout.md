@@ -501,6 +501,28 @@ could double-pay a POP. The next first-country boundary performs a complete
 checked discard before resetting that latch. Callbacks perform no file I/O; a
 bounded worker writes `interest_bug_fix.csv` only in diagnostic mode.
 
+### C ABI boundary
+
+The production module now exports only `SmedleyPluginGetApiV1`. At load it
+resolves `event_services`, `interest_pool`, and `logging` C APIs from the loaded
+kernel and has no import or link dependency on the kernel C++ runtime. The bank
+callback uses only fixed preallocated state, POP, allocation, payout, and queue
+buffers. It collects, prepares, applies, or discards synchronously while its
+authority is valid, then copies a fixed diagnostic result to the worker queue.
+The callback does not allocate, wait, log, emit telemetry, resolve modules, or
+perform file I/O. The worker is the only code that logs, emits telemetry, or
+writes CSV output.
+
+The current `SmedleyBankInterestEventV1` contains phase, country index,
+distribution eligibility, and callback-scoped authority, but no copied game date
+or country tag or session marker. Diagnostics therefore record `country_index`;
+date is emitted as unavailable and telemetry is labelled `metadata-degraded`. No
+country tag or date is fabricated. Since a loaded plugin cannot detect a replaced
+campaign session from this record, it conservatively discards pools at every
+country-zero before callback rather than retaining session state. A future event
+ABI that copies these fields can promote them and restore once-per-session cleanup
+without changing the callback authority lifetime contract.
+
 The exact batched CSV header is:
 
 ```text

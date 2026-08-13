@@ -13,7 +13,7 @@ namespace interest_bug_fix
     class TelemetryBridge
     {
     public:
-        SmedleyTelemetryResult Emit(const char *event_type, const char *quality, int32_t date_raw,
+        SmedleyTelemetryResult Emit(const char *event_type, const char *quality, int32_t date_raw, bool has_game_date,
                                     const SmedleyTelemetryFieldV1 *entities, uint32_t entity_count,
                                     const SmedleyTelemetryFieldV1 *payload, uint32_t payload_count,
                                     bool reliable = false);

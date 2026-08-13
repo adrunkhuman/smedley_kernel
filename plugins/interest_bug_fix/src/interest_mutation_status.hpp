@@ -1,6 +1,6 @@
 #pragma once
 
-#include <smedley/game_state/runtime.hpp>
+#include <smedley/interest_pool_api.h>
 
 namespace interest_bug_fix
 {
@@ -14,10 +14,10 @@ namespace interest_bug_fix
         partial_mutation,
     };
 
-    PopInterestFailureClass ClassifyPopInterestFailure(smedley::game_state::PopInterestMutationStatus status);
+    PopInterestFailureClass ClassifyPopInterestFailure(SmedleyInterestPoolResult status);
     PopInterestFailureClass ClassifyAppliedPopInterestFailure(
-        smedley::game_state::PopInterestMutationStatus status, bool prior_mutation);
-    bool IsUnsafePopInterestFailure(smedley::game_state::PopInterestMutationStatus status);
+        SmedleyInterestPoolResult status, bool prior_mutation);
+    bool IsUnsafePopInterestFailure(SmedleyInterestPoolResult status);
     bool IsUnsafeAppliedPopInterestFailure(
-        smedley::game_state::PopInterestMutationStatus status, bool prior_mutation);
+        SmedleyInterestPoolResult status, bool prior_mutation);
 }
