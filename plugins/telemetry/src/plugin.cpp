@@ -3224,11 +3224,16 @@ SmedleyTelemetryDrainV1(uint32_t timeout_ms)
 
 namespace
 {
+    struct TelemetryInstance
+    {
+        telemetry_plugin::Plugin *plugin = nullptr;
+    };
+
     SmedleyPluginResult SMEDLEY_PLUGIN_CALL CreateTelemetry(void *instance, uint32_t size)
     {
-        if (instance == nullptr || size != sizeof(telemetry_plugin::Plugin)) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
+        if (instance == nullptr || size != sizeof(TelemetryInstance)) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
         try {
-            new (instance) telemetry_plugin::Plugin{};
+            static_cast<TelemetryInstance *>(instance)->plugin = new telemetry_plugin::Plugin{};
             return SMEDLEY_PLUGIN_SUCCESS;
         } catch (...) {
             return SMEDLEY_PLUGIN_FAILURE;
@@ -3237,9 +3242,10 @@ namespace
 
     SmedleyPluginResult SMEDLEY_PLUGIN_CALL LoadTelemetry(void *instance)
     {
-        if (instance == nullptr) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
+        auto *state = static_cast<TelemetryInstance *>(instance);
+        if (state == nullptr || state->plugin == nullptr) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
         try {
-            static_cast<telemetry_plugin::Plugin *>(instance)->OnLoad();
+            state->plugin->OnLoad();
             return SMEDLEY_PLUGIN_SUCCESS;
         } catch (...) {
             return SMEDLEY_PLUGIN_FAILURE;
@@ -3248,9 +3254,10 @@ namespace
 
     SmedleyPluginResult SMEDLEY_PLUGIN_CALL UnloadTelemetry(void *instance)
     {
-        if (instance == nullptr) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
+        auto *state = static_cast<TelemetryInstance *>(instance);
+        if (state == nullptr || state->plugin == nullptr) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
         try {
-            static_cast<telemetry_plugin::Plugin *>(instance)->OnUnload();
+            state->plugin->OnUnload();
             return SMEDLEY_PLUGIN_SUCCESS;
         } catch (...) {
             return SMEDLEY_PLUGIN_FAILURE;
@@ -3259,7 +3266,10 @@ namespace
 
     void SMEDLEY_PLUGIN_CALL DestroyTelemetry(void *instance)
     {
-        if (instance != nullptr) static_cast<telemetry_plugin::Plugin *>(instance)->~Plugin();
+        if (instance == nullptr) return;
+        auto *state = static_cast<TelemetryInstance *>(instance);
+        delete state->plugin;
+        state->plugin = nullptr;
     }
 }
 
@@ -3269,8 +3279,8 @@ SMEDLEY_PLUGIN_EXPORT SmedleyPluginResult SMEDLEY_PLUGIN_CALL SmedleyPluginGetAp
         || api->reserved[0] || api->reserved[1] || api->reserved[2] || api->reserved[3]) {
         return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
     }
-    api->instance_size = sizeof(telemetry_plugin::Plugin);
-    api->instance_alignment = alignof(telemetry_plugin::Plugin);
+    api->instance_size = sizeof(TelemetryInstance);
+    api->instance_alignment = alignof(TelemetryInstance);
     api->create = &CreateTelemetry;
     api->load = &LoadTelemetry;
     api->unload = &UnloadTelemetry;

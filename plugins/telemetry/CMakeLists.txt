@@ -10,10 +10,15 @@ target_include_directories(telemetry PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_definitions(telemetry PRIVATE SMEDLEY_TELEMETRY_BUILD)
 
 if(BUILD_TESTING)
-  add_executable(smedley_telemetry_core_tests tests/telemetry_core_test.cpp tests/country_economy_core_test.cpp
+  add_executable(smedley_telemetry_core_tests tests/telemetry_core_test.cpp tests/telemetry_plugin_test.cpp tests/country_economy_core_test.cpp
     tests/producer_sales_core_test.cpp tests/pop_cash_flow_core_test.cpp
-    tests/economic_capture_core_test.cpp tests/pop_identity_core_test.cpp)
+    tests/economic_capture_core_test.cpp tests/pop_identity_core_test.cpp
+    "${CMAKE_SOURCE_DIR}/smedley_kernel/src/plugin_abi_runtime.cpp")
   target_link_libraries(smedley_telemetry_core_tests PRIVATE smedley_telemetry_core GTest::gtest_main)
+  target_include_directories(smedley_telemetry_core_tests PRIVATE
+    "${CMAKE_SOURCE_DIR}/smedley_kernel/include"
+    "${CMAKE_SOURCE_DIR}/smedley_kernel/include/smedley")
+  add_dependencies(smedley_telemetry_core_tests telemetry)
   include(GoogleTest)
   gtest_discover_tests(smedley_telemetry_core_tests DISCOVERY_TIMEOUT 30)
   add_library(smedley_telemetry_abi_c_compile_test OBJECT tests/telemetry_header_c_test.c)
