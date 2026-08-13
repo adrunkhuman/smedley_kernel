@@ -42,14 +42,6 @@ Their names, offsets, signatures, calling conventions, and semantics are
 historical-unverified and unsupported. The archived blobs are search history,
 not permission to regenerate wrappers or call those candidates.
 
-The kernel also formerly exported `luaL_loadstring`, `lua_pcall`, and
-`lua_tolstring` through unchecked Victoria II import-table slots at RVAs
-`0x0088a478`, `0x0088a4a8`, and `0x0088a548`. No internal consumer remained
-after scripting moved to its private Lua 5.1.5 runtime, so the shims and bundled
-Victoria II-facing Lua 5.1.4 headers were removed. Those RVAs are
-historical-unverified and are not supported mappings or plugin compatibility
-surfaces.
-
 ## Current game-state singleton
 
 The retired `CCurrentGameState` model supplied preferred VA `0x012588e8`, which
