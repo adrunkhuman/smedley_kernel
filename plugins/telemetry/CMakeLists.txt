@@ -2,10 +2,14 @@ add_library(smedley_telemetry_core STATIC src/telemetry_core.cpp src/country_eco
   src/pop_cash_flow_core.cpp src/pop_identity_core.cpp src/economic_capture_core.cpp)
 target_compile_definitions(smedley_telemetry_core PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_include_directories(smedley_telemetry_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/include")
+target_link_libraries(smedley_telemetry_core PUBLIC smedley_telemetry_registry)
 
-add_library(telemetry MODULE src/plugin.cpp src/economic_capture.cpp src/economic_capture.hpp src/telemetry_services.cpp)
+add_library(telemetry MODULE src/plugin.cpp src/economic_capture.cpp src/economic_capture.hpp src/telemetry_services.cpp
+  src/world_collector.cpp src/world_collector.hpp src/province_collector.cpp src/province_collector.hpp
+  src/country_collector.cpp src/country_collector.hpp src/factory_economy_collector.cpp
+  src/factory_economy_collector.hpp src/population_collector.cpp src/population_collector.hpp)
 set_target_properties(telemetry PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
-target_link_libraries(telemetry PRIVATE smedley_telemetry_core shell32)
+target_link_libraries(telemetry PRIVATE smedley_telemetry_core smedley_telemetry_registry shell32)
 target_include_directories(telemetry PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_definitions(telemetry PRIVATE SMEDLEY_TELEMETRY_BUILD)
 

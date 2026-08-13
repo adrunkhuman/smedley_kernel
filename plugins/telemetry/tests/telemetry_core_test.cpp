@@ -1,5 +1,6 @@
 #include "telemetry_core.hpp"
 #include "economic_capture_core.hpp"
+#include <smedley/telemetry_registry.hpp>
 
 #include <gtest/gtest.h>
 
@@ -189,15 +190,17 @@ TEST(TelemetryPublishTest, OrdersAcceptedRecordsAndAccountsForContentionGaps)
     const auto mark_dropped = [&dropped] { dropped.fetch_add(1, std::memory_order_relaxed); };
     std::unique_lock<std::mutex> held(mutex);
     std::thread contender([&] {
-        EXPECT_EQ(telemetry::PublishPreparedRecord(first, &sequence, &mutex, false, enqueue, mark_dropped), SMEDLEY_TELEMETRY_DROPPED);
+        const auto result = telemetry::PublishPreparedRecord(first, &sequence, &mutex, false, enqueue, mark_dropped);
+        EXPECT_EQ(result.status, SMEDLEY_TELEMETRY_DROPPED);
+        EXPECT_GT(result.formatted_bytes, 0u);
     });
     contender.join();
     held.unlock();
     std::thread producer_a([&] {
-        EXPECT_EQ(telemetry::PublishPreparedRecord(second, &sequence, &mutex, true, enqueue, mark_dropped), SMEDLEY_TELEMETRY_ACCEPTED);
+        EXPECT_EQ(telemetry::PublishPreparedRecord(second, &sequence, &mutex, true, enqueue, mark_dropped).status, SMEDLEY_TELEMETRY_ACCEPTED);
     });
     std::thread producer_b([&] {
-        EXPECT_EQ(telemetry::PublishPreparedRecord(third, &sequence, &mutex, true, enqueue, mark_dropped), SMEDLEY_TELEMETRY_ACCEPTED);
+        EXPECT_EQ(telemetry::PublishPreparedRecord(third, &sequence, &mutex, true, enqueue, mark_dropped).status, SMEDLEY_TELEMETRY_ACCEPTED);
     });
     producer_a.join();
     producer_b.join();
@@ -209,6 +212,24 @@ TEST(TelemetryPublishTest, OrdersAcceptedRecordsAndAccountsForContentionGaps)
     EXPECT_LT(first_sequence, second_sequence);
     EXPECT_EQ(dropped.load(std::memory_order_relaxed), 1u);
     EXPECT_EQ(sequence.load(std::memory_order_relaxed), 3u);
+}
+
+TEST(TelemetryPublishTest, ReportsFinalizedBytesForAcceptedAndDroppedRecords)
+{
+    const auto record = Record();
+    telemetry::PreparedRecordV1 prepared;
+    std::string error;
+    ASSERT_TRUE(telemetry::PrepareRecordV1(&record, "run-1", "2026-07-31T12:34:56.789Z", 1, &prepared, &error)) << error;
+    std::atomic<uint64_t> sequence{0};
+    std::mutex mutex;
+    const auto accepted = telemetry::PublishPreparedRecord(prepared, &sequence, &mutex, false,
+        [](std::string_view) { return true; }, [] {});
+    EXPECT_EQ(accepted.status, SMEDLEY_TELEMETRY_ACCEPTED);
+    EXPECT_GT(accepted.formatted_bytes, 0u);
+    const auto dropped = telemetry::PublishPreparedRecord(prepared, &sequence, &mutex, false,
+        [](std::string_view) { return false; }, [] {});
+    EXPECT_EQ(dropped.status, SMEDLEY_TELEMETRY_DROPPED);
+    EXPECT_GT(dropped.formatted_bytes, 0u);
 }
 
 TEST(TelemetryQueueTest, IsBoundedAndAccountsForDrops)
@@ -391,6 +412,179 @@ TEST(TelemetrySamplingTest, AppliesIndependentCalendarCadences)
     EXPECT_TRUE(telemetry::ShouldCaptureDate(59'883'384, yearly, &yearly_state));
 }
 
+TEST(TelemetryQueueTest, DoesNotDoubleCountQueueRejectionFromPreparedPublication)
+{
+    const auto record = Record();
+    telemetry::PreparedRecordV1 prepared;
+    std::string error;
+    ASSERT_TRUE(telemetry::PrepareRecordV1(&record, "run-1", "2026-07-31T12:34:56.789Z", 1, &prepared, &error)) << error;
+    telemetry::BoundedQueue queue(1);
+    ASSERT_TRUE(queue.TryPush("full"));
+    const auto before = queue.stats().dropped;
+    std::atomic<uint64_t> sequence{0};
+    std::mutex mutex;
+    const auto result = telemetry::PublishPreparedRecord(prepared, &sequence, &mutex, false,
+        [&queue](std::string_view line) { return queue.TryPush(line); }, [] {});
+    EXPECT_EQ(result.status, SMEDLEY_TELEMETRY_DROPPED);
+    EXPECT_EQ(queue.stats().dropped, before + 1);
+}
+
+TEST(TelemetryRegistryTest, CoversUniqueFamiliesAndPlansOnlyConfiguredHooks)
+{
+    size_t count = 0;
+    const auto *families = telemetry::MetricFamilies(&count);
+    ASSERT_EQ(count, 22u);
+    for (size_t index = 0; index < count; ++index) {
+        ASSERT_NE(telemetry::FindMetricFamily(families[index].id), nullptr);
+        EXPECT_GT(families[index].field_count, 0u);
+        EXPECT_GT(families[index].event_count, 0u);
+        for (size_t field = 0; field < families[index].field_count; ++field) {
+            EXPECT_FALSE(families[index].fields[field].empty());
+            for (size_t other = 0; other < field; ++other) EXPECT_NE(families[index].fields[field], families[index].fields[other]);
+        }
+        for (size_t event = 0; event < families[index].event_count; ++event) {
+            EXPECT_FALSE(families[index].events[event].id.empty());
+            EXPECT_FALSE(families[index].events[event].entity_schema.empty());
+            EXPECT_FALSE(families[index].events[event].payload_schema.empty());
+            EXPECT_TRUE(telemetry::MetricFamilyEmitsEvent(families[index], families[index].events[event].id));
+            EXPECT_EQ(telemetry::FindMetricFamilyForEvent(families[index].events[event].id), &families[index]);
+            EXPECT_EQ(telemetry::FindMetricEvent(families[index].events[event].id), &families[index].events[event]);
+            EXPECT_NE(families[index].events[event].entity_schema, "entity");
+            EXPECT_NE(families[index].events[event].payload_schema, "payload");
+        }
+        EXPECT_FALSE(telemetry::MetricFamilyEmitsEvent(families[index], std::string(families[index].id) + ".fake"));
+        for (size_t other = 0; other < index; ++other) EXPECT_NE(families[index].id, families[other].id);
+    }
+    const auto lifecycle_only = telemetry::BuildRuntimePlan(nullptr, 0);
+    EXPECT_FALSE(lifecycle_only.open_observation);
+    const std::string_view factory_fields[] = {"sales"};
+    const telemetry::MetricRuleSelection selected[] = {{"state.factory", factory_fields, 1}, {"pop.cashflow", nullptr, 0}};
+    const auto plan = telemetry::BuildRuntimePlan(selected, 2);
+    EXPECT_TRUE(plan.open_observation);
+    EXPECT_TRUE(plan.install_factory_sales_hook);
+    EXPECT_TRUE(plan.install_pop_cashflow_hook);
+    EXPECT_FALSE(plan.install_factory_flow_hook);
+    const std::string_view production_fields[] = {"production"};
+    const telemetry::MetricRuleSelection no_hooks[] = {{"state.factory", production_fields, 1}};
+    const auto no_hook_plan = telemetry::BuildRuntimePlan(no_hooks, 1);
+    EXPECT_FALSE(no_hook_plan.install_factory_sales_hook);
+    EXPECT_FALSE(no_hook_plan.install_factory_flow_hook);
+    EXPECT_FALSE(no_hook_plan.install_artisan_flow_hook);
+    EXPECT_FALSE(no_hook_plan.install_pop_cashflow_hook);
+}
+
+TEST(TelemetryRegistryTest, DefinesCanonicalRepresentativeAndStrictExporterSchemas)
+{
+    struct ExpectedSchema { std::string_view event, entities, payload; };
+    constexpr ExpectedSchema schemas[] = {
+        {"world.daily", "-", "country_slot_count?,ai_scheduler_entry_count?,human_control_present?"},
+        {"world.economy.health", "-", "complete,snapshot_flags,collection_flags,credit_flags,country_count,state_count,province_count,pop_count"},
+        {"world.military", "-", "ongoing_war_count_candidate"},
+        {"country.daily", "country_tag", "treasury_raw?,treasury?"},
+        {"country.metrics.power", "country_tag", "prestige_candidate_raw,infamy_candidate_raw,ranking_candidate,military_ranking_candidate,industrial_ranking_candidate,prestige_ranking_candidate"},
+        {"country.economy.component", "country_tag,component", "nominal_value_added,real_value_added"},
+        {"country.military", "country_tag", "unit_count_candidate?,mobilized_candidate?,scheduled_mobilization_count_candidate?,leadership_candidate_raw?,military_ranking_candidate?"},
+        {"country.diplomacy.status", "country_tag", "substate_candidate,vassal_candidate,overlord_tag_candidate,sphere_leader_tag_candidate"},
+        {"province.daily", "province_id", "owner_tag_candidate?,controller_tag_candidate?,colonial_level_candidate?,life_rating_candidate?,infrastructure_candidate_raw?"},
+        {"province.production", "province_id", "building_slot_count_candidate?,construction_count_candidate?"},
+        {"pop.economy", "province_id_candidate,pop_type_id_candidate,pop_id", "money_raw?,savings_raw?,interest_cash_flow_raw?,total_cash_flow_raw?"},
+        {"pop.demographics", "province_id_candidate,pop_type_id_candidate,pop_id", "size_candidate?,employed_candidate?,consciousness_candidate_raw?,militancy_candidate_raw?,literacy_candidate_raw?"},
+        {"pop.identity", "province_id_candidate,pop_type_id_candidate,pop_id", "pop_type_tag_candidate?,culture_tag_candidate?,religion_tag_candidate?"},
+        {"pop.needs", "province_id_candidate,pop_type_id_candidate,pop_id", "life_satisfaction_candidate_raw?,everyday_satisfaction_candidate_raw?,luxury_satisfaction_candidate_raw?"},
+        {"pop.aggregate", "country_tag,province_id_candidate,pop_type_id_candidate", "pop_count?,size_candidate?,employed_candidate?,money_raw?,savings_raw?"},
+        {"pop.lifecycle.summary", "-", "opening_seen,opening_pop_count,closing_pop_count,observed_appeared_count,observed_disappeared_count,scope_changed_count,unchanged_count,complete"},
+        {"pop.cashflow.component", "country_tag,province_id,pop_type_id_candidate,pop_id,cash_flow_index,component", "posted_raw,money_delta_raw"},
+        {"pop.cashflow.aggregate.summary", "country_tag,pop_type_id_candidate", "opening_pop_count,closing_pop_count,opening_money_seen,reconciled"},
+        {"state.factory.production", "country_tag,state_id,factory_type", "output_raw,output_good_ordinal,output_good,base_output_raw"},
+        {"state.factory.input.flow.summary", "country_tag,state_id,factory_type", "post_consumption_seen,pre_purchase_seen,primary_delivery_seen,secondary_delivery_seen,settlement_count"},
+        {"state.factory.input.flow", "country_tag,state_id,factory_type,good_ordinal", "post_consumption_raw,pre_purchase_raw,delivered_primary_raw,delivered_secondary_raw"},
+        {"state.factory.sales.summary", "country_tag,state_id,factory_type", "settlement_seen,settlement_count,complete"},
+        {"state.factory.sales.quantity", "country_tag,state_id,factory_type", "output_good_ordinal,opening_inventory_raw,produced_raw,sold_raw,closing_inventory_raw"},
+        {"state.factory.sales.revenue", "country_tag,state_id,factory_type", "proceeds_raw"},
+        {"world.market.price", "good_ordinal", "price_raw,last_price_raw"},
+        {"province.rgo.identity", "country_tag,province_id", "production_type,output_good_ordinal,output_good"},
+        {"province.rgo.production", "country_tag,province_id", "base_output_per_size_raw,base_size_raw_candidate,base_size_raw,output_efficiency_raw,throughput_raw,gross_output_raw"},
+        {"province.rgo.finance", "country_tag,province_id", "income_raw"},
+        {"province.rgo.sales.summary", "country_tag,province_id", "settlement_seen,opening_inventory_seen,complete"},
+        {"province.rgo.sales.quantity", "country_tag,province_id", "output_good_ordinal,opening_inventory_raw,produced_raw,sold_raw,closing_inventory_raw"},
+        {"province.rgo.sales.revenue", "country_tag,province_id", "proceeds_raw,percent_sold_domestic_raw,percent_sold_export_raw"},
+        {"pop.artisan.identity", "country_tag,province_id,pop_id", "production_type,output_good_ordinal,output_good"},
+        {"pop.artisan.production", "country_tag,province_id,pop_id", "base_output_raw,current_producing_raw,gross_output_raw"},
+        {"pop.artisan.input", "country_tag,province_id,pop_id,good_ordinal", "stockpile_raw,need_raw"},
+        {"pop.artisan.input.flow.summary", "country_tag,province_id,pop_id", "post_consumption_seen,pre_purchase_seen,primary_delivery_seen,secondary_delivery_seen,settlement_count"},
+        {"pop.artisan.input.flow", "country_tag,province_id,pop_id,good_ordinal", "post_consumption_raw,pre_purchase_raw,delivered_primary_raw,delivered_secondary_raw"},
+        {"pop.artisan.sales.summary", "country_tag,province_id,pop_id", "settlement_seen,opening_inventory_seen,complete"},
+        {"pop.artisan.sales.quantity", "country_tag,province_id,pop_id", "output_good_ordinal,opening_inventory_raw,produced_raw,sold_raw,closing_inventory_raw"},
+        {"pop.artisan.sales.revenue", "country_tag,province_id,pop_id", "proceeds_raw,percent_sold_domestic_raw,percent_sold_export_raw"},
+    };
+    for (const auto &expected : schemas) {
+        const auto *event = telemetry::FindMetricEvent(expected.event);
+        ASSERT_NE(event, nullptr) << expected.event;
+        EXPECT_EQ(event->entity_schema, expected.entities) << expected.event;
+        EXPECT_EQ(event->payload_schema, expected.payload) << expected.event;
+    }
+}
+
+TEST(TelemetryRegistryTest, EnforcesRequiredOptionalAndUnexpectedSchemaFields)
+{
+    const auto *event = telemetry::FindMetricEvent("country.daily");
+    ASSERT_NE(event, nullptr);
+    const std::string_view entities[] = {"country_tag"};
+    const std::string_view complete_payload[] = {"treasury_raw", "treasury"};
+    const std::string_view partial_payload[] = {"treasury_raw"};
+    const std::string_view unexpected_payload[] = {"treasury_raw", "other"};
+    EXPECT_TRUE(telemetry::MetricEventMatchesSchema(*event, entities, 1, complete_payload, 2));
+    EXPECT_TRUE(telemetry::MetricEventMatchesSchema(*event, entities, 1, partial_payload, 1));
+    EXPECT_TRUE(telemetry::MetricEventMatchesSchema(*event, entities, 1, nullptr, 0));
+    EXPECT_FALSE(telemetry::MetricEventMatchesSchema(*event, nullptr, 0, complete_payload, 2));
+    EXPECT_FALSE(telemetry::MetricEventMatchesSchema(*event, entities, 1, unexpected_payload, 2));
+}
+
+TEST(TelemetryRegistryTest, CentralizesValidationAndAdmission)
+{
+    const auto *cashflow = telemetry::FindMetricFamily("pop.cashflow");
+    ASSERT_NE(cashflow, nullptr);
+    EXPECT_EQ(telemetry::MetricFamilyValidate(*cashflow, telemetry::CaptureCadence::FixedDays, 2, nullptr, 0, 1, 0),
+              telemetry::MetricValidationError::DailyCadenceRequired);
+    EXPECT_EQ(telemetry::MetricValidationErrorMessage(telemetry::MetricValidationError::DailyCadenceRequired),
+              "capture requires daily cadence");
+    const auto *factory = telemetry::FindMetricFamily("state.factory");
+    ASSERT_NE(factory, nullptr);
+    EXPECT_EQ(telemetry::MetricFamilyAdmission(*factory, 0, 0), telemetry::MetricAdmission::BestEffort);
+    EXPECT_EQ(telemetry::MetricFamilyAdmission(*factory, 1, 0), telemetry::MetricAdmission::Reliable);
+    EXPECT_EQ(telemetry::MetricFamilyAdmission(*factory, 16, 0), telemetry::MetricAdmission::Reliable);
+    EXPECT_EQ(telemetry::MetricFamilyAdmission(*factory, 17, 0), telemetry::MetricAdmission::BestEffort);
+    const auto *lifecycle = telemetry::FindMetricFamily("pop.lifecycle");
+    ASSERT_NE(lifecycle, nullptr);
+    EXPECT_EQ(telemetry::MetricFamilyAdmission(*lifecycle, 0, 0), telemetry::MetricAdmission::Reliable);
+    EXPECT_EQ(telemetry::MetricFamilyAdmission(*lifecycle, 17, 0), telemetry::MetricAdmission::Reliable);
+    EXPECT_EQ(telemetry::FindMetricFamilyForEvent("state.factory.production.fake"), nullptr);
+    EXPECT_EQ(telemetry::FindMetricEvent("state.factory.production.fake"), nullptr);
+}
+
+TEST(TelemetryRegistryTest, PlansHooksForConfiguredFieldsOnly)
+{
+    const std::string_view production[] = {"production"};
+    const std::string_view flows[] = {"flows"};
+    const telemetry::MetricRuleSelection factory_no_hooks[] = {{"state.factory", production, 1}};
+    const telemetry::MetricRuleSelection factory_all_fields[] = {{"state.factory", nullptr, 0}};
+    const telemetry::MetricRuleSelection artisan_flows[] = {{"pop.artisan", flows, 1}};
+    const telemetry::MetricRuleSelection country_economy[] = {{"country.economy", nullptr, 0}};
+    const auto no_hooks = telemetry::BuildRuntimePlan(factory_no_hooks, 1);
+    EXPECT_FALSE(no_hooks.install_factory_sales_hook);
+    EXPECT_FALSE(no_hooks.install_factory_flow_hook);
+    EXPECT_FALSE(no_hooks.install_artisan_flow_hook);
+    const auto all_factory = telemetry::BuildRuntimePlan(factory_all_fields, 1);
+    EXPECT_TRUE(all_factory.install_factory_sales_hook);
+    EXPECT_TRUE(all_factory.install_factory_flow_hook);
+    const auto artisan = telemetry::BuildRuntimePlan(artisan_flows, 1);
+    EXPECT_TRUE(artisan.install_artisan_flow_hook);
+    EXPECT_FALSE(artisan.install_factory_flow_hook);
+    const auto economy = telemetry::BuildRuntimePlan(country_economy, 1);
+    EXPECT_TRUE(economy.install_factory_flow_hook);
+    EXPECT_FALSE(economy.install_factory_sales_hook);
+}
+
 TEST(TelemetryConfigTest, ParsesExplicitCaptureRules)
 {
     telemetry::Config config;
@@ -443,13 +637,13 @@ TEST(TelemetryConfigTest, ValidatesDailyPopCashFlowCapture)
     arguments = base;
     arguments.push_back(L"-smedley-telemetry-capture=pop.cashflow|monthly|summary|PRU|||");
     EXPECT_FALSE(telemetry::ParseLaunchArguments(arguments, &config, &error));
-    EXPECT_EQ(error, "POP cash-flow capture requires daily cadence");
+    EXPECT_EQ(error, "capture requires daily cadence");
 
     config = {};
     arguments = base;
     arguments.push_back(L"-smedley-telemetry-capture=pop.cashflow|daily|summary||||");
     EXPECT_FALSE(telemetry::ParseLaunchArguments(arguments, &config, &error));
-    EXPECT_EQ(error, "individual POP cash-flow capture requires a country or province filter");
+    EXPECT_EQ(error, "capture requires a country or province filter");
 }
 
 TEST(TelemetryConfigTest, RejectsCaptureRulesWithoutStateCategory)
@@ -548,7 +742,7 @@ TEST(TelemetryConfigTest, RejectsProducerSalesOutsideDailyCadence)
         L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
         L"-smedley-telemetry-capture=province.rgo|monthly|sales|PRU|||"},
         &config, &error));
-    EXPECT_EQ(error, "producer sales capture requires daily cadence");
+    EXPECT_EQ(error, "capture requires daily cadence");
 
     error.clear();
     config = {};
@@ -558,7 +752,7 @@ TEST(TelemetryConfigTest, RejectsProducerSalesOutsideDailyCadence)
         L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
         L"-smedley-telemetry-capture=pop.artisan|weekly||PRU|||"},
         &config, &error));
-    EXPECT_EQ(error, "producer sales capture requires daily cadence");
+    EXPECT_EQ(error, "capture requires daily cadence");
 }
 
 TEST(TelemetryConfigTest, AcceptsWorldMarketGroups)
@@ -622,7 +816,7 @@ TEST(TelemetryConfigTest, RejectsNondailyPopLifecycleCapture)
         L"-smedley-telemetry-categories=state", L"-smedley-telemetry-sample-days=1",
         L"-smedley-telemetry-queue-capacity=128", L"-smedley-telemetry-overwrite=0",
         L"-smedley-telemetry-capture=pop.lifecycle|monthly|summary||||"}, &config, &error));
-    EXPECT_EQ(error, "POP lifecycle capture requires daily cadence");
+    EXPECT_EQ(error, "capture requires daily cadence");
 }
 
 TEST(TelemetryConfigTest, RequiresPopulationOwnerOnlyForCountryFiltersAndArtisans)

@@ -15,6 +15,7 @@ namespace smedley::telemetry
 {
     namespace
     {
+
         bool IsValidUtf8(std::string_view value, size_t index, size_t *length)
         {
             const unsigned char first = static_cast<unsigned char>(value[index]);
@@ -393,40 +394,47 @@ namespace smedley::telemetry
         return true;
     }
 
-    SmedleyTelemetryResult PublishPreparedRecord(const PreparedRecordV1 &prepared, std::atomic<uint64_t> *sequence,
-                                                 std::mutex *emission_mutex, bool blocking,
-                                                 const std::function<bool(std::string_view)> &enqueue,
-                                                 const std::function<void()> &mark_dropped)
+    PublicationResult PublishPreparedRecord(const PreparedRecordV1 &prepared, std::atomic<uint64_t> *sequence,
+                                             std::mutex *emission_mutex, bool blocking,
+                                             const std::function<bool(std::string_view)> &enqueue,
+                                             const std::function<void()> &mark_dropped)
     {
-        if (sequence == nullptr || emission_mutex == nullptr || !enqueue || !mark_dropped) return SMEDLEY_TELEMETRY_UNAVAILABLE;
+        if (sequence == nullptr || emission_mutex == nullptr || !enqueue || !mark_dropped) return {};
         std::unique_lock<std::mutex> lock(*emission_mutex, std::defer_lock);
         if (blocking) lock.lock();
         else if (!lock.try_lock()) {
             uint64_t current = sequence->load(std::memory_order_relaxed);
             while (current != (std::numeric_limits<uint64_t>::max)()
                    && !sequence->compare_exchange_weak(current, current + 1, std::memory_order_relaxed)) {}
+            if (current != (std::numeric_limits<uint64_t>::max)()) {
+                std::string discarded;
+                if (FinalizeRecordV1(prepared, current + 1, &discarded)) {
+                    mark_dropped();
+                    return {SMEDLEY_TELEMETRY_DROPPED, discarded.size()};
+                }
+            }
             mark_dropped();
-            return SMEDLEY_TELEMETRY_DROPPED;
+            return {SMEDLEY_TELEMETRY_DROPPED, 0};
         }
         uint64_t current = sequence->load(std::memory_order_relaxed);
         while (current != (std::numeric_limits<uint64_t>::max)()
                && !sequence->compare_exchange_weak(current, current + 1, std::memory_order_relaxed)) {}
         if (current == (std::numeric_limits<uint64_t>::max)()) {
             mark_dropped();
-            return SMEDLEY_TELEMETRY_DROPPED;
+            return {SMEDLEY_TELEMETRY_DROPPED, 0};
         }
         std::string line;
         if (!FinalizeRecordV1(prepared, current + 1, &line)) {
             mark_dropped();
-            return SMEDLEY_TELEMETRY_DROPPED;
+            return {SMEDLEY_TELEMETRY_DROPPED, 0};
         }
         try {
-            if (enqueue(line)) return SMEDLEY_TELEMETRY_ACCEPTED;
+            if (enqueue(line)) return {SMEDLEY_TELEMETRY_ACCEPTED, line.size()};
         } catch (...) {
             mark_dropped();
-            return SMEDLEY_TELEMETRY_DROPPED;
+            return {SMEDLEY_TELEMETRY_DROPPED, line.size()};
         }
-        return SMEDLEY_TELEMETRY_DROPPED;
+        return {SMEDLEY_TELEMETRY_DROPPED, line.size()};
     }
 
     SmedleyTelemetryResult DispatchRecordV1(const Config *config, const SmedleyTelemetryRecordV1 *record,
@@ -510,18 +518,8 @@ namespace smedley::telemetry
             return false;
         }
         for (const auto &rule : config.capture_rules) {
-            if (rule.family != "world.daily" && rule.family != "world.economy" && rule.family != "world.military"
-                && rule.family != "country.daily" && rule.family != "country.metrics" && rule.family != "country.economy"
-                && rule.family != "country.military" && rule.family != "country.diplomacy"
-                && rule.family != "state.factory"
-                && rule.family != "world.market"
-                && rule.family != "province.daily" && rule.family != "province.production"
-                && rule.family != "province.rgo"
-                && rule.family != "pop.economy"
-                && rule.family != "pop.demographics" && rule.family != "pop.identity"
-                && rule.family != "pop.needs" && rule.family != "pop.aggregate"
-                && rule.family != "pop.artisan" && rule.family != "pop.lifecycle" && rule.family != "pop.cashflow"
-                && rule.family != "pop.cashflow.aggregate") {
+            const auto *family = FindMetricFamily(rule.family);
+            if (family == nullptr) {
                 *error = "telemetry capture rule contains an unknown family";
                 return false;
             }
@@ -541,115 +539,22 @@ namespace smedley::telemetry
                     return false;
                 }
             }
-            const auto known_field = [&](const std::string &field) {
-                if (rule.family == "world.daily") {
-                    return field == "country_slot_count" || field == "ai_scheduler_entry_count"
-                        || field == "human_control_present";
-                }
-                if (rule.family == "country.daily") return field == "treasury_raw" || field == "treasury";
-                if (rule.family == "country.metrics") return field == "power" || field == "politics";
-                if (rule.family == "country.economy") {
-                    return field == "totals" || field == "components" || field == "per_capita";
-                }
-                if (rule.family == "country.military") {
-                    return field == "unit_count_candidate" || field == "mobilized_candidate"
-                        || field == "scheduled_mobilization_count_candidate" || field == "leadership_candidate_raw"
-                        || field == "military_ranking_candidate";
-                }
-                if (rule.family == "country.diplomacy") return field == "status" || field == "relations";
-                if (rule.family == "state.factory") {
-                    return field == "identity" || field == "employment"
-                        || field == "production" || field == "finance" || field == "inputs" || field == "flows"
-                        || field == "sales";
-                }
-                if (rule.family == "world.market") {
-                    return field == "price" || field == "supply"
-                        || field == "demand" || field == "sales";
-                }
-                if (rule.family == "world.military") return field == "ongoing_war_count_candidate";
-                if (rule.family == "province.daily") {
-                    return field == "owner_tag_candidate" || field == "controller_tag_candidate"
-                        || field == "colonial_level_candidate" || field == "life_rating_candidate"
-                        || field == "infrastructure_candidate_raw";
-                }
-                if (rule.family == "province.production") {
-                    return field == "building_slot_count_candidate" || field == "construction_count_candidate";
-                }
-                if (rule.family == "province.rgo") {
-                    return field == "identity" || field == "employment"
-                        || field == "production" || field == "finance" || field == "modifiers"
-                        || field == "sales";
-                }
-                if (rule.family == "pop.economy") {
-                    return field == "money_raw" || field == "savings_raw"
-                        || field == "interest_cash_flow_raw" || field == "total_cash_flow_raw";
-                }
-                if (rule.family == "pop.artisan") {
-                    return field == "identity" || field == "production"
-                        || field == "inputs" || field == "finance" || field == "flows" || field == "sales";
-                }
-                if (rule.family == "pop.demographics") {
-                    return field == "size_candidate" || field == "employed_candidate"
-                        || field == "consciousness_candidate_raw" || field == "militancy_candidate_raw"
-                        || field == "literacy_candidate_raw";
-                }
-                if (rule.family == "pop.identity") {
-                    return field == "pop_type_tag_candidate" || field == "culture_tag_candidate"
-                        || field == "religion_tag_candidate";
-                }
-                if (rule.family == "pop.aggregate") {
-                    return field == "pop_count" || field == "size_candidate"
-                        || field == "employed_candidate" || field == "money_raw" || field == "savings_raw";
-                }
-                if (rule.family == "pop.needs") {
-                    return field == "life_satisfaction_candidate_raw"
-                        || field == "everyday_satisfaction_candidate_raw"
-                        || field == "luxury_satisfaction_candidate_raw";
-                }
-                if (rule.family == "pop.lifecycle") {
-                    return field == "summary" || field == "appeared" || field == "disappeared"
-                        || field == "scope_changed";
-                }
-                if (rule.family == "pop.cashflow" || rule.family == "pop.cashflow.aggregate") {
-                    return field == "summary" || field == "account" || field == "components";
-                }
-                return field == "health" || field == "capacity" || field == "holdings" || field == "credit";
-            };
             for (size_t index = 0; index < rule.fields.size(); ++index) {
-                if (!known_field(rule.fields[index])
+                if (!MetricFamilySupportsField(*family, rule.fields[index])
                     || std::find(rule.fields.begin(), rule.fields.begin() + index, rule.fields[index])
                         != rule.fields.begin() + index) {
                     *error = "telemetry capture fields must be known and unique for their family";
                     return false;
                 }
             }
-            if ((rule.family == "state.factory" || rule.family == "province.rgo" || rule.family == "pop.artisan")
-                && (rule.fields.empty() || std::find(rule.fields.begin(), rule.fields.end(), "sales") != rule.fields.end())
-                && rule.cadence != CaptureCadence::Daily) {
-                *error = "producer sales capture requires daily cadence";
+            std::vector<std::string_view> fields(rule.fields.begin(), rule.fields.end());
+            const auto validation = MetricFamilyValidate(*family, rule.cadence, rule.fixed_days, fields.data(), fields.size(),
+                                                         rule.country_tags.size(), rule.province_ids.size());
+            if (validation != MetricValidationError::None) {
+                *error = std::string(MetricValidationErrorMessage(validation));
                 return false;
             }
-            if ((rule.family == "pop.cashflow" || rule.family == "pop.cashflow.aggregate")
-                && rule.cadence != CaptureCadence::Daily) {
-                *error = "POP cash-flow capture requires daily cadence";
-                return false;
-            }
-            if (rule.family == "pop.lifecycle" && rule.cadence != CaptureCadence::Daily) {
-                *error = "POP lifecycle capture requires daily cadence";
-                return false;
-            }
-            if (rule.family == "pop.cashflow" && rule.country_tags.empty() && rule.province_ids.empty()) {
-                *error = "individual POP cash-flow capture requires a country or province filter";
-                return false;
-            }
-            if (rule.family != "country.daily" && rule.family != "country.metrics" && rule.family != "country.economy"
-                && rule.family != "country.military" && rule.family != "country.diplomacy"
-                && rule.family != "state.factory" && rule.family != "province.rgo"
-                && rule.family != "pop.artisan" && rule.family != "pop.economy"
-                && rule.family != "pop.demographics" && rule.family != "pop.identity" && rule.family != "pop.needs"
-                && rule.family != "pop.aggregate" && rule.family != "pop.lifecycle"
-                && rule.family != "pop.cashflow" && rule.family != "pop.cashflow.aggregate"
-                && !rule.country_tags.empty()) {
+            if (!family->supports_country_filter && !rule.country_tags.empty()) {
                 *error = "telemetry capture country filters are not supported by this family";
                 return false;
             }
@@ -661,18 +566,13 @@ namespace smedley::telemetry
                     return false;
                 }
             }
-            if (rule.family != "province.daily" && rule.family != "province.production" && rule.family != "province.rgo"
-                && rule.family != "pop.economy"
-                && rule.family != "pop.demographics" && rule.family != "pop.identity" && rule.family != "pop.needs"
-                && rule.family != "pop.aggregate" && rule.family != "pop.lifecycle"
-                && rule.family != "pop.artisan" && rule.family != "pop.cashflow"
-                && !rule.province_ids.empty()) {
+            if (!family->supports_province_filter && !rule.province_ids.empty()) {
                 *error = "telemetry capture province filters are only supported by province and POP families";
                 return false;
             }
         }
         if (std::any_of(config.capture_rules.begin(), config.capture_rules.end(),
-                [](const CaptureRule &rule) { return rule.family == "country.economy"; })
+                [](const CaptureRule &rule) { const auto *family = FindMetricFamily(rule.family); return family != nullptr && family->requires_gold_to_cash_rate; })
             && !config.gold_to_cash_rate) {
             *error = "country.economy requires -smedley-telemetry-gold-to-cash-rate";
             return false;

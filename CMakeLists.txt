@@ -46,6 +46,9 @@ if(BUILD_TESTING)
   FetchContent_MakeAvailable(googletest)
 endif()
 
+add_library(smedley_telemetry_registry STATIC telemetry_registry/telemetry_registry.cpp)
+target_include_directories(smedley_telemetry_registry PUBLIC "${CMAKE_SOURCE_DIR}/include")
+
 add_subdirectory ("smedley_kernel")
 add_subdirectory ("game_state")
 add_subdirectory ("plugins")

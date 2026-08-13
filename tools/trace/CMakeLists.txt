@@ -1,5 +1,6 @@
 add_library(smedley_trace_core STATIC trace.cpp)
 target_compile_definitions(smedley_trace_core PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(smedley_trace_core PRIVATE smedley_telemetry_registry)
 add_executable(smedley_trace main.cpp)
 target_link_libraries(smedley_trace PRIVATE smedley_trace_core)
 if(BUILD_TESTING)

@@ -45,6 +45,24 @@ The plugin resolves `event_api`, `logging_api`, `telemetry_game_api`, and
 link against the kernel. Unavailable, stale, wrong-thread, invalid-source, and
 truncated C reads are missing observations, never inferred numeric zeroes.
 
+`smedley_telemetry_registry` is the immutable compiled authority for capture
+families, selectable fields, identity, mapping/schema facts, filters, cadence
+constraints, collector ownership, cost class, and admission priority. Launcher
+validation and UI, plugin validation/runtime planning, and strict trace checks
+query that same registry; it deliberately exposes no game offsets or raw fields.
+Its event schemas use comma-separated field names in collector emission order:
+`-` is an empty object, and a trailing `?` marks a field that an event may omit.
+Each family's `events` array is the complete event-level catalog, including
+entity and payload keys; the family table below is the user-facing selection
+catalog rather than a duplicate event schema.
+
+Contributors adding or changing telemetry update the registry entry, owning
+collector emission, launcher-facing selection behavior, strict trace handling,
+tests, and this document together. Registry cadence, required-filter, event
+ownership, schema membership, admission, and hook-planning facts are enforced.
+Cost class, collector identity, mapping, and quality remain descriptive metadata
+that consumers report and verify where applicable.
+
 ## Configuration
 
 Profiles use these top-level fields. Every present field is type-checked on
@@ -117,7 +135,11 @@ province_ids = []
 Each rule accepts `family`, `cadence`, `fields`, `country_tags`, `province_ids`,
 and optional legacy raw `start_date_raw` and `end_date_raw`. The GUI edits the
 fixed `telemetry_capture_v1` schema with human `DD-MM-YYYY` bounds. Empty `fields` selects every
-field in that family. Country filters are valid for all `country.*` families,
+field in that family. The registry distinguishes a supported filter from a
+required filter: a supported empty filter selects all entities, while a required
+filter must contain at least one country or province. Supplying a filter kind
+that a family does not support is rejected by both launcher and plugin. Country
+filters are valid for all `country.*` families,
 `state.factory`, `province.rgo`, `pop.artisan`, `pop.economy`,
 `pop.demographics`, `pop.identity`, `pop.needs`, `pop.aggregate`, `pop.lifecycle`, `pop.cashflow`, and
 `pop.cashflow.aggregate`. Province filters are valid for `province.daily`,
@@ -126,8 +148,8 @@ field in that family. Country filters are valid for all `country.*` families,
 entity, including daily all-province or all-POP capture when explicitly
 requested. Country families filter the country supplied by each
 `DailyUpdateEvent`; they do not initiate a separate country traversal. Global
-families such as `world.military` have no country entity and ignore country
-filters.
+families such as `world.military` have no country entity and do not support
+country filters; profiles that supply them are rejected before launch.
 
 | Family | Selectable fields |
 | --- | --- |
@@ -169,6 +191,20 @@ requires at least one country or province filter because it emits high-cardinali
 records; `pop.cashflow.aggregate` may cover every country.
 `pop.lifecycle` is daily only because it reconciles consecutive complete POP
 stocks; a gap or date regression restarts warm-up instead of inventing events.
+
+Disabled or absent capture families do not install their hooks or traverse their
+observation groups. A lifecycle-only configuration does not open or read game
+observation state merely to report progress. State records remain bounded
+by registry admission policy. `ReliableTerminal` families always use reliable
+in-memory admission. `Important` families use it only when the combined country
+and province allowlist contains 1 through 16 entries; empty/unbounded or larger
+filters remain best-effort. `BestEffort` families are never promoted. Lifecycle
+and terminal health records continue through the reliable queue path.
+`telemetry.family.summary` includes
+accepted and dropped formatted-record byte totals as well as record counters and
+collection time. Nonzero dropped bytes make strict family health unhealthy.
+No record ABI, field capacity, queue capacity, or fragmentation policy changed:
+there is no retained workload evidence that would justify those changes.
 
 `country.economy` treats cadence as an accounting interval rather than a
 point-in-time sampling trigger. It reads daily factory, RGO, artisan,
@@ -298,14 +334,20 @@ report these delivery metrics:
 
 At a coordinated drain, one `telemetry.family.summary` record is attempted per
 configured family. It reports `polls_due`, `collection_attempts`, `accepted`,
-`filtered`, `dropped`, `invalid`, and `collection_us`. These counters describe
-producer results, not records subsequently written by the shared worker.
+`filtered`, `dropped`, `invalid`, `collection_us`, `accepted_bytes`, and
+`dropped_bytes`. Rejected finalized records contribute their attempted byte
+count; filtered, invalid, and unavailable records contribute zero bytes. These
+counters describe producer results, not records subsequently written by the
+shared worker.
 
 At session start, reliable `telemetry.capture.rule`,
 `telemetry.capture.field`, and `telemetry.capture.country` records describe the
 configured cadence, selected fields, date bounds, and entity filters. Strict
 derived exports use these records to distinguish a genuine zero from a family
-that was configured with incomplete scope.
+that was configured with incomplete scope. `projected_entity_count` is `-1`
+only when `projection_bounded` is false; `operational_admission` reports the
+selected delivery policy (`best-effort` or `reliable`) separately from the
+registry `admission_priority`.
 
 `country.daily` is a `state` record from `DailyUpdateEvent` with `provisional`
 quality. Its stable entity is the three-character country tag. Its payload
@@ -723,6 +765,15 @@ records only when their stated completeness and flag conditions pass:
 | `world.economy.capacity` | fixed limits, basis-point utilization, and collection microseconds | Emitted only for a structurally complete zero-flag scan. Limits are 512 countries, 4,096 provinces, and 100,000 POP records. |
 | `world.economy.holdings` | observed treasury, POP money, POP savings, bank interest accumulator, positive-balance counts, negative-treasury country count | Emitted only for a complete scan with `provisional` quality. Components remain separate and are not a claimed money-supply identity. |
 | `world.economy.credit` | creditor counts, paid-entry counts, and creditor/state candidate aggregates | Emitted only when structural and credit-specific flags are clear, with `provisional` quality. Every `_candidate_raw` field retains its mapping uncertainty. |
+
+Some selectable groups also emit status or boundary events that are easy to
+misread without the registry catalog:
+
+| Selection | Additional events | Interpretation |
+| --- | --- | --- |
+| `state.factory` `flows` | `state.factory.input.consumption.summary`, `state.factory.input.consumption` | The summary states whether a valid daily consumption boundary was observed. Detail records contain only nonzero consumed goods and never imply zero for omitted goods. |
+| `pop.artisan` `finance` | `pop.artisan.finance` | Reports the five finance candidates in the registry payload schema for an active artisan snapshot. |
+| Any selected `pop.artisan` group | `pop.artisan.inactive`, `pop.artisan.invalid` | `inactive` identifies a POP that is readable but has no active artisan production. `invalid` reports a failed artisan read with a stable reason and offending raw value; it also increments family invalid health. Neither event invents production or finance values. |
 
 POP money and POP savings are different storage categories. Savings and
 creditor/state values may be financial claims or bookkeeping aggregates; adding
