@@ -11,6 +11,3 @@ EXPORTS
     SmedleyGetLoggingApiV1
     SmedleyGetTelemetryGameApiV1
     SmedleyGetTelemetryObservationApiV1
-    luaL_loadstring
-    lua_pcall
-    lua_tolstring
