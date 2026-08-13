@@ -11,4 +11,5 @@ namespace smedley
 {
     void NotifyDailyEventApi(v2::CCountry *country) noexcept;
     void DispatchDailyEventApi(const SmedleyDailyEventV1 &event) noexcept;
+    bool IsDailyEventApiDispatchThread() noexcept;
 }

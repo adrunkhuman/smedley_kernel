@@ -5,6 +5,7 @@
 #include <smedley/telemetry_observation_api.h>
 
 #include <smedley/events/bankinterest.hpp>
+#include <smedley/event_abi_runtime.hpp>
 #include <smedley/game_state/artisan_consumption_hook.hpp>
 #include <smedley/game_state/factory_consumption_hook.hpp>
 #include <smedley/game_state/factory_sales_hook.hpp>
@@ -954,7 +955,9 @@ namespace
     }
     SmedleyTelemetryGameResult TelemetrySessionStatus(SmedleyTelemetrySession handle)
     {
-        if (!IsServiceOwnerThread()) return SMEDLEY_TELEMETRY_GAME_WRONG_THREAD;
+        if (!smedley::IsDailyEventApiDispatchThread() && !IsServiceOwnerThread()) {
+            return SMEDLEY_TELEMETRY_GAME_WRONG_THREAD;
+        }
         std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
         for (const auto &slot : telemetry_sessions) {
             if (slot.handle == handle && handle != 0) {
@@ -986,7 +989,9 @@ namespace
     SmedleyTelemetryGameResult SMEDLEY_TELEMETRY_GAME_CALL OpenTelemetrySession(SmedleyTelemetrySession *session)
     {
         if (session == nullptr) return SMEDLEY_TELEMETRY_GAME_INVALID_ARGUMENT;
-        if (!IsServiceOwnerThread()) return SMEDLEY_TELEMETRY_GAME_WRONG_THREAD;
+        if (!smedley::IsDailyEventApiDispatchThread() && !IsServiceOwnerThread()) {
+            return SMEDLEY_TELEMETRY_GAME_WRONG_THREAD;
+        }
         std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
         *session = 0;
         const auto current = CurrentGameSession();
@@ -1013,7 +1018,6 @@ namespace
         std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
         for (auto &slot : telemetry_sessions) {
             if (slot.handle != session) continue;
-            if (slot.thread != std::this_thread::get_id()) return SMEDLEY_TELEMETRY_GAME_WRONG_THREAD;
             const bool current = CurrentGameSession().epoch == slot.epoch;
             RetireTelemetrySubscriptions(session, slot.epoch, current);
             RetireTelemetryObservations(session);
@@ -1154,7 +1158,9 @@ namespace
     SmedleyTelemetryObservationResult ObservationSessionStatus(SmedleyTelemetryObservationSession session,
                                                                  TelemetryObservationSessionSlot **result = nullptr)
     {
-        if (!IsServiceOwnerThread()) return SMEDLEY_TELEMETRY_OBSERVATION_WRONG_THREAD;
+        if (!smedley::IsDailyEventApiDispatchThread() && !IsServiceOwnerThread()) {
+            return SMEDLEY_TELEMETRY_OBSERVATION_WRONG_THREAD;
+        }
         std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
         for (auto &slot : telemetry_observation_sessions) {
             if (session == 0 || slot.handle != session) continue;
@@ -1227,7 +1233,6 @@ namespace
         std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
         for (auto &slot : telemetry_observation_sessions) {
             if (slot.handle != session || session == 0) continue;
-            if (slot.thread != std::this_thread::get_id()) return SMEDLEY_TELEMETRY_OBSERVATION_WRONG_THREAD;
             slot = {};
             return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
         }
