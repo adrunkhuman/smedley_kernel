@@ -1,13 +1,22 @@
 ﻿cmake_minimum_required(VERSION 3.20)
 
 FILE(GLOB_RECURSE kernel_sources src/*.cpp)
+list(REMOVE_ITEM kernel_sources "${CMAKE_CURRENT_SOURCE_DIR}/src/entry.cpp")
 
-add_library (smedley_kernel SHARED ${kernel_sources})
-# Transitional C++ plugin imports require kernel auto-export until issue #41 completes.
-set_target_properties(smedley_kernel PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
-target_compile_definitions(smedley_kernel PRIVATE SMEDLEY_KERNEL SMEDLEY_EVENT_BUILD SMEDLEY_EVENT_SERVICES_BUILD
+add_library(smedley_kernel_runtime OBJECT ${kernel_sources})
+target_compile_definitions(smedley_kernel_runtime PRIVATE SMEDLEY_KERNEL SMEDLEY_EVENT_BUILD SMEDLEY_EVENT_SERVICES_BUILD
   SMEDLEY_CAMPAIGN_CONTROL_BUILD SMEDLEY_CAMPAIGN_RUNTIME_BUILD SMEDLEY_CAMPAIGN_AUTOMATION_BUILD SMEDLEY_INTEREST_POOL_BUILD
   SMEDLEY_TELEMETRY_GAME_BUILD SMEDLEY_TELEMETRY_OBSERVATION_BUILD SMEDLEY_LOGGING_BUILD LUA_BUILD_AS_DLL LUA_LIB)
+target_include_directories(smedley_kernel_runtime PUBLIC
+  "${PROJECT_SOURCE_DIR}/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/include/smedley"
+  "${PROJECT_SOURCE_DIR}/third_party/toml/include"
+  PRIVATE "${PROJECT_SOURCE_DIR}/third_party/victoria2-lua/include")
+target_link_libraries(smedley_kernel_runtime PRIVATE minhook)
+
+add_library(smedley_kernel SHARED src/entry.cpp src/smedley_kernel.def $<TARGET_OBJECTS:smedley_kernel_runtime>)
+set_target_properties(smedley_kernel PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 target_link_libraries(smedley_kernel PRIVATE bcrypt shell32 minhook)
 target_include_directories(smedley_kernel PUBLIC
   "${PROJECT_SOURCE_DIR}/include"
@@ -19,8 +28,14 @@ target_include_directories(smedley_kernel PUBLIC
 if(BUILD_TESTING)
   FILE(GLOB_RECURSE test_sources CONFIGURE_DEPENDS tests/*_test.cpp)
 
-  add_executable(smedley_kernel_tests ${test_sources})
-  target_link_libraries(smedley_kernel_tests GTest::gtest_main smedley_kernel)
+  add_executable(smedley_kernel_tests ${test_sources} $<TARGET_OBJECTS:smedley_kernel_runtime>)
+  target_link_libraries(smedley_kernel_tests GTest::gtest_main bcrypt shell32 minhook)
+  target_include_directories(smedley_kernel_tests PRIVATE
+    "${PROJECT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/smedley"
+    "${PROJECT_SOURCE_DIR}/game_state/include"
+    "${PROJECT_SOURCE_DIR}/third_party/toml/include")
 
   add_library(smedley_plugin_abi_c_compile_test OBJECT tests/plugin_abi_header_c_test.c)
   target_include_directories(smedley_plugin_abi_c_compile_test PRIVATE "${CMAKE_SOURCE_DIR}/include")
@@ -48,10 +63,8 @@ if(BUILD_TESTING)
   target_include_directories(smedley_plugin_abi_test_plugin PRIVATE "${CMAKE_SOURCE_DIR}/include")
   add_dependencies(smedley_kernel_tests smedley_plugin_abi_test_plugin)
 
-  add_library(smedley_event_mutation_test_plugin MODULE tests/test_plugins/event_mutation_test_plugin.cpp)
-  set_target_properties(smedley_event_mutation_test_plugin PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
-  target_link_libraries(smedley_event_mutation_test_plugin PRIVATE smedley_kernel)
-  add_dependencies(smedley_kernel_tests smedley_event_mutation_test_plugin)
+  add_library(smedley_legacy_plugin_test_plugin MODULE tests/test_plugins/legacy_plugin_test_plugin.c)
+  set_target_properties(smedley_legacy_plugin_test_plugin PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
 
   include(GoogleTest)
   gtest_discover_tests(smedley_kernel_tests DISCOVERY_TIMEOUT 30)

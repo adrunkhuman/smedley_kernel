@@ -1039,7 +1039,7 @@ at sequence 10 and `telemetry.summary` at sequence 11; the summary reported 10
 accepted, 10 written, zero dropped, and no write failure. The process exited and
 the source save was unchanged.
 This acceptance covers the bundled completed-drain path only; it does not
-exercise timeout retry or legacy-plugin compatibility.
+exercise timeout retry.
 
 The ABI contains only fixed-width C values and bounded UTF-8 pointer/length
 pairs. Records and fields include `struct_size`, `version`, and zero reserved

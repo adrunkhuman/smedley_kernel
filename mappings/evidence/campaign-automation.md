@@ -277,9 +277,10 @@ Controller pointers are discarded after their known phase transition and at
 plugin shutdown. Destructor hooks also discard a matching capture before the
 native scalar deleting destructor releases storage. The related constructor,
 destructor, annexation, and message hooks install transactionally and roll back
-in reverse order on startup failure. The legacy loader retains plugin modules
-and has no thread-quiescence protocol, so shutdown makes callbacks inert instead
-of racing other game threads to rewrite live executable memory.
+in reverse order on startup failure. Plugin modules remain loaded for the
+process lifetime and there is no thread-quiescence protocol, so shutdown makes
+callbacks inert instead of racing other game threads to rewrite live executable
+memory.
 
 The checked frontend boundary owns constructor/destructor signatures and
 trampolines, controller addresses, generations, vtable checks, and captured

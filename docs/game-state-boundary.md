@@ -205,8 +205,8 @@ transition signature, and requires a restored scheduled AI on readback.
 tag, and requires unchanged human-control and scheduler counts on readback.
 These operations do not choose targets, retries, or watchdog actions.
 
-The runtime registers the legacy console-initialization event on behalf of the
-runner, extracts the raw manager there, and reports only a copied capture status.
+The runtime registers its kernel-local console-initialization event handler,
+extracts the raw manager there, and reports only a copied capture status.
 It validates and saves the native asynchronous `tag` handler, installs/removes
 the observer-safe `switch` command, copies command arguments and results, and
 validates/invokes `debug fow` with FOW readback. Retained manager use is bound to
@@ -299,12 +299,10 @@ callback inert. Explicit deactivation is owner-thread-only, disables C callback
 sinks before waiting for already-acquired callbacks, unregisters C console
 capture, restores/removes commands only through the checked runtime, and
 invalidates the opaque handle. Self-deactivation from a callback returns `busy`.
-Legacy and C automation have independent ownership of shared process-lifetime
-hooks, captures, observer mode, popup suppression, and console registration;
-releasing either side leaves the other active. One shared console-capture event
+The C automation handle owns shared process-lifetime hooks, captures, observer
+mode, popup suppression, and console registration. One console-capture event
 registration performs console mutation once and dispatches one notification to
-each active consumer. Transitional C++ runner callbacks remain separate and
-work concurrently. Console command handling stays
+the active consumer. Console command handling stays
 in bounded `event_services`: automation owns console capture/status and checked
 native tag-switch, while the event service supplies copied arguments and a
 bounded copied response. Process metrics use availability bits instead of
@@ -317,12 +315,7 @@ POP, factory, and hook capture subset, but does not yet expose the detailed
 country diplomacy/politics groups, POP identity/needs/artisan snapshots, RGO,
 factory inputs, country-economy/creditor snapshots, or the plugin's daily-event
 scheduling surface. The campaign automation table covers the remaining
-engine-facing runner surface; the runner remains on its transitional C++ contract
-until a later policy and scheduling port.
-
-The campaign runner, interest fix, and telemetry plugins still use exported
-kernel-private C++ declarations while their larger capability tables are split
-by domain; those declarations are transitional source contracts, not public ABI.
+engine-facing runner surface.
 
 Do not duplicate a public C API merely to expose game objects. The copied daily
 event C API and the Lua-facing copied APIs remain valid external boundaries:
@@ -330,9 +323,8 @@ they provide data and queued/constrained operations without lending object
 pointers. New external capabilities should follow that model, with their own
 version, ownership, lifetime, and thread contract.
 
-The `game_state` C++ headers are transitional internal source contracts for bundled plugins.
-Their symbols, layouts, and source interfaces may change with the repository;
-they provide no third-party binary or source compatibility promise.
+The `game_state` C++ headers are kernel-local implementation contracts. Plugins
+consume only versioned C service tables.
 
 ## Detour ownership
 

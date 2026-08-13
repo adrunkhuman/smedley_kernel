@@ -23,15 +23,13 @@ runtime, campaign automation, and event services at load time; its hook
 callbacks publish copied bounded work that its timer path consumes.
 All bundled plugins, including `telemetry`, resolve only versioned C service
 tables. Internal C++ declarations are not a plugin ABI.
-The build makes this exception visible: plugin DLLs have exact export sets,
-while `smedley_dll_boundary_audit` lists their remaining mangled kernel imports.
-Kernel automatic export generation remains enabled only until those imports are
-replaced by C services under issue #41; this migration is not complete.
 
 The current export sets include `SmedleyPluginGetApiV1` for every bundled plugin.
 Telemetry additionally exports `SmedleyTelemetryEmitV1`, `SmedleyTelemetryEmitReliableV1`, and
-`SmedleyTelemetryDrainV1`. The audit rejects any additional plugin export or an
-increase in the frozen transitional kernel-import counts.
+`SmedleyTelemetryDrainV1`. The audit rejects any additional plugin export or any
+production-plugin import from `smedley_kernel.dll`. CMake automatic export
+generation is disabled for the kernel and plugins; the kernel exports only its
+explicit loader entry points and versioned C service providers.
 
 First-party plugins have no raw adapter exception. The layering CTest rejects raw engine
 headers, memory-map access, native POP-money wrappers, and game-object `void*`
@@ -64,15 +62,14 @@ provides an invalidation boundary. The complete contributor rules are in
 
 ## Lifecycle ABI v1
 
-New plugins can use the compiler-independent lifecycle interface in
-[`include/smedley/plugin_abi.h`](../include/smedley/plugin_abi.h). The loader
-prefers the `SmedleyPluginGetApiV1` export. Existing bundled plugins continue to
-work through the legacy `CreatePlugin` C++ interface.
+Plugins use the compiler-independent lifecycle interface in
+[`include/smedley/plugin_abi.h`](../include/smedley/plugin_abi.h). Every plugin
+module must export `SmedleyPluginGetApiV1`.
 
 ABI v1 deliberately exposes lifecycle only. It does not expose Victoria II
 objects, logging, or mutation operations. Separate versioned C interfaces expose
 bounded capabilities with their own ownership and thread contracts; do not cast
-host pointers or copy the legacy C++ classes into an ABI-v1 plugin.
+host pointers or copy internal C++ classes into a plugin.
 
 The host and plugin follow this sequence:
 
@@ -108,10 +105,8 @@ allocated by the plugin. The loader catches accidental exceptions as a final
 containment measure, but that does not make exception propagation part of the
 contract.
 
-Advertising `SmedleyPluginGetApiV1` is authoritative. If discovery, table
-validation, `create`, or `load` fails, the loader rejects the plugin and rolls
-back earlier plugins; it does not fall back to `CreatePlugin` from the same DLL.
-This prevents a broken new entry point from silently selecting an older ABI.
+If discovery, table validation, `create`, or `load` fails, the loader rejects the
+plugin and rolls back earlier plugins. `CreatePlugin` is not supported.
 
 ## Minimal C plugin
 
@@ -176,9 +171,9 @@ version = "1.0.0"
 module = "example.dll"
 ```
 
-The launcher accepts a module exporting either the v1 symbol or legacy
-`CreatePlugin`, verifies that it is an x86 PE image, and applies the ordinary
-manifest dependency and conflict checks before injection.
+The launcher requires `SmedleyPluginGetApiV1`, verifies that the module is an x86
+PE image, and applies the ordinary manifest dependency and conflict checks before
+injection.
 
 ### Launcher settings schema
 
@@ -260,8 +255,7 @@ or zero-filled event.
 ## Event services capability v1
 
 [`include/smedley/event_services_api.h`](../include/smedley/event_services_api.h)
-adds bounded C registrations for the remaining hook boundaries without changing
-the legacy `EventRegistry` paths. Resolve `SmedleyGetEventServicesApiV1`
+adds bounded C registrations for the remaining hook boundaries. Resolve `SmedleyGetEventServicesApiV1`
 dynamically from `smedley_kernel.dll`; callers must zero the table, set its exact
 `struct_size` and `version`, and leave every reserved field zero. The returned
 table remains valid only while the kernel is loaded.
@@ -352,13 +346,7 @@ preflight. `dumpbin /exports` confirms that the fixture exposes only undecorated
 
 Supplied-game run `a0af29ca-1b35-42f4-abf0-1a29701e3288` loaded that fixture
 through the installed launcher, injector, and kernel and reached a responsive
-main window. Run `5fca45a1-a770-41e4-8eab-ed472c0ddfc9` loaded the same v1
-fixture followed by legacy `campaign_runner` in one responsive process. These
-runs verify startup selection and compatibility, not normal-exit callbacks.
+main window. This run verifies startup selection, not normal-exit callbacks.
 
-Run `479a31ac-6fd4-4ae2-b170-865c63b70d66` used the event-capable C fixture,
-legacy `campaign_runner`, the exact supported executable, and unmodified
-`benchmark.v2`. The campaign advanced through the active cross-DLL daily
-callback from raw date `59883384` to the exact one-day target `59883408`, paused,
-and remained responsive. The source save retained SHA-256
-`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+There is no supplied-game run recorded for the final all-C-ABI plugin boundary.
+Host-side verification does not establish live-game startup or behavior.

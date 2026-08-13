@@ -76,7 +76,6 @@ if(BUILD_TESTING)
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/audit_dll_boundaries.py
       --linker ${CMAKE_LINKER}
       --kernel $<TARGET_FILE:smedley_kernel>
-      --baseline ${PROJECT_SOURCE_DIR}/tools/dll_import_baseline.json
       --campaign-runner $<TARGET_FILE:campaign_runner>
       --interest-bug-fix $<TARGET_FILE:interest_bug_fix>
       --scripting $<TARGET_FILE:scripting>

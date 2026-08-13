@@ -12,8 +12,8 @@ Military AI 1.9.0 package. The package was never executed or loaded.
   SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648`
 
 The plugin exports the legacy `MakePlugin` and `PluginName` entry points and is
-not ABI-compatible with this fork's `CreatePlugin` loader. Nothing here implies
-that its binaries should be installed or used.
+not compatible with this fork's C plugin ABI. Nothing here implies that its
+binaries should be installed or used.
 
 ## Country flags
 

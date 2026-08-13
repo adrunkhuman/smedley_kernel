@@ -809,12 +809,10 @@ namespace smedley::launcher
                 AddDiagnostic(diagnostics, "plugin.export", WindowsError("LoadLibraryExW"), module_path);
                 return false;
             }
-            const bool present = GetProcAddress(module, SMEDLEY_PLUGIN_GET_API_V1_SYMBOL) != nullptr
-                || GetProcAddress(module, "CreatePlugin") != nullptr;
+            const bool present = GetProcAddress(module, SMEDLEY_PLUGIN_GET_API_V1_SYMBOL) != nullptr;
             FreeLibrary(module);
             if (!present) {
-                AddDiagnostic(diagnostics, "plugin.export",
-                              "plugin module exports neither SmedleyPluginGetApiV1 nor CreatePlugin", module_path);
+                AddDiagnostic(diagnostics, "plugin.export", "plugin module does not export SmedleyPluginGetApiV1", module_path);
             }
             return present;
         }

@@ -2,7 +2,6 @@
 
 #define NOMINMAX
 
-#include "apimacros.hpp"
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
@@ -18,7 +17,7 @@ namespace smedley::memory
      * Stores process-wide memory state, including the game-module base address
      * and heap handle. These values should not change after initialization.
      */
-    struct SMEDLEY_API Map
+    struct Map
     {
         /// @brief Base address of v2game.exe.
         static uintptr_t base_addr;
