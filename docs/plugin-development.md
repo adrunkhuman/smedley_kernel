@@ -42,17 +42,12 @@ migrated plugins.
 
 ## Foreign engine objects
 
-Types under `smedley/std` mirror the supported game's x86 ABI. They are not
-general-purpose STL replacements and do not imply ownership of engine storage.
-Validate object identity, lifecycle phase, thread, memory span, and a bounded
-raw metadata snapshot before using mapped fields or container methods. A code
-signature or readable pointer does not establish data identity.
-
-`sstd::vector` mutation supports only trivially copyable and trivially
-destructible elements, allocates explicitly owned growth from the game heap, and
-may throw `std::bad_alloc`. Do not add general destructors or copy semantics to
-ABI mirrors because a borrowed engine object may own the represented storage.
-Prefer non-owning local argument views when calling native functions.
+The kernel-owned game-state implementation uses narrow layouts for each verified
+native boundary. Borrowed engine metadata and locally owned native-call
+arguments are separate types; neither is a general-purpose container or public
+plugin API. Validate object identity, lifecycle phase, thread, memory span, and
+a bounded raw metadata snapshot before using a mapped field. A code signature or
+readable pointer does not establish data identity.
 
 Mapped mutation must fail closed: prepare any fallible allocation before the
 first engine write, verify semantic preconditions and postconditions, and retain

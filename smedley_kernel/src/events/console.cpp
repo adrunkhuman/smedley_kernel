@@ -5,7 +5,7 @@
 
 using namespace smedley;
 
-void ConsoleCmdManagerInitHook(v2::CConsoleCmdManager *mgr)
+void ConsoleCmdManagerInitHook(void *mgr)
 {
     smedley::EventRegistry<events::ConsoleCmdManagerInitEvent>::Notify(events::ConsoleCmdManagerInitEvent(mgr));
 }
@@ -42,7 +42,7 @@ namespace smedley::events
         }
     }
 
-    ConsoleCmdManagerInitEvent::ConsoleCmdManagerInitEvent(v2::CConsoleCmdManager *cmd_mgr)
+    ConsoleCmdManagerInitEvent::ConsoleCmdManagerInitEvent(void *cmd_mgr)
         : Event(false), _cmd_mgr(cmd_mgr)
     {
     }

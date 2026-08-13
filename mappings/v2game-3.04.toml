@@ -429,7 +429,7 @@ name = "CCurrentGameState singleton pointer"
 rva = 0x00e588e8
 kind = "data"
 status = "provisional"
-source = "smedley_kernel/include/smedley/v2/gamestate.hpp"
+source = "mappings/research/retired-engine-mirrors.md#current-game-state-singleton"
 
 [[symbols]]
 name = "CStateEmployment vector global"
@@ -771,7 +771,7 @@ source = "static recovery from PMIA 1.9.0 DLL; see mappings/research/ai-static-l
 name = "CGameState"
 status = "provisional"
 size = 0x0d08
-source = "smedley_kernel/include/smedley/v2/gamestate.hpp"
+source = "mappings/research/retired-engine-mirrors.md#cgamestate-layout"
 fields = [
   { name = "country_ais", offset = 0x00a4 },
   { name = "provinces", offset = 0x0acc },
@@ -807,7 +807,7 @@ fields = [
 name = "CCountry"
 status = "provisional"
 size = 0x1608
-source = "smedley_kernel/include/smedley/v2/country.hpp"
+source = "mappings/research/retired-engine-mirrors.md#ccountry-layout"
 fields = [
   { name = "expenses", offset = 0x00b0 },
   { name = "incomes", offset = 0x00d0 },
@@ -967,7 +967,7 @@ fields = [
 name = "CProvince"
 status = "provisional"
 size = 0x0398
-source = "smedley_kernel/include/smedley/v2/province.hpp; +0x194 alone is verified-runtime as a vector of 16-byte POP-list records"
+source = "mappings/research/retired-engine-mirrors.md#cprovince-layout"
 fields = [
   { name = "owner", offset = 0x0128 },
   { name = "controller", offset = 0x0130 },

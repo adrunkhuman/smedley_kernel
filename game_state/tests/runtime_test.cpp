@@ -1,5 +1,8 @@
 #include <smedley/campaign_control_api.h>
 #include <smedley/game_state/runtime.hpp>
+
+#include "../src/console_layout.hpp"
+#include "../src/engine_string_layout.hpp"
 #include <smedley/game_state/artisan_consumption_hook.hpp>
 #include <smedley/game_state/factory_consumption_hook.hpp>
 #include <smedley/game_state/factory_sales_hook.hpp>
@@ -22,8 +25,8 @@
 
 namespace smedley::game_state
 {
-    namespace
-    {
+namespace
+{
         static_assert(!std::is_copy_constructible_v<DailyInterestAccess>);
         static_assert(!std::is_copy_assignable_v<DailyInterestAccess>);
         static_assert(!std::is_copy_constructible_v<BankInterestAccess>);
@@ -41,6 +44,11 @@ namespace smedley::game_state
         static_assert(std::is_trivially_copyable_v<ObserverStateSnapshot>);
         static_assert(std::is_trivially_copyable_v<CampaignConsoleArguments>);
         static_assert(std::is_trivially_copyable_v<CampaignConsoleResponse>);
+        static_assert(sizeof(EngineString) == 0x1c);
+        static_assert(sizeof(console_layout::Arguments) == 0x10);
+        static_assert(sizeof(console_layout::Result) == 0x20);
+        static_assert(sizeof(console_layout::Command) == 0x4c);
+        static_assert(sizeof(console_layout::CommandVector) == 0x10);
         static_assert(std::is_trivially_copyable_v<FrontendControllerToken>);
         static_assert(!std::is_constructible_v<FrontendControllerToken, uint64_t, FrontendControllerKind>);
         static_assert(!std::is_constructible_v<CountryRef, TelemetryCountrySnapshot *>);
@@ -74,6 +82,45 @@ namespace smedley::game_state
         {
             ASSERT_LE(offset + sizeof(value), object->size());
             std::memcpy(object->data() + offset, &value, sizeof(value));
+        }
+
+        TEST(EngineStringLayoutTest, BuildsBorrowedAndTransferredArguments)
+        {
+            EngineStringArgument inline_argument("ENG");
+            ASSERT_TRUE(inline_argument.valid());
+            EXPECT_EQ(inline_argument.get()->size, 3u);
+            EXPECT_EQ(inline_argument.get()->capacity, 0xfu);
+            EXPECT_STREQ(inline_argument.get()->storage.inline_buffer, "ENG");
+
+            const std::string long_value(16, 'x');
+            EngineStringArgument borrowed_argument(long_value);
+            ASSERT_TRUE(borrowed_argument.valid());
+            EXPECT_EQ(borrowed_argument.get()->size, long_value.size());
+            EXPECT_EQ(borrowed_argument.get()->capacity, long_value.size());
+            EXPECT_EQ(borrowed_argument.get()->storage.pointer, long_value.data());
+
+            memory::Map::game_heap = GetProcessHeap();
+            EngineString transferred{};
+            AssignTransferredEngineString(&transferred, long_value.c_str());
+            ASSERT_GT(transferred.capacity, 0xfu);
+            EXPECT_NE(transferred.storage.pointer, long_value.data());
+            EXPECT_STREQ(transferred.storage.pointer, long_value.c_str());
+            ReleaseTransferredEngineString(&transferred);
+            EXPECT_EQ(transferred.capacity, 0u);
+        }
+
+        TEST(ConsoleLayoutTest, BuildsOneInlineArgumentAndResult)
+        {
+            console_layout::SingleArgument argument("ENG");
+            ASSERT_TRUE(argument.valid());
+            EXPECT_EQ(argument.arguments().end - argument.arguments().begin, 1);
+            EXPECT_STREQ(argument.arguments().begin->storage.inline_buffer, "ENG");
+
+            memory::Map::game_heap = GetProcessHeap();
+            console_layout::Result result("ok", true);
+            EXPECT_TRUE(result.success);
+            EXPECT_EQ(result.message.capacity, 0xfu);
+            EXPECT_STREQ(result.message.storage.inline_buffer, "ok");
         }
 
         template <size_t Size>

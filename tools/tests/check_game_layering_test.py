@@ -26,7 +26,7 @@ class GameLayeringAuditTest(unittest.TestCase):
                 root,
                 "src/boundary.cpp",
                 """#include <smedley/memory.hpp>
-#include <smedley/v2/pop.hpp>
+#include <smedley/v2/retired.hpp>
 const void *pop;
 auto base = memory::Map::base_addr;
 constexpr auto address = 0x0055a5f0;
@@ -42,7 +42,7 @@ void GiveMoneyVerified() {}
                 set(messages),
                 {
                     "raw engine header included: smedley/memory.hpp",
-                    "raw engine header included: smedley/v2/pop.hpp",
+                    "raw engine header included: smedley/v2/retired.hpp",
                     "use typed game_state References, not void game-object pointers",
                     "memory::Map is a game runtime implementation detail",
                     "CPop::GiveMoney RVA belongs in smedley_game_runtime",
@@ -77,13 +77,13 @@ static CountryRef ResolveCountry(const void *context, int ordinal)
             adapter = self.write_source(
                 root, "src/raw_adapter.cpp", "#include <smedley/memory.hpp>\n", plugin="telemetry"
             )
-            self.write_source(root, "src/policy.h", "#include <smedley/v2/pop.hpp>\n", plugin="scripting")
+            self.write_source(root, "src/policy.h", "#include <smedley/v2/retired.hpp>\n", plugin="scripting")
 
             findings = check_game_layering.audit(root, {adapter})
 
             self.assertEqual(len(findings), 1)
             self.assertEqual(findings[0].path.name, "policy.h")
-            self.assertEqual(findings[0].message, "raw engine header included: smedley/v2/pop.hpp")
+            self.assertEqual(findings[0].message, "raw engine header included: smedley/v2/retired.hpp")
 
 
 if __name__ == "__main__":

@@ -1,8 +1,0 @@
-name = "CTraitDefinitionArray"
-
-[[fns]]
-name = "instance"
-ret = "CTraitDefinitionArray *"
-static = true
-prop = true
-offset = 0x00e5fe10

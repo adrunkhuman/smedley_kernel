@@ -1,10 +1,14 @@
 # Scripting boundary
 
 The built-in `scripting` plugin executes user-selected Lua 5.1 source in private
-states compiled into `scripting.dll`. It does not call
-`clausewitz::GetLuaState`, resolve either Victoria II Lua DLL, or export its Lua
-symbols. The final x86 Release DLL exports only `SmedleyPluginGetApiV1` and
+states compiled into `scripting.dll`. The retired Victoria II Lua-state wrapper
+had no production consumer; the plugin does not resolve either Victoria II Lua
+DLL or export its Lua symbols. The final x86 Release DLL exports only `SmedleyPluginGetApiV1` and
 dynamically resolves the event, campaign-control, and logging C services.
+The wrapper, its generated model, and the regeneration path were not
+compatibility surfaces and were intentionally removed. Private Lua 5.1 states
+remain the only supported scripting runtime. Future engine access must use the
+versioned C services documented in `docs/plugin-development.md`.
 
 ## Data path
 

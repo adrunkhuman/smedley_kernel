@@ -361,8 +361,18 @@ are recorded in the corresponding mapping evidence files.
 | `campaign_runner` | None | None. The runner retains observer target/policy decisions, switch parsing, retries, state transitions, logging, and telemetry. The kernel-owned implementation owns frontend, console capture/command replacement/removal, checked copied callback arguments, annex/message hooks, popup counters, mappings, and native calls. | Keep future engine access in the kernel-owned implementation; runner inputs and observations remain copied. |
 | `scripting` | None | None. Its C daily handler copies `SmedleyDailyEventV1`, queues plugin-owned `EventSnapshot` values, and maps campaign-control results to its established worker log semantics. Lua allocator and userdata `void*` values in `scripting_runtime.cpp` are not engine objects. | Keep new engine facts in kernel C services; retain copied Lua payloads and constrained queued operations. |
 
-No first-party production source outside this table may include `smedley/v2`,
-`smedley/clausewitz`, `smedley/std`, or `smedley/memory.hpp`, access
+The retired `smedley/v2`, `smedley/clausewitz`, and `smedley/std` mirror
+namespaces must not be reintroduced. No first-party production source outside
+the kernel-owned implementation may include `smedley/memory.hpp`, access
 `memory::Map`, or introduce game-object `void*` declarations without an explicit
 CMake registration. The inventory describes code ownership, not fresh runtime
-verification of every listed legacy adapter.
+verification of every listed boundary.
+
+Issue [#72](https://github.com/adrunkhuman/smedley_kernel/issues/72) governs
+the mirror retirement. Its completed scope removes the mirror trees, generator,
+and build-time regeneration path; replaces the live frontend-string and console
+consumers with narrow kernel-private layouts; and relocates mapping provenance
+to retained evidence. The removed C++ mirrors are not compatibility surfaces.
+New engine facts still require independent static or runtime evidence and the
+ordinary mapping review. No legacy generated-layout compatibility remains to be
+restored as follow-up work.

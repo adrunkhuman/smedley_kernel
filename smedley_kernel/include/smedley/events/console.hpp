@@ -1,26 +1,29 @@
 #pragma once
 
 #include "../event.hpp"
-#include "../v2/console.hpp"
+
+#include <cstdint>
 
 namespace smedley::events
 {
 
     /**
-     * Raised when the game initializes the console command manager after the
-     * player starts a new campaign. At this point, all base-game commands have
-     * been added.
+     * Raised on the game thread after the native console manager has added its
+     * base-game commands. The manager is opaque and non-owning. Ordinary event
+     * consumers must not dereference or retain it; the kernel-owned game-state
+     * implementation performs checked access and binds any retention to the
+     * captured campaign session.
      */
     class ConsoleCmdManagerInitEvent : public Event
     {
-        v2::CConsoleCmdManager *_cmd_mgr;
+        void *_cmd_mgr;
         static constexpr uintptr_t hook_addr = 0x00023a43;
-        inline static uintptr_t hook_ret_addr = NULL;
+        inline static uintptr_t hook_ret_addr = 0;
         static void HookTrampoline();
     public:
-        ConsoleCmdManagerInitEvent(v2::CConsoleCmdManager *cmd_mgr);
-        /// @brief Returns the console command manager being initialized.
-        v2::CConsoleCmdManager *cmd_mgr() { return _cmd_mgr; }
+        explicit ConsoleCmdManagerInitEvent(void *cmd_mgr);
+        /// @brief Returns the opaque native manager for this synchronous dispatch.
+        void *cmd_mgr() const noexcept { return _cmd_mgr; }
 
         /// @brief Installs the hook that raises the event.
         static void InstallHook();

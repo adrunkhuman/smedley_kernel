@@ -8,9 +8,9 @@
 #include <smedley/eventregistry.hpp>
 #include <smedley/executable_identity.hpp>
 #include <smedley/memory.hpp>
-#include <smedley/std/string.hpp>
-#include <smedley/std/vector.hpp>
-#include <smedley/v2/console.hpp>
+
+#include "console_layout.hpp"
+#include "engine_string_layout.hpp"
 
 #include <windows.h>
 #include <psapi.h>
@@ -32,6 +32,7 @@ namespace smedley::game_state
 {
     namespace
     {
+        namespace console = console_layout;
         constexpr uintptr_t give_money_rva = 0x0055a5f0;
         constexpr std::array<uint8_t, 10> give_money_signature{
             0x55, 0x8b, 0xec, 0x83, 0xb8, 0x84, 0x01, 0x00, 0x00, 0x00,
@@ -424,22 +425,32 @@ namespace smedley::game_state
                 && smedley::memory::MatchesOriginalOrRegisteredCodePatch(address, signature, size);
         }
 
+        bool ConsoleCommandMatches(const console::Command &command, const char *name)
+        {
+            if (ReadExpectedCString(command.name, name)) return true;
+            const int32_t alias_count = (std::max)(0, (std::min)(command.alias_count, 3));
+            for (int32_t index = 0; index < alias_count; ++index) {
+                if (ReadExpectedCString(command.aliases[index], name)) return true;
+            }
+            return false;
+        }
+
         bool ReadConsoleCommand(CampaignConsoleRef console, const char *name,
-                                smedley::v2::CConsoleCmd::SCommandData *command, uintptr_t *address)
+                                console::Command *command, uintptr_t *address)
         {
             ForeignVector commands{};
             uint32_t count = 0;
             if (!console || name == nullptr || command == nullptr || address == nullptr
                 || !ReadVector(reinterpret_cast<const void *>(console.address()), 0,
-                    sizeof(smedley::v2::CConsoleCmd::SCommandData *), max_console_commands, &commands, &count)) {
+                    sizeof(console::Command *), max_console_commands, &commands, &count)) {
                 return false;
             }
             for (uint32_t index = 0; index < count; ++index) {
                 uintptr_t candidate = 0;
                 if (!ReadValue(reinterpret_cast<uintptr_t>(commands.begin)
-                        + index * sizeof(smedley::v2::CConsoleCmd::SCommandData *), &candidate)
+                        + index * sizeof(console::Command *), &candidate)
                     || candidate == 0 || !ReadValue(candidate, command)) continue;
-                if (ReadExpectedCString(command->name, name)) {
+                if (ConsoleCommandMatches(*command, name)) {
                     *address = candidate;
                     return true;
                 }
@@ -447,59 +458,94 @@ namespace smedley::game_state
             return false;
         }
 
-        class InlineConsoleString final : public smedley::sstd::string
+        bool ReadConsoleCommandVector(
+            CampaignConsoleRef console_ref, console::CommandVector *vector, uint32_t *count)
         {
-        public:
-            bool Assign(const char *value)
-            {
-                if (value == nullptr) return false;
-                const size_t size = std::strlen(value);
-                if (size > default_capacity) return false;
-                std::fill(std::begin(_impl.buf), std::end(_impl.buf), '\0');
-                std::memcpy(_impl.buf, value, size);
-                _size = size;
-                _capacity = default_capacity;
-                return true;
-            }
-        };
+            if (!console_ref || vector == nullptr || count == nullptr
+                || !ReadValue(console_ref.address(), vector)) return false;
+            ForeignVector metadata{};
+            if (!ReadVector(reinterpret_cast<const void *>(console_ref.address()), 0,
+                    sizeof(console::Command *), max_console_commands, &metadata, count)) return false;
+            return vector->begin == metadata.begin && vector->end == metadata.end
+                && vector->capacity == metadata.capacity;
+        }
 
-        class SingleConsoleArgument final : public smedley::sstd::vector<smedley::sstd::string>
+        bool AppendConsoleCommand(CampaignConsoleRef console_ref, console::Command *command)
         {
-        public:
-            explicit SingleConsoleArgument(const char *value)
-            {
-                if (!argument_.Assign(value)) return;
-                _first = &argument_;
-                _last = _first + 1;
-                _end = _last;
-                valid_ = true;
+            if (!console_ref || command == nullptr) return false;
+            auto *manager = reinterpret_cast<console::CommandVector *>(console_ref.address());
+            console::CommandVector vector{};
+            uint32_t count = 0;
+            if (!ReadConsoleCommandVector(console_ref, &vector, &count)) return false;
+            const uintptr_t begin = reinterpret_cast<uintptr_t>(vector.begin);
+            const uintptr_t capacity = reinterpret_cast<uintptr_t>(vector.capacity);
+            const size_t current_capacity = begin == 0 ? 0 : (capacity - begin) / sizeof(console::Command *);
+            if (current_capacity > max_console_commands || count >= max_console_commands
+                || !IsAccessible(manager, sizeof(*manager), true)) return false;
+
+            if (count < current_capacity) {
+                if (!CopyWritable(vector.end, &command, sizeof(command))) return false;
+                auto *new_end = vector.end + 1;
+                return CopyWritable(&manager->end, &new_end, sizeof(new_end));
             }
 
-            bool valid() const noexcept { return valid_; }
+            const size_t new_capacity = current_capacity == 0
+                ? 16 : (std::min)(current_capacity * 2, static_cast<size_t>(max_console_commands));
+            auto **storage = static_cast<console::Command **>(HeapAlloc(
+                smedley::memory::Map::game_heap, HEAP_ZERO_MEMORY, new_capacity * sizeof(console::Command *)));
+            if (storage == nullptr) return false;
+            if (count != 0 && !CopyReadable(storage, vector.begin, count * sizeof(console::Command *))) {
+                HeapFree(smedley::memory::Map::game_heap, 0, storage);
+                return false;
+            }
+            storage[count] = command;
+            const console::CommandVector replacement{
+                storage, storage + count + 1, storage + new_capacity, vector.allocator,
+            };
+            if (!CopyWritable(manager, &replacement, sizeof(replacement))) {
+                HeapFree(smedley::memory::Map::game_heap, 0, storage);
+                return false;
+            }
+            if (vector.begin != nullptr) HeapFree(smedley::memory::Map::game_heap, 0, vector.begin);
+            return true;
+        }
 
-        private:
-            InlineConsoleString argument_;
-            bool valid_ = false;
-        };
+        bool RemoveConsoleCommand(CampaignConsoleRef console_ref, console::Command *command)
+        {
+            if (!console_ref || command == nullptr) return false;
+            auto *manager = reinterpret_cast<console::CommandVector *>(console_ref.address());
+            console::CommandVector vector{};
+            uint32_t count = 0;
+            if (!ReadConsoleCommandVector(console_ref, &vector, &count)
+                || count == 0 || !IsAccessible(manager, sizeof(*manager), true)) return false;
+            uint32_t index = 0;
+            for (; index < count; ++index) {
+                console::Command *candidate = nullptr;
+                if (!ReadValue(reinterpret_cast<uintptr_t>(vector.begin + index), &candidate)) return false;
+                if (candidate == command) break;
+            }
+            if (index == count) return false;
+            if (index + 1 < count) {
+                const size_t bytes = (count - index - 1) * sizeof(console::Command *);
+                if (!IsAccessible(vector.begin + index, bytes, true)) return false;
+                __try {
+                    std::memmove(vector.begin + index, vector.begin + index + 1, bytes);
+                } __except (EXCEPTION_EXECUTE_HANDLER) {
+                    return false;
+                }
+            }
+            auto *new_end = vector.end - 1;
+            return CopyWritable(&manager->end, &new_end, sizeof(new_end));
+        }
 
-        bool CopyConsoleResult(const smedley::v2::CConsoleCmd::SResult &native, CampaignConsoleCommandResult *result)
+        bool CopyConsoleResult(const console::Result &native, CampaignConsoleCommandResult *result)
         {
             if (result == nullptr) return native.success;
             result->success = native.success;
-            struct RawEngineString
-            {
-                union {
-                    char buffer[16];
-                    const char *pointer;
-                } storage;
-                uint32_t size;
-                uint32_t capacity;
-                uint32_t allocator;
-            } message{};
-            static_assert(sizeof(message) == sizeof(native.message));
+            EngineString message{};
             if (!CopyReadable(&message, &native.message, sizeof(message)) || message.size >= sizeof(result->message)
                 || message.capacity < message.size || message.capacity < 0xf) return native.success;
-            const char *source = message.capacity > 0xf ? message.storage.pointer : message.storage.buffer;
+            const char *source = message.capacity > 0xf ? message.storage.pointer : message.storage.inline_buffer;
             if (!CopyReadable(result->message, source, message.size)) return native.success;
             result->message[message.size] = '\0';
             result->message_available = true;
@@ -509,11 +555,10 @@ namespace smedley::game_state
         bool InvokeConsoleHandler(uintptr_t handler, const char *argument, CampaignConsoleCommandResult *result)
         {
             if (handler == 0 || argument == nullptr) return false;
-            SingleConsoleArgument arguments(argument);
+            console::SingleArgument arguments(argument);
             if (!arguments.valid()) return false;
-            using Handler = smedley::v2::CConsoleCmd::SCommandData::Handler;
             __try {
-                const auto native = reinterpret_cast<Handler>(handler)(arguments);
+                const auto native = reinterpret_cast<console::Command::Handler>(handler)(arguments.arguments());
                 return CopyConsoleResult(native, result);
             } __except (EXCEPTION_EXECUTE_HANDLER) {
                 return false;
@@ -945,38 +990,12 @@ namespace smedley::game_state
                 && vtable == smedley::memory::Map::base_addr + expected_rva;
         }
 
-        class EngineStringArgument final : public smedley::sstd::string
+        bool ReadFrontendString(const void *address, std::string *value, EngineString *metadata = nullptr)
         {
-        public:
-            explicit EngineStringArgument(std::string_view value)
-            {
-                _size = value.size();
-                if (value.size() <= default_capacity) {
-                    std::fill(std::begin(_impl.buf), std::end(_impl.buf), '\0');
-                    std::memcpy(_impl.buf, value.data(), value.size());
-                    _capacity = default_capacity;
-                } else {
-                    _impl.ptr = const_cast<char *>(value.data());
-                    _capacity = value.size();
-                }
-            }
-        };
-
-        struct RawFrontendString
-        {
-            union { char buffer[16]; const char *pointer; } storage;
-            uint32_t size;
-            uint32_t capacity;
-            uint32_t allocator;
-        };
-        static_assert(sizeof(RawFrontendString) == sizeof(smedley::sstd::string));
-
-        bool ReadFrontendString(const void *address, std::string *value, RawFrontendString *metadata = nullptr)
-        {
-            RawFrontendString snapshot{};
+            EngineString snapshot{};
             if (value == nullptr || !CopyReadable(&snapshot, address, sizeof(snapshot))
                 || snapshot.size > maximum_save_basename || snapshot.capacity < snapshot.size || snapshot.capacity < 0xf) return false;
-            const char *source = snapshot.capacity > 0xf ? snapshot.storage.pointer : snapshot.storage.buffer;
+            const char *source = snapshot.capacity > 0xf ? snapshot.storage.pointer : snapshot.storage.inline_buffer;
             std::string copy(snapshot.size, '\0');
             char terminator = 0;
             if ((snapshot.size != 0 && !CopyReadable(copy.data(), source, snapshot.size))
@@ -986,9 +1005,9 @@ namespace smedley::game_state
             return true;
         }
 
-        void *InvokeFindControl(void *object, uintptr_t target, const smedley::sstd::string *name)
+        void *InvokeFindControl(void *object, uintptr_t target, const EngineString *name)
         {
-            using FindControl = void *(__thiscall *)(void *, const smedley::sstd::string *);
+            using FindControl = void *(__thiscall *)(void *, const EngineString *);
             __try {
                 return reinterpret_cast<FindControl>(target)(object, name);
             } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -1199,8 +1218,9 @@ namespace smedley::game_state
         uintptr_t find_panel = 0, find_button = 0;
         void *panel = nullptr;
         void *button = nullptr;
-        if (!ReadVirtualTarget(gui, 0x6c, &find_panel) || (panel = InvokeFindControl(gui, find_panel, &panel_name)) == nullptr
-            || !ReadVirtualTarget(panel, 0x34, &find_button) || (button = InvokeFindControl(panel, find_button, &button_name)) == nullptr) {
+        if (!panel_name.valid() || !button_name.valid()
+            || !ReadVirtualTarget(gui, 0x6c, &find_panel) || (panel = InvokeFindControl(gui, find_panel, panel_name.get())) == nullptr
+            || !ReadVirtualTarget(panel, 0x34, &find_button) || (button = InvokeFindControl(panel, find_button, button_name.get())) == nullptr) {
             return FrontendOperationStatus::unavailable;
         }
         if (!DispatchNativeSignal(reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(button) + control_signal_offset))) {
@@ -1240,10 +1260,10 @@ namespace smedley::game_state
             status != FrontendOperationStatus::completed) return status;
         if (!ControllerVtableMatches(controller, frontend_vtable_rva)) return FrontendOperationStatus::invalid_controller;
         void *gui = nullptr;
-        RawFrontendString metadata{};
+        EngineString metadata{};
         std::string existing;
         unsigned char flags[2]{};
-        auto *selected = reinterpret_cast<smedley::sstd::string *>(reinterpret_cast<uintptr_t>(controller) + selected_save_offset);
+        auto *selected = reinterpret_cast<EngineString *>(reinterpret_cast<uintptr_t>(controller) + selected_save_offset);
         uintptr_t lookup = 0;
         if (!ReadField(controller, frontend_gui_offset, &gui) || gui == nullptr || !ReadVirtualTarget(gui, 0x34, &lookup)
             || !ReadFrontendString(selected, &existing, &metadata)
@@ -1254,12 +1274,16 @@ namespace smedley::game_state
             return FrontendOperationStatus::precondition_failed;
         }
         if (existing.empty()) {
-            if (metadata.capacity != 0xf || metadata.storage.buffer[0] != '\0' || !IsAccessible(selected, sizeof(*selected), true)) {
+            if (metadata.capacity != 0xf || metadata.storage.inline_buffer[0] != '\0' || !IsAccessible(selected, sizeof(*selected), true)) {
                 return FrontendOperationStatus::precondition_failed;
             }
             try {
-                const smedley::sstd::string prepared(basename);
-                new (selected) smedley::sstd::string(prepared);
+                EngineString prepared{};
+                AssignTransferredEngineString(&prepared, basename);
+                if (!CopyWritable(selected, &prepared, sizeof(prepared))) {
+                    ReleaseTransferredEngineString(&prepared);
+                    return FrontendOperationStatus::precondition_failed;
+                }
             } catch (const std::bad_alloc &) {
                 return FrontendOperationStatus::unavailable;
             }
@@ -1291,7 +1315,8 @@ namespace smedley::game_state
             return FrontendOperationStatus::invalid_controller;
         }
         EngineStringArgument control_name(name);
-        void *control = InvokeFindControl(gui, find_control, &control_name);
+        if (!control_name.valid()) return FrontendOperationStatus::precondition_failed;
+        void *control = InvokeFindControl(gui, find_control, control_name.get());
         uintptr_t vtable = 0;
         if (control == nullptr || !ReadValue(reinterpret_cast<uintptr_t>(control), &vtable)) return FrontendOperationStatus::unavailable;
         return DispatchNativeSignal(reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(control) + control_signal_offset))
@@ -1870,7 +1895,7 @@ namespace smedley::game_state
     ObserverOperationStatus BlockNativeObserverTagCommand(CampaignConsoleRef console, uintptr_t replacement_handler)
     {
         if (!console || replacement_handler == 0) return ObserverOperationStatus::invalid_state;
-        smedley::v2::CConsoleCmd::SCommandData command{};
+        console::Command command{};
         uintptr_t command_address = 0;
         uintptr_t expected = 0;
         if (!NativeSignatureMatches(native_tag_handler_rva, native_tag_handler_signature.data(), native_tag_handler_signature.size())) {
@@ -1880,7 +1905,7 @@ namespace smedley::game_state
             || !ReadConsoleCommand(console, "tag", &command, &command_address) || command.handler == nullptr
             || reinterpret_cast<uintptr_t>(command.handler) != expected
             || !CopyWritable(reinterpret_cast<void *>(command_address
-                + offsetof(smedley::v2::CConsoleCmd::SCommandData, handler)), &replacement_handler,
+                + offsetof(console::Command, handler)), &replacement_handler,
                 sizeof(replacement_handler))
             || !ReadValue(command_address, &command)
             || reinterpret_cast<uintptr_t>(command.handler) != replacement_handler) {
@@ -1896,12 +1921,12 @@ namespace smedley::game_state
         const uintptr_t handler = captured_native_tag_handler.load(std::memory_order_acquire);
         if (!console || replacement_handler == 0 || captured_console.load(std::memory_order_acquire) != console.address()
             || handler == 0) return ObserverOperationStatus::unavailable;
-        smedley::v2::CConsoleCmd::SCommandData command{};
+        console::Command command{};
         uintptr_t command_address = 0;
         if (!ReadConsoleCommand(console, "tag", &command, &command_address)) return ObserverOperationStatus::unavailable;
         if (reinterpret_cast<uintptr_t>(command.handler) == replacement_handler) {
             if (!CopyWritable(reinterpret_cast<void *>(command_address
-                    + offsetof(smedley::v2::CConsoleCmd::SCommandData, handler)), &handler, sizeof(handler))
+                    + offsetof(console::Command, handler)), &handler, sizeof(handler))
                 || !ReadValue(command_address, &command)
                 || reinterpret_cast<uintptr_t>(command.handler) != handler) {
                 return ObserverOperationStatus::readback_failed;
@@ -1930,7 +1955,7 @@ namespace smedley::game_state
         if (!smedley::IsCurrentExecutableSupported()) return ObserverOperationStatus::signature_mismatch;
         uintptr_t fog_address = 0;
         uint8_t fog_enabled = 0;
-        smedley::v2::CConsoleCmd::SCommandData command{};
+        console::Command command{};
         uintptr_t command_address = 0;
         uintptr_t expected = 0;
         if (!AddOffset(smedley::memory::Map::base_addr, fog_enabled_rva, &fog_address)
@@ -1964,10 +1989,10 @@ namespace smedley::game_state
         std::atomic<CampaignConsoleCallback> campaign_console_callback{};
         std::atomic<bool> campaign_hooks_poisoned{};
         std::atomic<bool> campaign_hooks_installed{};
-        smedley::v2::CConsoleCmdManager *campaign_console_manager = nullptr;
+        void *campaign_console_manager = nullptr;
         int campaign_automation_console_owner{};
         std::atomic<bool> campaign_automation_console_capture_registered{};
-        smedley::v2::CConsoleCmd::SCommandData *campaign_switch_command = nullptr;
+        console::Command *campaign_switch_command = nullptr;
         GameSession campaign_console_session{};
         volatile bool suppress_campaign_message_popups = false;
         std::atomic<bool> campaign_automation_message_popups_suppressed{};
@@ -1983,8 +2008,7 @@ namespace smedley::game_state
             suppress_campaign_message_popups = campaign_automation_message_popups_suppressed.load(std::memory_order_acquire);
         }
 
-        CampaignConsoleArguments CopyCampaignConsoleArguments(
-            const smedley::sstd::vector<smedley::sstd::string> &raw)
+        CampaignConsoleArguments CopyCampaignConsoleArguments(const console::Arguments &raw)
         {
             CampaignConsoleArguments copied{};
             ForeignVector arguments{};
@@ -1996,27 +2020,21 @@ namespace smedley::game_state
                 copied.valid = true;
                 return copied;
             }
-            if (begin == 0 || begin > end || end > capacity || (end - begin) % sizeof(smedley::sstd::string) != 0
-                || (capacity - begin) % sizeof(smedley::sstd::string) != 0) return copied;
-            const uintptr_t count = (end - begin) / sizeof(smedley::sstd::string);
+            if (begin == 0 || begin > end || end > capacity || (end - begin) % sizeof(EngineString) != 0
+                || (capacity - begin) % sizeof(EngineString) != 0) return copied;
+            const uintptr_t count = (end - begin) / sizeof(EngineString);
             if (count > 8 || !IsAccessible(arguments.begin, static_cast<size_t>(end - begin), false)) return copied;
             copied.count = static_cast<uint32_t>(count);
             copied.valid = true;
             if (count == 0) return copied;
 
-            struct RawEngineString
-            {
-                union { char buffer[16]; const char *pointer; } storage;
-                uint32_t size;
-                uint32_t capacity;
-                uint32_t allocator;
-            } argument{};
+            EngineString argument{};
             if (!ReadValue(begin, &argument) || argument.size >= sizeof(copied.first)
                 || argument.capacity < argument.size || argument.capacity < 0xf) {
                 copied.valid = false;
                 return copied;
             }
-            const char *source = argument.capacity > 0xf ? argument.storage.pointer : argument.storage.buffer;
+            const char *source = argument.capacity > 0xf ? argument.storage.pointer : argument.storage.inline_buffer;
             if ((argument.size != 0 && !CopyReadable(copied.first, source, argument.size))) {
                 copied.valid = false;
                 return copied;
@@ -2025,11 +2043,11 @@ namespace smedley::game_state
             return copied;
         }
 
-        smedley::v2::CConsoleCmd::SResult DispatchCampaignConsoleCommand(
-            CampaignConsoleCommand command, const smedley::sstd::vector<smedley::sstd::string> &raw)
+        console::Result DispatchCampaignConsoleCommand(
+            CampaignConsoleCommand command, const console::Arguments &raw)
         {
             if (!IsCampaignObserverConsoleReady()) {
-                return smedley::v2::CConsoleCmd::SResult("observer unavailable", false);
+                return console::Result("observer unavailable", false);
             }
             const CampaignConsoleArguments arguments = CopyCampaignConsoleArguments(raw);
             SmedleyCampaignConsoleInputV1 input{};
@@ -2044,22 +2062,20 @@ namespace smedley::game_state
             if (smedley::DispatchCampaignConsoleEventServices(input, &result)) {
                 char message[SMEDLEY_CAMPAIGN_CONSOLE_MAX_RESULT_BYTES + 1]{};
                 std::memcpy(message, result.message, result.message_bytes);
-                return smedley::v2::CConsoleCmd::SResult(message, result.success != 0);
+                return console::Result(message, result.success != 0);
             }
             const auto callback = campaign_console_callback.load(std::memory_order_acquire);
-            if (callback == nullptr) return smedley::v2::CConsoleCmd::SResult("observer unavailable", false);
+            if (callback == nullptr) return console::Result("observer unavailable", false);
             const CampaignConsoleResponse response = callback(command, arguments);
-            return smedley::v2::CConsoleCmd::SResult(response.message, response.success);
+            return console::Result(response.message, response.success);
         }
 
-        smedley::v2::CConsoleCmd::SResult CampaignNativeTagHandler(
-            const smedley::sstd::vector<smedley::sstd::string> &raw)
+        console::Result CampaignNativeTagHandler(const console::Arguments &raw)
         {
             return DispatchCampaignConsoleCommand(CampaignConsoleCommand::native_tag, raw);
         }
 
-        smedley::v2::CConsoleCmd::SResult CampaignSwitchHandler(
-            const smedley::sstd::vector<smedley::sstd::string> &raw)
+        console::Result CampaignSwitchHandler(const console::Arguments &raw)
         {
             return DispatchCampaignConsoleCommand(CampaignConsoleCommand::observer_switch, raw);
         }
@@ -2080,7 +2096,7 @@ namespace smedley::game_state
                 RestoreNativeObserverTagCommand(
                     CampaignConsoleRef{campaign_console_manager}, reinterpret_cast<uintptr_t>(&CampaignNativeTagHandler));
                 removed_switch = campaign_switch_command != nullptr
-                    && campaign_console_manager->commands().erase_value(campaign_switch_command);
+                    && RemoveConsoleCommand(CampaignConsoleRef{campaign_console_manager}, campaign_switch_command);
             }
             // Without a manager destructor boundary, stale engine storage may still
             // reference this record. A bounded leak is safer than a use-after-free.
@@ -2093,7 +2109,7 @@ namespace smedley::game_state
             campaign_console_ready.store(false, std::memory_order_release);
         }
 
-        CampaignConsoleCaptureStatus CaptureCampaignConsoleCommandManager(smedley::v2::CConsoleCmdManager *raw)
+        CampaignConsoleCaptureStatus CaptureCampaignConsoleCommandManager(void *raw)
         {
             if (raw == nullptr) return CampaignConsoleCaptureStatus::native_tag_unavailable;
             if (!CampaignObserverEnabled()) {
@@ -2109,20 +2125,30 @@ namespace smedley::game_state
             if (!session.game_state) return CampaignConsoleCaptureStatus::native_tag_unavailable;
             campaign_console_manager = raw;
             campaign_console_session = session;
-            if (raw->FindCommand("switch") != nullptr) return CampaignConsoleCaptureStatus::command_conflict;
-            if (raw->FindCommand("tag") == nullptr
+            console::Command command{};
+            uintptr_t command_address = 0;
+            if (ReadConsoleCommand(CampaignConsoleRef{raw}, "switch", &command, &command_address)) {
+                return CampaignConsoleCaptureStatus::command_conflict;
+            }
+            if (!ReadConsoleCommand(CampaignConsoleRef{raw}, "tag", &command, &command_address)
                 || BlockNativeObserverTagCommand(CampaignConsoleRef{raw}, reinterpret_cast<uintptr_t>(&CampaignNativeTagHandler))
                     != ObserverOperationStatus::completed) {
                 return CampaignConsoleCaptureStatus::native_tag_unavailable;
             }
-            campaign_switch_command = new smedley::v2::CConsoleCmd::SCommandData{};
+            campaign_switch_command = new console::Command{};
             campaign_switch_command->is_allowed = true;
             campaign_switch_command->name = "switch";
             campaign_switch_command->description = "Change observer view while preserving country AI.";
             campaign_switch_command->handler = &CampaignSwitchHandler;
-            campaign_switch_command->num_args = 1;
-            campaign_switch_command->args[0] = "TAG";
-            raw->commands().push_back(campaign_switch_command);
+            campaign_switch_command->argument_count = 1;
+            campaign_switch_command->argument_names[0] = "TAG";
+            if (!AppendConsoleCommand(CampaignConsoleRef{raw}, campaign_switch_command)) {
+                delete campaign_switch_command;
+                campaign_switch_command = nullptr;
+                RestoreNativeObserverTagCommand(
+                    CampaignConsoleRef{raw}, reinterpret_cast<uintptr_t>(&CampaignNativeTagHandler));
+                return CampaignConsoleCaptureStatus::native_tag_unavailable;
+            }
             campaign_console_ready.store(true, std::memory_order_release);
             return CampaignConsoleCaptureStatus::completed;
         }
