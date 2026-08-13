@@ -718,7 +718,6 @@ namespace
         SmedleyCampaignAutomation automation, SmedleyCampaignPopupSnapshotV1 *snapshot)
     {
         if (!ValidRecord(snapshot, 1)) return SMEDLEY_CAMPAIGN_AUTOMATION_INVALID_ARGUMENT;
-        if (!IsServiceOwnerThread()) return SMEDLEY_CAMPAIGN_AUTOMATION_WRONG_THREAD;
         auto *slot = FindCampaignAutomation(automation);
         if (const auto status = CampaignAutomationStatus(slot); status != SMEDLEY_CAMPAIGN_AUTOMATION_SUCCESS) return status;
         snapshot->suppression_enabled = IsCampaignMessagePopupSuppressionEnabled() ? 1 : 0;
