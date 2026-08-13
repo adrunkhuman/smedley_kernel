@@ -174,6 +174,10 @@ native storage can be released. A bundled runner receives only a generation-boun
 `FrontendControllerToken`, never a controller address. Every action rechecks the
 token, captured thread, exact controller vtable, bounded GUI lookup target, and
 native signal signatures before calling the engine.
+Each entry signature is checked before MinHook installation. The detour calls
+MinHook's relocated original trampoline. Published frontend detours remain
+process-lifetime and rollback deactivates their callbacks; freeing a published
+trampoline could race an in-flight detour.
 
 `FrontendSaveSnapshot` copies the selected basename and request/completion flags.
 The runner keeps filename policy and state-machine decisions; the runtime owns
@@ -222,6 +226,28 @@ version, ownership, lifetime, and thread contract.
 The `game_state` C++ headers are internal source contracts for bundled plugins.
 Their symbols, layouts, and source interfaces may change with the repository;
 they provide no third-party binary or source compatibility promise.
+
+## Detour ownership
+
+The kernel uses pinned MinHook v1.3.4 for function-entry detours. MinHook decodes
+and relocates complete overwritten x86 instructions, coordinates threads while
+enabling or disabling a detour, and supplies the callable original trampoline.
+Smedley still verifies the exact supported executable and expected target bytes
+before creating each detour. Once enabled, a detour and its original trampoline
+remain process-lifetime because another thread may already be executing the
+detour before its tail jump. A later installation failure deactivates callbacks,
+marks the hook group poisoned, and reports `readback_failed` instead of freeing
+reachable executable memory. Normal deactivation also clears callbacks without
+removing published detours.
+
+Call-site replacements are not function-entry detours. Daily event hooks,
+interest boundaries, heap capture, telemetry capture calls, and message popup
+dispatch branches retain their exact checked byte patches because they replace a
+specific call or branch and may have several verified continuation targets.
+They keep explicit page-protection, instruction-cache, and rollback contracts
+rather than pretending to be MinHook function entries. Each hook documents its
+own quiescence requirements; installing a raw campaign patch does not itself
+suspend other threads.
 
 ## Raw-access inventory
 

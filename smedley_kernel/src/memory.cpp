@@ -3,6 +3,7 @@
 #include <array>
 #include <mutex>
 #include <stdexcept>
+#include <MinHook.h>
 
 namespace smedley::memory
 {
@@ -20,6 +21,17 @@ namespace smedley::memory
 
         std::array<RegisteredCodePatch, max_registered_code_patches> registered_code_patches{};
         std::mutex registered_code_patches_mutex;
+        std::mutex hook_mutex;
+        bool minhook_initialized = false;
+
+        bool EnsureMinHookInitialized()
+        {
+            if (minhook_initialized) return true;
+            const MH_STATUS status = MH_Initialize();
+            if (status != MH_OK && status != MH_ERROR_ALREADY_INITIALIZED) return false;
+            minhook_initialized = true;
+            return true;
+        }
 
         bool ValidCodePatchArguments(uintptr_t address, const uint8_t *original,
                                      const uint8_t *replacement, size_t size)
@@ -107,26 +119,16 @@ namespace smedley::memory
         DWORD old_protect, offset;
         LPVOID lpv_addr = reinterpret_cast<LPVOID>(addr);
         uint8_t *bytes_addr = reinterpret_cast<uint8_t *>(addr);
-
-        if (n < 5) {
-            return false;
-        }
-
+        if (n < 5) return false;
         offset = reinterpret_cast<uintptr_t>(jmp) - addr - 5;
         const std::vector<uint8_t> original(bytes_addr, bytes_addr + n);
-
         if (!VirtualProtect(lpv_addr, n, PAGE_EXECUTE_READWRITE, &old_protect)) {
             throw std::runtime_error("could not make hook target writable");
         }
-
-        if (old_instr != nullptr) {
-            *old_instr = original;
-        }
-
-        std::memset(bytes_addr + 1, 0x90, n - 1); // Fill the remaining bytes with NOPs.
+        if (old_instr != nullptr) *old_instr = original;
+        std::memset(bytes_addr + 1, 0x90, n - 1);
         *bytes_addr = 0xe9;
         *reinterpret_cast<DWORD *>(bytes_addr + 1) = offset;
-
         if (!FlushInstructionCache(GetCurrentProcess(), lpv_addr, n)) {
             std::copy(original.begin(), original.end(), bytes_addr);
             FlushInstructionCache(GetCurrentProcess(), lpv_addr, n);
@@ -141,7 +143,6 @@ namespace smedley::memory
             VirtualProtect(lpv_addr, n, old_protect, &ignored);
             throw std::runtime_error("could not restore hook target protection");
         }
-
         return true;
     }
 
@@ -156,6 +157,29 @@ namespace smedley::memory
         DWORD ignored;
         const bool restored = VirtualProtect(target, instructions.size(), old_protect, &ignored) != FALSE;
         return flushed && restored;
+    }
+
+    bool InstallDetour(uintptr_t addr, void *detour, void **original)
+    {
+        if (addr == 0 || detour == nullptr || original == nullptr) return false;
+        std::lock_guard lock(hook_mutex);
+        if (!EnsureMinHookInitialized()) throw std::runtime_error("could not initialize MinHook");
+        auto *target = reinterpret_cast<void *>(addr);
+        if (MH_CreateHook(target, detour, original) != MH_OK) return false;
+        if (MH_EnableHook(target) == MH_OK) return true;
+        MH_RemoveHook(target);
+        *original = nullptr;
+        return false;
+    }
+
+    bool RemoveDetour(uintptr_t addr) noexcept
+    {
+        if (addr == 0) return false;
+        std::lock_guard lock(hook_mutex);
+        auto *target = reinterpret_cast<void *>(addr);
+        const MH_STATUS disabled = MH_DisableHook(target);
+        if (disabled != MH_OK && disabled != MH_ERROR_DISABLED) return false;
+        return MH_RemoveHook(target) == MH_OK;
     }
 
     bool RegisterCodePatch(uintptr_t address, const uint8_t *original, const uint8_t *replacement, size_t size)

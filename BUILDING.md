@@ -6,12 +6,18 @@ Smedley requires these build tools:
 
 - [CMake >= 3.20](https://cmake.org/download/)
 - [Microsoft C++ Compiler (MSVC)](https://visualstudio.microsoft.com/vs/community/)
+- Git and network access for the initial pinned dependency fetch
 
 Smedley currently supports only MSVC, the compiler used to build `v2game.exe`.
 
 The initial configure downloads pinned GoogleTest and Lua 5.1.5 source archives.
 Lua is linked privately into the optional scripting plugin; it is not resolved
 from Victoria II's Lua DLLs. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+The configure also fetches pinned MinHook v1.3.4, linked privately into the x86
+kernel for function-entry detours.
+After a failed dependency download, rerun configure. If CMake retained a broken
+partial checkout, remove only that dependency's directory under `build/_deps`
+and configure again; do not delete checked-in third-party material.
 
 ## Building
 
