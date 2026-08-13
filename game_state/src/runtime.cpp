@@ -11,6 +11,8 @@
 
 #include "console_layout.hpp"
 #include "engine_string_layout.hpp"
+#include "foreign_memory.hpp"
+#include "v2_304_layout.hpp"
 
 #include <windows.h>
 #include <psapi.h>
@@ -33,36 +35,87 @@ namespace smedley::game_state
     namespace
     {
         namespace console = console_layout;
-        constexpr uintptr_t give_money_rva = 0x0055a5f0;
+        namespace foreign = foreign_memory;
+        namespace layout = v2_304_layout;
+        using layout::bank_owner_offset;
+        using layout::country_ai_offset;
+        using layout::country_allies_offset;
+        using layout::country_diplomatic_points_offset;
+        using layout::country_guaranteed_offset;
+        using layout::country_infamy_offset;
+        using layout::country_leadership_offset;
+        using layout::country_mobilized_offset;
+        using layout::country_neighbors_offset;
+        using layout::country_overlord_offset;
+        using layout::country_owned_provinces_offset;
+        using layout::country_plurality_offset;
+        using layout::country_prestige_offset;
+        using layout::country_ranking_offset;
+        using layout::country_research_points_offset;
+        using layout::country_scheduled_mobilizations_offset;
+        using layout::country_sphere_leader_offset;
+        using layout::country_spherelings_offset;
+        using layout::country_substate_offset;
+        using layout::country_tag_offset;
+        using layout::country_treasury_offset;
+        using layout::country_units_offset;
+        using layout::country_vassal_offset;
+        using layout::country_vassals_offset;
+        using layout::country_war_exhaustion_offset;
+        using layout::current_game_state_rva;
+        using layout::debug_command_handler_rva;
+        using layout::fog_enabled_rva;
+        using layout::game_state_countries_offset;
+        using layout::game_state_country_ais_offset;
+        using layout::game_state_date_offset;
+        using layout::game_state_idler_offset;
+        using layout::game_state_player_nations_offset;
+        using layout::game_state_player_tag_offset;
+        using layout::game_state_provinces_offset;
+        using layout::game_state_speed_index_offset;
+        using layout::game_state_wars_offset;
+        using layout::give_money_rva;
+        using layout::idler_pause_state_offset;
+        using layout::idler_quit_requested_offset;
+        using layout::native_tag_handler_rva;
+        using layout::pop_interest_cash_flow_offset;
+        using layout::pop_money_offset;
+        using layout::pop_savings_offset;
+        using layout::pop_total_cash_flow_offset;
+        using layout::province_buildings_offset;
+        using layout::province_colonial_level_offset;
+        using layout::province_constructions_offset;
+        using layout::province_controller_offset;
+        using layout::province_id_offset;
+        using layout::province_infrastructure_offset;
+        using layout::province_life_rating_offset;
+        using layout::province_owner_offset;
+        using layout::request_quit_rva;
+        using layout::return_country_to_ai_rva;
+        using layout::scheduled_mobilization_size;
+        using layout::speed_down_rva;
+        using layout::speed_up_rva;
+        using layout::state_id_offset;
+        using layout::state_interest_offset;
+        using layout::state_size;
+        using layout::toggle_pause_rva;
         constexpr std::array<uint8_t, 10> give_money_signature{
             0x55, 0x8b, 0xec, 0x83, 0xb8, 0x84, 0x01, 0x00, 0x00, 0x00,
         };
-        constexpr uintptr_t current_game_state_rva = 0x00e588e8;
-        constexpr uintptr_t return_country_to_ai_rva = 0x00287a70;
         constexpr std::array<uint8_t, 12> return_country_to_ai_signature{
             0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00,
         };
-        constexpr uintptr_t native_tag_handler_rva = 0x0001f720;
         constexpr std::array<uint8_t, 5> native_tag_handler_signature{0x55, 0x8b, 0xec, 0x6a, 0xff};
-        constexpr uintptr_t debug_command_handler_rva = 0x00020eb0;
         constexpr std::array<uint8_t, 8> debug_command_handler_signature{
             0x55, 0x8b, 0xec, 0x83, 0xe4, 0xf8, 0x6a, 0xff,
         };
-        constexpr uintptr_t fog_enabled_rva = 0x00b092fb;
-        constexpr uintptr_t toggle_pause_rva = 0x0026a2c0;
         constexpr std::array<uint8_t, 9> toggle_pause_signature{
             0x55, 0x8b, 0xec, 0x64, 0xa1, 0x00, 0x00, 0x00, 0x00,
         };
-        constexpr size_t game_state_idler_offset = 0x0b24;
-        constexpr size_t idler_pause_state_offset = 0x1538;
-        constexpr size_t idler_quit_requested_offset = 0x1d20;
         constexpr size_t idler_request_quit_slot_offset = 0x110;
-        constexpr uintptr_t request_quit_rva = 0x0024edb0;
         constexpr std::array<uint8_t, 8> request_quit_signature{
             0xc6, 0x81, 0x20, 0x1d, 0x00, 0x00, 0x01, 0xc3,
         };
-        constexpr uintptr_t speed_up_rva = 0x0032ee90;
-        constexpr uintptr_t speed_down_rva = 0x0032efe0;
         constexpr size_t speed_handler_signature_offset = 6;
         constexpr std::array<uint8_t, 10> speed_up_signature{
             0x8b, 0x81, 0x28, 0x0b, 0x00, 0x00, 0x40, 0x83, 0xf8, 0x04,
@@ -71,64 +124,15 @@ namespace smedley::game_state
             0x8b, 0x81, 0x28, 0x0b, 0x00, 0x00, 0x48, 0x83, 0xf8, 0x04,
         };
         constexpr char in_game_idler_type_name[] = ".?AVCInGameIdler@@";
-        constexpr size_t pop_money_offset = 0x180;
-        constexpr size_t pop_interest_cash_flow_offset = 0x210;
-        constexpr size_t pop_total_cash_flow_offset = 0x218;
-        constexpr size_t pop_savings_offset = 0x250;
-        constexpr size_t bank_owner_offset = 0x08;
-        constexpr size_t state_size = 0x290;
-        constexpr size_t state_id_offset = 0x0c;
-        constexpr size_t state_interest_offset = 0x260;
         constexpr uint32_t max_campaign_states = 4096;
         constexpr size_t pop_money_span = pop_total_cash_flow_offset + sizeof(int64_t) - pop_money_offset;
         constexpr size_t pop_snapshot_span = pop_savings_offset + sizeof(int64_t) - pop_money_offset;
         constexpr size_t pop_interest_identity_capacity = 131072;
-        constexpr size_t game_state_country_ais_offset = 0x0a4;
-        constexpr size_t game_state_provinces_offset = 0x0acc;
-        constexpr size_t game_state_countries_offset = 0x0adc;
-        constexpr size_t game_state_player_nations_offset = 0x0aec;
-        constexpr size_t game_state_player_tag_offset = 0x0b5c;
-        constexpr size_t game_state_date_offset = 0x0b0c;
-        constexpr size_t game_state_speed_index_offset = 0x0b28;
-        constexpr size_t game_state_wars_offset = 0x0b3c;
-        constexpr size_t country_tag_offset = 0x01c;
-        constexpr size_t country_ai_offset = 0x208;
-        constexpr size_t country_owned_provinces_offset = 0x9d8;
-        constexpr size_t country_mobilized_offset = 0x120;
-        constexpr size_t country_plurality_offset = 0x1a8;
-        constexpr size_t country_diplomatic_points_offset = 0x65c;
-        constexpr size_t country_war_exhaustion_offset = 0x680;
-        constexpr size_t country_units_offset = 0x7b4;
-        constexpr size_t country_leadership_offset = 0x7d0;
-        constexpr size_t country_substate_offset = 0xcf4;
-        constexpr size_t country_vassal_offset = 0xcf5;
-        constexpr size_t country_overlord_offset = 0xcf8;
-        constexpr size_t country_vassals_offset = 0xd38;
-        constexpr size_t country_allies_offset = 0xd58;
-        constexpr size_t country_guaranteed_offset = 0xd78;
-        constexpr size_t country_neighbors_offset = 0xd88;
-        constexpr size_t country_research_points_offset = 0xe3c;
-        constexpr size_t country_treasury_offset = 0xe78;
-        constexpr size_t country_prestige_offset = 0xea0;
-        constexpr size_t country_ranking_offset = 0x1404;
-        constexpr size_t country_spherelings_offset = 0x1418;
-        constexpr size_t country_sphere_leader_offset = 0x1428;
-        constexpr size_t country_infamy_offset = 0x1430;
-        constexpr size_t country_scheduled_mobilizations_offset = 0x15dc;
-        constexpr size_t province_id_offset = 0x058;
-        constexpr size_t province_constructions_offset = 0x0d8;
-        constexpr size_t province_buildings_offset = 0x118;
-        constexpr size_t province_owner_offset = 0x128;
-        constexpr size_t province_controller_offset = 0x130;
-        constexpr size_t province_colonial_level_offset = 0x190;
-        constexpr size_t province_life_rating_offset = 0x1a4;
-        constexpr size_t province_infrastructure_offset = 0x2b8;
         constexpr uint32_t max_game_provinces = 4096;
         constexpr uint32_t max_game_wars = 4096;
         constexpr uint32_t max_country_units = 100000;
         constexpr uint32_t max_country_relations = 512;
         constexpr uint32_t max_scheduled_mobilizations = 100000;
-        constexpr size_t scheduled_mobilization_size = 0x60;
         constexpr uint32_t max_province_building_slots = 64;
         constexpr uint32_t max_province_constructions = 4096;
         constexpr uint32_t max_console_commands = 512;
@@ -162,20 +166,9 @@ namespace smedley::game_state
             uintptr_t address_ = 0;
         };
 
-        struct ForeignVector
-        {
-            const void *begin;
-            const void *end;
-            const void *capacity;
-        };
+        using ForeignVector = layout::ForeignVector;
 
-        struct ForeignList
-        {
-            const void *head;
-            const void *tail;
-            int32_t count;
-            uint32_t reserved;
-        };
+        using ForeignList = layout::ForeignList;
 
         struct RawObserverTag
         {
@@ -185,84 +178,29 @@ namespace smedley::game_state
 
         static_assert(sizeof(RawObserverTag) == 8);
 
+        using MemoryRegionCache = foreign::MemoryRegionCache;
+
         bool IsAccessible(const void *pointer, size_t size, bool writable)
         {
-            if (pointer == nullptr || size == 0) return false;
-            const uintptr_t begin = reinterpret_cast<uintptr_t>(pointer);
-            if (begin > (std::numeric_limits<uintptr_t>::max)() - size) return false;
-            const uintptr_t end = begin + size;
-            for (uintptr_t cursor = begin; cursor < end;) {
-                MEMORY_BASIC_INFORMATION region{};
-                if (VirtualQuery(reinterpret_cast<const void *>(cursor), &region, sizeof(region)) != sizeof(region)) {
-                    return false;
-                }
-                const uintptr_t region_begin = reinterpret_cast<uintptr_t>(region.BaseAddress);
-                if (region_begin > (std::numeric_limits<uintptr_t>::max)() - region.RegionSize) return false;
-                const uintptr_t region_end = region_begin + region.RegionSize;
-                const DWORD allowed = writable
-                    ? PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
-                    : PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY
-                        | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
-                if (region.State != MEM_COMMIT || (region.Protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0
-                    || (region.Protect & allowed) == 0 || region_end <= cursor) return false;
-                cursor = (std::min)(end, region_end);
-            }
-            return true;
+            return foreign::IsAccessible(pointer, size, writable);
         }
-
-        struct MemoryRegionCache
-        {
-            uintptr_t begin = 0;
-            uintptr_t end = 0;
-            DWORD protect = 0;
-            DWORD state = 0;
-        };
 
         bool IsAccessibleCached(const void *pointer, size_t size, bool writable, MemoryRegionCache *cache)
         {
-            if (pointer == nullptr || size == 0 || cache == nullptr) return false;
-            const uintptr_t begin = reinterpret_cast<uintptr_t>(pointer);
-            if (begin > (std::numeric_limits<uintptr_t>::max)() - size) return false;
-            const uintptr_t end = begin + size;
-            for (uintptr_t cursor = begin; cursor < end;) {
-                if (cursor < cache->begin || cursor >= cache->end) {
-                    MEMORY_BASIC_INFORMATION region{};
-                    if (VirtualQuery(reinterpret_cast<const void *>(cursor), &region, sizeof(region)) != sizeof(region)) {
-                        return false;
-                    }
-                    const uintptr_t region_begin = reinterpret_cast<uintptr_t>(region.BaseAddress);
-                    if (region_begin > (std::numeric_limits<uintptr_t>::max)() - region.RegionSize) return false;
-                    cache->begin = region_begin;
-                    cache->end = region_begin + region.RegionSize;
-                    cache->protect = region.Protect;
-                    cache->state = region.State;
-                }
-                const DWORD allowed = writable
-                    ? PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
-                    : PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY
-                        | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
-                if (cache->state != MEM_COMMIT || (cache->protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0
-                    || (cache->protect & allowed) == 0 || cache->end <= cursor) return false;
-                cursor = (std::min)(end, cache->end);
-            }
-            return true;
+            return cache != nullptr && foreign::IsAccessible(pointer, size, writable, cache);
         }
 
         bool CopyPopMoneyFields(PopRef pop, PopMoneySnapshot *snapshot)
         {
             if (!pop || snapshot == nullptr) return false;
-            const auto *address = reinterpret_cast<const uint8_t *>(pop.address());
-            __try {
-                std::memcpy(&snapshot->money_raw, address + pop_money_offset, sizeof(snapshot->money_raw));
-                std::memcpy(&snapshot->interest_cash_flow_raw,
-                    address + pop_interest_cash_flow_offset, sizeof(snapshot->interest_cash_flow_raw));
-                std::memcpy(&snapshot->total_cash_flow_raw,
-                    address + pop_total_cash_flow_offset, sizeof(snapshot->total_cash_flow_raw));
-                std::memcpy(&snapshot->savings_raw, address + pop_savings_offset, sizeof(snapshot->savings_raw));
-                return true;
-            } __except (EXCEPTION_EXECUTE_HANDLER) {
-                return false;
-            }
+            PopMoneySnapshot copy{};
+            const void *address = reinterpret_cast<const void *>(pop.address());
+            if (!foreign::ReadField(address, pop_money_offset, &copy.money_raw)
+                || !foreign::ReadField(address, pop_interest_cash_flow_offset, &copy.interest_cash_flow_raw)
+                || !foreign::ReadField(address, pop_total_cash_flow_offset, &copy.total_cash_flow_raw)
+                || !foreign::ReadField(address, pop_savings_offset, &copy.savings_raw)) return false;
+            *snapshot = copy;
+            return true;
         }
 
         void BeginPopInterestIdentitySet()
@@ -292,45 +230,29 @@ namespace smedley::game_state
 
         bool CopyReadable(void *destination, const void *source, size_t size)
         {
-            if (!IsAccessible(source, size, false)) return false;
-            __try {
-                std::memcpy(destination, source, size);
-                return true;
-            } __except (EXCEPTION_EXECUTE_HANDLER) {
-                return false;
-            }
+            return foreign::CopyReadable(destination, source, size);
         }
 
         bool CopyWritable(void *destination, const void *source, size_t size)
         {
-            if (!IsAccessible(destination, size, true)) return false;
-            __try {
-                std::memcpy(destination, source, size);
-                return true;
-            } __except (EXCEPTION_EXECUTE_HANDLER) {
-                return false;
-            }
+            return foreign::CopyWritable(destination, source, size);
         }
 
         template <typename T>
         bool ReadValue(uintptr_t address, T *value)
         {
-            return value != nullptr && CopyReadable(value, reinterpret_cast<const void *>(address), sizeof(T));
+            return foreign::ReadValue(address, value);
         }
 
         bool AddOffset(uintptr_t address, size_t offset, uintptr_t *result)
         {
-            if (result == nullptr || address > (std::numeric_limits<uintptr_t>::max)() - offset) return false;
-            *result = address + offset;
-            return true;
+            return foreign::AddOffset(address, offset, result);
         }
 
         template <typename T>
         bool ReadField(const void *object, size_t offset, T *value)
         {
-            uintptr_t address = 0;
-            return object != nullptr && AddOffset(reinterpret_cast<uintptr_t>(object), offset, &address)
-                && ReadValue(address, value);
+            return foreign::ReadField(object, offset, value);
         }
 
         bool ReadTag(const void *object, size_t offset, TelemetryTag *tag)
@@ -348,45 +270,14 @@ namespace smedley::game_state
         bool ReadVectorCount(const void *object, size_t offset, size_t element_size, uint32_t limit, uint32_t *count)
         {
             ForeignVector vector{};
-            if (count == nullptr || element_size == 0 || !ReadField(object, offset, &vector)) return false;
-            const uintptr_t begin = reinterpret_cast<uintptr_t>(vector.begin);
-            const uintptr_t end = reinterpret_cast<uintptr_t>(vector.end);
-            const uintptr_t capacity = reinterpret_cast<uintptr_t>(vector.capacity);
-            if (begin == 0 && end == 0 && capacity == 0) {
-                *count = 0;
-                return true;
-            }
-            if (begin == 0 || begin > end || end > capacity || begin % alignof(void *) != 0
-                || end % alignof(void *) != 0 || capacity % alignof(void *) != 0
-                || (end - begin) % element_size != 0 || (capacity - begin) % element_size != 0) return false;
-            const uintptr_t elements = (end - begin) / element_size;
-            if (elements > limit || (elements != 0 && !IsAccessible(vector.begin, static_cast<size_t>(end - begin), false))) {
-                return false;
-            }
-            *count = static_cast<uint32_t>(elements);
-            return true;
+            return foreign::ReadField(object, offset, &vector)
+                && foreign::VectorCount(vector, element_size, limit, count);
         }
 
         bool ReadVector(const void *object, size_t offset, size_t element_size, uint32_t limit, ForeignVector *vector,
                         uint32_t *count)
         {
-            if (vector == nullptr || count == nullptr || !ReadField(object, offset, vector)) return false;
-            const uintptr_t begin = reinterpret_cast<uintptr_t>(vector->begin);
-            const uintptr_t end = reinterpret_cast<uintptr_t>(vector->end);
-            const uintptr_t capacity = reinterpret_cast<uintptr_t>(vector->capacity);
-            if (begin == 0 && end == 0 && capacity == 0) {
-                *count = 0;
-                return true;
-            }
-            if (element_size == 0 || begin == 0 || begin > end || end > capacity || begin % alignof(void *) != 0
-                || end % alignof(void *) != 0 || capacity % alignof(void *) != 0
-                || (end - begin) % element_size != 0 || (capacity - begin) % element_size != 0) return false;
-            const uintptr_t elements = (end - begin) / element_size;
-            if (elements > limit || (elements != 0 && !IsAccessible(vector->begin, static_cast<size_t>(end - begin), false))) {
-                return false;
-            }
-            *count = static_cast<uint32_t>(elements);
-            return true;
+            return foreign::ReadVector(object, offset, element_size, limit, vector, count);
         }
 
         bool ReadExpectedCString(const char *address, const char *expected)
@@ -570,10 +461,10 @@ namespace smedley::game_state
             ForeignList list{};
             if (count == nullptr || !ReadField(object, offset, &list) || list.count < 0
                 || static_cast<uint32_t>(list.count) > limit
-                || (list.count == 0 && (list.head != nullptr || list.tail != nullptr))
-                || (list.count != 0 && (list.head == nullptr || list.tail == nullptr))) return false;
-            if (list.count != 0 && (!IsAccessible(list.head, sizeof(uintptr_t), false)
-                    || !IsAccessible(list.tail, sizeof(uintptr_t), false))) return false;
+                || (list.count == 0 && (list.first != nullptr || list.last != nullptr))
+                || (list.count != 0 && (list.first == nullptr || list.last == nullptr))) return false;
+            if (list.count != 0 && (!IsAccessible(list.first, sizeof(uintptr_t), false)
+                    || !IsAccessible(list.last, sizeof(uintptr_t), false))) return false;
             *count = static_cast<uint32_t>(list.count);
             return true;
         }
@@ -813,21 +704,21 @@ namespace smedley::game_state
             return true;
         }
 
-        constexpr uintptr_t frontend_constructor_rva = 0x36a2f0;
-        constexpr uintptr_t main_menu_constructor_rva = 0x354a00;
-        constexpr uintptr_t frontend_destructor_rva = 0x36b030;
-        constexpr uintptr_t main_menu_destructor_rva = 0x354df0;
-        constexpr uintptr_t signal_press_rva = 0x5ee510;
-        constexpr uintptr_t signal_release_rva = 0x5ee550;
-        constexpr uintptr_t load_save_rva = 0x27f1d0;
-        constexpr size_t frontend_gui_offset = 0x278;
-        constexpr size_t main_menu_gui_offset = 0x704;
-        constexpr size_t selected_save_offset = 0x590;
-        constexpr size_t save_request_offset = 0x5bc;
-        constexpr size_t save_complete_offset = 0x5bd;
-        constexpr size_t control_signal_offset = 0x54;
-        constexpr uintptr_t frontend_vtable_rva = 0xa14ed0;
-        constexpr uintptr_t main_menu_vtable_rva = 0xa13dbc;
+        using layout::control_signal_offset;
+        using layout::frontend_constructor_rva;
+        using layout::frontend_destructor_rva;
+        using layout::frontend_gui_offset;
+        using layout::frontend_vtable_rva;
+        using layout::load_save_rva;
+        using layout::main_menu_constructor_rva;
+        using layout::main_menu_destructor_rva;
+        using layout::main_menu_gui_offset;
+        using layout::main_menu_vtable_rva;
+        using layout::save_complete_offset;
+        using layout::save_request_offset;
+        using layout::selected_save_offset;
+        using layout::signal_press_rva;
+        using layout::signal_release_rva;
         constexpr size_t maximum_save_basename = 259;
         static_assert(save_complete_offset == save_request_offset + 1);
 
@@ -2664,23 +2555,15 @@ namespace smedley::game_state
         bool ValidateStatePool(const StateInterestCandidate &state, bool writable)
         {
             if (!state.state || state.state_id < 0 || state.interest_raw < 0) return false;
-            const uintptr_t address = state.state.address();
-            if (address > (std::numeric_limits<uintptr_t>::max)() - state_size) return false;
             MemoryRegionCache cache{};
-            if (!IsAccessibleCached(reinterpret_cast<const void *>(address + state_id_offset),
-                    sizeof(int32_t), false, &cache)
-                || !IsAccessibleCached(reinterpret_cast<const void *>(address + state_interest_offset),
-                    sizeof(int64_t), writable, &cache)) {
-                return false;
-            }
             int32_t state_id = -1;
             int64_t interest = 0;
-            __try {
-                std::memcpy(&state_id, reinterpret_cast<const void *>(address + state_id_offset), sizeof(state_id));
-                std::memcpy(&interest, reinterpret_cast<const void *>(address + state_interest_offset), sizeof(interest));
-            } __except (EXCEPTION_EXECUTE_HANDLER) {
-                return false;
-            }
+            uintptr_t interest_address = 0;
+            if (!foreign::ReadField(reinterpret_cast<const void *>(state.state.address()), state_id_offset, &state_id, &cache)
+                || !foreign::ReadField(reinterpret_cast<const void *>(state.state.address()), state_interest_offset, &interest, &cache)
+                || !foreign::AddOffset(state.state.address(), state_interest_offset, &interest_address)
+                || (writable && !foreign::IsAccessible(reinterpret_cast<const void *>(interest_address),
+                    sizeof(interest), true, &cache))) return false;
             return state_id == state.state_id && interest == state.interest_raw;
         }
 
@@ -2689,14 +2572,10 @@ namespace smedley::game_state
             if (!ValidateStatePool(state, true)) return false;
             const int64_t zero = 0;
             int64_t after = -1;
-            const uintptr_t address = state.state.address() + state_interest_offset;
-            __try {
-                std::memcpy(reinterpret_cast<void *>(address), &zero, sizeof(zero));
-                std::memcpy(&after, reinterpret_cast<const void *>(address), sizeof(after));
-            } __except (EXCEPTION_EXECUTE_HANDLER) {
-                return false;
-            }
-            return after == 0;
+            uintptr_t address = 0;
+            return foreign::AddOffset(state.state.address(), state_interest_offset, &address)
+                && foreign::CopyWritable(reinterpret_cast<void *>(address), &zero, sizeof(zero))
+                && foreign::ReadValue(address, &after) && after == 0;
         }
 
     }

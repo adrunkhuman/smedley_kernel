@@ -1,10 +1,14 @@
 # The runtime object library is linked into the kernel and host tests without
 # making kernel-local C++ symbols part of the DLL ABI.
 target_sources(smedley_kernel_runtime PRIVATE
+  src/foreign_memory.cpp
   src/readers.cpp
   src/runtime.cpp
   src/campaign_control_abi.cpp
-  src/game_services_abi.cpp
+  src/services/campaign_runtime.cpp
+  src/services/campaign_automation.cpp
+  src/services/interest_pool.cpp
+  src/services/telemetry.cpp
   src/artisan_consumption_hook.cpp
   src/factory_consumption_hook.cpp
   src/factory_sales_hook.cpp

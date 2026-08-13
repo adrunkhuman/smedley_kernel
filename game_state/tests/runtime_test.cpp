@@ -3,6 +3,7 @@
 
 #include "../src/console_layout.hpp"
 #include "../src/engine_string_layout.hpp"
+#include "../src/foreign_memory.hpp"
 #include <smedley/game_state/artisan_consumption_hook.hpp>
 #include <smedley/game_state/factory_consumption_hook.hpp>
 #include <smedley/game_state/factory_sales_hook.hpp>
@@ -121,6 +122,36 @@ namespace
             EXPECT_TRUE(result.success);
             EXPECT_EQ(result.message.capacity, 0xfu);
             EXPECT_STREQ(result.message.storage.inline_buffer, "ok");
+        }
+
+        TEST(ForeignMemoryTest, ProtectsReadsWritesAndFailedCopyOutputs)
+        {
+            SYSTEM_INFO system_info{};
+            GetSystemInfo(&system_info);
+            ASSERT_NE(system_info.dwPageSize, 0u);
+            auto *pages = static_cast<std::byte *>(VirtualAlloc(
+                nullptr, system_info.dwPageSize * 2, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+            ASSERT_NE(pages, nullptr);
+
+            const uint32_t value = 123;
+            std::memcpy(pages + system_info.dwPageSize - 2, &value, sizeof(value));
+            EXPECT_TRUE(foreign_memory::IsAccessible(
+                pages + system_info.dwPageSize - 2, sizeof(value), false));
+            EXPECT_TRUE(foreign_memory::IsAccessible(
+                pages + system_info.dwPageSize - 2, sizeof(value), true));
+
+            DWORD original_protection = 0;
+            ASSERT_NE(VirtualProtect(pages + system_info.dwPageSize, system_info.dwPageSize,
+                PAGE_READONLY, &original_protection), FALSE);
+            EXPECT_TRUE(foreign_memory::IsAccessible(
+                pages + system_info.dwPageSize - 2, sizeof(value), false));
+            EXPECT_FALSE(foreign_memory::IsAccessible(
+                pages + system_info.dwPageSize - 2, sizeof(value), true));
+
+            uint32_t copy = 456;
+            EXPECT_FALSE(foreign_memory::CopyReadable(&copy, reinterpret_cast<const void *>(1), sizeof(copy)));
+            EXPECT_EQ(copy, 456u);
+            EXPECT_NE(VirtualFree(pages, 0, MEM_RELEASE), FALSE);
         }
 
         template <size_t Size>
