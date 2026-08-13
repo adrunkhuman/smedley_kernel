@@ -1267,7 +1267,6 @@ namespace smedley::trace
                 const auto *cadence = Field(record, "cadence");
                 bool all_fields = false, bounded_dates = false;
                 int64_t country_count = -1, province_count = -1, projected_count = -1;
-                bool projection_bounded = false;
                 const auto *definition = smedley::telemetry::FindMetricFamily(family->text);
                 const auto *admission = Field(record, "operational_admission");
                 if (rule.seen || cadence == nullptr || cadence->kind != JsonKind::String
@@ -1277,10 +1276,9 @@ namespace smedley::trace
                     || !IntegerField(record, "country_filter_count", &country_count) || country_count < 0
                     || !IntegerField(record, "province_filter_count", &province_count) || province_count < 0
                     || !IntegerField(record, "projected_entity_count", &projected_count)
-                    || !BooleanField(record, "projection_bounded", &projection_bounded)
-                    || projection_bounded != (projected_count >= 0)
-                    || (projection_bounded && projected_count != country_count + province_count)
-                    || (!projection_bounded && projected_count != -1)
+                    || ((country_count != 0 || province_count != 0)
+                        && projected_count != country_count + province_count)
+                    || (country_count == 0 && province_count == 0 && projected_count != -1)
                     || admission == nullptr || admission->kind != JsonKind::String
                     || admission->text != (smedley::telemetry::MetricFamilyAdmission(
                         *definition, static_cast<size_t>(country_count), static_cast<size_t>(province_count))

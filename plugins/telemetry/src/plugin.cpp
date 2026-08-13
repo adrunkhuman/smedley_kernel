@@ -501,19 +501,15 @@ namespace telemetry_plugin
                     IntField("country_filter_count", rule.country_tags.size()),
                     IntField("province_filter_count", rule.province_ids.size()),
                     BoolField("bounded_dates", rule.start_date_raw.has_value() || rule.end_date_raw.has_value()),
-                    StringField("cost_class", definition->cost_class == smedley::telemetry::MetricCostClass::Low ? "low"
-                        : definition->cost_class == smedley::telemetry::MetricCostClass::Medium ? "medium" : "high"),
-                    StringField("admission_priority", definition->admission_priority == smedley::telemetry::MetricAdmissionPriority::BestEffort ? "best-effort"
-                        : definition->admission_priority == smedley::telemetry::MetricAdmissionPriority::Important ? "important" : "reliable-terminal"),
                     IntField("projected_entity_count", rule.country_tags.empty() && rule.province_ids.empty() ? -1
                         : static_cast<int64_t>(rule.country_tags.size() + rule.province_ids.size())),
-                    BoolField("projection_bounded", !rule.country_tags.empty() || !rule.province_ids.empty()),
                     StringField("operational_admission",
                         smedley::telemetry::MetricFamilyAdmission(*definition, rule.country_tags.size(), rule.province_ids.size())
                             == smedley::telemetry::MetricAdmission::Reliable ? "reliable" : "best-effort"),
                 };
+                static_assert(1 + std::size(payload) <= SMEDLEY_TELEMETRY_MAX_FIELDS);
                 const auto result = EmitTyped("telemetry.capture.rule", "lifecycle", std::nullopt,
-                    &family, 1, payload, 10, false, true);
+                    &family, 1, payload, static_cast<uint32_t>(std::size(payload)), false, true);
                 if (result.status != SMEDLEY_TELEMETRY_ACCEPTED && result.status != SMEDLEY_TELEMETRY_FILTERED) return false;
                 for (const auto &field_name : rule.fields) {
                     const SmedleyTelemetryFieldV1 entities[] = {

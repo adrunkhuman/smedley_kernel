@@ -117,7 +117,6 @@ namespace
                 normalized_payload.pop_back();
                 normalized_payload += ",\"projected_entity_count\":"
                     + std::to_string(bounded ? projected_count : -1)
-                    + ",\"projection_bounded\":" + (bounded ? "true" : "false")
                     + ",\"operational_admission\":\"" + (reliable ? "reliable" : "best-effort") + "\"}";
             }
             return std::string("{\"schema\":\"smedley.telemetry\",\"schema_version\":1,\"run_id\":\"run-1\",\"sequence\":")

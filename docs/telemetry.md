@@ -344,10 +344,17 @@ At session start, reliable `telemetry.capture.rule`,
 `telemetry.capture.field`, and `telemetry.capture.country` records describe the
 configured cadence, selected fields, date bounds, and entity filters. Strict
 derived exports use these records to distinguish a genuine zero from a family
-that was configured with incomplete scope. `projected_entity_count` is `-1`
-only when `projection_bounded` is false; `operational_admission` reports the
-selected delivery policy (`best-effort` or `reliable`) separately from the
-registry `admission_priority`.
+that was configured with incomplete scope. The v1 `telemetry.capture.rule`
+payload contains `cadence`, `all_fields`, `country_filter_count`,
+`province_filter_count`, `bounded_dates`, `projected_entity_count`, and
+`operational_admission`. `projected_entity_count` is `-1` for an empty,
+unbounded allowlist; otherwise its sign also establishes boundedness.
+`operational_admission` is `best-effort` or `reliable`. This is the canonical
+v1 shape; the eight-field ABI rejects larger entity-plus-payload records before
+publication. Cost class and admission priority are internal planning metadata
+available only to bundled components linked with the C++ registry. JSONL
+consumers must not expect `cost_class`, `admission_priority`, or
+`projection_bounded` in this record.
 
 `country.daily` is a `state` record from `DailyUpdateEvent` with `provisional`
 quality. Its stable entity is the three-character country tag. Its payload
