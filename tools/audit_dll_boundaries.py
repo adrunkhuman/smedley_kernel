@@ -16,7 +16,7 @@ EXPECTED_EXPORTS = {
     "interest_bug_fix": {"SmedleyPluginGetApiV1"},
     "scripting": {"SmedleyPluginGetApiV1"},
     "telemetry": {
-        "CreatePlugin",
+        "SmedleyPluginGetApiV1",
         "SmedleyTelemetryDrainV1",
         "SmedleyTelemetryEmitReliableV1",
         "SmedleyTelemetryEmitV1",

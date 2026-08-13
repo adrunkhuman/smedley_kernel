@@ -1,17 +1,15 @@
 #include "telemetry_core.hpp"
-#include <smedley/game_state/artisan_consumption_hook.hpp>
+#include "telemetry_services.hpp"
 #include "country_economy_core.hpp"
 #include "economic_capture.hpp"
-#include <smedley/game_state/factory_consumption_hook.hpp>
-#include <smedley/game_state/factory_sales_hook.hpp>
 #include "pop_cash_flow_core.hpp"
-#include <smedley/game_state/pop_cash_flow_hook.hpp>
-#include <smedley/game_state/runtime.hpp>
 #include "pop_identity_core.hpp"
 #include "producer_sales_core.hpp"
 
-#include <smedley/events/dailyupdate.hpp>
-#include <smedley/plugin.hpp>
+#include <smedley/event_api.h>
+#include <smedley/logging_api.h>
+#define SMEDLEY_PLUGIN_BUILD
+#include <smedley/plugin_abi.h>
 
 #include <shellapi.h>
 
@@ -27,28 +25,16 @@
 
 namespace telemetry_plugin
 {
-    using smedley::game_state::ArtisanSettlementHookRecord;
-    using smedley::game_state::DrainArtisanConsumptionHook;
-    using smedley::game_state::DrainFactoryConsumptionHook;
-    using smedley::game_state::DrainFactorySalesHook;
-    using smedley::game_state::DrainPopCashFlowHook;
-    using smedley::game_state::FactorySalesHookRecord;
-    using smedley::game_state::FactorySettlementHookRecord;
-    using smedley::game_state::InstallArtisanConsumptionHook;
-    using smedley::game_state::InstallFactoryConsumptionHook;
-    using smedley::game_state::InstallFactorySalesHook;
-    using smedley::game_state::InstallPopCashFlowHook;
-    using smedley::game_state::max_artisan_flow_records;
-    using smedley::game_state::max_factory_flow_records;
-    using smedley::game_state::max_factory_sales_records;
-    using smedley::game_state::max_pop_cash_flow_records;
-    using smedley::game_state::PopCashFlowHookRecord;
-    using smedley::game_state::PopCashFlowHookStats;
-    using smedley::game_state::pop_cash_flow_component_count;
-    using smedley::game_state::UninstallArtisanConsumptionHook;
-    using smedley::game_state::UninstallFactoryConsumptionHook;
-    using smedley::game_state::UninstallFactorySalesHook;
-    using smedley::game_state::UninstallPopCashFlowHook;
+    using services::ArtisanSettlementHookRecord;
+    using services::FactorySalesHookRecord;
+    using services::FactorySettlementHookRecord;
+    using services::PopCashFlowHookRecord;
+    using services::PopCashFlowHookStats;
+    constexpr auto max_artisan_flow_records = services::max_artisan_flow_records;
+    constexpr auto max_factory_flow_records = services::max_factory_flow_records;
+    constexpr auto max_factory_sales_records = services::max_factory_sales_records;
+    constexpr auto max_pop_cash_flow_records = services::max_pop_cash_flow_records;
+    constexpr auto pop_cash_flow_component_count = services::pop_cash_flow_component_count;
     class Plugin;
     std::shared_timed_mutex active_sink_mutex;
     std::mutex drain_call_mutex;
@@ -173,10 +159,16 @@ namespace telemetry_plugin
 
     }
 
-    class Plugin final : public smedley::Plugin
+    class Plugin final
     {
     public:
-        void OnLoad() override
+        ~Plugin()
+        {
+            services::SetActiveApi(nullptr);
+            services_.Close();
+        }
+
+        void OnLoad()
         {
             std::string error;
             const auto arguments = CommandLineArguments();
@@ -188,7 +180,14 @@ namespace telemetry_plugin
                 logger().Failure("telemetry arguments are invalid: " + error);
                 throw std::runtime_error(error);
             }
+            if (!services_.Acquire(&error)) {
+                throw std::runtime_error(error);
+            }
+            services::SetActiveApi(&services_);
             economic_capture_ = std::make_unique<EconomicCapture>();
+            if (FindRule("pop.aggregate") != nullptr) {
+                pop_aggregates_ = std::make_unique<std::array<PopAggregate, smedley::game_state::max_sample_pops>>();
+            }
             if (FindRule("pop.lifecycle") != nullptr) {
                 pop_identity_current_ = std::make_unique<
                     std::array<PopIdentityState, smedley::game_state::max_sample_pops>>();
@@ -283,14 +282,15 @@ namespace telemetry_plugin
             bool handler_registered = false;
             try {
                 logger().Info("writing bounded JSON Lines telemetry to " + config_.output_path.string());
+                if (services_.events().register_daily(&NotifyDailyUpdate, this, &daily_registration_)
+                    != SMEDLEY_EVENT_SUCCESS) throw std::runtime_error("telemetry daily event registration failed");
                 handler_registered = true;
-                AddEventHandler<smedley::events::DailyUpdateEvent>(
-                    "telemetry.daily", [this](smedley::events::DailyUpdateEvent &event) { OnDailyUpdate(event); });
                 handler_registered_ = true;
                 std::unique_lock<std::shared_timed_mutex> lock(active_sink_mutex);
                 active_sink = this;
             } catch (...) {
-                if (handler_registered) RemoveEventHandler<smedley::events::DailyUpdateEvent>("telemetry.daily");
+                if (handler_registered && daily_registration_ != 0) services_.events().unregister(daily_registration_);
+                daily_registration_ = 0;
                 writer_->Stop();
                 writer_.reset();
                 StopConsumptionHooks(false);
@@ -298,7 +298,7 @@ namespace telemetry_plugin
             }
         }
 
-        void OnUnload() override
+        void OnUnload()
         {
             {
                 std::unique_lock<std::shared_timed_mutex> lock(active_sink_mutex);
@@ -307,6 +307,8 @@ namespace telemetry_plugin
             (void)DrainUntil((std::chrono::steady_clock::time_point::max)());
             const bool hooks_stopped = StopConsumptionHooks(true);
             writer_.reset();
+            services::SetActiveApi(nullptr);
+            services_.Close();
             if (!hooks_stopped) {
                 throw std::runtime_error("telemetry consumption hooks could not be restored and were disabled");
             }
@@ -331,7 +333,8 @@ namespace telemetry_plugin
                     ? (producer_lock.lock(), true) : producer_lock.try_lock_until(deadline);
                 if (!producer_ready) return SMEDLEY_TELEMETRY_DRAIN_TIMEOUT;
                 if (handler_registered_) {
-                    RemoveEventHandler<smedley::events::DailyUpdateEvent>("telemetry.daily");
+                    services_.events().unregister(daily_registration_);
+                    daily_registration_ = 0;
                     handler_registered_ = false;
                 }
                 FlushCountryEconomy();
@@ -375,6 +378,44 @@ namespace telemetry_plugin
         }
 
     private:
+        class Logger final
+        {
+        public:
+            explicit Logger(services::Api *services) : services_(services) {}
+            void Info(const std::string &message) const { services_->Log(SMEDLEY_LOG_INFO, message); }
+            void Failure(const std::string &message) const { services_->Log(SMEDLEY_LOG_FAILURE, message); }
+        private:
+            services::Api *services_;
+        };
+
+        Logger logger() { return Logger(&services_); }
+
+        static SmedleyEventCallbackResult SMEDLEY_EVENT_CALL NotifyDailyUpdate(
+            void *context, const SmedleyDailyEventV1 *event) noexcept
+        {
+            auto *plugin = static_cast<Plugin *>(context);
+            if (plugin == nullptr || event == nullptr) return SMEDLEY_EVENT_CALLBACK_DISABLE;
+            try {
+                smedley::events::DailyUpdateEvent compatibility_event(*event);
+                plugin->OnDailyUpdate(compatibility_event);
+                return SMEDLEY_EVENT_CALLBACK_CONTINUE;
+            } catch (...) {
+                return SMEDLEY_EVENT_CALLBACK_DISABLE;
+            }
+        }
+
+        bool InstallPopCashFlowHook(std::string *) { requested_hooks_ |= SMEDLEY_TELEMETRY_HOOK_POP_CASH_FLOW; return true; }
+        bool InstallFactoryConsumptionHook(std::string *) { requested_hooks_ |= SMEDLEY_TELEMETRY_HOOK_FACTORY_CONSUMPTION; return true; }
+        bool InstallFactorySalesHook(std::string *) { requested_hooks_ |= SMEDLEY_TELEMETRY_HOOK_FACTORY_SALES; return true; }
+        bool InstallArtisanConsumptionHook(const uint32_t *, size_t count, std::string *) { requested_hooks_ |= SMEDLEY_TELEMETRY_HOOK_ARTISAN_CONSUMPTION; artisan_country_key_count_ = static_cast<uint32_t>(count); return true; }
+        bool UninstallPopCashFlowHook(std::string *) { return true; }
+        bool UninstallFactoryConsumptionHook(std::string *) { return true; }
+        bool UninstallFactorySalesHook(std::string *) { return true; }
+        bool UninstallArtisanConsumptionHook(std::string *) { return true; }
+        bool DrainFactoryConsumptionHook(FactorySettlementHookRecord *records, size_t capacity, uint32_t *count, uint64_t *dropped) { return services_.DrainFactoryConsumption(records, static_cast<uint32_t>(capacity), count, dropped); }
+        bool DrainFactorySalesHook(FactorySalesHookRecord *records, size_t capacity, uint32_t *count, uint64_t *dropped) { return services_.DrainFactorySales(records, static_cast<uint32_t>(capacity), count, dropped); }
+        bool DrainArtisanConsumptionHook(ArtisanSettlementHookRecord *records, size_t capacity, uint32_t *count, uint64_t *dropped) { return services_.DrainArtisanConsumption(records, static_cast<uint32_t>(capacity), count, dropped); }
+        bool DrainPopCashFlowHook(PopCashFlowHookRecord *records, size_t capacity, uint32_t *count, PopCashFlowHookStats *stats) { return services_.DrainPopCashFlow(records, static_cast<uint32_t>(capacity), count, stats); }
 // MSVC's x86 optimizer exhausts its 32-bit heap on this fixed-array state machine.
 #pragma optimize("", off)
         void UpdateFactoryDailyFlows(size_t rule_index)
@@ -519,7 +560,7 @@ namespace telemetry_plugin
                 const auto &factory = factory_snapshots_[factory_index];
                 const auto flow_it = std::lower_bound(factory_daily_flows_->begin(),
                     factory_daily_flows_->begin() + factory_daily_flow_count_, factory.address.address(),
-                    [](const DailyFactoryFlow &candidate, uintptr_t address) {
+                    [](const DailyFactoryFlow &candidate, uint64_t address) {
                         return candidate.address.address() < address;
                     });
                 const DailyFactoryFlow *daily_flow = flow_it != factory_daily_flows_->begin() + factory_daily_flow_count_
@@ -762,7 +803,8 @@ namespace telemetry_plugin
 
         void OnDailyUpdate(smedley::events::DailyUpdateEvent &event)
         {
-            std::shared_lock<std::shared_timed_mutex> producer_lock(producer_mutex_);
+            std::shared_lock<std::shared_timed_mutex> producer_lock(producer_mutex_, std::try_to_lock);
+            if (!producer_lock.owns_lock()) return;
             const uint64_t started = smedley::telemetry::MonotonicMicroseconds();
             uint64_t collection_us = 0;
             auto finish = [&] {
@@ -771,16 +813,20 @@ namespace telemetry_plugin
                 callback_count_.fetch_add(1, std::memory_order_relaxed);
             };
             if (draining_.load(std::memory_order_acquire) || !writer_) { finish(); return; }
-            if (writer_->stats().write_failed && !write_failure_logged_.exchange(true, std::memory_order_relaxed)) {
-                logger().Failure("telemetry output failed; subsequent records are being dropped");
-            }
             const bool lifecycle_enabled = smedley::telemetry::HasCategory(config_, "lifecycle");
             const bool state_enabled = smedley::telemetry::HasCategory(config_, "state")
                 && !config_.capture_rules.empty();
+            if (!services_.EnsureOpen(requested_hooks_, artisan_country_keys_.data(), artisan_country_key_count_)) {
+                if (state_enabled) skipped_unsampleable_.fetch_add(1, std::memory_order_relaxed);
+                finish();
+                return;
+            }
+            if (writer_->stats().write_failed) write_failure_logged_.store(true, std::memory_order_relaxed);
             smedley::game_state::TelemetryCurrentState game_state{};
             const std::optional<int> raw_date = smedley::game_state::ReadTelemetryCurrentState(&game_state)
                 ? std::optional<int>(game_state.date_raw) : std::nullopt;
             if (!raw_date) { if (state_enabled) skipped_unsampleable_.fetch_add(1, std::memory_order_relaxed); finish(); return; }
+            services_.BeginHookDrain();
             if (factory_consumption_hook_installed_ && factory_hook_date_ != raw_date) {
                 factory_hook_record_count_ = 0;
                 factory_hook_dropped_ = 0;
@@ -910,11 +956,7 @@ namespace telemetry_plugin
                         collection_us += snapshot.collection_us;
                         family_stats_[rule_index].collection_us += snapshot.collection_us;
                         EmitEconomicSnapshot(snapshot, *rule, rule_index);
-                    } catch (const std::exception &error) {
-                        logger().Failure(std::string("world economic telemetry failed: ") + error.what());
-                    } catch (...) {
-                        logger().Failure("world economic telemetry failed with an unknown exception");
-                    }
+                    } catch (...) { ++family_stats_[rule_index].invalid; }
                 }
                 if (const auto *rule = FindRule("world.military", &rule_index);
                     rule != nullptr && smedley::telemetry::ShouldCaptureDate(*raw_date, *rule, &schedule_states_[rule_index])) {
@@ -1380,11 +1422,11 @@ namespace telemetry_plugin
                                 const auto begin = factory_sales_hook_records_->begin();
                                 const auto end = begin + factory_sales_hook_record_count_;
                                 const auto match = std::lower_bound(begin, end, snapshot.address.address(),
-                                    [](const FactorySalesHookRecord &candidate, uintptr_t address) {
+                                    [](const FactorySalesHookRecord &candidate, uint64_t address) {
                                         return candidate.factory.address() < address;
                                     });
                                 const auto match_end = std::upper_bound(match, end, snapshot.address.address(),
-                                    [](uintptr_t address, const FactorySalesHookRecord &candidate) {
+                                    [](uint64_t address, const FactorySalesHookRecord &candidate) {
                                         return address < candidate.factory.address();
                                     });
                                 const auto settlement_count = static_cast<int64_t>(match_end - match);
@@ -1658,6 +1700,10 @@ namespace telemetry_plugin
         }
 
         smedley::telemetry::Config config_;
+        services::Api services_;
+        uint32_t requested_hooks_ = 0;
+        uint32_t artisan_country_key_count_ = 0;
+        SmedleyEventRegistration daily_registration_ = 0;
         std::unique_ptr<EconomicCapture> economic_capture_;
         std::unique_ptr<smedley::telemetry::Writer> writer_;
         std::atomic<uint64_t> sequence_{0};
@@ -1682,7 +1728,7 @@ namespace telemetry_plugin
         std::array<smedley::telemetry::ScheduleState, smedley::telemetry::kMaxCaptureRules> schedule_states_;
         std::array<FamilyStats, smedley::telemetry::kMaxCaptureRules> family_stats_;
         std::array<std::optional<int>, smedley::telemetry::kMaxCaptureRules> last_family_poll_dates_;
-        std::array<PopAggregate, smedley::game_state::max_sample_pops> pop_aggregates_;
+        std::unique_ptr<std::array<PopAggregate, smedley::game_state::max_sample_pops>> pop_aggregates_;
         std::unique_ptr<std::array<PopIdentityState, smedley::game_state::max_sample_pops>> pop_identity_current_;
         std::unique_ptr<std::array<PopIdentityState, smedley::game_state::max_sample_pops>> pop_identity_previous_;
         std::unique_ptr<std::array<PopIdentityChange, smedley::game_state::max_sample_pops * 2>> pop_identity_changes_;
@@ -1885,7 +1931,7 @@ namespace telemetry_plugin
                     if (factory.output_raw > 0 && factory_flow_observed_dates_ < 2) day->complete = false;
                     const auto flow_it = std::lower_bound(factory_daily_flows_->begin(),
                         factory_daily_flows_->begin() + factory_daily_flow_count_, factory.address.address(),
-                        [](const DailyFactoryFlow &candidate, uintptr_t address) {
+                        [](const DailyFactoryFlow &candidate, uint64_t address) {
                             return candidate.address.address() < address;
                         });
                     DailyFactoryFlow *flow = flow_it != factory_daily_flows_->begin() + factory_daily_flow_count_
@@ -1901,7 +1947,7 @@ namespace telemetry_plugin
                         std::copy_n(factory.factory_type, flow->factory_type.size(), flow->factory_type.data());
                         const auto retained_it = std::lower_bound(factory_previous_flows_->begin(),
                             factory_previous_flows_->begin() + factory_previous_flow_count_, factory.address.address(),
-                            [](const DailyFactoryFlow &candidate, uintptr_t address) {
+                            [](const DailyFactoryFlow &candidate, uint64_t address) {
                                 return candidate.address.address() < address;
                             });
                     if (retained_it != factory_previous_flows_->begin() + factory_previous_flow_count_
@@ -2142,9 +2188,9 @@ namespace telemetry_plugin
             if (!artisan_consumption_hook_installed_) return;
             const auto first = artisan_hook_records_->begin();
             const auto end = first + artisan_hook_record_count_;
-            const uintptr_t address = pop.address();
+            const uint64_t address = pop.address();
             auto record = std::lower_bound(first, end, address,
-                [](const ArtisanSettlementHookRecord &candidate, uintptr_t target) {
+                [](const ArtisanSettlementHookRecord &candidate, uint64_t target) {
                     return candidate.pop.address() < target;
                 });
             while (record != end && record->pop.address() == pop.address()) {
@@ -2293,7 +2339,7 @@ namespace telemetry_plugin
                     && state->country_key == country_key;
                 const auto record_it = std::lower_bound(pop_cash_flow_records_->begin(),
                     pop_cash_flow_records_->begin() + pop_cash_flow_record_count_, candidate.address.address(),
-                    [](const PopCashFlowHookRecord &record, uintptr_t address) {
+                    [](const PopCashFlowHookRecord &record, uint64_t address) {
                         return record.pop.address() < address;
                     });
                 const PopCashFlowHookRecord *record = record_it != pop_cash_flow_records_->begin()
@@ -3053,12 +3099,12 @@ namespace telemetry_plugin
                     continue;
                 }
                 if (!HasCountryTag(rule, province->owner_candidate().str())) continue;
-                pop_aggregates_[aggregate_count++] = {
+                (*pop_aggregates_)[aggregate_count++] = {
                     detail.province_id_candidate, detail.pop_type_id_candidate, 1,
                     detail.size_candidate, detail.employed_candidate,
                     detail.economy.money_raw, detail.economy.savings_raw};
             }
-            std::sort(pop_aggregates_.begin(), pop_aggregates_.begin() + aggregate_count,
+            std::sort(pop_aggregates_->begin(), pop_aggregates_->begin() + aggregate_count,
                 [](const PopAggregate &left, const PopAggregate &right) {
                     return left.province_id < right.province_id
                         || (left.province_id == right.province_id && left.pop_type_id < right.pop_type_id);
@@ -3071,13 +3117,13 @@ namespace telemetry_plugin
                 return true;
             };
             for (size_t index = 0; index < aggregate_count; ++index) {
-                const auto &next = pop_aggregates_[index];
-                if (merged_count == 0 || pop_aggregates_[merged_count - 1].province_id != next.province_id
-                    || pop_aggregates_[merged_count - 1].pop_type_id != next.pop_type_id) {
-                    pop_aggregates_[merged_count++] = next;
+                const auto &next = (*pop_aggregates_)[index];
+                if (merged_count == 0 || (*pop_aggregates_)[merged_count - 1].province_id != next.province_id
+                    || (*pop_aggregates_)[merged_count - 1].pop_type_id != next.pop_type_id) {
+                    (*pop_aggregates_)[merged_count++] = next;
                     continue;
                 }
-                auto &current = pop_aggregates_[merged_count - 1];
+                auto &current = (*pop_aggregates_)[merged_count - 1];
                 if (!add(next.pop_count, &current.pop_count) || !add(next.size, &current.size)
                     || !add(next.employed, &current.employed) || !add(next.money_raw, &current.money_raw)
                     || !add(next.savings_raw, &current.savings_raw)) {
@@ -3086,7 +3132,7 @@ namespace telemetry_plugin
                 }
             }
             for (size_t index = 0; index < merged_count; ++index) {
-                const auto &aggregate = pop_aggregates_[index];
+                const auto &aggregate = (*pop_aggregates_)[index];
                 smedley::game_state::TelemetryProvinceSnapshot province_snapshot{};
                 const auto *province = smedley::game_state::ReadTelemetryProvince(
                     smedley::game_state::ResolveProvince(game_state.game_state, aggregate.province_id), &province_snapshot)
@@ -3176,7 +3222,68 @@ SmedleyTelemetryDrainV1(uint32_t timeout_ms)
     }
 }
 
-PLUGIN_API smedley::Plugin *CreatePlugin()
+namespace
 {
-    return new telemetry_plugin::Plugin();
+    struct TelemetryInstance
+    {
+        telemetry_plugin::Plugin *plugin = nullptr;
+    };
+
+    SmedleyPluginResult SMEDLEY_PLUGIN_CALL CreateTelemetry(void *instance, uint32_t size)
+    {
+        if (instance == nullptr || size != sizeof(TelemetryInstance)) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
+        try {
+            static_cast<TelemetryInstance *>(instance)->plugin = new telemetry_plugin::Plugin{};
+            return SMEDLEY_PLUGIN_SUCCESS;
+        } catch (...) {
+            return SMEDLEY_PLUGIN_FAILURE;
+        }
+    }
+
+    SmedleyPluginResult SMEDLEY_PLUGIN_CALL LoadTelemetry(void *instance)
+    {
+        auto *state = static_cast<TelemetryInstance *>(instance);
+        if (state == nullptr || state->plugin == nullptr) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
+        try {
+            state->plugin->OnLoad();
+            return SMEDLEY_PLUGIN_SUCCESS;
+        } catch (...) {
+            return SMEDLEY_PLUGIN_FAILURE;
+        }
+    }
+
+    SmedleyPluginResult SMEDLEY_PLUGIN_CALL UnloadTelemetry(void *instance)
+    {
+        auto *state = static_cast<TelemetryInstance *>(instance);
+        if (state == nullptr || state->plugin == nullptr) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
+        try {
+            state->plugin->OnUnload();
+            return SMEDLEY_PLUGIN_SUCCESS;
+        } catch (...) {
+            return SMEDLEY_PLUGIN_FAILURE;
+        }
+    }
+
+    void SMEDLEY_PLUGIN_CALL DestroyTelemetry(void *instance)
+    {
+        if (instance == nullptr) return;
+        auto *state = static_cast<TelemetryInstance *>(instance);
+        delete state->plugin;
+        state->plugin = nullptr;
+    }
+}
+
+SMEDLEY_PLUGIN_EXPORT SmedleyPluginResult SMEDLEY_PLUGIN_CALL SmedleyPluginGetApiV1(SmedleyPluginApiV1 *api)
+{
+    if (api == nullptr || api->struct_size != sizeof(*api) || api->version != SMEDLEY_PLUGIN_ABI_VERSION_V1
+        || api->reserved[0] || api->reserved[1] || api->reserved[2] || api->reserved[3]) {
+        return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
+    }
+    api->instance_size = sizeof(TelemetryInstance);
+    api->instance_alignment = alignof(TelemetryInstance);
+    api->create = &CreateTelemetry;
+    api->load = &LoadTelemetry;
+    api->unload = &UnloadTelemetry;
+    api->destroy = &DestroyTelemetry;
+    return SMEDLEY_PLUGIN_SUCCESS;
 }

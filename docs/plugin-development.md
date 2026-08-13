@@ -21,17 +21,15 @@ traversal or native calling conventions. `scripting` and `campaign_runner`
 consume only versioned C services. The runner resolves logging, campaign
 runtime, campaign automation, and event services at load time; its hook
 callbacks publish copied bounded work that its timer path consumes.
-`interest_bug_fix` and `telemetry` still import transitional internal C++
-declarations while their larger service boundaries are migrated; those
-declarations are not public ABI.
+All bundled plugins, including `telemetry`, resolve only versioned C service
+tables. Internal C++ declarations are not a plugin ABI.
 The build makes this exception visible: plugin DLLs have exact export sets,
 while `smedley_dll_boundary_audit` lists their remaining mangled kernel imports.
 Kernel automatic export generation remains enabled only until those imports are
 replaced by C services under issue #41; this migration is not complete.
 
-The current export sets are `CreatePlugin` for `interest_bug_fix`,
-`SmedleyPluginGetApiV1` for `campaign_runner` and `scripting`, and telemetry exports
-`SmedleyTelemetryEmitV1`, `SmedleyTelemetryEmitReliableV1`, and
+The current export sets include `SmedleyPluginGetApiV1` for every bundled plugin.
+Telemetry additionally exports `SmedleyTelemetryEmitV1`, `SmedleyTelemetryEmitReliableV1`, and
 `SmedleyTelemetryDrainV1`. The audit rejects any additional plugin export or an
 increase in the frozen transitional kernel-import counts.
 

@@ -25,6 +25,7 @@ namespace telemetry_plugin
         }
 
         uint32_t candidate_count = 0;
+        ResetCachedPopDetails();
         for (size_t ordinal = 1; ordinal < slots; ++ordinal) {
             const CountryRef country = ResolveCountry(game_state, static_cast<int32_t>(ordinal));
             const CountryEconomySnapshot credit_quality = ReadCountryEconomy(country, date);
@@ -80,6 +81,7 @@ namespace telemetry_plugin
             }
         }
         if (snapshot.complete()) {
+            SortCachedPopDetails();
             for (uint32_t index = 0; index < candidate_count; ++index) {
                 PopMoneySnapshot pop{};
                 if (!ReadPopMoneySnapshot(candidates_[index].address, &pop)
@@ -113,6 +115,7 @@ namespace telemetry_plugin
             capture.flags = SAMPLE_COUNTRY_UNREADABLE;
         } else {
             uint32_t candidate_count = 0;
+            ResetCachedPopDetails();
             for (size_t ordinal = 1; ordinal < slots; ++ordinal) {
                 const CountryRef country = ResolveCountry(game_state, static_cast<int32_t>(ordinal));
                 CountryEconomySnapshot quality{};
@@ -143,6 +146,7 @@ namespace telemetry_plugin
                 }
             }
             if (capture.complete()) {
+                SortCachedPopDetails();
                 for (uint32_t index = 0; index < candidate_count; ++index) {
                     if (!ReadPopDetailSnapshot(candidates_[index].address, &population_details_[index])) {
                         capture.flags |= SAMPLE_POP_UNREADABLE;
