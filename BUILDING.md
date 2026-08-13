@@ -46,20 +46,11 @@ The suite includes `smedley_engine_ownership_audit` and
 `game_state/src` implementation files, and internal game-state imports in
 migrated plugins.
 
-`smedley_dll_boundary_audit` requires kernel exports `LoadPlugins`,
-`LoadPluginsThread`, `SmedleyGetEventApiV1`, and
-`SmedleyGetCampaignControlApiV1`, and `SmedleyGetLoggingApiV1`; it also checks
-exact plugin export sets. The
-test fails for missing required kernel exports, unexpected plugin exports, or an
-increase in a plugin's frozen transitional import count. It prints each mangled
-kernel import so migration progress remains visible.
-
-Production plugin targets disable CMake automatic exports. The kernel retains
-automatic exports only as an active temporary compatibility boundary for #41:
-`interest_bug_fix` and `telemetry` still import C++ symbols. `campaign_runner`
-and `scripting` now resolve only versioned C services and have no kernel imports.
-Removing the remaining imports through versioned C services is required
-before kernel automatic exports can be disabled.
+`smedley_dll_boundary_audit` requires the explicit `LoadPlugins`,
+`LoadPluginsThread`, and all versioned C service-provider exports from the
+kernel. It also checks exact plugin export sets and rejects every
+`smedley_kernel.dll` import from production plugins. CMake automatic exports are
+disabled for the kernel and all plugins.
 
 ## Installing
 

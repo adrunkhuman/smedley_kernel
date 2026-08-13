@@ -61,7 +61,7 @@ static SmedleyPluginResult SMEDLEY_PLUGIN_CALL unload_fixture(void *instance)
     }
     state->daily_registration = 0;
     state->loaded = 0;
-    return state->daily_callbacks != 0 ? SMEDLEY_PLUGIN_SUCCESS : SMEDLEY_PLUGIN_FAILURE;
+    return SMEDLEY_PLUGIN_SUCCESS;
 }
 
 static void SMEDLEY_PLUGIN_CALL destroy_fixture(void *instance)

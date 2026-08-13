@@ -379,7 +379,6 @@ namespace smedley::game_state
         EXPECT_EQ(ReturnObserverCountryToAI(country), ObserverOperationStatus::signature_mismatch);
         EXPECT_EQ(SetObserverViewCountry(country), ObserverOperationStatus::signature_mismatch);
         EXPECT_FALSE(IsCampaignObserverConsoleReady());
-        EXPECT_FALSE(RegisterCampaignConsoleCapture(nullptr));
         EXPECT_EQ(EnableObserverFullMapVisibility(), ObserverOperationStatus::invalid_state);
     }
 

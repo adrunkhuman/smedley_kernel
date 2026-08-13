@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Audit production DLL exports and report transitional kernel C++ imports."""
+"""Audit exact production DLL exports and reject kernel imports."""
 
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import subprocess
 import sys
@@ -22,7 +21,7 @@ EXPECTED_EXPORTS = {
         "SmedleyTelemetryEmitV1",
     },
 }
-REQUIRED_KERNEL_EXPORTS = {
+EXPECTED_KERNEL_EXPORTS = {
     "LoadPlugins",
     "LoadPluginsThread",
     "SmedleyGetCampaignControlApiV1",
@@ -34,6 +33,9 @@ REQUIRED_KERNEL_EXPORTS = {
     "SmedleyGetLoggingApiV1",
     "SmedleyGetTelemetryGameApiV1",
     "SmedleyGetTelemetryObservationApiV1",
+    "luaL_loadstring",
+    "lua_pcall",
+    "lua_tolstring",
 }
 EXPORT_LINE = re.compile(r"^\s*\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)", re.MULTILINE)
 IMPORT_LINE = re.compile(r"^\s+[0-9A-F]+\s+(\S.*)$", re.MULTILINE)
@@ -77,8 +79,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--linker", required=True, type=Path)
     parser.add_argument("--kernel", required=True, type=Path)
-    parser.add_argument("--baseline", required=True, type=Path)
-    parser.add_argument("--write-baseline", action="store_true")
     for plugin in EXPECTED_EXPORTS:
         parser.add_argument(f"--{plugin.replace('_', '-')}", required=True, type=Path)
     args = parser.parse_args()
@@ -88,11 +88,11 @@ def main() -> int:
         return 1
 
     failures: list[str] = []
-    current_imports: dict[str, list[str]] = {}
     kernel_exports = exports(dumpbin, args.kernel)
-    missing_kernel = REQUIRED_KERNEL_EXPORTS - kernel_exports
-    if missing_kernel:
-        failures.append(f"smedley_kernel.dll missing exports: {sorted(missing_kernel)}")
+    if kernel_exports != EXPECTED_KERNEL_EXPORTS:
+        failures.append(
+            f"smedley_kernel.dll exports {sorted(kernel_exports)}; expected {sorted(EXPECTED_KERNEL_EXPORTS)}"
+        )
 
     for plugin, expected in EXPECTED_EXPORTS.items():
         dll = getattr(args, plugin)
@@ -100,24 +100,11 @@ def main() -> int:
         if actual != expected:
             failures.append(f"{dll.name} exports {sorted(actual)}; expected {sorted(expected)}")
         imports = kernel_imports(dumpbin, dll)
-        baseline_imports = (
-            imports
-            if plugin in {"campaign_runner", "scripting"}
-            else [name for name in imports if name.startswith("?")]
-        )
-        current_imports[plugin] = sorted(baseline_imports)
         print(f"{dll.name}: {len(imports)} smedley_kernel.dll imports")
         for imported in imports:
             print(f"  {imported}")
-
-    if args.write_baseline:
-        args.baseline.write_text(json.dumps(current_imports, indent=2) + "\n", encoding="utf-8", newline="\n")
-    else:
-        allowed_imports = json.loads(args.baseline.read_text(encoding="utf-8"))
-        for plugin, imports in current_imports.items():
-            unexpected = set(imports) - set(allowed_imports[plugin])
-            if unexpected:
-                failures.append(f"{plugin}.dll has new kernel imports: {sorted(unexpected)}")
+        if imports:
+            failures.append(f"{dll.name} imports smedley_kernel.dll: {imports}")
 
     for failure in failures:
         print(failure, file=sys.stderr)

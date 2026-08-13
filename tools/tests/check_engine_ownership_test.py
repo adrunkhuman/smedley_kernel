@@ -17,7 +17,7 @@ class EngineOwnershipAuditTest(unittest.TestCase):
         (self.root / "game_state").mkdir()
         sources = "\n".join(f"  {source}" for source in sorted(ENGINE_SOURCES))
         (self.root / "game_state/CMakeLists.txt").write_text(
-            f"target_sources(smedley_kernel PRIVATE\n{sources})\n", encoding="utf-8"
+            f"target_sources(smedley_kernel_runtime PRIVATE\n{sources})\n", encoding="utf-8"
         )
         (self.root / "plugins/scripting/src").mkdir(parents=True)
         (self.root / "plugins/scripting/src/plugin.cpp").write_text(

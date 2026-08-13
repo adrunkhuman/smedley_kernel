@@ -97,6 +97,15 @@ namespace
             return fs::path(SMEDLEY_BUILD_DIR)
                 / L"smedley_kernel" / configuration_dir.filename() / L"smedley_plugin_abi_test_plugin.dll";
         }
+
+        fs::path BuiltLegacyFixture() const
+        {
+            wchar_t executable[MAX_PATH];
+            EXPECT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
+            const auto configuration_dir = fs::path(executable).parent_path();
+            return fs::path(SMEDLEY_BUILD_DIR)
+                / L"smedley_kernel" / configuration_dir.filename() / L"smedley_legacy_plugin_test_plugin.dll";
+        }
     };
 }
 
@@ -762,6 +771,26 @@ TEST_F(LauncherCoreTest, AcceptsPluginWithOnlyTheCAbiV1Export)
     }));
     ASSERT_EQ(plan.plugins.size(), 1u);
     EXPECT_EQ(plan.plugins.front().id, "abi_fixture");
+}
+
+TEST_F(LauncherCoreTest, RejectsPluginWithOnlyTheLegacyExport)
+{
+    const auto plugin_binary = BuiltLegacyFixture();
+    ASSERT_TRUE(fs::is_regular_file(plugin_binary));
+    fs::copy_file(plugin_binary, root / L"plugins" / L"legacy_fixture.dll");
+    Write(root / L"plugins" / L"legacy_fixture.toml",
+          "id = \"legacy_fixture\"\nname = \"Legacy Fixture\"\nversion = \"1\"\nmodule = \"legacy_fixture.dll\"\n");
+
+    launcher::Profile profile;
+    profile.game_dir = root;
+    profile.plugins = {L"plugins/legacy_fixture.toml"};
+    const auto plan = launcher::BuildLaunchPlan(profile);
+
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "plugin.export";
+    }));
+    ASSERT_EQ(plan.plugins.size(), 1u);
+    EXPECT_EQ(plan.plugins.front().id, "legacy_fixture");
 }
 
 TEST_F(LauncherCoreTest, WiresBenchmarkTargetsAndRejectsUnsafeCombinations)

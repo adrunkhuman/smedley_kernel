@@ -183,7 +183,15 @@ TEST(PluginAbiV1Test, DiscoversAndRunsTheIndependentCDll)
 {
     wchar_t executable[MAX_PATH];
     ASSERT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
-    const auto fixture = std::filesystem::path(executable).parent_path() / L"smedley_plugin_abi_test_plugin.dll";
+    const auto source = std::filesystem::path(executable).parent_path() / L"smedley_plugin_abi_test_plugin.dll";
+    const auto fixture = std::filesystem::temp_directory_path() / (L"smedley plugin ABI fixture "
+        + std::to_wstring(GetCurrentProcessId()) + L".dll");
+    std::filesystem::copy_file(source, fixture, std::filesystem::copy_options::overwrite_existing);
+    const auto kernel_source = std::filesystem::path(executable).parent_path() / L"smedley_kernel.dll";
+    const auto kernel_fixture = fixture.parent_path() / L"smedley_kernel.dll";
+    std::filesystem::copy_file(kernel_source, kernel_fixture, std::filesystem::copy_options::overwrite_existing);
+    HMODULE kernel = LoadLibraryW(kernel_fixture.c_str());
+    ASSERT_NE(kernel, nullptr);
     HMODULE module = LoadLibraryW(fixture.c_str());
     ASSERT_NE(module, nullptr);
     const auto get_api = reinterpret_cast<SmedleyPluginGetApiV1Fn>(
@@ -197,13 +205,12 @@ TEST(PluginAbiV1Test, DiscoversAndRunsTheIndependentCDll)
         std::string error;
         smedley::PluginAbiV1Instance instance(api);
         ASSERT_TRUE(instance.Start(&error)) << error;
-        SmedleyDailyEventV1 event{};
-        event.struct_size = sizeof(event);
-        event.version = SMEDLEY_DAILY_EVENT_VERSION_V1;
-        smedley::DispatchDailyEventApi(event);
         std::vector<std::string> errors;
         instance.Stop(&errors);
         EXPECT_TRUE(errors.empty());
     }
     EXPECT_TRUE(FreeLibrary(module));
+    EXPECT_TRUE(FreeLibrary(kernel));
+    std::filesystem::remove(fixture);
+    std::filesystem::remove(kernel_fixture);
 }

@@ -13,11 +13,6 @@ namespace smedley::events
     class DailyUpdateEvent;
 }
 
-namespace smedley
-{
-    class Plugin;
-}
-
 namespace smedley::game_state
 {
     enum class PopInterestMutationStatus
@@ -461,12 +456,7 @@ namespace smedley::game_state
         const ObserverCountrySnapshot &country, ObserverStateSnapshot *after = nullptr);
     /** Installs annex and message hooks transactionally and retains their raw ownership in the runtime. */
     CampaignOperationStatus InstallCampaignAutomationHooks(CampaignAutomationCallbacks callbacks);
-    /** Enables observer-only command replacement and resets the copied popup counter. */
-    void SetCampaignObserverMode(bool enabled) noexcept;
     void SetCampaignAutomationObserverMode(bool enabled) noexcept;
-    /** Registers runtime-owned console capture; no engine console object crosses into the plugin. */
-    bool RegisterCampaignConsoleCapture(Plugin *owner);
-    void UnregisterCampaignConsoleCapture(Plugin *owner) noexcept;
     bool RegisterCampaignAutomationConsoleCapture();
     void UnregisterCampaignAutomationConsoleCapture() noexcept;
     CampaignOperationStatus ActivateCampaignAutomationHooks();
@@ -481,7 +471,6 @@ namespace smedley::game_state
         const ObserverTag &tag, CampaignConsoleCommandResult *result = nullptr);
     /** Validates and invokes the native debug fow command, then requires visibility readback. */
     ObserverOperationStatus EnableObserverFullMapVisibility();
-    void SetCampaignMessagePopupSuppression(bool enabled) noexcept;
     void SetCampaignAutomationMessagePopupSuppression(bool enabled) noexcept;
     bool IsCampaignMessagePopupSuppressionEnabled() noexcept;
     int32_t CampaignSuppressedMessageCount() noexcept;

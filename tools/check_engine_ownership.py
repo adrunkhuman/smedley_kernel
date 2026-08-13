@@ -24,7 +24,7 @@ MIGRATED_PLUGINS = (Path("plugins/campaign_runner"), Path("plugins/scripting"))
 def audit(root: Path) -> list[str]:
     findings: list[str] = []
     game_state_cmake = (root / "game_state/CMakeLists.txt").read_text(encoding="utf-8")
-    if "target_sources(smedley_kernel PRIVATE" not in game_state_cmake:
+    if "target_sources(smedley_kernel_runtime PRIVATE" not in game_state_cmake:
         findings.append("game_state/CMakeLists.txt: engine sources must belong to smedley_kernel")
     for source in sorted(ENGINE_SOURCES):
         if game_state_cmake.count(source) != 1:

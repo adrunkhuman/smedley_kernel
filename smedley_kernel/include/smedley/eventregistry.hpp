@@ -2,7 +2,6 @@
 
 
 #include "event.hpp"
-#include "apimacros.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <functional>
@@ -13,8 +12,6 @@
 
 namespace smedley
 {
-
-    class Plugin;
 
     enum class EventHandlerPriority : uint32_t
     {
@@ -34,7 +31,7 @@ namespace smedley
     protected:
         struct Handler
         {
-            Plugin *key_plugin;
+            void *key_owner;
             std::string key_str;
             std::function<void(Ev &)> fn;
             EventHandlerPriority priority;
@@ -46,25 +43,25 @@ namespace smedley
         {
             inline bool operator()(Handler a, Handler b) const { return a.priority < b.priority; }
         } _handler_compare_lt{};
-        SMEDLEY_API static uint32_t _notification_depth;
+        inline static uint32_t _notification_depth = 0;
 
         // Defined for each event by template specialization.
-        SMEDLEY_API static Handlers _handlers;
+        inline static Handlers _handlers{};
     public:
         /**
          * Adds an event handler to the registry.
          * 
-         * @param plugin Plugin that registers the handler.
+         * @param owner Opaque kernel-local handler owner.
          * @param id Handler ID, namespaced within the plugin.
          * @param fn Event callback.
          * @param priority Handler callback priority.
          */
-        static void Register(Plugin *plugin, const std::string &id, std::function<void(Ev &)> fn, EventHandlerPriority priority = EventHandlerPriority::LOWEST)
+        static void Register(void *owner, const std::string &id, std::function<void(Ev &)> fn, EventHandlerPriority priority = EventHandlerPriority::LOWEST)
         {
             if (_notification_depth != 0) throw std::logic_error("cannot register an event handler during notification");
-            auto handler_exists = [&plugin, &id](const Handler &h) { return h.key_plugin == plugin && h.key_str == id; };
+            auto handler_exists = [owner, &id](const Handler &h) { return h.key_owner == owner && h.key_str == id; };
             if (std::find_if(_handlers.begin(), _handlers.end(), handler_exists) == _handlers.end()) {
-                Handler eh{plugin, id, fn, priority};
+                Handler eh{owner, id, fn, priority};
                 _handlers.push_back(eh);
                 std::sort(_handlers.begin(), _handlers.end(), _handler_compare_lt);
             }
@@ -73,13 +70,13 @@ namespace smedley
         /**
          * Removes an event handler from the registry.
          * 
-         * @param plugin Plugin that registered the handler.
+         * @param owner Opaque kernel-local handler owner.
          * @param id Handler ID.
          */
-        static void Unregister(Plugin *plugin, const std::string &id)
+        static void Unregister(void *owner, const std::string &id)
         {
             if (_notification_depth != 0) throw std::logic_error("cannot unregister an event handler during notification");
-            auto handler_exists = [plugin, &id](const Handler &h) { return h.key_plugin == plugin && h.key_str == id; };
+            auto handler_exists = [owner, &id](const Handler &h) { return h.key_owner == owner && h.key_str == id; };
             auto iter = std::find_if(_handlers.begin(), _handlers.end(), handler_exists);
             if (iter != _handlers.end()) {
                 _handlers.erase(iter);

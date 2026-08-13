@@ -1,0 +1,16 @@
+LIBRARY smedley_kernel
+EXPORTS
+    LoadPlugins
+    LoadPluginsThread = _LoadPluginsThread@4
+    SmedleyGetCampaignAutomationApiV1
+    SmedleyGetCampaignControlApiV1
+    SmedleyGetCampaignRuntimeApiV1
+    SmedleyGetEventApiV1
+    SmedleyGetEventServicesApiV1
+    SmedleyGetInterestPoolApiV1
+    SmedleyGetLoggingApiV1
+    SmedleyGetTelemetryGameApiV1
+    SmedleyGetTelemetryObservationApiV1
+    luaL_loadstring
+    lua_pcall
+    lua_tolstring

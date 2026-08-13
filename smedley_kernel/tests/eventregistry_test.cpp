@@ -5,9 +5,6 @@
 
 #include <gtest/gtest.h>
 
-#include <filesystem>
-#include <windows.h>
-
 using smedley::EventRegistry;
 using smedley::events::DailyUpdateEvent;
 using smedley::events::DailyInterestEvent;
@@ -77,26 +74,4 @@ TEST(EventRegistryTests, ContainsMutationAndContinuesNotification)
 
     EventRegistry<DailyInterestEvent>::Unregister(nullptr, "interest-mutation-test");
     EventRegistry<DailyInterestEvent>::Unregister(nullptr, "interest-continue-test");
-}
-
-TEST(EventRegistryTests, ContainsMutationAcrossDllBoundary)
-{
-    wchar_t executable[MAX_PATH]{};
-    ASSERT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
-    const auto fixture = std::filesystem::path(executable).parent_path() / L"smedley_event_mutation_test_plugin.dll";
-    HMODULE module = LoadLibraryW(fixture.c_str());
-    ASSERT_NE(module, nullptr);
-    using RegisterFixtureFn = void (*)(int *);
-    auto register_fixture = reinterpret_cast<RegisterFixtureFn>(GetProcAddress(module, "SmedleyRegisterEventMutationFixture"));
-    ASSERT_NE(register_fixture, nullptr);
-
-    int completed = 0;
-    register_fixture(&completed);
-    DailyInterestEvent event(nullptr, DailyInterestPhase::BEFORE);
-    EXPECT_EQ(EventRegistry<DailyInterestEvent>::NotifyContained(event), 1u);
-    EXPECT_EQ(completed, 1);
-
-    EventRegistry<DailyInterestEvent>::Unregister(nullptr, "cross-dll-mutator");
-    EventRegistry<DailyInterestEvent>::Unregister(nullptr, "cross-dll-continuation");
-    EXPECT_NE(FreeLibrary(module), FALSE);
 }

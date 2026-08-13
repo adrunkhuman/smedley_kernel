@@ -1955,7 +1955,6 @@ namespace smedley::game_state
 
     namespace
     {
-        std::atomic<bool> legacy_campaign_observer_enabled{};
         std::atomic<bool> campaign_automation_observer_enabled{};
         std::atomic<bool> campaign_console_ready{};
         std::atomic<CampaignAnnexationCallback> campaign_annexation_callback{};
@@ -1966,28 +1965,22 @@ namespace smedley::game_state
         std::atomic<bool> campaign_hooks_poisoned{};
         std::atomic<bool> campaign_hooks_installed{};
         smedley::v2::CConsoleCmdManager *campaign_console_manager = nullptr;
-        Plugin *const campaign_automation_console_owner = reinterpret_cast<Plugin *>(UINTPTR_MAX);
-        std::atomic<bool> legacy_campaign_console_capture_registered{};
+        int campaign_automation_console_owner{};
         std::atomic<bool> campaign_automation_console_capture_registered{};
-        std::atomic<uint32_t> campaign_console_capture_registration_owner{};
-        std::atomic<Plugin *> campaign_console_capture_legacy_owner{};
         smedley::v2::CConsoleCmd::SCommandData *campaign_switch_command = nullptr;
         GameSession campaign_console_session{};
         volatile bool suppress_campaign_message_popups = false;
-        std::atomic<bool> legacy_campaign_message_popups_suppressed{};
         std::atomic<bool> campaign_automation_message_popups_suppressed{};
         volatile long suppressed_campaign_message_count = 0;
 
         bool CampaignObserverEnabled() noexcept
         {
-            return legacy_campaign_observer_enabled.load(std::memory_order_acquire)
-                || campaign_automation_observer_enabled.load(std::memory_order_acquire);
+            return campaign_automation_observer_enabled.load(std::memory_order_acquire);
         }
 
         void RefreshCampaignPopupSuppression() noexcept
         {
-            suppress_campaign_message_popups = legacy_campaign_message_popups_suppressed.load(std::memory_order_acquire)
-                || campaign_automation_message_popups_suppressed.load(std::memory_order_acquire);
+            suppress_campaign_message_popups = campaign_automation_message_popups_suppressed.load(std::memory_order_acquire);
         }
 
         CampaignConsoleArguments CopyCampaignConsoleArguments(
@@ -2144,57 +2137,8 @@ namespace smedley::game_state
         }
     }
 
-    void SetCampaignObserverMode(bool enabled) noexcept
-    {
-        legacy_campaign_observer_enabled.store(enabled, std::memory_order_release);
-        legacy_campaign_message_popups_suppressed.store(false, std::memory_order_release);
-        RefreshCampaignPopupSuppression();
-        InterlockedExchange(&suppressed_campaign_message_count, 0);
-    }
-
-    bool RegisterCampaignConsoleCapture(Plugin *owner)
-    {
-        if (owner == nullptr) return false;
-        if (legacy_campaign_console_capture_registered.load(std::memory_order_acquire)) return true;
-        if (campaign_console_capture_registration_owner.load(std::memory_order_acquire) != 0) {
-            legacy_campaign_console_capture_registered.store(true, std::memory_order_release);
-            return true;
-        }
-        try {
-            EventRegistry<events::ConsoleCmdManagerInitEvent>::Register(
-                owner, "campaign_runner_console", &OnCampaignConsoleCaptured);
-            campaign_console_capture_legacy_owner.store(owner, std::memory_order_release);
-            campaign_console_capture_registration_owner.store(1, std::memory_order_release);
-            legacy_campaign_console_capture_registered.store(true, std::memory_order_release);
-            return true;
-        } catch (...) {
-            return false;
-        }
-    }
-
-    void UnregisterCampaignConsoleCapture(Plugin *owner) noexcept
-    {
-        if (owner == nullptr) return;
-        if (!legacy_campaign_console_capture_registered.exchange(false, std::memory_order_acq_rel)) return;
-        if (campaign_automation_console_capture_registered.load(std::memory_order_acquire)) return;
-        try {
-            if (campaign_console_capture_registration_owner.load(std::memory_order_acquire) == 1) {
-                EventRegistry<events::ConsoleCmdManagerInitEvent>::Unregister(owner, "campaign_runner_console");
-            } else {
-                EventRegistry<events::ConsoleCmdManagerInitEvent>::Unregister(
-                    campaign_automation_console_owner, "campaign_automation_console");
-            }
-            campaign_console_capture_registration_owner.store(0, std::memory_order_release);
-            campaign_console_capture_legacy_owner.store(nullptr, std::memory_order_release);
-            ForgetCampaignConsole(true);
-        } catch (...) {
-        }
-    }
-
     void DeactivateCampaignAutomation() noexcept
     {
-        legacy_campaign_message_popups_suppressed.store(false, std::memory_order_release);
-        legacy_campaign_observer_enabled.store(false, std::memory_order_release);
         campaign_annexation_callback.store(nullptr, std::memory_order_release);
         campaign_console_capture_callback.store(nullptr, std::memory_order_release);
         campaign_console_callback.store(nullptr, std::memory_order_release);
@@ -2213,14 +2157,9 @@ namespace smedley::game_state
     bool RegisterCampaignAutomationConsoleCapture()
     {
         if (campaign_automation_console_capture_registered.load(std::memory_order_acquire)) return true;
-        if (campaign_console_capture_registration_owner.load(std::memory_order_acquire) != 0) {
-            campaign_automation_console_capture_registered.store(true, std::memory_order_release);
-            return true;
-        }
         try {
             EventRegistry<events::ConsoleCmdManagerInitEvent>::Register(
-                campaign_automation_console_owner, "campaign_automation_console", &OnCampaignConsoleCaptured);
-            campaign_console_capture_registration_owner.store(2, std::memory_order_release);
+                &campaign_automation_console_owner, "campaign_automation_console", &OnCampaignConsoleCaptured);
             campaign_automation_console_capture_registered.store(true, std::memory_order_release);
             return true;
         } catch (...) {
@@ -2231,27 +2170,14 @@ namespace smedley::game_state
     void UnregisterCampaignAutomationConsoleCapture() noexcept
     {
         if (!campaign_automation_console_capture_registered.exchange(false, std::memory_order_acq_rel)) return;
-        if (!legacy_campaign_console_capture_registered.load(std::memory_order_acquire)) {
-            try {
-                if (campaign_console_capture_registration_owner.load(std::memory_order_acquire) == 1) {
-                    EventRegistry<events::ConsoleCmdManagerInitEvent>::Unregister(
-                        campaign_console_capture_legacy_owner.load(std::memory_order_acquire),
-                        "campaign_runner_console");
-                } else {
-                    EventRegistry<events::ConsoleCmdManagerInitEvent>::Unregister(
-                        campaign_automation_console_owner, "campaign_automation_console");
-                }
-                campaign_console_capture_registration_owner.store(0, std::memory_order_release);
-                campaign_console_capture_legacy_owner.store(nullptr, std::memory_order_release);
-            } catch (...) {
-                return;
-            }
-        }
-        if (!legacy_campaign_console_capture_registered.load(std::memory_order_acquire)) {
+        try {
+            EventRegistry<events::ConsoleCmdManagerInitEvent>::Unregister(
+                &campaign_automation_console_owner, "campaign_automation_console");
             campaign_automation_message_popups_suppressed.store(false, std::memory_order_release);
             campaign_automation_observer_enabled.store(false, std::memory_order_release);
             RefreshCampaignPopupSuppression();
             ForgetCampaignConsole(true);
+        } catch (...) {
         }
     }
 
@@ -2278,7 +2204,7 @@ namespace smedley::game_state
         SetCampaignAutomationConsoleCaptureCallback(nullptr);
         SetCampaignAutomationObserverMode(false);
         SetCampaignAutomationMessagePopupSuppression(false);
-        if (!legacy_campaign_console_capture_registered.load(std::memory_order_acquire)) ForgetCampaignConsole(true);
+        if (!campaign_automation_console_capture_registered.load(std::memory_order_acquire)) ForgetCampaignConsole(true);
     }
 
     bool IsCampaignObserverConsoleReady() noexcept
@@ -2300,12 +2226,6 @@ namespace smedley::game_state
     {
         if (!IsCampaignObserverConsoleReady()) return ObserverOperationStatus::invalid_state;
         return EnableObserverFullMapVisibility(CampaignConsoleRef{campaign_console_manager});
-    }
-
-    void SetCampaignMessagePopupSuppression(bool enabled) noexcept
-    {
-        legacy_campaign_message_popups_suppressed.store(enabled, std::memory_order_release);
-        RefreshCampaignPopupSuppression();
     }
 
     void SetCampaignAutomationMessagePopupSuppression(bool enabled) noexcept
