@@ -3,7 +3,8 @@
 The built-in `scripting` plugin executes user-selected Lua 5.1 source in private
 states compiled into `scripting.dll`. It does not call
 `clausewitz::GetLuaState`, resolve either Victoria II Lua DLL, or export its Lua
-symbols. The final x86 Release DLL exports only `CreatePlugin`.
+symbols. The final x86 Release DLL exports only `SmedleyPluginGetApiV1` and
+dynamically resolves the event, campaign-control, and logging C services.
 
 ## Data path
 

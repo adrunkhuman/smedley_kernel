@@ -51,10 +51,7 @@
     "?_handlers@?$EventRegistry@VBankInterestEvent@events@smedley@@@smedley@@1V?$vector@UHandler@?$EventRegistry@VBankInterestEvent@events@smedley@@@smedley@@V?$allocator@UHandler@?$EventRegistry@VBankInterestEvent@events@smedley@@@smedley@@@std@@@std@@A",
     "?_notification_depth@?$EventRegistry@VBankInterestEvent@events@smedley@@@smedley@@1IA"
   ],
-  "scripting": [
-    "??0Plugin@smedley@@QAE@XZ",
-    "?Log@Logger@smedley@@QAEXW4Level@12@ABV?$basic_string@DU?$char_traits@D@std@@V?$allocator@D@2@@std@@@Z"
-  ],
+  "scripting": [],
   "telemetry": [
     "??0Plugin@smedley@@QAE@XZ",
     "?ArtisanReadFailureName@game_state@smedley@@YAPBDW4ArtisanReadFailureReason@12@@Z",
