@@ -1,4 +1,4 @@
-#include <smedley/game_state/readers.hpp>
+#include <smedley/interest_pool_api.h>
 #include "interest_allocation.hpp"
 #include "interest_batch.hpp"
 #include "interest_mutation_status.hpp"
@@ -11,36 +11,12 @@
 #include <cstring>
 #include <limits>
 
-namespace game_state = smedley::game_state;
-
 namespace
 {
-    template <typename T, size_t Size>
-    void Write(std::array<std::byte, Size> *bytes, size_t offset, const T &value)
-    {
-        ASSERT_LE(offset + sizeof(value), bytes->size());
-        std::memcpy(bytes->data() + offset, &value, sizeof(value));
-    }
-
-    struct CountryLookup
-    {
-        int32_t ordinal;
-        const void *country;
-        int32_t province_id = -1;
-        const void *province = nullptr;
-    };
-
-    game_state::CountryRef ResolveCountry(const void *context, int32_t ordinal)
-    {
-        const auto *lookup = static_cast<const CountryLookup *>(context);
-        return ordinal == lookup->ordinal ? game_state::CountryRef{lookup->country} : game_state::CountryRef{};
-    }
-
 }
 TEST(InterestBugFixTest, ComputesNamedTransfersDespiteArbitraryTreasuryChanges)
 {
-    game_state::CountryEconomySnapshot before{};
-    before.treasury_raw = -500;
+    interest_bug_fix::DestinationInterestSnapshot before{};
     before.creditor_destinations = 2;
     before.destination_bank_interest_raw = 400;
     before.destination_ordinals[0] = 7;
@@ -48,8 +24,7 @@ TEST(InterestBugFixTest, ComputesNamedTransfersDespiteArbitraryTreasuryChanges)
     before.destination_bank_interests_raw[0] = 100;
     before.destination_bank_interests_raw[1] = 300;
 
-    game_state::CountryEconomySnapshot after = before;
-    after.treasury_raw = (std::numeric_limits<int64_t>::max)();
+    interest_bug_fix::DestinationInterestSnapshot after = before;
     after.destination_bank_interest_raw = 475;
     after.destination_bank_interests_raw[0] = 125;
     after.destination_bank_interests_raw[1] = 350;
@@ -65,11 +40,11 @@ TEST(InterestBugFixTest, ComputesNamedTransfersDespiteArbitraryTreasuryChanges)
 
 TEST(InterestBugFixTest, RejectsChangedDestinationOrder)
 {
-    game_state::CountryEconomySnapshot before{};
+    interest_bug_fix::DestinationInterestSnapshot before{};
     before.creditor_destinations = 1;
     before.destination_ordinals[0] = 7;
 
-    game_state::CountryEconomySnapshot after = before;
+    interest_bug_fix::DestinationInterestSnapshot after = before;
     after.destination_ordinals[0] = 8;
 
     interest_bug_fix::DestinationTransferSummary summary{};
@@ -87,12 +62,12 @@ TEST(InterestBugFixTest, RejectsChangedDestinationOrder)
 
 TEST(InterestBugFixTest, RejectsChangedDestinationIdentity)
 {
-    game_state::CountryEconomySnapshot before{};
+    interest_bug_fix::DestinationInterestSnapshot before{};
     before.creditor_destinations = 1;
     before.destination_keys[0] = 0x00474e45;
     before.destination_ordinals[0] = 7;
 
-    game_state::CountryEconomySnapshot after = before;
+    interest_bug_fix::DestinationInterestSnapshot after = before;
     after.destination_keys[0] = 0x00415246;
 
     interest_bug_fix::DestinationTransferSummary summary{};
@@ -106,47 +81,6 @@ TEST(InterestBugFixTest, RejectsChangedDestinationIdentity)
     EXPECT_EQ(summary.transfers_raw[0], 0);
     EXPECT_EQ(summary.transfer_count, 0u);
     EXPECT_EQ(summary.transfer_raw, 0);
-}
-
-TEST(InterestBugFixTest, CompletesTransferAfterCreditorEntryDisappears)
-{
-    std::array<std::byte, 0x1608> debtor{};
-    std::array<std::byte, 0x1608> destination{};
-    std::array<std::byte, 0x28> debtor_bank{};
-    std::array<std::byte, 0x28> destination_bank{};
-    const char debtor_tag[4] = {'S', 'W', 'E', '\0'};
-    const char destination_tag[4] = {'E', 'N', 'G', '\0'};
-    const int32_t debtor_ordinal = 2;
-    const int32_t destination_ordinal = 7;
-    const int64_t treasury_after = 975;
-    const int64_t bank_after = 125;
-    const void *debtor_bank_pointer = debtor_bank.data();
-    const void *destination_bank_pointer = destination_bank.data();
-    Write(&debtor, 0x1c, debtor_tag);
-    Write(&debtor, 0x20, debtor_ordinal);
-    Write(&debtor, 0xe78, treasury_after);
-    Write(&debtor, 0xe88, debtor_bank_pointer);
-    Write(&destination, 0x1c, destination_tag);
-    Write(&destination, 0x20, destination_ordinal);
-    Write(&destination, 0xe88, destination_bank_pointer);
-    Write(&destination_bank, 0x20, bank_after);
-    const CountryLookup lookup{destination_ordinal, destination.data()};
-
-    game_state::CountryEconomySnapshot before{};
-    before.creditor_count = 1;
-    before.creditor_destinations = 1;
-    std::memcpy(&before.destination_keys[0], destination_tag, 4);
-    before.destination_ordinals[0] = destination_ordinal;
-    before.destination_bank_interests_raw[0] = 100;
-    before.destination_bank_interest_raw = 100;
-
-    auto after = game_state::ReadCountryCreditorBalances(
-        before, game_state::CountryRef{static_cast<const void *>(debtor.data())}, 1234, ResolveCountry, &lookup);
-    ASSERT_EQ(after.flags, 0u);
-    ASSERT_EQ(after.creditor_destinations, 1u);
-    interest_bug_fix::DestinationTransferSummary summary{};
-    EXPECT_TRUE(interest_bug_fix::ComputeDestinationTransfers(before, after, &summary));
-    EXPECT_EQ(summary.transfer_raw, 25);
 }
 
 TEST(InterestBatchTest, AggregatesNamedDomesticAndForeignAmounts)
@@ -212,9 +146,9 @@ TEST(InterestBatchTest, TracksDailyPopIdentitiesWithoutAllocation)
 
 TEST(InterestBugFixTest, RejectsFlaggedBeforeSample)
 {
-    game_state::CountryEconomySnapshot before{};
-    before.flags = game_state::SAMPLE_BANK_UNREADABLE;
-    game_state::CountryEconomySnapshot after{};
+    interest_bug_fix::DestinationInterestSnapshot before{};
+    before.flags = 1;
+    interest_bug_fix::DestinationInterestSnapshot after{};
 
     interest_bug_fix::DestinationTransferSummary summary{};
     summary.transfers_raw[0] = 1;
@@ -233,38 +167,30 @@ TEST(InterestBugFixTest, RejectsFlaggedBeforeSample)
 TEST(InterestBugFixTest, ClassifiesMutationFailuresWithoutOverstatingPostconditions)
 {
     using interest_bug_fix::PopInterestFailureClass;
-    using game_state::PopInterestMutationStatus;
 
     struct ExpectedFailure
     {
-        PopInterestMutationStatus status;
+        SmedleyInterestPoolResult status;
         PopInterestFailureClass failure;
         bool unsafe;
     };
     constexpr ExpectedFailure failures[] = {
-        {PopInterestMutationStatus::invalid_context, PopInterestFailureClass::unavailable, true},
-        {PopInterestMutationStatus::invalid_phase, PopInterestFailureClass::unavailable, true},
-        {PopInterestMutationStatus::invalid_thread, PopInterestFailureClass::unavailable, true},
-        {PopInterestMutationStatus::invalid_amount, PopInterestFailureClass::precondition_changed, false},
-        {PopInterestMutationStatus::balance_unreadable, PopInterestFailureClass::balance, false},
-        {PopInterestMutationStatus::balance_overflow, PopInterestFailureClass::balance, false},
-        {PopInterestMutationStatus::not_writable, PopInterestFailureClass::not_writable, false},
-        {PopInterestMutationStatus::signature_mismatch, PopInterestFailureClass::unavailable, true},
-        {PopInterestMutationStatus::unavailable, PopInterestFailureClass::unavailable, true},
-        {PopInterestMutationStatus::state_changed, PopInterestFailureClass::precondition_changed, false},
-        {PopInterestMutationStatus::postcondition_failed, PopInterestFailureClass::postcondition_failed, true},
+        {SMEDLEY_INTEREST_POOL_UNAVAILABLE, PopInterestFailureClass::unavailable, true},
+        {SMEDLEY_INTEREST_POOL_STALE_AUTHORITY, PopInterestFailureClass::precondition_changed, false},
+        {SMEDLEY_INTEREST_POOL_PRECONDITION_FAILED, PopInterestFailureClass::precondition_changed, false},
+        {SMEDLEY_INTEREST_POOL_PARTIAL_MUTATION, PopInterestFailureClass::partial_mutation, false},
     };
     for (const auto &failure : failures) {
         EXPECT_EQ(interest_bug_fix::ClassifyPopInterestFailure(failure.status), failure.failure);
         EXPECT_EQ(interest_bug_fix::IsUnsafePopInterestFailure(failure.status), failure.unsafe);
     }
-    EXPECT_EQ(interest_bug_fix::ClassifyAppliedPopInterestFailure(PopInterestMutationStatus::state_changed, true),
+    EXPECT_EQ(interest_bug_fix::ClassifyAppliedPopInterestFailure(SMEDLEY_INTEREST_POOL_STALE_AUTHORITY, true),
         PopInterestFailureClass::partial_mutation);
-    EXPECT_EQ(interest_bug_fix::ClassifyAppliedPopInterestFailure(PopInterestMutationStatus::state_changed, false),
+    EXPECT_EQ(interest_bug_fix::ClassifyAppliedPopInterestFailure(SMEDLEY_INTEREST_POOL_STALE_AUTHORITY, false),
         PopInterestFailureClass::precondition_changed);
-    EXPECT_FALSE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(PopInterestMutationStatus::not_writable, false));
-    EXPECT_TRUE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(PopInterestMutationStatus::state_changed, true));
-    EXPECT_TRUE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(PopInterestMutationStatus::postcondition_failed, false));
+    EXPECT_FALSE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(SMEDLEY_INTEREST_POOL_PRECONDITION_FAILED, false));
+    EXPECT_TRUE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(SMEDLEY_INTEREST_POOL_STALE_AUTHORITY, true));
+    EXPECT_TRUE(interest_bug_fix::IsUnsafeAppliedPopInterestFailure(SMEDLEY_INTEREST_POOL_PARTIAL_MUTATION, false));
 }
 
 TEST(InterestAllocationTest, ConservesPayoutWithDeterministicRemainders)

@@ -87,7 +87,7 @@ namespace interest_bug_fix
         return emit_;
     }
 
-    SmedleyTelemetryResult TelemetryBridge::Emit(const char *event_type, const char *quality, int32_t date_raw,
+    SmedleyTelemetryResult TelemetryBridge::Emit(const char *event_type, const char *quality, int32_t date_raw, bool has_game_date,
                                                   const SmedleyTelemetryFieldV1 *entities, uint32_t entity_count,
                                                   const SmedleyTelemetryFieldV1 *payload, uint32_t payload_count,
                                                   bool reliable)
@@ -101,7 +101,7 @@ namespace interest_bug_fix
         if (reliable && reliable_emit_ != nullptr) emit = reliable_emit_;
         if (emit == nullptr) return SMEDLEY_TELEMETRY_UNAVAILABLE;
         SmedleyTelemetryRecordV1 record{sizeof(record), SMEDLEY_TELEMETRY_ABI_VERSION_V1,
-            SMEDLEY_TELEMETRY_RECORD_HAS_GAME_DATE, 0,
+            has_game_date ? SMEDLEY_TELEMETRY_RECORD_HAS_GAME_DATE : 0, 0,
             event_type, static_cast<uint32_t>(std::strlen(event_type)), "state", 5,
             "v2game-3.04", 11, quality, static_cast<uint32_t>(std::strlen(quality)), date_raw, 0,
             entities, entity_count, payload, payload_count, {0, 0, 0, 0}};

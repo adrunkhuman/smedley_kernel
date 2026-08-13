@@ -1,13 +1,22 @@
 #pragma once
 
-#include <smedley/game_state/readers.hpp>
-
 #include <array>
 #include <cstdint>
 
 namespace interest_bug_fix
 {
     constexpr uint32_t INTEREST_RECONCILIATION_INVALID = 1u << 24;
+    constexpr uint32_t max_reconciliation_destinations = 512;
+
+    struct DestinationInterestSnapshot
+    {
+        uint32_t flags = 0;
+        uint32_t creditor_destinations = 0;
+        int64_t destination_bank_interest_raw = 0;
+        std::array<uint32_t, max_reconciliation_destinations> destination_keys{};
+        std::array<int32_t, max_reconciliation_destinations> destination_ordinals{};
+        std::array<int64_t, max_reconciliation_destinations> destination_bank_interests_raw{};
+    };
 
     enum class ReconciliationFailure : uint8_t
     {
@@ -28,13 +37,13 @@ namespace interest_bug_fix
 
     struct DestinationTransferSummary
     {
-        std::array<int64_t, smedley::game_state::max_sample_creditor_destinations> transfers_raw{};
+        std::array<int64_t, max_reconciliation_destinations> transfers_raw{};
         uint32_t transfer_count = 0;
         int64_t transfer_raw = 0;
     };
 
-    bool ComputeDestinationTransfers(const smedley::game_state::CountryEconomySnapshot &before,
-                                       const smedley::game_state::CountryEconomySnapshot &after,
+    bool ComputeDestinationTransfers(const DestinationInterestSnapshot &before,
+                                       const DestinationInterestSnapshot &after,
                                        DestinationTransferSummary *summary,
                                        ReconciliationFailure *failure = nullptr);
     const char *ReconciliationFailureName(ReconciliationFailure failure);

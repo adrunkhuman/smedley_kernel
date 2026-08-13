@@ -13,15 +13,15 @@ namespace interest_bug_fix
         }
     }
 
-    bool ComputeDestinationTransfers(const smedley::game_state::CountryEconomySnapshot &before,
-                                      const smedley::game_state::CountryEconomySnapshot &after,
+    bool ComputeDestinationTransfers(const DestinationInterestSnapshot &before,
+                                       const DestinationInterestSnapshot &after,
                                       DestinationTransferSummary *summary, ReconciliationFailure *failure)
     {
         if (failure != nullptr) *failure = ReconciliationFailure::none;
         if (summary == nullptr) return Fail(ReconciliationFailure::output_invalid, failure);
         *summary = {};
-        if ((before.flags & smedley::game_state::SAMPLE_CREDITOR_DESTINATION_LIMIT) != 0
-            || (after.flags & smedley::game_state::SAMPLE_CREDITOR_DESTINATION_LIMIT) != 0) {
+        if ((before.flags & INTEREST_RECONCILIATION_INVALID) != 0
+            || (after.flags & INTEREST_RECONCILIATION_INVALID) != 0) {
             return Fail(ReconciliationFailure::destination_limit, failure);
         }
         if (before.flags != 0) return Fail(ReconciliationFailure::before_flags, failure);
@@ -29,7 +29,7 @@ namespace interest_bug_fix
         if (before.creditor_destinations != after.creditor_destinations) {
             return Fail(ReconciliationFailure::destination_count_changed, failure);
         }
-        if (before.creditor_destinations > smedley::game_state::max_sample_creditor_destinations) {
+        if (before.creditor_destinations > max_reconciliation_destinations) {
             return Fail(ReconciliationFailure::destination_limit, failure);
         }
         bool overflow = false;
