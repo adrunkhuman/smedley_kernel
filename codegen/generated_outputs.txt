@@ -1,6 +1,0 @@
-smedley_kernel\include\smedley\clausewitz\lua.hpp
-smedley_kernel\include\smedley\v2\db\traitdefinition.hpp
-smedley_kernel\include\smedley\v2\gamestate.hpp
-smedley_kernel\include\smedley\v2\country.hpp
-smedley_kernel\include\smedley\v2\db\country.hpp
-smedley_kernel\include\smedley\v2\db\culture.hpp

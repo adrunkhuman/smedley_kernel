@@ -96,24 +96,3 @@ if (DOXYGEN_FOUND)
 else (DOXYGEN_FOUND)
   message("Doxygen need to be installed to generate the doxygen documentation")
 endif (DOXYGEN_FOUND)
-
-option(SMEDLEY_REGENERATE_BINDINGS "Regenerate checked-in game bindings during the build" OFF)
-
-if(SMEDLEY_REGENERATE_BINDINGS)
-  find_package(Python3 REQUIRED COMPONENTS Interpreter)
-  execute_process(
-    COMMAND ${Python3_EXECUTABLE} -c "import cog, toml, pydantic; assert pydantic.VERSION.startswith('1.')"
-    RESULT_VARIABLE SMEDLEY_CODEGEN_DEPENDENCIES_MISSING
-    OUTPUT_QUIET
-    ERROR_QUIET)
-  if(SMEDLEY_CODEGEN_DEPENDENCIES_MISSING)
-    message(FATAL_ERROR "Binding regeneration requires cogapp, toml, and Pydantic 1.x")
-  endif()
-  add_custom_target(smedley_regenerate_bindings
-    COMMAND ${Python3_EXECUTABLE} -m cogapp -r -I codegen @codegen/generated_outputs.txt
-    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-    COMMENT "Regenerating checked-in game bindings"
-    VERBATIM
-  )
-  add_dependencies(smedley_kernel smedley_regenerate_bindings)
-endif()

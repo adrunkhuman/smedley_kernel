@@ -75,25 +75,12 @@ injection, plugin initialization, campaign control, observer behavior, or
 telemetry completeness. See [`docs/game-state-boundary.md`](docs/game-state-boundary.md)
 for the engine boundary and retained runtime evidence.
 
-## Regenerating bindings
+## Legacy bindings
 
-Generated Victoria II bindings are checked in, so a normal build does not need
-Python packages or Cog. Contributors changing a model can regenerate bindings
-with an isolated environment:
-
-```powershell
-uv run --with cogapp --with toml --with "pydantic<2" python -m cogapp -r -I codegen @codegen/generated_outputs.txt
-```
-
-The paths in `codegen/generated_outputs.txt` are the generated outputs. Review their diff
-against the model files before committing. The generator and generated wrappers
-preserve an x86 MSVC ABI and are not portable bindings.
-
-`SMEDLEY_REGENERATE_BINDINGS=ON` expects the configured Python interpreter to
-provide `cogapp`, `toml`, and Pydantic 1.x.
-
-Model entries describe reverse-engineering candidates and generated call
-wrappers; they do not imply an installed Smedley hook or current runtime
-evidence. In particular, the retained `CCountry` models for `AddToSphere`,
-`MonthlyUpdate`, and `Westernize` are unhooked search leads. Active hooks and
-their evidence are defined by `mappings/v2game-3.04.toml`.
+The legacy generated C++ engine bindings and
+`SMEDLEY_REGENERATE_BINDINGS` option were removed. They are not required by,
+and cannot be regenerated as part of, the current build. Add engine access as a
+narrow kernel-private layout, document its mapping evidence, and do not restore
+the mirror headers or generator to support new code. Historical model inputs and
+their disposition are recorded in
+[`mappings/research/retired-engine-mirrors.md`](mappings/research/retired-engine-mirrors.md).
