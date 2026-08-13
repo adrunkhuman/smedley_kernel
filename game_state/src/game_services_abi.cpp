@@ -68,7 +68,12 @@ namespace
             : SMEDLEY_CAMPAIGN_RUNTIME_PRECONDITION_FAILED;
     }
 
-    struct CampaignSessionSlot { uint64_t handle = 0; uint64_t epoch = 0; std::thread::id thread{}; };
+    struct CampaignSessionSlot {
+        uint64_t handle = 0;
+        uint64_t epoch = 0;
+        std::thread::id thread{};
+        std::thread::id engine_thread{};
+    };
     std::array<CampaignSessionSlot, 8> campaign_sessions{};
     uint64_t next_campaign_session = 1;
     struct FrontendSlot {
@@ -155,15 +160,48 @@ namespace
 
     SmedleyCampaignRuntimeResult CampaignSessionStatus(SmedleyCampaignSession handle)
     {
-        if (!IsServiceOwnerThread()) return SMEDLEY_CAMPAIGN_RUNTIME_WRONG_THREAD;
         std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
         if (handle == 0) return SMEDLEY_CAMPAIGN_RUNTIME_STALE_HANDLE;
-        for (const auto &slot : campaign_sessions) {
+        for (auto &slot : campaign_sessions) {
             if (slot.handle == handle) {
-                if (slot.thread != std::this_thread::get_id()) return SMEDLEY_CAMPAIGN_RUNTIME_WRONG_THREAD;
-                return CurrentGameSession().epoch == slot.epoch
-                    ? SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS : SMEDLEY_CAMPAIGN_RUNTIME_STALE_HANDLE;
+                const auto current_thread = std::this_thread::get_id();
+                if (slot.thread != current_thread && slot.engine_thread != current_thread) {
+                    return SMEDLEY_CAMPAIGN_RUNTIME_WRONG_THREAD;
+                }
+                const auto current = CurrentGameSession();
+                if (current.epoch != slot.epoch) {
+                    RetireCampaignFrontendSlots(handle);
+                    slot.epoch = current.epoch;
+                    for (auto &automation : campaign_automation_slots) {
+                        if (automation.session.load(std::memory_order_acquire) == handle) {
+                            automation.epoch.store(current.epoch, std::memory_order_release);
+                        }
+                    }
+                }
+                return SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS;
             }
+        }
+        return SMEDLEY_CAMPAIGN_RUNTIME_STALE_HANDLE;
+    }
+
+    SmedleyCampaignRuntimeResult FrontendSessionStatus(SmedleyCampaignSession handle)
+    {
+        std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
+        if (handle == 0) return SMEDLEY_CAMPAIGN_RUNTIME_STALE_HANDLE;
+        for (auto &slot : campaign_sessions) {
+            if (slot.handle != handle) continue;
+            slot.engine_thread = std::this_thread::get_id();
+            const auto current = CurrentGameSession();
+            if (current.epoch != slot.epoch) {
+                RetireCampaignFrontendSlots(handle);
+                slot.epoch = current.epoch;
+                for (auto &automation : campaign_automation_slots) {
+                    if (automation.session.load(std::memory_order_acquire) == handle) {
+                        automation.epoch.store(current.epoch, std::memory_order_release);
+                    }
+                }
+            }
+            return SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS;
         }
         return SMEDLEY_CAMPAIGN_RUNTIME_STALE_HANDLE;
     }
@@ -253,7 +291,10 @@ namespace
     {
         if (controller == nullptr || kind > 1) return SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT;
         *controller = 0;
-        if (const auto status = CampaignSessionStatus(session); status != SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS) return status;
+        FrontendControllerToken token{};
+        const auto controller_status = AcquireFrontendController(static_cast<FrontendControllerKind>(kind), &token);
+        if (controller_status != FrontendOperationStatus::completed) return FrontendResult(controller_status);
+        if (const auto status = FrontendSessionStatus(session); status != SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS) return status;
         std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
         for (const auto &slot : frontend_slots) {
             if (slot.owner == session && slot.kind == kind && slot.epoch == CurrentGameSession().epoch) {
@@ -262,9 +303,6 @@ namespace
         }
         for (auto &slot : frontend_slots) {
             if (slot.handle != 0) continue;
-            FrontendControllerToken token{};
-            const auto status = AcquireFrontendController(static_cast<FrontendControllerKind>(kind), &token);
-            if (status != FrontendOperationStatus::completed) return FrontendResult(status);
             slot.handle = next_frontend_handle++;
             if (slot.handle == 0) slot.handle = next_frontend_handle++;
             slot.token = token;
@@ -287,7 +325,7 @@ namespace
     {
         if (slot == nullptr) return SMEDLEY_CAMPAIGN_RUNTIME_STALE_HANDLE;
         if (slot->thread != std::this_thread::get_id()) return SMEDLEY_CAMPAIGN_RUNTIME_WRONG_THREAD;
-        const auto session = CampaignSessionStatus(slot->owner);
+        const auto session = FrontendSessionStatus(slot->owner);
         if (session != SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS) return session;
         return CurrentGameSession().epoch == slot->epoch ? SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS
                                                          : SMEDLEY_CAMPAIGN_RUNTIME_STALE_HANDLE;
@@ -313,7 +351,6 @@ namespace
             || std::memchr(basename, '\0', bytes) != nullptr) {
             return SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT;
         }
-        if (!IsServiceOwnerThread()) return SMEDLEY_CAMPAIGN_RUNTIME_WRONG_THREAD;
         std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
         auto *slot = FindFrontend(controller);
         if (const auto status = FrontendStatus(slot); status != SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS) return status;
@@ -325,7 +362,6 @@ namespace
         SmedleyFrontendController controller, SmedleyFrontendSaveSnapshotV1 *snapshot)
     {
         if (!ValidRecord(snapshot, 1)) return SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT;
-        if (!IsServiceOwnerThread()) return SMEDLEY_CAMPAIGN_RUNTIME_WRONG_THREAD;
         std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
         auto *slot = FindFrontend(controller);
         if (const auto status = FrontendStatus(slot); status != SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS) return status;
@@ -344,7 +380,6 @@ namespace
             || std::memchr(name, '\0', bytes) != nullptr) {
             return SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT;
         }
-        if (!IsServiceOwnerThread()) return SMEDLEY_CAMPAIGN_RUNTIME_WRONG_THREAD;
         std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
         auto *slot = FindFrontend(controller);
         if (const auto status = FrontendStatus(slot); status != SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS) return status;
@@ -354,7 +389,6 @@ namespace
     }
     SmedleyCampaignRuntimeResult SMEDLEY_CAMPAIGN_RUNTIME_CALL DispatchMainMenuSinglePlayer(SmedleyFrontendController controller)
     {
-        if (!IsServiceOwnerThread()) return SMEDLEY_CAMPAIGN_RUNTIME_WRONG_THREAD;
         std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
         auto *slot = FindFrontend(controller);
         if (const auto status = FrontendStatus(slot); status != SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS) return status;
@@ -465,7 +499,6 @@ namespace
     SmedleyCampaignAutomationResult CampaignAutomationStatus(const CampaignAutomationSlot *slot)
     {
         if (slot == nullptr) return SMEDLEY_CAMPAIGN_AUTOMATION_STALE_HANDLE;
-        if (slot->thread != std::this_thread::get_id()) return SMEDLEY_CAMPAIGN_AUTOMATION_WRONG_THREAD;
         const auto session = CampaignSessionStatus(slot->session.load(std::memory_order_acquire));
         if (session != SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS) {
             return session == SMEDLEY_CAMPAIGN_RUNTIME_WRONG_THREAD ? SMEDLEY_CAMPAIGN_AUTOMATION_WRONG_THREAD
@@ -509,8 +542,9 @@ namespace
         if (!AcquireCampaignAutomationCallback(slot)) return;
         const auto callback = slot->frontend_capture.load(std::memory_order_acquire);
         const auto context = slot->context.load(std::memory_order_acquire);
-        const auto epoch = slot->epoch.load(std::memory_order_acquire);
-        if (callback == nullptr || slot->thread != std::this_thread::get_id() || CurrentGameSession().epoch != epoch) {
+        const auto epoch = CurrentGameSession().epoch;
+        slot->epoch.store(epoch, std::memory_order_release);
+        if (callback == nullptr) {
             ReleaseCampaignAutomationCallback(slot); return;
         }
         SmedleyCampaignFrontendCaptureV1 event{};
@@ -529,8 +563,9 @@ namespace
         if (!AcquireCampaignAutomationCallback(slot)) return;
         const auto callback = slot->annexation.load(std::memory_order_acquire);
         const auto context = slot->context.load(std::memory_order_acquire);
-        const auto epoch = slot->epoch.load(std::memory_order_acquire);
-        if (callback == nullptr || slot->thread != std::this_thread::get_id() || CurrentGameSession().epoch != epoch) {
+        const auto epoch = CurrentGameSession().epoch;
+        slot->epoch.store(epoch, std::memory_order_release);
+        if (callback == nullptr) {
             ReleaseCampaignAutomationCallback(slot); return;
         }
         SmedleyCampaignAnnexationV1 event{};
@@ -548,8 +583,9 @@ namespace
         if (!AcquireCampaignAutomationCallback(slot)) return;
         const auto callback = slot->console_capture.load(std::memory_order_acquire);
         const auto context = slot->context.load(std::memory_order_acquire);
-        const auto epoch = slot->epoch.load(std::memory_order_acquire);
-        if (callback == nullptr || slot->thread != std::this_thread::get_id() || CurrentGameSession().epoch != epoch) {
+        const auto epoch = CurrentGameSession().epoch;
+        slot->epoch.store(epoch, std::memory_order_release);
+        if (callback == nullptr) {
             ReleaseCampaignAutomationCallback(slot); return;
         }
         SmedleyCampaignConsoleCaptureV1 event{};
@@ -609,7 +645,6 @@ namespace
     SmedleyCampaignAutomationResult SMEDLEY_CAMPAIGN_AUTOMATION_CALL DeactivateCampaignAutomation(
         SmedleyCampaignAutomation automation)
     {
-        if (!IsServiceOwnerThread()) return SMEDLEY_CAMPAIGN_AUTOMATION_WRONG_THREAD;
         auto *slot = FindCampaignAutomation(automation);
         if (callback_automation == automation) return SMEDLEY_CAMPAIGN_AUTOMATION_BUSY;
         if (slot == nullptr) return SMEDLEY_CAMPAIGN_AUTOMATION_STALE_HANDLE;
@@ -623,7 +658,6 @@ namespace
         SmedleyCampaignAutomation automation, uint32_t enabled)
     {
         if (enabled > 1) return SMEDLEY_CAMPAIGN_AUTOMATION_INVALID_ARGUMENT;
-        if (!IsServiceOwnerThread()) return SMEDLEY_CAMPAIGN_AUTOMATION_WRONG_THREAD;
         auto *slot = FindCampaignAutomation(automation);
         if (const auto status = CampaignAutomationStatus(slot); status != SMEDLEY_CAMPAIGN_AUTOMATION_SUCCESS) return status;
         SetCampaignAutomationObserverMode(enabled != 0);
@@ -633,7 +667,6 @@ namespace
         SmedleyCampaignAutomation automation, SmedleyCampaignConsoleStateV1 *state)
     {
         if (!ValidRecord(state, 1)) return SMEDLEY_CAMPAIGN_AUTOMATION_INVALID_ARGUMENT;
-        if (!IsServiceOwnerThread()) return SMEDLEY_CAMPAIGN_AUTOMATION_WRONG_THREAD;
         auto *slot = FindCampaignAutomation(automation);
         if (const auto status = CampaignAutomationStatus(slot); status != SMEDLEY_CAMPAIGN_AUTOMATION_SUCCESS) return status;
         state->ready = IsCampaignObserverConsoleReady() ? 1 : 0;
@@ -657,7 +690,6 @@ namespace
         SmedleyCampaignAutomation automation, const SmedleyCampaignTagV1 *tag, SmedleyCampaignConsoleCommandResultV1 *result)
     {
         if (!ValidRecord(tag, 1) || !ValidRecord(result, 1) || tag->tag[3] != '\0') return SMEDLEY_CAMPAIGN_AUTOMATION_INVALID_ARGUMENT;
-        if (!IsServiceOwnerThread()) return SMEDLEY_CAMPAIGN_AUTOMATION_WRONG_THREAD;
         auto *slot = FindCampaignAutomation(automation);
         if (const auto status = CampaignAutomationStatus(slot); status != SMEDLEY_CAMPAIGN_AUTOMATION_SUCCESS) return status;
         ObserverTag internal{}; std::memcpy(internal.value, tag->tag, sizeof(internal.value)); internal.ordinal = tag->ordinal;
@@ -676,7 +708,6 @@ namespace
         SmedleyCampaignAutomation automation, uint32_t enabled)
     {
         if (enabled > 1) return SMEDLEY_CAMPAIGN_AUTOMATION_INVALID_ARGUMENT;
-        if (!IsServiceOwnerThread()) return SMEDLEY_CAMPAIGN_AUTOMATION_WRONG_THREAD;
         auto *slot = FindCampaignAutomation(automation);
         if (const auto status = CampaignAutomationStatus(slot); status != SMEDLEY_CAMPAIGN_AUTOMATION_SUCCESS) return status;
         SetCampaignAutomationMessagePopupSuppression(enabled != 0);

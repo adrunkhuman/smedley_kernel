@@ -1169,7 +1169,8 @@ namespace smedley::game_state
         auto &capture = CapturedController(kind);
         const uint64_t generation = capture.generation.load(std::memory_order_acquire);
         const uintptr_t address = capture.address.load(std::memory_order_acquire);
-        if (address == 0 || capture.thread_id.load(std::memory_order_acquire) == 0
+        const DWORD thread_id = capture.thread_id.load(std::memory_order_acquire);
+        if (address == 0 || thread_id == 0 || thread_id != GetCurrentThreadId()
             || capture.generation.load(std::memory_order_acquire) != generation) return FrontendOperationStatus::unavailable;
         *token = FrontendControllerToken(generation, kind);
         return FrontendOperationStatus::completed;

@@ -96,8 +96,8 @@ typedef struct SmedleyCampaignProcessMetricsV1 {
 } SmedleyCampaignProcessMetricsV1;
 
 /* These callbacks run synchronously in engine hook paths. They receive copied
- * records only. Do not allocate, perform I/O, block, throw, call deactivation,
- * or retain the record pointer; enqueue copied work for a later owner-thread call. */
+ * records only. Do not throw, call deactivation, or retain the record pointer;
+ * defer controller operations until after the frontend callback returns. */
 typedef SmedleyCampaignAutomationCallbackResult (SMEDLEY_CAMPAIGN_AUTOMATION_CALL *SmedleyCampaignFrontendCaptureCallbackV1Fn)(
     uint64_t context, const SmedleyCampaignFrontendCaptureV1 *event);
 typedef SmedleyCampaignAutomationCallbackResult (SMEDLEY_CAMPAIGN_AUTOMATION_CALL *SmedleyCampaignAnnexationCallbackV1Fn)(
