@@ -1,5 +1,7 @@
 #pragma once
 
+#include "v2_304_layout.hpp"
+
 #include <smedley/memory.hpp>
 
 #include <windows.h>
@@ -12,19 +14,7 @@
 
 namespace smedley::game_state
 {
-    struct EngineString
-    {
-        union Storage
-        {
-            char inline_buffer[16];
-            char *pointer;
-        } storage;
-        uint32_t size;
-        uint32_t capacity;
-        uint32_t allocator;
-    };
-
-    static_assert(sizeof(EngineString) == 0x1c);
+    using EngineString = v2_304_layout::EngineString;
 
     class EngineStringArgument
     {

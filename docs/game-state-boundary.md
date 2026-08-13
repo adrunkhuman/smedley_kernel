@@ -231,7 +231,7 @@ operations. The scripting plugin uses only these C engine-service boundaries.
 
 ## Domain C APIs
 
-The kernel exports three additional independently discoverable v1 tables. They
+The kernel exports four additional independently discoverable v1 tables. They
 are domain boundaries, not a general game-object API. Each discovery record and
 every caller-supplied output record requires its exact `struct_size`, `version`,
 and zero reserved fields. All records use fixed-width fields; arrays are caller

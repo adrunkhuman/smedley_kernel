@@ -1,6 +1,7 @@
 #include <smedley/game_state/readers.hpp>
 
-#include <windows.h>
+#include "foreign_memory.hpp"
+#include "v2_304_layout.hpp"
 
 #include <algorithm>
 #include <array>
@@ -12,70 +13,10 @@ namespace smedley::game_state
 {
     namespace
     {
-        constexpr size_t country_minimum_size = 0xe9c;
-        constexpr size_t country_tag_offset = 0x1c;
-        constexpr size_t country_states_offset = 0xe44;
-        constexpr size_t game_state_provinces_offset = 0xacc;
-        constexpr size_t game_state_countries_offset = 0xadc;
-        constexpr size_t game_state_current_date_offset = 0xb0c;
-        constexpr size_t game_state_world_market_offset = 0xbcc;
-        constexpr uintptr_t state_employment_registry_rva = 0x00e58728;
-        constexpr uintptr_t loaded_goods_count_rva = 0x00e587f4;
-        constexpr size_t country_treasury_offset = 0xe78;
-        constexpr size_t country_bank_offset = 0xe88;
-        constexpr size_t country_creditors_offset = 0xe8c;
-        constexpr size_t state_size = 0x290;
-        constexpr size_t state_id_offset = 0x0c;
-        constexpr size_t state_provinces_offset = 0x48;
-        constexpr size_t state_factories_offset = 0x60;
-        constexpr size_t state_region_offset = 0x250;
-        constexpr size_t region_key_offset = 0x18;
-        constexpr size_t state_savings_offset = 0x258;
-        constexpr size_t state_interest_offset = 0x260;
-        constexpr size_t bank_interest_offset = 0x20;
-        constexpr size_t province_pop_lists_offset = 0x194;
-        constexpr size_t province_id_offset = 0x58;
-        constexpr size_t province_rgo_capacity_offset = 0x1ac;
-        constexpr size_t province_state_offset = 0x188;
-        constexpr size_t state_rgo_capacity_offset = 0xc8;
-        constexpr size_t state_population_by_type_offset = 0x118;
-        constexpr size_t pop_size_offset = 0x58;
-        constexpr size_t pop_employed_offset = 0x60;
-        constexpr size_t pop_province_offset = 0x64;
-        constexpr size_t pop_type_offset = 0x68;
-        constexpr size_t pop_culture_offset = 0x6c;
-        constexpr size_t pop_religion_offset = 0x70;
-        constexpr size_t culture_key_offset = 0x18;
-        constexpr size_t religion_key_offset = 0x10;
-        constexpr size_t pop_type_id_offset = 0x28;
-        constexpr size_t pop_consciousness_offset = 0x118;
-        constexpr size_t pop_militancy_offset = 0x120;
-        constexpr size_t pop_literacy_offset = 0x128;
-        constexpr size_t pop_life_needs_satisfaction_offset = 0x130;
-        constexpr size_t pop_everyday_needs_satisfaction_offset = 0x138;
-        constexpr size_t pop_luxury_needs_satisfaction_offset = 0x140;
-        constexpr size_t pop_money_offset = 0x180;
-        constexpr size_t pop_interest_cash_flow_offset = 0x210;
-        constexpr size_t pop_total_cash_flow_offset = 0x218;
-        constexpr size_t pop_savings_offset = 0x250;
-        constexpr size_t pop_next_offset = 0x27c;
-        constexpr size_t pop_id_offset = 0x0c;
-        constexpr size_t pop_economy_offset = 0x1d4;
-        constexpr size_t artisan_need_pool_offset = 0x58;
-        constexpr size_t artisan_production_type_offset = 0xb0;
-        constexpr size_t artisan_last_spending_offset = 0xb8;
-        constexpr size_t artisan_current_producing_offset = 0xc0;
-        constexpr size_t artisan_percent_afforded_offset = 0xc8;
-        constexpr size_t artisan_percent_sold_domestic_offset = 0xd0;
-        constexpr size_t artisan_percent_sold_export_offset = 0xd8;
-        constexpr size_t artisan_leftover_offset = 0xe0;
-        constexpr size_t artisan_throttle_offset = 0xe8;
-        constexpr size_t artisan_needs_cost_offset = 0xf0;
-        constexpr size_t artisan_production_income_offset = 0xf8;
-        constexpr size_t creditor_tag_offset = 0x08;
-        constexpr size_t creditor_interest_offset = 0x10;
-        constexpr size_t creditor_debt_offset = 0x18;
-        constexpr size_t creditor_was_paid_offset = 0x20;
+        namespace foreign = foreign_memory;
+        namespace layout = v2_304_layout;
+        using namespace layout;
+        constexpr size_t game_state_current_date_offset = game_state_date_offset;
         constexpr uint32_t max_states = 512;
         constexpr uint32_t max_game_provinces = 4096;
         constexpr uint32_t max_provinces_per_state = 1024;
@@ -85,56 +26,6 @@ namespace smedley::game_state
         constexpr uint32_t max_pop_lists_per_province = 128;
         constexpr uint32_t max_pops = max_sample_pops;
         constexpr uint32_t max_factories_per_state = 64;
-        constexpr size_t state_building_size = 0x220;
-        constexpr size_t state_building_definition_offset = 0x18;
-        constexpr size_t state_building_level_offset = 0x20;
-        constexpr size_t state_building_stockpile_index_offset = 0x30;
-        constexpr size_t state_building_stockpile_values_offset = 0x70;
-        constexpr size_t state_building_requested_input_index_offset = 0x88;
-        constexpr size_t state_building_requested_input_values_offset = 0xc8;
-        constexpr size_t state_building_output_offset = 0xd8;
-        constexpr size_t state_building_employment_offset = 0xf0;
-        constexpr size_t state_building_employees_offset = 0x128;
-        constexpr size_t state_building_budget_offset = 0x150;
-        constexpr size_t state_building_market_spending_offset = 0x158;
-        constexpr size_t state_building_sales_income_offset = 0x160;
-        constexpr size_t state_building_paychecks_offset = 0x168;
-        constexpr size_t state_building_investment_offset = 0x170;
-        constexpr size_t state_building_subsidized_offset = 0x180;
-        constexpr size_t state_building_closed_offset = 0x188;
-        constexpr size_t building_definition_key_offset = 0x20;
-        constexpr size_t market_supply_offset = 0x08;
-        constexpr size_t market_last_supply_offset = 0x60;
-        constexpr size_t market_stock_offset = 0x120;
-        constexpr size_t market_demand_offset = 0x178;
-        constexpr size_t market_real_demand_offset = 0x1d0;
-        constexpr size_t market_price_offset = 0x280;
-        constexpr size_t market_last_price_offset = 0x2d8;
-        constexpr size_t market_actual_sold_offset = 0x434;
-        constexpr size_t market_actual_sold_world_offset = 0x4f4;
-        constexpr size_t building_definition_production_type_offset = 0x12c;
-        constexpr size_t production_type_output_good_offset = 0x80;
-        constexpr size_t production_type_base_output_offset = 0x88;
-        constexpr size_t production_type_owner_modifier_offset = 0xf0;
-        constexpr size_t owner_modifier_pop_type_ordinal_offset = 0x28;
-        constexpr size_t goods_ordinal_offset = 0x08;
-        constexpr size_t goods_key_offset = 0x0c;
-        constexpr size_t pop_type_key_offset = 0x08;
-        constexpr size_t pop_employment_size = 0x10;
-        constexpr size_t pop_employment_pop_offset = 0x08;
-        constexpr size_t pop_employment_count_offset = 0x0c;
-        constexpr size_t state_employment_record_size = 0xb0;
-        constexpr size_t state_employment_production_type_offset = 0x08;
-        constexpr size_t state_employment_output_good_offset = 0x0c;
-        constexpr size_t state_employment_province_offset = 0x1c;
-        constexpr size_t state_employment_output_efficiency_offset = 0x38;
-        constexpr size_t state_employment_throughput_offset = 0x40;
-        constexpr size_t state_employment_employed_offset = 0x58;
-        constexpr size_t state_employment_income_offset = 0x80;
-        constexpr size_t state_employment_percent_sold_domestic_offset = 0x90;
-        constexpr size_t state_employment_percent_sold_export_offset = 0x98;
-        constexpr size_t state_employment_leftover_offset = 0xa0;
-        constexpr size_t state_employment_base_size_offset = 0x88;
         constexpr int64_t pop_savings_state_scale = 1000;
 
         struct ListNode
@@ -146,12 +37,7 @@ namespace smedley::game_state
             uint8_t padding[3];
         };
 
-        struct PointerVector
-        {
-            const void *begin;
-            const void *end;
-            const void *capacity;
-        };
+        using PointerVector = layout::ForeignVector;
 
         struct PopList
         {
@@ -170,17 +56,7 @@ namespace smedley::game_state
             uint8_t padding[3];
         };
 
-        struct GameString
-        {
-            union
-            {
-                char inline_value[16];
-                const char *pointer;
-            } value;
-            uint32_t size;
-            uint32_t capacity;
-            uint32_t allocator;
-        };
+        using GameString = layout::EngineString;
 
         constexpr size_t pop_identity_table_capacity = 262144;
 
@@ -233,15 +109,7 @@ namespace smedley::game_state
             return false;
         }
 
-        struct MemoryRegionCache
-        {
-            uintptr_t begin = 0;
-            uintptr_t end = 0;
-            DWORD protect = 0;
-            DWORD state = 0;
-        };
-
-        MemoryRegionCache memory_region_cache;
+        foreign::MemoryRegionCache memory_region_cache;
 
         void ResetMemoryRegionCache()
         {
@@ -250,36 +118,7 @@ namespace smedley::game_state
 
         bool IsAccessible(const void *pointer, size_t size, bool require_writable)
         {
-            if (pointer == nullptr || size == 0) return false;
-            const uintptr_t begin = reinterpret_cast<uintptr_t>(pointer);
-            if (begin > (std::numeric_limits<uintptr_t>::max)() - size) return false;
-            const uintptr_t end = begin + size;
-            uintptr_t cursor = begin;
-            while (cursor < end) {
-                if (cursor < memory_region_cache.begin || cursor >= memory_region_cache.end) {
-                    MEMORY_BASIC_INFORMATION region{};
-                    if (VirtualQuery(reinterpret_cast<const void *>(cursor), &region, sizeof(region)) != sizeof(region)) {
-                        return false;
-                    }
-                    const uintptr_t region_begin = reinterpret_cast<uintptr_t>(region.BaseAddress);
-                    if (region_begin > (std::numeric_limits<uintptr_t>::max)() - region.RegionSize) return false;
-                    memory_region_cache.begin = region_begin;
-                    memory_region_cache.end = region_begin + region.RegionSize;
-                    memory_region_cache.protect = region.Protect;
-                    memory_region_cache.state = region.State;
-                }
-                if (memory_region_cache.state != MEM_COMMIT
-                    || (memory_region_cache.protect & (PAGE_GUARD | PAGE_NOACCESS)) != 0) {
-                    return false;
-                }
-                const DWORD allowed = require_writable
-                    ? PAGE_READWRITE | PAGE_WRITECOPY | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY
-                    : PAGE_READONLY | PAGE_READWRITE | PAGE_WRITECOPY
-                        | PAGE_EXECUTE_READ | PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY;
-                if ((memory_region_cache.protect & allowed) == 0 || memory_region_cache.end <= cursor) return false;
-                cursor = (std::min)(end, memory_region_cache.end);
-            }
-            return true;
+            return foreign::IsAccessible(pointer, size, require_writable, &memory_region_cache);
         }
 
         bool IsReadable(const void *pointer, size_t size)
@@ -294,41 +133,18 @@ namespace smedley::game_state
 
         bool CopyReadable(void *destination, const void *source, size_t size)
         {
-            if (!IsReadable(source, size)) return false;
-            __try {
-                std::memcpy(destination, source, size);
-                return true;
-            } __except (EXCEPTION_EXECUTE_HANDLER) {
-                return false;
-            }
+            return foreign::CopyReadable(destination, source, size, &memory_region_cache);
         }
 
         template <typename T>
         bool ReadAt(const void *base, size_t offset, T *value)
         {
-            if (base == nullptr || value == nullptr) return false;
-            const uintptr_t address = reinterpret_cast<uintptr_t>(base);
-            if (address > (std::numeric_limits<uintptr_t>::max)() - offset) return false;
-            return CopyReadable(value, reinterpret_cast<const void *>(address + offset), sizeof(T));
+            return foreign::ReadField(base, offset, value, &memory_region_cache);
         }
 
         bool VectorCount(const PointerVector &vector, size_t element_size, uint32_t limit, uint32_t *count)
         {
-            if (count == nullptr || element_size == 0) return false;
-            const uintptr_t begin = reinterpret_cast<uintptr_t>(vector.begin);
-            const uintptr_t end = reinterpret_cast<uintptr_t>(vector.end);
-            const uintptr_t capacity = reinterpret_cast<uintptr_t>(vector.capacity);
-            if (begin == 0 && end == 0 && capacity == 0) {
-                *count = 0;
-                return true;
-            }
-            if (begin == 0 || begin > end || end > capacity
-                || begin % alignof(void *) != 0 || end % alignof(void *) != 0 || capacity % alignof(void *) != 0
-                || (end - begin) % element_size != 0 || (capacity - begin) % element_size != 0) return false;
-            const uintptr_t elements = (end - begin) / element_size;
-            if (elements > limit || (elements != 0 && !IsReadable(vector.begin, static_cast<size_t>(end - begin)))) return false;
-            *count = static_cast<uint32_t>(elements);
-            return true;
+            return foreign::VectorCount(vector, element_size, limit, count, &memory_region_cache);
         }
 
         void AddChecked(int64_t value, int64_t *sum, uint32_t *flags)
@@ -380,7 +196,7 @@ namespace smedley::game_state
             GameString key{};
             if (!ReadAt(object, key_offset, &key)
                 || key.size == 0 || key.size >= destination_size || key.capacity < key.size) return false;
-            const char *source = key.capacity <= 15 ? key.value.inline_value : key.value.pointer;
+            const char *source = key.capacity <= 15 ? key.storage.inline_buffer : key.storage.pointer;
             if (source == nullptr || !CopyReadable(destination, source, key.size + 1)
                 || destination[key.size] != '\0') return false;
             for (uint32_t index = 0; index < key.size; ++index) {
