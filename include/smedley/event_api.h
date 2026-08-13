@@ -55,8 +55,9 @@ typedef struct SmedleyDailyEventV1 {
 } SmedleyDailyEventV1;
 
 /* The snapshot pointer is valid only for this call. Callbacks run on
- * Victoria II's country-update thread and must not block, allocate, perform I/O,
- * throw, retain the snapshot, or call unregister. */
+ * Victoria II's country-update thread. They may invoke services explicitly
+ * documented as callback-safe, but must not block, perform I/O, retain the
+ * snapshot, call unregister, or allow exceptions to cross this boundary. */
 typedef SmedleyEventCallbackResult (SMEDLEY_EVENT_CALL *SmedleyDailyEventCallbackV1Fn)(
     void *context, const SmedleyDailyEventV1 *event);
 

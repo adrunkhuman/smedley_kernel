@@ -40,6 +40,11 @@ trusted DLL, not a sandbox. Enable `telemetry_enabled` and select
 `plugins/telemetry.toml`; the shared launcher preflight rejects an enabled
 profile without plugin ID `telemetry`. It requires no user C++.
 
+The plugin resolves `event_api`, `logging_api`, `telemetry_game_api`, and
+`telemetry_observation_api` dynamically from `smedley_kernel.dll`; it does not
+link against the kernel. Unavailable, stale, wrong-thread, invalid-source, and
+truncated C reads are missing observations, never inferred numeric zeroes.
+
 ## Configuration
 
 Profiles use these top-level fields. Every present field is type-checked on

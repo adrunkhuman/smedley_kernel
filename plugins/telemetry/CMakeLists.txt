@@ -3,9 +3,9 @@ add_library(smedley_telemetry_core STATIC src/telemetry_core.cpp src/country_eco
 target_compile_definitions(smedley_telemetry_core PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_include_directories(smedley_telemetry_core PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_SOURCE_DIR}/include")
 
-add_library(telemetry MODULE src/plugin.cpp src/economic_capture.cpp src/economic_capture.hpp)
+add_library(telemetry MODULE src/plugin.cpp src/economic_capture.cpp src/economic_capture.hpp src/telemetry_services.cpp)
 set_target_properties(telemetry PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS OFF)
-target_link_libraries(telemetry PRIVATE smedley_kernel smedley_telemetry_core shell32)
+target_link_libraries(telemetry PRIVATE smedley_telemetry_core shell32)
 target_include_directories(telemetry PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_compile_definitions(telemetry PRIVATE SMEDLEY_TELEMETRY_BUILD)
 
