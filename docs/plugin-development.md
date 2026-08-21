@@ -258,9 +258,9 @@ table remains valid only while the kernel is loaded.
 `register_bank_interest` supplies a 48-byte copied record with the before/after
 phase, country index, and distribution mode. Its `authority` is an opaque,
 non-pointer value that is valid only for that synchronous callback, its game
-thread, and its active campaign session. V1 exposes no operation that accepts
-the authority yet; it exists to bind later narrow mutation capabilities to this
-exact boundary without exposing an engine object.
+thread, and its active campaign session. The separately discovered interest-pool
+v1 table accepts the authority for its bounded collect, prepare, apply, and
+discard operations without exposing an engine object.
 
 `register_campaign_console` receives copied, bounded console input and may fill
 a copied result. Input contains the command kind, argument validity/count, and
@@ -331,12 +331,12 @@ not use it from a game hook or synchronous event callback.
 
 ## Validation
 
-The x86 Release tests compile the lifecycle, event, and campaign-control headers
-as C, dynamically discover and run an independent C fixture DLL that resolves
-the event table, exercise
-lifecycle failures, event registration, bounded capacity, self-unregister,
-callback disablement, exception containment, rollback, and v1-only launcher
-preflight. `dumpbin /exports` confirms that the fixture exposes only undecorated
+The x86 Release tests compile every public ABI and service header as C. They
+dynamically discover and run an independent C fixture DLL that resolves the
+event table, and exercise lifecycle failures, service discovery, event
+registration, bounded capacity, self-unregister, callback disablement,
+exception containment, rollback, and v1-only launcher preflight.
+`dumpbin /exports` confirms that the fixture exposes only undecorated
 `SmedleyPluginGetApiV1`.
 
 Supplied-game run `a0af29ca-1b35-42f4-abf0-1a29701e3288` loaded that fixture

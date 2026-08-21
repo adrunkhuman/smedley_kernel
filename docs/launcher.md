@@ -70,7 +70,7 @@ bounded Lua states and never receive Victoria II's Lua state. See
 smedley_cli --game-dir "C:\Games\Victoria 2" --mod mod\GFM.mod --no-inject --detach
 smedley_cli --profile "C:\Profiles\gfm observer.toml" --dry-run
 smedley_cli --game-dir "C:\Games\Victoria 2" --discover
-smedley_cli --game-dir "C:\Games\Victoria 2" --plugin "plugins\campaign runner.toml" --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --observe
+smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.toml --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --observe
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.toml --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --speed 3 --start-paused --detach
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.toml --plugin plugins\telemetry.toml --telemetry --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --speed 5 --run-days 365 --run-timeout-seconds 600 --detach
 smedley_cli --game-dir "C:\Games\Victoria 2" --plugin plugins\campaign_runner.toml --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" --run-days 1 --quit-after-run --detach
@@ -88,11 +88,14 @@ but does not load the kernel or native plugins.
 `--quit-after-run` enables `quit_after_run`. It has no disabling counterpart, so
 a profile value of `true` remains active unless the profile is edited.
 
-`--telemetry` enables the profile telemetry settings. These options override
-their corresponding profile fields:
+`--telemetry` and `--no-telemetry` override whether profile telemetry is
+enabled. These options override their corresponding profile fields:
 
 - `--telemetry-output`
 - `--telemetry-category`
+- `--telemetry-country`
+- `--telemetry-start-date-raw`
+- `--telemetry-end-date-raw`
 - `--telemetry-sample-days`
 - `--telemetry-queue-capacity`
 - `--telemetry-overwrite`

@@ -25,7 +25,8 @@ Configure CMake with the Visual Studio generator and target the x86
 architecture. From the repository root, run:
 
 ```powershell
-cmake -S . -B build -A Win32
+New-Item -ItemType Directory -Force "C:\Games\Victoria 2\plugins"
+cmake -S . -B build -A Win32 -DV2_GAME_DIR="C:\Games\Victoria 2"
 ```
 
 Next, build the binaries:
@@ -58,8 +59,13 @@ Optionally install Smedley, its plugins, `smedley_launcher.exe`,
 `smedley_cli.exe`, and `smedley_trace.exe` in the configured game directory:
 
 ```powershell
-cmake --install build
+cmake --install build --config Release --prefix "$PWD\build\install"
 ```
+
+`V2_GAME_DIR` and its `plugins` directory must exist when CMake configures the
+project because install rules target those directories directly. The prefix
+redirects dependency-owned relative install artifacts to `build\install`; it
+does not relocate Smedley's absolute game destinations.
 
 The installed kernel is unusable without the Smedley launcher and injection
 bootstrap path.

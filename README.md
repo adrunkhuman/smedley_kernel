@@ -44,11 +44,18 @@ Requirements: Windows, CMake 3.20 or newer, MSVC, Git, Python 3 for the test
 suite, and network access for the initial pinned dependency fetch.
 
 ```powershell
+New-Item -ItemType Directory -Force "C:\Games\Victoria 2\plugins"
 cmake -S . -B build -A Win32 -DV2_GAME_DIR="C:\Games\Victoria 2"
 cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 cmake --install build --config Release --prefix "$PWD\build\install"
 ```
+
+Smedley binaries, manifests, scripts, and notices install directly to the
+configured `V2_GAME_DIR`. The prefix redirects dependency-owned relative install
+artifacts to `build\install`; it does not relocate Smedley's absolute game
+destinations. The `plugins` directory must exist when CMake configures the
+project so it generates the bundled-plugin install rules.
 
 See [`BUILDING.md`](BUILDING.md) for prerequisites, dependency behavior,
 installation details, and validation limits.
