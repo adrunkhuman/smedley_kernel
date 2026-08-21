@@ -2,9 +2,10 @@
 #include "loader.hpp"
 #include "memory.hpp"
 #include <smedley/executable_identity.hpp>
-#include <cstdio>
+#include <cerrno>
 #include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <windows.h>
 #include <shellapi.h>
 #include <direct.h>
@@ -90,20 +91,22 @@ namespace smedley
     PluginLoader::PluginLoader() : _loaded(false)
     {
         wchar_t cwd_buf[MAX_PATH];
-        wchar_t *documents_path_ws;
+        wchar_t *documents_path_ws = nullptr;
 
         // Victoria II assumes it was launched from the game directory and may
         // crash if it cannot find map files there.
         if (!_wgetcwd(cwd_buf, MAX_PATH)) {
-            auto err_no = errno;
-            throw std::runtime_error("failed to get current working directory: " + err_no);
+            const int err_no = errno;
+            throw std::runtime_error("failed to get current working directory: " + std::to_string(err_no));
         }
 
         // Keep Smedley logs beside the game's logs.
-        if (SHGetKnownFolderPath(FOLDERID_Documents, 0, NULL, &documents_path_ws) == E_FAIL) {
+        const HRESULT documents_result = SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &documents_path_ws);
+        const std::unique_ptr<wchar_t, decltype(&CoTaskMemFree)> documents_path_owner(documents_path_ws, &CoTaskMemFree);
+        if (FAILED(documents_result)) {
             throw std::runtime_error("failed to find documents folder");
         }
-        std::wstring tmp_ws(documents_path_ws);
+        std::wstring tmp_ws(documents_path_owner.get());
         std::string documents_path = NarrowCommandLineArgument(tmp_ws);
         tmp_ws = std::wstring(cwd_buf);
         
