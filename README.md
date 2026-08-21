@@ -176,6 +176,7 @@ or plugin initialization is unavailable.
 | Build and install | [`BUILDING.md`](BUILDING.md) |
 | Launcher, profiles, CLI, observer mode, and runs | [`docs/launcher.md`](docs/launcher.md) |
 | Telemetry configuration, schemas, and trace tools | [`docs/telemetry.md`](docs/telemetry.md) |
+| Clausewitz static workload inventory | [`docs/workload-analysis.md`](docs/workload-analysis.md) |
 | Lua configuration and API | [`docs/scripting.md`](docs/scripting.md) |
 | Native plugin development | [`docs/plugin-development.md`](docs/plugin-development.md) |
 | Engine ownership and service boundaries | [`docs/game-state-boundary.md`](docs/game-state-boundary.md) |

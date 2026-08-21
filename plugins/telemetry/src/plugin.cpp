@@ -128,20 +128,22 @@ namespace telemetry_plugin
                 throw std::runtime_error(error);
             }
             services::SetActiveApi(&services_);
-            economic_capture_ = std::make_unique<EconomicCapture>();
-            world_collector_ = std::make_unique<collectors::WorldCollector>(economic_capture_.get(), this);
-            province_collector_ = std::make_unique<collectors::ProvinceCollector>(this);
-            country_collector_ = std::make_unique<collectors::CountryCollector>(this);
-            factory_economy_collector_ = std::make_unique<collectors::FactoryEconomyCollector>(this,
-                economic_capture_.get(), config_.gold_to_cash_rate ? &*config_.gold_to_cash_rate : nullptr);
-            if (std::any_of(
-                    config_.capture_rules.begin(), config_.capture_rules.end(),
-                    [](const smedley::telemetry::CaptureRule &rule) {
-                        const auto *definition = smedley::telemetry::FindMetricFamily(rule.family);
-                        return definition != nullptr
-                            && definition->collector == smedley::telemetry::MetricCollector::Population;
-                    })) {
-                population_collector_ = std::make_unique<collectors::PopulationCollector>(this, economic_capture_.get());
+            if (!config_.capture_rules.empty()) {
+                economic_capture_ = std::make_unique<EconomicCapture>();
+                world_collector_ = std::make_unique<collectors::WorldCollector>(economic_capture_.get(), this);
+                province_collector_ = std::make_unique<collectors::ProvinceCollector>(this);
+                country_collector_ = std::make_unique<collectors::CountryCollector>(this);
+                factory_economy_collector_ = std::make_unique<collectors::FactoryEconomyCollector>(this,
+                    economic_capture_.get(), config_.gold_to_cash_rate ? &*config_.gold_to_cash_rate : nullptr);
+                if (std::any_of(
+                        config_.capture_rules.begin(), config_.capture_rules.end(),
+                        [](const smedley::telemetry::CaptureRule &rule) {
+                            const auto *definition = smedley::telemetry::FindMetricFamily(rule.family);
+                            return definition != nullptr
+                                && definition->collector == smedley::telemetry::MetricCollector::Population;
+                        })) {
+                    population_collector_ = std::make_unique<collectors::PopulationCollector>(this, economic_capture_.get());
+                }
             }
             if (runtime_plan_.install_pop_cashflow_hook) {
                 pop_cash_flow_hook_installed_ = true;
@@ -208,10 +210,12 @@ namespace telemetry_plugin
             bool handler_registered = false;
             try {
                 logger().Info("writing bounded JSON Lines telemetry to " + config_.output_path.string());
-                if (services_.events().register_daily(&NotifyDailyUpdate, this, &daily_registration_)
-                    != SMEDLEY_EVENT_SUCCESS) throw std::runtime_error("telemetry daily event registration failed");
-                handler_registered = true;
-                handler_registered_ = true;
+                if (!config_.capture_rules.empty()) {
+                    if (services_.events().register_daily(&NotifyDailyUpdate, this, &daily_registration_)
+                        != SMEDLEY_EVENT_SUCCESS) throw std::runtime_error("telemetry daily event registration failed");
+                    handler_registered = true;
+                    handler_registered_ = true;
+                }
                 std::unique_lock<std::shared_timed_mutex> lock(active_sink_mutex);
                 active_sink = this;
             } catch (...) {
@@ -263,7 +267,7 @@ namespace telemetry_plugin
                     daily_registration_ = 0;
                     handler_registered_ = false;
                 }
-                factory_economy_collector_->Flush();
+                if (factory_economy_collector_) factory_economy_collector_->Flush();
                 EmitFamilySummaries();
                 drain_started_ = true;
                 try {

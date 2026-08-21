@@ -263,32 +263,36 @@ namespace smedley::game_state
         return result;
     }
     struct CachedPopDetail { PopRef pop{}; PopDetailSnapshot detail{}; };
-    inline thread_local std::array<CachedPopDetail, max_sample_pops> cached_pop_details{};
+    inline thread_local std::unique_ptr<std::array<CachedPopDetail, max_sample_pops>> cached_pop_details;
     inline thread_local uint32_t cached_pop_detail_count = 0;
     inline void ResetCachedPopDetails() { cached_pop_detail_count = 0; }
     inline void SortCachedPopDetails() {
-        std::sort(cached_pop_details.begin(), cached_pop_details.begin() + cached_pop_detail_count,
+        if (cached_pop_details == nullptr) return;
+        std::sort(cached_pop_details->begin(), cached_pop_details->begin() + cached_pop_detail_count,
             [](const CachedPopDetail &left, const CachedPopDetail &right) { return left.pop.value < right.pop.value; });
     }
     inline bool CollectCountryPops(CountryRef country, GameStateRef, int32_t, PopCandidate *candidates, size_t capacity,
         uint32_t remaining_provinces, uint32_t *count, CountryEconomySnapshot *quality)
     {
-        static thread_local std::array<PopDetailSnapshot, max_sample_pops> details{};
+        static thread_local std::unique_ptr<std::array<PopDetailSnapshot, max_sample_pops>> details;
         if (quality != nullptr && (telemetry_plugin::services::active_api == nullptr
             || !telemetry_plugin::services::active_api->ReadCountryEconomy(country, quality))) return false;
         if (quality != nullptr && quality->destination_province_attempts > remaining_provinces) {
             quality->flags |= SAMPLE_STATE_LIMIT;
             return false;
         }
-        if (telemetry_plugin::services::active_api == nullptr || !telemetry_plugin::services::active_api->ReadPops(country, candidates, details.data(), static_cast<uint32_t>(capacity), count)) return false;
+        if (cached_pop_details == nullptr) cached_pop_details = std::make_unique<std::array<CachedPopDetail, max_sample_pops>>();
+        if (details == nullptr) details = std::make_unique<std::array<PopDetailSnapshot, max_sample_pops>>();
+        if (telemetry_plugin::services::active_api == nullptr || !telemetry_plugin::services::active_api->ReadPops(country, candidates, details->data(), static_cast<uint32_t>(capacity), count)) return false;
         if (*count > max_sample_pops - cached_pop_detail_count) return false;
-        for (uint32_t index = 0; index < *count; ++index) cached_pop_details[cached_pop_detail_count + index] = {candidates[index].address, details[index]};
+        for (uint32_t index = 0; index < *count; ++index) (*cached_pop_details)[cached_pop_detail_count + index] = {candidates[index].address, (*details)[index]};
         cached_pop_detail_count += *count;
         return true;
     }
     inline const CachedPopDetail *CachedPop(PopRef pop) {
-        const auto end = cached_pop_details.begin() + cached_pop_detail_count;
-        const auto found = std::lower_bound(cached_pop_details.begin(), end, pop.value, [](const CachedPopDetail &detail, uint64_t value) { return detail.pop.value < value; });
+        if (cached_pop_details == nullptr) return nullptr;
+        const auto end = cached_pop_details->begin() + cached_pop_detail_count;
+        const auto found = std::lower_bound(cached_pop_details->begin(), end, pop.value, [](const CachedPopDetail &detail, uint64_t value) { return detail.pop.value < value; });
         return found != end && found->pop.value == pop.value ? &*found : nullptr;
     }
     inline bool ReadPopMoneySnapshot(PopRef pop, PopMoneySnapshot *out) { const auto *cached = CachedPop(pop); if (!cached || !out) return false; *out = cached->detail.economy; return true; }
