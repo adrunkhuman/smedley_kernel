@@ -2279,13 +2279,13 @@ namespace smedley::game_state
             reinterpret_cast<void *>(&MessageDispatch7Trampoline), reinterpret_cast<void *>(&MessageDispatch8Trampoline),
             reinterpret_cast<void *>(&MessageDispatch9Trampoline),
         };
-        std::vector<std::pair<uintptr_t, std::vector<uint8_t>>> installed;
-        const auto install = [&installed](uintptr_t address, void *trampoline) {
-            std::vector<uint8_t> original;
-            if (!smedley::memory::Hook(address, trampoline, 6, &original)) {
-                throw std::runtime_error("campaign automation hook is too short");
+        std::vector<smedley::memory::RawHook> installed;
+        const auto install = [&installed](uintptr_t address, void *trampoline,
+                                          const uint8_t *expected, size_t size) {
+            installed.emplace_back();
+            if (!smedley::memory::InstallRawHook(address, trampoline, expected, size, &installed.back())) {
+                throw std::runtime_error("could not install campaign automation hook");
             }
-            installed.emplace_back(address, std::move(original));
         };
         try {
             installed.reserve(9);
@@ -2293,11 +2293,14 @@ namespace smedley::game_state
                     country_annex, reinterpret_cast<void *>(&CountryAnnexTrampoline), &country_annex_original)) {
                 throw std::runtime_error("MinHook could not install campaign annexation detour");
             }
-            for (size_t index = 0; index < dispatch_rvas.size(); ++index) install(dispatch_addresses[index], trampolines[index]);
+            for (size_t index = 0; index < dispatch_rvas.size(); ++index) {
+                const auto &signature = ebx_dispatch[index] ? dispatch_ebx_signature : dispatch_edi_signature;
+                install(dispatch_addresses[index], trampolines[index], signature.data(), signature.size());
+            }
         } catch (...) {
             bool restored = true;
             for (auto hook = installed.rbegin(); hook != installed.rend(); ++hook) {
-                restored = smedley::memory::RestoreHook(hook->first, hook->second) && restored;
+                if (hook->address != 0) restored = smedley::memory::RestoreRawHook(&*hook) && restored;
             }
             if (country_annex_original != nullptr) {
                 // A published MinHook trampoline may still be reached by a

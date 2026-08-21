@@ -1,9 +1,12 @@
 #include "memory.hpp"
+#include <algorithm>
 #include <cstdint>
 #include <array>
+#include <limits>
 #include <mutex>
 #include <stdexcept>
 #include <MinHook.h>
+#include <TlHelp32.h>
 
 namespace smedley::memory
 {
@@ -22,7 +25,120 @@ namespace smedley::memory
         std::array<RegisteredCodePatch, max_registered_code_patches> registered_code_patches{};
         std::mutex registered_code_patches_mutex;
         std::mutex hook_mutex;
+        std::mutex raw_hook_mutex;
         bool minhook_initialized = false;
+
+        constexpr size_t max_thread_snapshot = 256;
+
+        struct ThreadSnapshot
+        {
+            std::array<DWORD, max_thread_snapshot> ids{};
+            size_t count = 0;
+        };
+
+        enum class ExecutableWriteResult
+        {
+            success,
+            clean_failure,
+            indeterminate,
+        };
+
+        bool IsReadableProtection(DWORD protection) noexcept
+        {
+            if ((protection & (PAGE_GUARD | PAGE_NOACCESS)) != 0) return false;
+            switch (protection & 0xff) {
+            case PAGE_READONLY:
+            case PAGE_READWRITE:
+            case PAGE_WRITECOPY:
+            case PAGE_EXECUTE:
+            case PAGE_EXECUTE_READ:
+            case PAGE_EXECUTE_READWRITE:
+            case PAGE_EXECUTE_WRITECOPY:
+                return true;
+            default:
+                return false;
+            }
+        }
+
+        bool CopyBytes(void *destination, const void *source, size_t size) noexcept
+        {
+            __try {
+                std::memcpy(destination, source, size);
+                return true;
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                return false;
+            }
+        }
+
+        bool CaptureProcessThreads(DWORD process_id, DWORD current_thread_id,
+                                   ThreadSnapshot *result) noexcept
+        {
+            if (result == nullptr) return false;
+            *result = {};
+            HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+            if (snapshot == INVALID_HANDLE_VALUE) return false;
+            THREADENTRY32 entry{sizeof(entry)};
+            SetLastError(ERROR_SUCCESS);
+            BOOL found = Thread32First(snapshot, &entry);
+            while (found) {
+                if (entry.th32OwnerProcessID == process_id && entry.th32ThreadID != current_thread_id) {
+                    if (result->count == result->ids.size()) {
+                        CloseHandle(snapshot);
+                        return false;
+                    }
+                    result->ids[result->count++] = entry.th32ThreadID;
+                }
+                entry.dwSize = sizeof(entry);
+                SetLastError(ERROR_SUCCESS);
+                found = Thread32Next(snapshot, &entry);
+            }
+            const DWORD enumeration_error = GetLastError();
+            CloseHandle(snapshot);
+            return enumeration_error == ERROR_NO_MORE_FILES;
+        }
+
+        bool IsSingleReadableRegion(uintptr_t address, size_t size) noexcept
+        {
+            MEMORY_BASIC_INFORMATION region{};
+            if (VirtualQuery(reinterpret_cast<const void *>(address), &region, sizeof(region)) != sizeof(region)
+                || region.State != MEM_COMMIT || !IsReadableProtection(region.Protect)) return false;
+            const uintptr_t region_base = reinterpret_cast<uintptr_t>(region.BaseAddress);
+            if (region.RegionSize > (std::numeric_limits<uintptr_t>::max)() - region_base) return false;
+            const uintptr_t region_end = region_base + region.RegionSize;
+            return address >= region_base && size <= region_end - address;
+        }
+
+        ExecutableWriteResult WriteExecutableBytes(uintptr_t address, const uint8_t *expected,
+                                                    const uint8_t *replacement, size_t size) noexcept
+        {
+            if (!IsSingleReadableRegion(address, size)
+                || !MatchesReadableBytes(address, expected, size)) return ExecutableWriteResult::clean_failure;
+            auto *target = reinterpret_cast<void *>(address);
+            DWORD old_protection;
+            if (!VirtualProtect(target, size, PAGE_EXECUTE_READWRITE, &old_protection)) {
+                return ExecutableWriteResult::clean_failure;
+            }
+
+            const bool wrote = CopyBytes(target, replacement, size);
+            const bool flushed = wrote && FlushInstructionCache(GetCurrentProcess(), target, size) != FALSE;
+            DWORD ignored;
+            if (flushed && VirtualProtect(target, size, old_protection, &ignored)) {
+                return ExecutableWriteResult::success;
+            }
+
+            const bool restored_bytes = CopyBytes(target, expected, size)
+                && FlushInstructionCache(GetCurrentProcess(), target, size) != FALSE;
+            const bool restored_protection = VirtualProtect(target, size, old_protection, &ignored) != FALSE;
+            return restored_bytes && restored_protection
+                ? ExecutableWriteResult::clean_failure
+                : ExecutableWriteResult::indeterminate;
+        }
+
+        [[noreturn]] void AbortIndeterminateCodePatch() noexcept
+        {
+            TerminateProcess(GetCurrentProcess(), ERROR_OPERATION_ABORTED);
+            std::terminate();
+        }
 
         bool EnsureMinHookInitialized()
         {
@@ -62,7 +178,7 @@ namespace smedley::memory
         Map::base_addr = reinterpret_cast<uintptr_t>(GetModuleHandle(NULL));
     }
 
-    void InstallHeapHook()
+    void InstallHeapHook(const uint8_t *expected, size_t size, RawHook *installed)
     {
         constexpr uint8_t trampoline_template[] = {
             0x50, // Push EAX.
@@ -95,7 +211,10 @@ namespace smedley::memory
             throw std::runtime_error("could not flush the heap-hook trampoline instruction cache");
         }
         try {
-            Hook(Map::base_addr + 0x006babee, trampoline, 8, nullptr);
+            if (!InstallRawHook(Map::base_addr + 0x006babee, trampoline, expected, size, installed)) {
+                throw std::runtime_error("could not install heap hook");
+            }
+            // Retain this process-lifetime allocation: rollback cannot prove that no thread is still traversing it.
         } catch (...) {
             DWORD ignored;
             VirtualProtect(trampoline, sizeof(trampoline_template), old_protect, &ignored);
@@ -104,59 +223,257 @@ namespace smedley::memory
         }
     }
 
-    void Patch(uintptr_t addr, uint8_t *instr, int n)
+    ScopedThreadQuiescence::ScopedThreadQuiescence()
     {
-        DWORD old_protect;
-        LPVOID lpv_addr = reinterpret_cast<LPVOID>(addr);
+        const DWORD process_id = GetCurrentProcessId();
+        const DWORD current_thread_id = GetCurrentThreadId();
+        for (size_t attempt = 0; attempt < 8; ++attempt) {
+            ThreadSnapshot snapshot;
+            if (!CaptureProcessThreads(process_id, current_thread_id, &snapshot)) {
+                error_ = "could not enumerate threads before patching code";
+                if (!Release()) AbortIndeterminateCodePatch();
+                return;
+            }
+            for (size_t snapshot_index = 0; snapshot_index < snapshot.count; ++snapshot_index) {
+                const DWORD thread_id = snapshot.ids[snapshot_index];
+                bool already_suspended = false;
+                if (!ContainsLiveSuspendedThread(thread_id, &already_suspended)) {
+                    if (!Release()) AbortIndeterminateCodePatch();
+                    return;
+                }
+                if (already_suspended) continue;
+                if (thread_count_ == threads_.size()) {
+                    error_ = "too many game threads to quiesce before patching code";
+                    if (!Release()) AbortIndeterminateCodePatch();
+                    return;
+                }
+                HANDLE thread = OpenThread(SYNCHRONIZE | THREAD_SUSPEND_RESUME | THREAD_QUERY_LIMITED_INFORMATION
+                                               | THREAD_GET_CONTEXT,
+                                           FALSE, thread_id);
+                if (thread == nullptr) {
+                    if (GetLastError() != ERROR_INVALID_PARAMETER) {
+                        error_ = "could not open a game thread before patching code";
+                        if (!Release()) AbortIndeterminateCodePatch();
+                        return;
+                    }
+                    continue;
+                }
+                if (SuspendThread(thread) == static_cast<DWORD>(-1)) {
+                    CloseHandle(thread);
+                    error_ = "could not suspend a game thread before patching code";
+                    if (!Release()) AbortIndeterminateCodePatch();
+                    return;
+                }
+                threads_[thread_count_] = thread;
+                thread_ids_[thread_count_] = thread_id;
+                ++thread_count_;
+                ++suspended_count_;
+            }
 
-        VirtualProtect(lpv_addr, n, PAGE_EXECUTE_READWRITE, &old_protect);
-        memcpy(lpv_addr, instr, n);
-        VirtualProtect(lpv_addr, n, old_protect, &old_protect);
+            ThreadSnapshot verification;
+            if (!CaptureProcessThreads(process_id, current_thread_id, &verification)) {
+                error_ = "could not verify suspended threads before patching code";
+                if (!Release()) AbortIndeterminateCodePatch();
+                return;
+            }
+            bool stable = true;
+            for (size_t snapshot_index = 0; snapshot_index < verification.count; ++snapshot_index) {
+                bool found = false;
+                if (!ContainsLiveSuspendedThread(verification.ids[snapshot_index], &found)) {
+                    if (!Release()) AbortIndeterminateCodePatch();
+                    return;
+                }
+                if (!found) {
+                    stable = false;
+                    break;
+                }
+            }
+            if (stable) {
+                ready_ = true;
+                return;
+            }
+        }
+        error_ = "game threads did not stabilize before patching code";
+        if (!Release()) AbortIndeterminateCodePatch();
     }
 
-    bool Hook(uintptr_t addr, void *jmp, int n, std::vector<uint8_t> *old_instr)
+    ScopedThreadQuiescence::~ScopedThreadQuiescence()
     {
-        DWORD old_protect, offset;
-        LPVOID lpv_addr = reinterpret_cast<LPVOID>(addr);
-        uint8_t *bytes_addr = reinterpret_cast<uint8_t *>(addr);
-        if (n < 5) return false;
-        offset = reinterpret_cast<uintptr_t>(jmp) - addr - 5;
-        const std::vector<uint8_t> original(bytes_addr, bytes_addr + n);
-        if (!VirtualProtect(lpv_addr, n, PAGE_EXECUTE_READWRITE, &old_protect)) {
-            throw std::runtime_error("could not make hook target writable");
+        if (!Release()) {
+            TerminateProcess(GetCurrentProcess(), ERROR_OPERATION_ABORTED);
         }
-        if (old_instr != nullptr) *old_instr = original;
-        std::memset(bytes_addr + 1, 0x90, n - 1);
-        *bytes_addr = 0xe9;
-        *reinterpret_cast<DWORD *>(bytes_addr + 1) = offset;
-        if (!FlushInstructionCache(GetCurrentProcess(), lpv_addr, n)) {
-            std::copy(original.begin(), original.end(), bytes_addr);
-            FlushInstructionCache(GetCurrentProcess(), lpv_addr, n);
-            DWORD ignored;
-            VirtualProtect(lpv_addr, n, old_protect, &ignored);
-            throw std::runtime_error("could not flush the hook instruction cache");
+    }
+
+    bool ScopedThreadQuiescence::AnyInstructionPointerIn(uintptr_t address, size_t size, bool *found) noexcept
+    {
+        size_t count = 0;
+        if (!InstructionPointerCountIn(address, size, &count)) return false;
+        if (found == nullptr) {
+            error_ = "invalid suspended-thread instruction result";
+            return false;
         }
-        DWORD ignored;
-        if (!VirtualProtect(lpv_addr, n, old_protect, &ignored)) {
-            std::copy(original.begin(), original.end(), bytes_addr);
-            FlushInstructionCache(GetCurrentProcess(), lpv_addr, n);
-            VirtualProtect(lpv_addr, n, old_protect, &ignored);
-            throw std::runtime_error("could not restore hook target protection");
+        *found = count != 0;
+        return true;
+    }
+
+    bool ScopedThreadQuiescence::InstructionPointerCountIn(uintptr_t address, size_t size, size_t *count) noexcept
+    {
+        if (!ready_ || count == nullptr || size == 0 || address > UINTPTR_MAX - size) {
+            error_ = "invalid suspended-thread instruction range";
+            return false;
+        }
+        *count = 0;
+        for (size_t index = 0; index < suspended_count_; ++index) {
+            CONTEXT context{};
+            context.ContextFlags = CONTEXT_CONTROL;
+            if (!GetThreadContext(threads_[index], &context)) {
+                if (WaitForSingleObject(threads_[index], 0) == WAIT_OBJECT_0) continue;
+                error_ = "could not inspect a suspended game thread before patching code";
+                return false;
+            }
+#if defined(_M_IX86)
+            const uintptr_t instruction_pointer = context.Eip;
+#else
+#error Raw hooks require the Win32 x86 build.
+#endif
+            if (instruction_pointer >= address && instruction_pointer < address + size) ++*count;
         }
         return true;
     }
 
-    bool RestoreHook(uintptr_t addr, const std::vector<uint8_t> &instructions) noexcept
+    bool ScopedThreadQuiescence::Release() noexcept
     {
-        if (instructions.empty()) return false;
-        auto *target = reinterpret_cast<void *>(addr);
-        DWORD old_protect;
-        if (!VirtualProtect(target, instructions.size(), PAGE_EXECUTE_READWRITE, &old_protect)) return false;
-        std::memcpy(target, instructions.data(), instructions.size());
-        const bool flushed = FlushInstructionCache(GetCurrentProcess(), target, instructions.size()) != FALSE;
-        DWORD ignored;
-        const bool restored = VirtualProtect(target, instructions.size(), old_protect, &ignored) != FALSE;
-        return flushed && restored;
+        const size_t old_suspended_count = suspended_count_;
+        const size_t old_thread_count = thread_count_;
+        size_t failed_count = 0;
+        for (size_t index = 0; index < old_suspended_count; ++index) {
+            const HANDLE thread = threads_[index];
+            if (ResumeThread(thread) != static_cast<DWORD>(-1)
+                || WaitForSingleObject(thread, 0) == WAIT_OBJECT_0) {
+                CloseHandle(thread);
+            } else {
+                threads_[failed_count++] = thread;
+                thread_ids_[failed_count - 1] = thread_ids_[index];
+            }
+        }
+        for (size_t index = old_suspended_count; index < old_thread_count; ++index) CloseHandle(threads_[index]);
+        thread_count_ = failed_count;
+        suspended_count_ = failed_count;
+        ready_ = false;
+        if (failed_count != 0) error_ = "could not resume a game thread after patching code";
+        return failed_count == 0;
+    }
+
+    void ScopedThreadQuiescence::CloseThreads() noexcept
+    {
+        for (size_t index = 0; index < thread_count_; ++index) CloseHandle(threads_[index]);
+        thread_count_ = 0;
+        suspended_count_ = 0;
+    }
+
+    bool ScopedThreadQuiescence::ContainsLiveSuspendedThread(DWORD thread_id, bool *found) noexcept
+    {
+        if (found == nullptr) return false;
+        *found = false;
+        size_t index = 0;
+        while (index < thread_count_) {
+            if (thread_ids_[index] != thread_id) {
+                ++index;
+                continue;
+            }
+            const DWORD wait = WaitForSingleObject(threads_[index], 0);
+            if (wait == WAIT_TIMEOUT) {
+                *found = true;
+                return true;
+            }
+            if (wait != WAIT_OBJECT_0) {
+                error_ = "could not verify a suspended game thread before patching code";
+                return false;
+            }
+            CloseHandle(threads_[index]);
+            --thread_count_;
+            --suspended_count_;
+            threads_[index] = threads_[thread_count_];
+            thread_ids_[index] = thread_ids_[thread_count_];
+        }
+        return true;
+    }
+
+    bool MatchesReadableBytes(uintptr_t address, const void *expected, size_t size) noexcept
+    {
+        if (address == 0 || expected == nullptr || size == 0
+            || size > (std::numeric_limits<uintptr_t>::max)() - address) return false;
+        const uintptr_t end = address + size;
+        uintptr_t cursor = address;
+        while (cursor < end) {
+            MEMORY_BASIC_INFORMATION region{};
+            if (VirtualQuery(reinterpret_cast<const void *>(cursor), &region, sizeof(region)) != sizeof(region)
+                || region.State != MEM_COMMIT || !IsReadableProtection(region.Protect)) return false;
+            const uintptr_t region_base = reinterpret_cast<uintptr_t>(region.BaseAddress);
+            if (region.RegionSize > (std::numeric_limits<uintptr_t>::max)() - region_base) return false;
+            const uintptr_t region_end = region_base + region.RegionSize;
+            if (region_end <= cursor) return false;
+            cursor = (std::min)(region_end, end);
+        }
+        __try {
+            return std::memcmp(reinterpret_cast<const void *>(address), expected, size) == 0;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            return false;
+        }
+    }
+
+    bool InstallRawHook(uintptr_t address, void *destination, const uint8_t *expected,
+                        size_t size, RawHook *installed)
+    {
+        if (address == 0 || destination == nullptr || expected == nullptr || installed == nullptr
+            || installed->address != 0 || !installed->original.empty() || !installed->replacement.empty()
+            || size < 5 || size > max_registered_code_patch_bytes) return false;
+        const int64_t displacement = static_cast<int64_t>(reinterpret_cast<uintptr_t>(destination))
+            - static_cast<int64_t>(address) - 5;
+        if (displacement < (std::numeric_limits<int32_t>::min)()
+            || displacement > (std::numeric_limits<int32_t>::max)()) return false;
+
+        RawHook candidate;
+        candidate.address = address;
+        candidate.original.assign(expected, expected + size);
+        candidate.replacement.assign(size, 0x90);
+        candidate.replacement[0] = 0xe9;
+        const int32_t relative_jump = static_cast<int32_t>(displacement);
+        std::memcpy(candidate.replacement.data() + 1, &relative_jump, sizeof(relative_jump));
+
+        std::lock_guard lock(raw_hook_mutex);
+        ScopedThreadQuiescence quiescence;
+        bool instruction_pointer_in_target = false;
+        if (!quiescence
+            || !quiescence.AnyInstructionPointerIn(address, size, &instruction_pointer_in_target)
+            || instruction_pointer_in_target) return false;
+        const ExecutableWriteResult result = WriteExecutableBytes(
+            address, candidate.original.data(), candidate.replacement.data(), size);
+        if (result == ExecutableWriteResult::indeterminate) AbortIndeterminateCodePatch();
+        if (result != ExecutableWriteResult::success) return false;
+        if (!quiescence.Release()) AbortIndeterminateCodePatch();
+        *installed = std::move(candidate);
+        return true;
+    }
+
+    bool RestoreRawHook(RawHook *hook) noexcept
+    {
+        if (hook == nullptr || hook->address == 0 || hook->original.size() < 5
+            || hook->original.size() != hook->replacement.size()) return false;
+        std::lock_guard lock(raw_hook_mutex);
+        ScopedThreadQuiescence quiescence;
+        bool instruction_pointer_in_target = false;
+        if (!quiescence
+            || !quiescence.AnyInstructionPointerIn(
+                hook->address, hook->replacement.size(), &instruction_pointer_in_target)
+            || instruction_pointer_in_target) return false;
+        const ExecutableWriteResult result = WriteExecutableBytes(
+            hook->address, hook->replacement.data(), hook->original.data(), hook->original.size());
+        if (result == ExecutableWriteResult::indeterminate) AbortIndeterminateCodePatch();
+        if (result != ExecutableWriteResult::success) return false;
+        if (!quiescence.Release()) AbortIndeterminateCodePatch();
+        *hook = {};
+        return true;
     }
 
     bool InstallDetour(uintptr_t addr, void *detour, void **original)

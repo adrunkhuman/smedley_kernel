@@ -2,7 +2,12 @@
 
 #include "../event.hpp"
 
+#include <cstddef>
 #include <cstdint>
+
+namespace smedley::memory {
+    struct RawHook;
+}
 
 namespace smedley::events
 {
@@ -26,7 +31,7 @@ namespace smedley::events
         void *cmd_mgr() const noexcept { return _cmd_mgr; }
 
         /// @brief Installs the hook that raises the event.
-        static void InstallHook();
+        static void InstallHook(const uint8_t *expected, size_t size, memory::RawHook *installed);
     };
 
 }

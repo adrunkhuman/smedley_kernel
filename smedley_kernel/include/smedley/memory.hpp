@@ -2,6 +2,7 @@
 
 #define NOMINMAX
 
+#include <array>
 #include <cstdint>
 #include <cstddef>
 #include <cstring>
@@ -27,19 +28,46 @@ namespace smedley::memory
         static void Init();
     };
 
-    /**
-     * Patches instructions at the specified address.
-     * @param addr Address of the instructions to patch.
-     * @param instr Replacement byte sequence.
-     * @param n Number of bytes to write.
-     */
-    void Patch(uintptr_t addr, uint8_t *instr, int n);
-    void InstallHeapHook();
+    struct RawHook
+    {
+        uintptr_t address = 0;
+        std::vector<uint8_t> original;
+        std::vector<uint8_t> replacement;
+    };
 
-    /** Writes a raw relative jump over caller-verified complete instructions. */
-    bool Hook(uintptr_t addr, void *jmp, int n, std::vector<uint8_t> *old_instr);
-    /** Restores bytes retained by Hook and flushes the instruction cache. */
-    bool RestoreHook(uintptr_t addr, const std::vector<uint8_t> &instructions) noexcept;
+    class ScopedThreadQuiescence
+    {
+    public:
+        ScopedThreadQuiescence();
+        ~ScopedThreadQuiescence();
+
+        ScopedThreadQuiescence(const ScopedThreadQuiescence &) = delete;
+        ScopedThreadQuiescence &operator=(const ScopedThreadQuiescence &) = delete;
+
+        explicit operator bool() const noexcept { return ready_; }
+        const char *error() const noexcept { return error_; }
+        bool AnyInstructionPointerIn(uintptr_t address, size_t size, bool *found) noexcept;
+        bool InstructionPointerCountIn(uintptr_t address, size_t size, size_t *count) noexcept;
+        bool Release() noexcept;
+
+    private:
+        void CloseThreads() noexcept;
+        bool ContainsLiveSuspendedThread(DWORD thread_id, bool *found) noexcept;
+
+        static constexpr size_t max_threads = 256;
+        std::array<HANDLE, max_threads> threads_{};
+        std::array<DWORD, max_threads> thread_ids_{};
+        size_t thread_count_ = 0;
+        size_t suspended_count_ = 0;
+        bool ready_ = false;
+        const char *error_ = nullptr;
+    };
+
+    bool MatchesReadableBytes(uintptr_t address, const void *expected, size_t size) noexcept;
+    bool InstallRawHook(uintptr_t address, void *destination, const uint8_t *expected,
+                        size_t size, RawHook *installed);
+    bool RestoreRawHook(RawHook *hook) noexcept;
+    void InstallHeapHook(const uint8_t *expected, size_t size, RawHook *installed);
     /** Installs a serialized MinHook function-entry detour and returns its callable original trampoline. */
     bool InstallDetour(uintptr_t addr, void *detour, void **original);
     /** Disables and removes an installed MinHook detour, restoring the function entry. */

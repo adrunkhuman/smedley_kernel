@@ -3,6 +3,8 @@
 #include "memory.hpp"
 #include "events/dailyupdate.hpp"
 
+#include <stdexcept>
+
 namespace smedley::v2 {
     class CCountry;
 }
@@ -58,10 +60,14 @@ namespace smedley::events
        return _country;
    }
 
-    void DailyUpdateEvent::InstallHook()
+    void DailyUpdateEvent::InstallHook(const uint8_t *expected, size_t size,
+                                        memory::RawHook *installed)
     {
         hook_ret_addr = memory::Map::base_addr + hook_addr + 10;
-        memory::Hook(memory::Map::base_addr + hook_addr, HookTrampoline, 10, nullptr);
+        if (!memory::InstallRawHook(memory::Map::base_addr + hook_addr, HookTrampoline,
+                                    expected, size, installed)) {
+            throw std::runtime_error("could not install daily update hook");
+        }
     }
 
 }
