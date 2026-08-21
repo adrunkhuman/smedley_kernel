@@ -2,6 +2,7 @@
 #include "memory.hpp"
 #include "events/console.hpp"
 
+#include <stdexcept>
 
 using namespace smedley;
 
@@ -47,10 +48,14 @@ namespace smedley::events
     {
     }
 
-    void ConsoleCmdManagerInitEvent::InstallHook()
+    void ConsoleCmdManagerInitEvent::InstallHook(const uint8_t *expected, size_t size,
+                                                  memory::RawHook *installed)
     {
         hook_ret_addr = memory::Map::base_addr + hook_addr + 5;
-        memory::Hook(memory::Map::base_addr + hook_addr, HookTrampoline, 5, nullptr);
+        if (!memory::InstallRawHook(memory::Map::base_addr + hook_addr, HookTrampoline,
+                                    expected, size, installed)) {
+            throw std::runtime_error("could not install console manager hook");
+        }
     }
 
 }

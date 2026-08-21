@@ -1,6 +1,11 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include "../event.hpp"
+
+namespace smedley::memory {
+    struct RawHook;
+}
 
 namespace smedley::v2 {
     class CCountry;
@@ -24,7 +29,7 @@ namespace smedley::events
         v2::CCountry* GetCountry();
         DailyUpdateEvent(v2::CCountry* country);
         /// @brief Installs the hook that raises the event.
-        static void InstallHook();
+        static void InstallHook(const uint8_t *expected, size_t size, memory::RawHook *installed);
 
     };
 
