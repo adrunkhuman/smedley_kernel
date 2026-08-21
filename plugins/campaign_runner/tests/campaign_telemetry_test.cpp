@@ -202,9 +202,13 @@ TEST(BenchmarkControllerTest, CompletesOnlyAtTheExactTargetOnce)
     const char *error = nullptr;
     ASSERT_TRUE(controller.Begin(100, 2, std::nullopt, 600, 10, &error)) << error;
     EXPECT_EQ(controller.target_date_raw(), 148);
-    EXPECT_EQ(controller.Observe({true, 124, 0, true, 11}).action, campaign_runner::BenchmarkAction::Continue);
-    EXPECT_EQ(controller.Observe({true, 148, 0, true, 12}).action, campaign_runner::BenchmarkAction::Complete);
-    EXPECT_EQ(controller.Observe({true, 148, 0, true, 13}).action, campaign_runner::BenchmarkAction::Continue);
+    EXPECT_EQ(controller.Observe({true, 124, 0, false, true, 11}).action, campaign_runner::BenchmarkAction::Continue);
+    EXPECT_EQ(controller.Observe({true, 148, 0, false, true, 12}).action, campaign_runner::BenchmarkAction::Continue);
+    EXPECT_EQ(controller.Observe({true, 148, 1, false, true, 13}).action, campaign_runner::BenchmarkAction::Continue);
+    EXPECT_EQ(controller.Observe({true, 148, 0, false, true, 14}).action, campaign_runner::BenchmarkAction::Continue);
+    EXPECT_EQ(controller.Observe({true, 148, 1, false, true, 15}).action, campaign_runner::BenchmarkAction::Continue);
+    EXPECT_EQ(controller.Observe({true, 148, 1, false, true, 16}).action, campaign_runner::BenchmarkAction::Complete);
+    EXPECT_EQ(controller.Observe({true, 148, 1, false, true, 17}).action, campaign_runner::BenchmarkAction::Continue);
 }
 
 TEST(CampaignLaunchArgumentsTest, IgnoresOtherSmedleyArgumentsAndRejectsBenchmarkDuplicates)
@@ -246,20 +250,24 @@ TEST(BenchmarkControllerTest, RejectsInvalidTargetMathAndDetectsFailures)
     EXPECT_FALSE(controller.active());
     EXPECT_FALSE(controller.Begin(100, std::nullopt, 101, 600, 0, &error));
     ASSERT_TRUE(controller.Begin(100, std::nullopt, 124, 1, 10, &error));
-    EXPECT_STREQ(controller.Observe({true, 125, 0, true, 11}).reason, "date_overshoot");
+    EXPECT_STREQ(controller.Observe({true, 125, 0, false, true, 11}).reason, "date_overshoot");
 
     ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 1, 10, &error));
-    EXPECT_STREQ(controller.Observe({true, 100, 0, true, 1000010}).reason, "timeout");
+    EXPECT_STREQ(controller.Observe({true, 100, 0, false, true, 1000010}).reason, "timeout");
+    ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 1, 10, &error));
+    EXPECT_STREQ(controller.Observe({true, 124, 1, false, true, 1000010}).reason, "timeout");
     ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 600, 10, &error));
-    EXPECT_STREQ(controller.Observe({true, 99, 0, true, 11}).reason, "date_regressed");
+    EXPECT_STREQ(controller.Observe({true, 99, 0, false, true, 11}).reason, "date_regressed");
     ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 600, 10, &error));
-    EXPECT_STREQ(controller.Observe({true, 100, 1, true, 11}).reason, "unexpected_pause");
+    EXPECT_STREQ(controller.Observe({true, 100, 1, false, true, 11}).reason, "unexpected_pause");
     ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 600, 10, &error));
-    EXPECT_STREQ(controller.Observe({true, 100, 0, false, 11}).reason, "observer_invariant_failed");
+    EXPECT_STREQ(controller.Observe({true, 100, 1, true, true, 11}).reason, "game_over");
     ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 600, 10, &error));
-    EXPECT_STREQ(controller.Observe({false, std::nullopt, -1, true, 11}).reason, "idler_unavailable");
+    EXPECT_STREQ(controller.Observe({true, 100, 0, false, false, 11}).reason, "observer_invariant_failed");
     ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 600, 10, &error));
-    EXPECT_STREQ(controller.Observe({true, 100, 2, true, 11}).reason, "invalid_pause_state");
+    EXPECT_STREQ(controller.Observe({false, std::nullopt, -1, false, true, 11}).reason, "idler_unavailable");
+    ASSERT_TRUE(controller.Begin(100, 1, std::nullopt, 600, 10, &error));
+    EXPECT_STREQ(controller.Observe({true, 100, 2, false, true, 11}).reason, "invalid_pause_state");
 }
 
 TEST_F(CampaignTelemetryTest, EmitsTypedBenchmarkRecords)

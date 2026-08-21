@@ -524,7 +524,12 @@ namespace campaign_runner
         } else {
             ReportTelemetryResult(telemetry_.BenchmarkFailed(benchmark_.start_date_raw(), benchmark_.target_date_raw(),
                 actual_date_raw, elapsed, reason, paused));
-            logger_.Failure(std::string("benchmark failed: ") + reason + "; campaign remains open");
+            if (quit_after_run_ && std::strcmp(reason, "game_over") == 0) {
+                logger_.Failure("benchmark failed: game_over; requesting native game exit");
+                QuitAfterRun();
+            } else {
+                logger_.Failure(std::string("benchmark failed: ") + reason + "; campaign remains open");
+            }
         }
     }
 
@@ -558,7 +563,7 @@ namespace campaign_runner
             logger_.Failure("native quit request did not set the expected state; campaign remains paused and open");
             return;
         }
-        logger_.Info("requested native game exit after successful bounded run");
+        logger_.Info("requested native game exit after bounded run");
     }
 
     bool CampaignLauncher::TickBenchmark(
@@ -566,8 +571,16 @@ namespace campaign_runner
     {
         if (!benchmark_started_ || benchmark_terminal_) return benchmark_terminal_;
         const BenchmarkDecision decision = benchmark_.Observe({true, runtime.date_raw, runtime.paused ? 1 : 0,
-                                                                 observer_valid, MonotonicMicroseconds()});
-        if (decision.action == BenchmarkAction::Continue) return false;
+                                                                 runtime.game_over, observer_valid, MonotonicMicroseconds()});
+        if (decision.action == BenchmarkAction::Continue) {
+            if (runtime.date_raw == benchmark_.target_date_raw() && !runtime.paused
+                && smedley::game_state::SetCampaignPaused(true)
+                    != smedley::game_state::CampaignOperationStatus::completed) {
+                FinishBenchmark("pause_failed", runtime.date_raw, std::nullopt);
+                return true;
+            }
+            return false;
+        }
         const auto pause_status = smedley::game_state::SetCampaignPaused(true);
         smedley::game_state::CampaignRuntimeSnapshot final_runtime{};
         const auto observation = smedley::game_state::ReadCampaignRuntime(&final_runtime);
@@ -606,7 +619,7 @@ namespace campaign_runner
             if (smedley::game_state::ReadCampaignRuntime(&runtime)
                 != smedley::game_state::CampaignRuntimeObservationStatus::completed) {
                 if (launcher->benchmark_.active()) {
-                    launcher->benchmark_.Observe({false, std::nullopt, -1, false, MonotonicMicroseconds()});
+                    launcher->benchmark_.Observe({false, std::nullopt, -1, false, false, MonotonicMicroseconds()});
                     launcher->FinishBenchmark("idler_unavailable", std::nullopt, std::nullopt);
                     return;
                 }
@@ -626,13 +639,31 @@ namespace campaign_runner
                 }
                 return;
             }
+            if (runtime.game_over) {
+                suppress_message_popups = false;
+                if (!launcher->run_condition_.requested()) {
+                    KillTimer(nullptr, timer);
+                    launcher->save_timer_ = 0;
+                    launcher->observer_monitoring_ = false;
+                    launcher->logger_.Failure("campaign reached game over; campaign remains paused and open");
+                    return;
+                }
+                launcher->StartBenchmark(runtime);
+                if (launcher->benchmark_.active()) launcher->TickBenchmark(runtime, true);
+                return;
+            }
             auto pause_state = runtime.paused ? 1 : 0;
             if (!launcher->pause_before_configuration_) launcher->pause_before_configuration_ = runtime.paused;
             launcher->ReportTelemetryResult(launcher->telemetry_.Entered(
                 launcher->observer_enabled_, launcher->target_speed_, launcher->start_paused_));
             const bool observer_recovery_pending = launcher->observer_monitoring_ && pause_state == 1;
-            if (launcher->benchmark_.active() && !observer_recovery_pending
-                && launcher->TickBenchmark(runtime, !launcher->observer_enabled_ || launcher->ObserverInvariantsValid())) return;
+            const bool target_reached = launcher->benchmark_.active()
+                && runtime.date_raw == launcher->benchmark_.target_date_raw();
+            if (launcher->benchmark_.active() && (target_reached || !observer_recovery_pending)) {
+                if (launcher->TickBenchmark(runtime,
+                        !launcher->observer_enabled_ || launcher->ObserverInvariantsValid())
+                    || target_reached) return;
+            }
             if (launcher->observer_monitoring_) {
                 if (launcher->benchmark_.active()) {
                     const uint64_t now = MonotonicMicroseconds();

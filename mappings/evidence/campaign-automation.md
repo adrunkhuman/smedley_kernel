@@ -93,15 +93,19 @@ verified-runtime 24 raw units per game day.
 
 A recurring Win32 `SetTimer` uses `USER_TIMER_MINIMUM` (effectively 10 ms).
 It does not poll a game hook or mutate from `DailyUpdateEvent`.
-Each tick consumes a copied, checked `CInGameIdler` observation with date and pause state, plus lightweight
-observer invariants. At the exact target it invokes verified `TogglePause` and
-reads back the paused state. Overshoot, timeout, date regression, invalid
+Each tick consumes a copied, checked `CInGameIdler` observation with date, pause,
+and typed game-over state, plus lightweight observer invariants. Game over has
+terminal precedence over exact-target completion and pause recovery. At the exact
+target it invokes verified `TogglePause`, then requires a subsequent stable
+paused observation before completion. This extra UI cycle lets the native
+endgame branch publish its dialog before an exact end-date target can be called
+successful. Overshoot, timeout, date regression, invalid
 idler/pause state, or observer invariant failure is a failed benchmark. Both
 terminal paths stop monitoring and popup suppression, cancel the timer, and
 leave the campaign safely paused/open when pause readback succeeds. A successful
-exact-target run may then request the verified native quit operation when
-`quit_after_run` is explicitly enabled. Failures never attempt an exit, and no
-terminal path writes a save.
+exact-target run, or typed game over, may then request the verified native quit
+operation when `quit_after_run` is explicitly enabled. Other failures never
+attempt an exit, and no terminal path writes a save.
 
 The benchmark is terminally paused before the exit request. The kernel-owned runtime
 validates the idler RTTI, exact vtable target, and post-call request flag. A failed
@@ -113,6 +117,39 @@ telemetry ingress, consumed accepted payload records, and joined its writer; it
 then writes any enabled final summary, flushes, and closes the file. Unavailable
 means telemetry is absent, inactive, or lacks the drain symbol, so that
 compatibility path permits exit without a final-summary or durability guarantee.
+
+Game-over classification fails closed. The kernel verifies the supported bytes
+at RVA `0x25548d`, resolves the current `CInGameIdler`, requires its dialog at
+`+0x1d6c` to use window vtable RVA `0xa3c0d8`, and reads the dialog visibility byte
+at `+0x67`. It reports game over only when that byte is exactly one and
+`CGameState+0xb0c` is greater than `[RVA 0xe586dc]+0xc`. Missing or mismatched
+state makes the whole runtime observation unavailable rather than silently
+classifying a pause.
+
+Runtime evidence on August 21, 2026 used the supported executable and unmodified
+`benchmark_1936_interest_probe.v2` fixture. At visible game over the current date
+was `60759360`, configured end date `60759336`, pause was one, and the verified
+dialog was visible. A separate ordinary paused campaign reported current date
+`59883384`, the same configured end date and dialog vtable, pause one, and dialog
+visibility zero. This comparison distinguishes the terminal state from an
+ordinary pause; host tests alone do not establish the engine mapping.
+
+Live acceptance on August 21, 2026 used that fixture, no mods, native speed 5,
+and a one-day bounded target from `60759336` to `60759360`. Leave-open run
+`e17a2ecb-64b7-4177-b16f-1de9c36d5315` emitted one terminal
+`benchmark.failed` record with reason `game_over`, actual date `60759360`, and
+paused true; trace validation passed with no sequence gaps. The process remained
+open, and the visible end-date screen was manually confirmed responsive.
+`quit_after_run` run `d7ebea5f-ea81-4b59-883d-fb5b839cdf3d` emitted the same
+typed terminal result, drained telemetry through final sequence 10 with dropped
+zero and no write failure, requested native exit, and exited without external
+termination. The fixture retained SHA-256
+`592c41f7258c1b383e796a2cbe9829d0159f1eb898fd79dedf960fab5b66a1d9`.
+Regression run `5cc040f5-11a4-4d3b-999b-e38546c1e9d6` used the non-terminal
+`benchmark.v2` fixture and completed an ordinary one-day exact target at
+`59883408`, paused true, with a responsive map left open. This confirms the
+target-pause handshake does not convert normal completion into game over or
+leave observer/configuration recovery running.
 
 An invalid runtime target or unavailable benchmark timer is terminal. The runner
 first attempts and reads back pause; its failure record reports whether that

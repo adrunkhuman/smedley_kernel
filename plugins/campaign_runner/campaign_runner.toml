@@ -71,8 +71,8 @@ argv = { option = "-smedley-run-until-date-raw", codec = "value" }
 [[settings.fields]]
 key = "quit_after_run"
 type = "bool"
-label = "Quit after successful bounded run"
-help = "Quit only after a successful run with a day or date target."
+label = "Quit after bounded run"
+help = "Quit after exact-target completion or typed game over for a day or date target."
 default = false
 advanced = true
 argv = { option = "-smedley-quit-after-run", codec = "flag" }

@@ -30,7 +30,12 @@ namespace smedley
         enum class CampaignConsoleCommand : uint8_t { native_tag, observer_switch };
 
         struct FrontendControllerToken { uint64_t value = 0; };
-        struct CampaignRuntimeSnapshot { int date_raw = 0; int speed_index = 0; bool paused = false; };
+        struct CampaignRuntimeSnapshot {
+            int date_raw = 0;
+            int speed_index = 0;
+            bool paused = false;
+            bool game_over = false;
+        };
         struct FrontendSaveSnapshot { bool request_pending = false; bool completed = false; char selected_basename[SMEDLEY_CAMPAIGN_SAVE_BASENAME_BYTES]{}; };
         struct ObserverTag { char value[4]{}; int32_t ordinal = -1; bool normalized_candidate() const noexcept; const char *str() const noexcept { return value; } };
         struct ObserverCountrySnapshot {

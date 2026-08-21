@@ -359,13 +359,13 @@ TEST(EventServicesApiV1Test, ContainsThrowingCallbackAndDisablesIt)
 
 TEST(GameServicesApiV1Test, DiscoversDomainTablesAndRejectsReservedFields)
 {
-    SmedleyCampaignRuntimeApiV1 campaign{};
-    campaign.struct_size = sizeof(campaign);
-    campaign.version = SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1;
-    EXPECT_EQ(SmedleyGetCampaignRuntimeApiV1(&campaign), SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS);
-    EXPECT_NE(campaign.open_session, nullptr);
-    campaign.reserved[0] = 1;
-    EXPECT_EQ(SmedleyGetCampaignRuntimeApiV1(&campaign), SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT);
+    SmedleyCampaignRuntimeApiV2 campaign_v2{};
+    campaign_v2.struct_size = sizeof(campaign_v2);
+    campaign_v2.version = SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V2;
+    EXPECT_EQ(SmedleyGetCampaignRuntimeApiV2(&campaign_v2), SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS);
+    EXPECT_NE(campaign_v2.read_campaign, nullptr);
+    campaign_v2.reserved[1] = 1;
+    EXPECT_EQ(SmedleyGetCampaignRuntimeApiV2(&campaign_v2), SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT);
 
     SmedleyCampaignAutomationApiV1 automation{};
     automation.struct_size = sizeof(automation);
@@ -513,10 +513,10 @@ TEST(GameServicesApiV1Test, BankAuthorityIsThreadLocal)
 
 TEST(GameServicesApiV1Test, RejectsBoundedTextWithEmbeddedNulWithoutReadingPastInput)
 {
-    SmedleyCampaignRuntimeApiV1 campaign{};
+    SmedleyCampaignRuntimeApiV2 campaign{};
     campaign.struct_size = sizeof(campaign);
-    campaign.version = SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1;
-    ASSERT_EQ(SmedleyGetCampaignRuntimeApiV1(&campaign), SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS);
+    campaign.version = SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V2;
+    ASSERT_EQ(SmedleyGetCampaignRuntimeApiV2(&campaign), SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS);
     const char embedded_nul[] = {'a', '\0', 'b'};
     EXPECT_EQ(campaign.request_save(UINT64_C(1), embedded_nul, sizeof(embedded_nul)),
         SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT);

@@ -12,7 +12,7 @@ namespace
 
     struct Services {
         SmedleyLoggingApiV1 logging{sizeof(logging), SMEDLEY_LOGGING_API_VERSION_V1};
-        SmedleyCampaignRuntimeApiV1 runtime{sizeof(runtime), SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1};
+        SmedleyCampaignRuntimeApiV2 runtime{sizeof(runtime), SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V2};
         SmedleyCampaignAutomationApiV1 automation{sizeof(automation), SMEDLEY_CAMPAIGN_AUTOMATION_API_VERSION_V1};
         SmedleyEventServicesApiV1 events{sizeof(events), SMEDLEY_EVENT_SERVICES_API_VERSION_V1};
         SmedleyCampaignSession session = 0;
@@ -36,16 +36,16 @@ namespace
         target->full_map_visibility_enabled = source.full_map_visibility_enabled != 0;
     }
     SmedleyObserverCountrySnapshotV1 ToAbi(const smedley::game_state::ObserverCountrySnapshot &country) {
-        SmedleyObserverCountrySnapshotV1 result{sizeof(result), SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1};
+        SmedleyObserverCountrySnapshotV1 result{sizeof(result), SMEDLEY_CAMPAIGN_RUNTIME_RECORD_VERSION_V1};
         std::memcpy(result.tag, country.tag.value, sizeof(result.tag)); result.ordinal = country.tag.ordinal;
         result.exists = country.exists; result.human_controlled = country.human_controlled;
         result.has_ai = country.has_ai; result.ai_scheduled = country.ai_scheduled;
         return result;
     }
     SmedleyObserverStateSnapshotV1 ObserverStateAbi() {
-        SmedleyObserverStateSnapshotV1 result{sizeof(result), SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1};
+        SmedleyObserverStateSnapshotV1 result{sizeof(result), SMEDLEY_CAMPAIGN_RUNTIME_RECORD_VERSION_V1};
         result.view_country.struct_size = sizeof(result.view_country);
-        result.view_country.version = SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1;
+        result.view_country.version = SMEDLEY_CAMPAIGN_RUNTIME_RECORD_VERSION_V1;
         return result;
     }
     SmedleyCampaignTagV1 ToAbi(const smedley::game_state::ObserverTag &tag) {
@@ -84,7 +84,7 @@ namespace smedley
             const HMODULE kernel = GetModuleHandleW(L"smedley_kernel.dll");
             if (!kernel) { *error = "smedley kernel is not loaded"; return false; }
             const auto get_logging = reinterpret_cast<SmedleyGetLoggingApiV1Fn>(GetProcAddress(kernel, SMEDLEY_LOGGING_GET_API_V1_SYMBOL));
-            const auto get_runtime = reinterpret_cast<SmedleyGetCampaignRuntimeApiV1Fn>(GetProcAddress(kernel, SMEDLEY_CAMPAIGN_RUNTIME_GET_API_V1_SYMBOL));
+            const auto get_runtime = reinterpret_cast<SmedleyGetCampaignRuntimeApiV2Fn>(GetProcAddress(kernel, SMEDLEY_CAMPAIGN_RUNTIME_GET_API_V2_SYMBOL));
             const auto get_automation = reinterpret_cast<SmedleyGetCampaignAutomationApiV1Fn>(GetProcAddress(kernel, SMEDLEY_CAMPAIGN_AUTOMATION_GET_API_V1_SYMBOL));
             const auto get_events = reinterpret_cast<SmedleyGetEventServicesApiV1Fn>(GetProcAddress(kernel, SMEDLEY_EVENT_SERVICES_GET_API_V1_SYMBOL));
             if (!get_logging || !get_runtime || !get_automation || !get_events || get_logging(&services.logging) != SMEDLEY_LOGGING_SUCCESS
@@ -112,7 +112,7 @@ namespace smedley
         void SetCampaignMessagePopupSuppression(bool enabled) noexcept { if (services.automation_handle) services.automation.set_popup_suppression(services.automation_handle, enabled); }
         long CampaignSuppressedMessageCount() noexcept { SmedleyCampaignPopupSnapshotV1 state{sizeof(state), SMEDLEY_CAMPAIGN_AUTOMATION_API_VERSION_V1}; return services.automation_handle && AutomationOk(services.automation.read_popup_state(services.automation_handle, &state)) ? static_cast<long>(state.suppressed_count) : 0; }
         bool IsCampaignObserverConsoleReady() noexcept { SmedleyCampaignConsoleStateV1 state{sizeof(state), SMEDLEY_CAMPAIGN_AUTOMATION_API_VERSION_V1}; return services.automation_handle && AutomationOk(services.automation.read_console_state(services.automation_handle, &state)) && state.ready; }
-        CampaignRuntimeObservationStatus ReadCampaignRuntime(CampaignRuntimeSnapshot *snapshot) { SmedleyCampaignRuntimeSnapshotV1 value{sizeof(value), SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1}; if (!snapshot || !RuntimeOk(services.runtime.read_campaign(services.session, &value))) return CampaignRuntimeObservationStatus::unavailable; *snapshot = {value.game_date_raw, value.speed_index, value.paused != 0}; return CampaignRuntimeObservationStatus::completed; }
+        CampaignRuntimeObservationStatus ReadCampaignRuntime(CampaignRuntimeSnapshot *snapshot) { SmedleyCampaignRuntimeSnapshotV2 value{sizeof(value), SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V2}; if (!snapshot || !RuntimeOk(services.runtime.read_campaign(services.session, &value))) return CampaignRuntimeObservationStatus::unavailable; *snapshot = {value.game_date_raw, value.speed_index, value.paused != 0, value.game_over != 0}; return CampaignRuntimeObservationStatus::completed; }
         CampaignOperationStatus SetCampaignPaused(bool paused) { return RuntimeOk(services.runtime.set_paused(services.session, paused)) ? CampaignOperationStatus::completed : CampaignOperationStatus::unavailable; }
         CampaignOperationStatus SetCampaignSpeedIndex(int speed) { return RuntimeOk(services.runtime.set_speed_index(services.session, speed)) ? CampaignOperationStatus::completed : CampaignOperationStatus::unavailable; }
         CampaignOperationStatus RequestCampaignQuit() { return RuntimeOk(services.runtime.request_quit(services.session)) ? CampaignOperationStatus::completed : CampaignOperationStatus::unavailable; }
@@ -120,12 +120,12 @@ namespace smedley
         FrontendOperationStatus ReleaseFrontendController(FrontendControllerToken token) { return RuntimeOk(services.runtime.release_frontend(token.value)) ? FrontendOperationStatus::completed : FrontendOperationStatus::unavailable; }
         FrontendOperationStatus DispatchMainMenuSinglePlayer(FrontendControllerToken token) { return RuntimeOk(services.runtime.dispatch_main_menu_single_player(token.value)) ? FrontendOperationStatus::completed : FrontendOperationStatus::unavailable; }
         FrontendOperationStatus RequestFrontendSave(FrontendControllerToken token, const char *name) { return RuntimeOk(services.runtime.request_save(token.value, name, static_cast<uint32_t>(std::strlen(name)))) ? FrontendOperationStatus::completed : FrontendOperationStatus::unavailable; }
-        FrontendOperationStatus ObserveFrontendSave(FrontendControllerToken token, FrontendSaveSnapshot *snapshot) { SmedleyFrontendSaveSnapshotV1 value{sizeof(value), SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1}; if (!snapshot || !RuntimeOk(services.runtime.read_save(token.value, &value))) return FrontendOperationStatus::unavailable; snapshot->request_pending = value.request_pending != 0; snapshot->completed = value.completed != 0; std::memcpy(snapshot->selected_basename, value.selected_basename, sizeof(snapshot->selected_basename)); return FrontendOperationStatus::completed; }
+        FrontendOperationStatus ObserveFrontendSave(FrontendControllerToken token, FrontendSaveSnapshot *snapshot) { SmedleyFrontendSaveSnapshotV1 value{sizeof(value), SMEDLEY_CAMPAIGN_RUNTIME_RECORD_VERSION_V1}; if (!snapshot || !RuntimeOk(services.runtime.read_save(token.value, &value))) return FrontendOperationStatus::unavailable; snapshot->request_pending = value.request_pending != 0; snapshot->completed = value.completed != 0; std::memcpy(snapshot->selected_basename, value.selected_basename, sizeof(snapshot->selected_basename)); return FrontendOperationStatus::completed; }
         FrontendOperationStatus DispatchFrontendControl(FrontendControllerToken token, const char *name) { return RuntimeOk(services.runtime.dispatch_frontend_control(token.value, name, static_cast<uint32_t>(std::strlen(name)))) ? FrontendOperationStatus::completed : FrontendOperationStatus::unavailable; }
         ObserverObservationStatus ReadObserverState(ObserverStateSnapshot *snapshot) { auto value = ObserverStateAbi(); if (!snapshot || !RuntimeOk(services.runtime.read_observer_state(services.session, &value))) return ObserverObservationStatus::unavailable; CopyState(value, snapshot); return ObserverObservationStatus::completed; }
-        ObserverObservationStatus ReadObserverCountry(int32_t ordinal, ObserverCountrySnapshot *snapshot) { SmedleyObserverCountrySnapshotV1 value{sizeof(value), SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1}; if (!snapshot || !RuntimeOk(services.runtime.read_observer_country(services.session, ordinal, &value))) return ObserverObservationStatus::unavailable; CopyCountry(value, snapshot); return ObserverObservationStatus::completed; }
-        ObserverObservationStatus ResolveObserverCountry(const char tag[4], ObserverCountrySnapshot *snapshot) { SmedleyCampaignTagV1 value{sizeof(value), SMEDLEY_CAMPAIGN_AUTOMATION_API_VERSION_V1}; std::memcpy(value.tag, tag, sizeof(value.tag)); SmedleyObserverCountrySnapshotV1 country{sizeof(country), SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1}; if (!snapshot || !AutomationOk(services.automation.read_observer_country_by_tag(services.session, &value, &country))) return ObserverObservationStatus::unavailable; CopyCountry(country, snapshot); return ObserverObservationStatus::completed; }
-        ObserverObservationStatus FindHealthyObserverCountry(int32_t ordinal, ObserverCountrySnapshot *snapshot) { SmedleyObserverCountrySnapshotV1 value{sizeof(value), SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1}; if (!snapshot || !RuntimeOk(services.runtime.find_observer_country(services.session, ordinal, &value))) return ObserverObservationStatus::unavailable; CopyCountry(value, snapshot); return ObserverObservationStatus::completed; }
+        ObserverObservationStatus ReadObserverCountry(int32_t ordinal, ObserverCountrySnapshot *snapshot) { SmedleyObserverCountrySnapshotV1 value{sizeof(value), SMEDLEY_CAMPAIGN_RUNTIME_RECORD_VERSION_V1}; if (!snapshot || !RuntimeOk(services.runtime.read_observer_country(services.session, ordinal, &value))) return ObserverObservationStatus::unavailable; CopyCountry(value, snapshot); return ObserverObservationStatus::completed; }
+        ObserverObservationStatus ResolveObserverCountry(const char tag[4], ObserverCountrySnapshot *snapshot) { SmedleyCampaignTagV1 value{sizeof(value), SMEDLEY_CAMPAIGN_AUTOMATION_API_VERSION_V1}; std::memcpy(value.tag, tag, sizeof(value.tag)); SmedleyObserverCountrySnapshotV1 country{sizeof(country), SMEDLEY_CAMPAIGN_RUNTIME_RECORD_VERSION_V1}; if (!snapshot || !AutomationOk(services.automation.read_observer_country_by_tag(services.session, &value, &country))) return ObserverObservationStatus::unavailable; CopyCountry(country, snapshot); return ObserverObservationStatus::completed; }
+        ObserverObservationStatus FindHealthyObserverCountry(int32_t ordinal, ObserverCountrySnapshot *snapshot) { SmedleyObserverCountrySnapshotV1 value{sizeof(value), SMEDLEY_CAMPAIGN_RUNTIME_RECORD_VERSION_V1}; if (!snapshot || !RuntimeOk(services.runtime.find_observer_country(services.session, ordinal, &value))) return ObserverObservationStatus::unavailable; CopyCountry(value, snapshot); return ObserverObservationStatus::completed; }
         ObserverOperationStatus SetObserverViewCountry(const ObserverCountrySnapshot &country, ObserverStateSnapshot *after) { auto state = ObserverStateAbi(); const auto result = services.runtime.set_observer_view_country(services.session, &ToAbi(country), &state); if (!RuntimeOk(result)) return ObserverOperationStatus::unavailable; if (after) CopyState(state, after); return ObserverOperationStatus::completed; }
         ObserverOperationStatus ReturnObserverCountryToAI(const ObserverCountrySnapshot &country, ObserverStateSnapshot *after) { auto state = ObserverStateAbi(); const auto result = services.runtime.return_observer_country(services.session, &ToAbi(country), &state); if (!RuntimeOk(result)) return ObserverOperationStatus::unavailable; if (after) CopyState(state, after); return ObserverOperationStatus::completed; }
         ObserverOperationStatus EnableObserverFullMapVisibility() { return RuntimeOk(services.runtime.enable_observer_fow(services.session)) ? ObserverOperationStatus::completed : ObserverOperationStatus::unavailable; }

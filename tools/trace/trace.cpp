@@ -483,6 +483,7 @@ namespace smedley::trace
                 || (reason->text == "pause_failed" && (!actual || paused_true))
                 || (reason->text == "observer_invariant_failed" && (!actual || !paused_true))
                 || (reason->text == "unexpected_pause" && (!actual || !paused_true))
+                || (reason->text == "game_over" && (!actual || !paused_true))
                 || (reason->text == "timer_unavailable" && !actual)
                 || (reason->text == "invalid_target" && !actual)) {
                 *error = "benchmark.failed reason is inconsistent with its fields";
@@ -2759,9 +2760,9 @@ namespace smedley::trace
 
     bool IsBenchmarkFailureReason(const std::string &reason)
     {
-        constexpr std::array<std::string_view, 10> reasons = {"timeout", "date_overshoot", "idler_unavailable",
+        constexpr std::array<std::string_view, 11> reasons = {"timeout", "date_overshoot", "idler_unavailable",
             "invalid_pause_state", "pause_failed", "observer_invariant_failed", "date_regressed", "unexpected_pause",
-            "timer_unavailable", "invalid_target"};
+            "game_over", "timer_unavailable", "invalid_target"};
         return std::find(reasons.begin(), reasons.end(), reason) != reasons.end();
     }
 

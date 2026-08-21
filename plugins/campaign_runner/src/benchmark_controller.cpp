@@ -35,6 +35,7 @@ namespace campaign_runner
         timeout_seconds_ = timeout_seconds;
         start_monotonic_us_ = start_monotonic_us;
         previous_date_raw_ = start_date_raw;
+        target_pause_observed_ = false;
         return true;
     }
 
@@ -47,17 +48,29 @@ namespace campaign_runner
         };
         if (!observation.idler_available || !observation.date_raw) return fail("idler_unavailable");
         if (observation.pause_state != 0 && observation.pause_state != 1) return fail("invalid_pause_state");
+        if (observation.game_over) return fail("game_over");
         if (!observation.observer_invariants_valid) return fail("observer_invariant_failed");
         if (*observation.date_raw < previous_date_raw_) return fail("date_regressed");
         previous_date_raw_ = *observation.date_raw;
         if (*observation.date_raw > target_date_raw_) return fail("date_overshoot");
+        const uint64_t timeout_us = static_cast<uint64_t>(timeout_seconds_) * 1000000ull;
+        const bool timed_out = observation.monotonic_us < start_monotonic_us_
+            || observation.monotonic_us - start_monotonic_us_ >= timeout_us;
         if (*observation.date_raw == target_date_raw_) {
-            active_ = false;
-            return {BenchmarkAction::Complete, nullptr};
+            if (observation.pause_state == 1 && target_pause_observed_) {
+                active_ = false;
+                return {BenchmarkAction::Complete, nullptr};
+            }
+            if (timed_out) return fail("timeout");
+            if (observation.pause_state == 1) {
+                target_pause_observed_ = true;
+            } else {
+                target_pause_observed_ = false;
+            }
+            return {};
         }
         if (observation.pause_state == 1) return fail("unexpected_pause");
-        const uint64_t timeout_us = static_cast<uint64_t>(timeout_seconds_) * 1000000ull;
-        if (observation.monotonic_us < start_monotonic_us_ || observation.monotonic_us - start_monotonic_us_ >= timeout_us) return fail("timeout");
+        if (timed_out) return fail("timeout");
         return {};
     }
 }

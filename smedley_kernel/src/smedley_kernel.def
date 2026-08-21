@@ -4,7 +4,7 @@ EXPORTS
     LoadPluginsThread = _LoadPluginsThread@4
     SmedleyGetCampaignAutomationApiV1
     SmedleyGetCampaignControlApiV1
-    SmedleyGetCampaignRuntimeApiV1
+    SmedleyGetCampaignRuntimeApiV2
     SmedleyGetEventApiV1
     SmedleyGetEventServicesApiV1
     SmedleyGetInterestPoolApiV1
