@@ -12,6 +12,7 @@ namespace campaign_runner
         bool idler_available = false;
         std::optional<int> date_raw;
         int pause_state = -1;
+        bool game_over = false;
         bool observer_invariants_valid = true;
         uint64_t monotonic_us = 0;
     };
@@ -44,5 +45,6 @@ namespace campaign_runner
         int timeout_seconds_ = 0;
         uint64_t start_monotonic_us_ = 0;
         int previous_date_raw_ = 0;
+        bool target_pause_observed_ = false;
     };
 }

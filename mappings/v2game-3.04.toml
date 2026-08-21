@@ -635,6 +635,21 @@ signature = "c6 81 20 1d 00 00 01 c3"
 source = "accepted QUIT DefaultDialog callback RVA 0x276500 invokes primary CInGameIdler vtable +0x110; x86 __thiscall method sets this+0x1d20; campaign_runner run 21b024dd-ec69-4d46-a22e-1d309ab83b21 read back 1 and exited without external termination"
 
 [[symbols]]
+name = "CInGameIdler endgame check"
+rva = 0x0025548d
+kind = "instruction"
+status = "verified-runtime"
+signature = "3b 50 0c 7e 1e 8b 83 6c 1d 00 00 80 78 67 00 75 0b"
+source = "native branch compares CGameState+0xb0c with [campaign defines RVA 0xe586dc]+0xc, then checks CInGameIdler+0x1d6c visibility at +0x67; live endgame and ordinary-pause comparison documented in mappings/evidence/campaign-automation.md"
+
+[[symbols]]
+name = "Campaign defines pointer"
+rva = 0x00e586dc
+kind = "global"
+status = "verified-runtime"
+source = "dereferenced by the endgame branch at RVA 0x25548d; +0xc correlated with the configured end date in visible endgame state"
+
+[[symbols]]
 name = "CGameState daily pacing update"
 rva = 0x00282bd0
 kind = "function"
@@ -801,6 +816,24 @@ status = "verified-runtime"
 source = "constructor/destructor hooks and native Single Player dispatch; update RVA 0x354f90 statically confirms the lookup sequence"
 fields = [
   { name = "gui_registry", offset = 0x0704 },
+]
+
+[[layouts]]
+name = "CInGameIdler"
+status = "verified-runtime"
+source = "pause, native quit, and endgame branch/runtime observations"
+fields = [
+  { name = "pause_state", offset = 0x1538 },
+  { name = "quit_requested", offset = 0x1d20 },
+  { name = "endgame_dialog", offset = 0x1d6c },
+]
+
+[[layouts]]
+name = "CampaignDefines"
+status = "verified-runtime"
+source = "endgame branch at RVA 0x25548d and live current/end-date comparison"
+fields = [
+  { name = "end_date", offset = 0x000c },
 ]
 
 [[layouts]]

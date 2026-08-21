@@ -4,6 +4,7 @@
 #include "../src/console_layout.hpp"
 #include "../src/engine_string_layout.hpp"
 #include "../src/foreign_memory.hpp"
+#include "../src/v2_304_layout.hpp"
 #include <smedley/game_state/artisan_consumption_hook.hpp>
 #include <smedley/game_state/factory_consumption_hook.hpp>
 #include <smedley/game_state/factory_sales_hook.hpp>
@@ -28,6 +29,14 @@ namespace smedley::game_state
 {
 namespace
 {
+        TEST(GameOverStateTest, RequiresDatePastEndAndVisibleDialog)
+        {
+            EXPECT_FALSE(v2_304_layout::IsGameOverState(100, 100, 1));
+            EXPECT_FALSE(v2_304_layout::IsGameOverState(101, 100, 0));
+            EXPECT_FALSE(v2_304_layout::IsGameOverState(101, 100, 2));
+            EXPECT_TRUE(v2_304_layout::IsGameOverState(101, 100, 1));
+        }
+
         static_assert(!std::is_copy_constructible_v<DailyInterestAccess>);
         static_assert(!std::is_copy_assignable_v<DailyInterestAccess>);
         static_assert(!std::is_copy_constructible_v<BankInterestAccess>);

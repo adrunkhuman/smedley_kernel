@@ -38,6 +38,8 @@ namespace smedley::game_state
         namespace foreign = foreign_memory;
         namespace layout = v2_304_layout;
         using layout::bank_owner_offset;
+        using layout::campaign_defines_end_date_offset;
+        using layout::campaign_defines_rva;
         using layout::country_ai_offset;
         using layout::country_allies_offset;
         using layout::country_diplomatic_points_offset;
@@ -64,6 +66,7 @@ namespace smedley::game_state
         using layout::country_war_exhaustion_offset;
         using layout::current_game_state_rva;
         using layout::debug_command_handler_rva;
+        using layout::endgame_check_rva;
         using layout::fog_enabled_rva;
         using layout::game_state_countries_offset;
         using layout::game_state_country_ais_offset;
@@ -75,6 +78,9 @@ namespace smedley::game_state
         using layout::game_state_speed_index_offset;
         using layout::game_state_wars_offset;
         using layout::give_money_rva;
+        using layout::gui_element_visible_offset;
+        using layout::gui_window_vtable_rva;
+        using layout::idler_endgame_dialog_offset;
         using layout::idler_pause_state_offset;
         using layout::idler_quit_requested_offset;
         using layout::native_tag_handler_rva;
@@ -115,6 +121,10 @@ namespace smedley::game_state
         constexpr size_t idler_request_quit_slot_offset = 0x110;
         constexpr std::array<uint8_t, 8> request_quit_signature{
             0xc6, 0x81, 0x20, 0x1d, 0x00, 0x00, 0x01, 0xc3,
+        };
+        constexpr std::array<uint8_t, 17> endgame_check_signature{
+            0x3b, 0x50, 0x0c, 0x7e, 0x1e, 0x8b, 0x83, 0x6c, 0x1d,
+            0x00, 0x00, 0x80, 0x78, 0x67, 0x00, 0x75, 0x0b,
         };
         constexpr size_t speed_handler_signature_offset = 6;
         constexpr std::array<uint8_t, 10> speed_up_signature{
@@ -546,6 +556,31 @@ namespace smedley::game_state
             uintptr_t address = 0;
             return AddOffset(reinterpret_cast<uintptr_t>(idler), idler_pause_state_offset, &address)
                 && ReadValue(address, state);
+        }
+
+        bool ReadGameOverState(const void *idler, int32_t current_date_raw, bool *game_over)
+        {
+            if (idler == nullptr || game_over == nullptr
+                || !NativeSignatureMatches(endgame_check_rva, endgame_check_signature.data(),
+                    endgame_check_signature.size())) return false;
+            uintptr_t defines_address = 0;
+            uintptr_t defines = 0;
+            uintptr_t dialog = 0;
+            uintptr_t dialog_vtable = 0;
+            uintptr_t expected_vtable = 0;
+            int32_t end_date_raw = 0;
+            uint8_t visible = 0;
+            if (!AddOffset(smedley::memory::Map::base_addr, campaign_defines_rva, &defines_address)
+                || !ReadValue(defines_address, &defines) || defines == 0
+                || !ReadField(reinterpret_cast<const void *>(defines), campaign_defines_end_date_offset, &end_date_raw)
+                || !ReadField(idler, idler_endgame_dialog_offset, &dialog) || dialog == 0
+                || !ReadValue(dialog, &dialog_vtable)
+                || !AddOffset(smedley::memory::Map::base_addr, gui_window_vtable_rva, &expected_vtable)
+                || dialog_vtable != expected_vtable
+                || !ReadField(reinterpret_cast<const void *>(dialog), gui_element_visible_offset, &visible)
+                || visible > 1) return false;
+            *game_over = layout::IsGameOverState(current_date_raw, end_date_raw, visible);
+            return true;
         }
 
         bool TogglePauseVerified(void *idler)
@@ -1490,6 +1525,19 @@ namespace smedley::game_state
         }
         value.paused = pause_state == 1;
         *snapshot = value;
+        return CampaignRuntimeObservationStatus::completed;
+    }
+
+    CampaignRuntimeObservationStatus ReadCampaignRuntimeWithGameOver(CampaignRuntimeSnapshot *snapshot)
+    {
+        const auto status = ReadCampaignRuntime(snapshot);
+        if (status != CampaignRuntimeObservationStatus::completed) return status;
+        void *idler = nullptr;
+        if (!ReadCurrentIdler(&idler) || !IsInGameIdler(idler)
+            || !ReadGameOverState(idler, snapshot->date_raw, &snapshot->game_over)) {
+            *snapshot = {};
+            return CampaignRuntimeObservationStatus::invalid_state;
+        }
         return CampaignRuntimeObservationStatus::completed;
     }
 

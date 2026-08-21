@@ -1037,6 +1037,7 @@ TEST_F(TraceTest, AcceptsProducerCompatibleBenchmarkFailureShapes)
         {"observer_invariant_failed", "100", ",\"actual_date_raw\":100,\"paused\":true", 1},
         {"date_regressed", "99", ",\"actual_date_raw\":99,\"paused\":true", 1},
         {"unexpected_pause", "100", ",\"actual_date_raw\":100,\"paused\":true", 1},
+        {"game_over", "100", ",\"actual_date_raw\":100,\"paused\":true", 1},
         {"timer_unavailable", "100", ",\"actual_date_raw\":100,\"paused\":true", 1},
     };
     const auto path = Path(L"benchmark failure shapes");

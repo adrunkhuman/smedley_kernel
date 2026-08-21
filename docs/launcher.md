@@ -28,7 +28,7 @@ start_paused = false # optional; requires a save and campaign_runner; incompatib
 detach = false
 run_days = 365 # optional; 1 through 1000000, mutually exclusive with run_until_date_raw
 run_until_date_raw = 123456 # optional legacy raw-date target; GUI displays DD-MM-YYYY
-quit_after_run = false # optional; native exit only after successful exact-target completion
+quit_after_run = false # optional; native exit after exact-target completion or typed game over
 run_timeout_seconds = 600 # persisted default; used only when a run target exists, 1 through 86400
 telemetry_enabled = false
 telemetry_output = "C:\\traces\\gfm.jsonl" # optional; default is per-run under %LOCALAPPDATA%
@@ -236,21 +236,22 @@ watchdog instead of reporting `unexpected_pause` first.
 | --- | --- |
 | Non-default run controls | Require a save and the `campaign_runner` plugin. |
 | `run_days` or run-until date | Request a bounded benchmark interval. Require injection, a selected save, `campaign_runner`, `start_paused = false`, and `detach = true`. Safe mode warns that stale targets are ignored. |
-| `quit_after_run` | Requires a bounded run target. After exact-target completion, attempts to queue `benchmark.completed`, then invokes the optional telemetry drain with one five-second deadline. Completed telemetry permits Victoria II's verified native quit. Unavailable telemetry also permits quit for absent or legacy sinks, without a final-summary or durability guarantee. Busy, timeout, drain failure, native-request validation failure, or request-state readback failure leaves the campaign paused and open. It never applies to failed runs. See [telemetry lifecycle](telemetry.md#native-extension-abi-and-lifecycle). |
+| `quit_after_run` | Requires a bounded run target. After exact-target completion or typed `game_over`, queues the terminal benchmark record, then invokes the optional telemetry drain with one five-second deadline. Completed telemetry permits Victoria II's verified native quit. Unavailable telemetry also permits quit for absent or legacy sinks, without a final-summary or durability guarantee. Busy, timeout, drain failure, native-request validation failure, or request-state readback failure leaves the campaign paused and open. Other failed runs never attempt exit. See [telemetry lifecycle](telemetry.md#native-extension-abi-and-lifecycle). |
 | `view_tag` with a run target | Rejected because the view switch is asynchronous after simulation resumes. Observer mode itself remains optional. |
 | Custom timeout without a target | Inert and produces a preflight warning. It neither requires campaign automation nor reaches the plugin. |
 
 The campaign page exposes Run days, Run until date (`DD-MM-YYYY`), Timeout seconds, and
-**Quit after successful bounded run** through the same preflight.
+**Quit after bounded run** through the same preflight.
 
 When one selected mod declares a safe `user_dir`, save preflight and run-record
 links use that mod-specific `save games` and log directory. Multiple distinct
 mod user directories are ambiguous and rejected instead of guessing which one
 the game will use.
 
-By default the process is intentionally left paused and open on completion.
-Every safe failure also remains open. An explicitly enabled `quit_after_run`
-requests the verified native game exit only after exact-target success. No
+By default the process is intentionally left paused and open on completion or
+typed game over. Other safe failures also remain open. An explicitly enabled
+`quit_after_run` requests the verified native game exit after exact-target
+success or typed game over. No
 checkpoint save, generic plugin drain, or final game-state assertion is
 implemented or claimed. The telemetry plugin has its own bounded pre-exit drain.
 That guarantee requires the bundled drain-capable plugin; unavailable legacy or

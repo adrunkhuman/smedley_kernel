@@ -26,7 +26,7 @@ EXPECTED_KERNEL_EXPORTS = {
     "LoadPluginsThread",
     "SmedleyGetCampaignControlApiV1",
     "SmedleyGetCampaignAutomationApiV1",
-    "SmedleyGetCampaignRuntimeApiV1",
+    "SmedleyGetCampaignRuntimeApiV2",
     "SmedleyGetEventApiV1",
     "SmedleyGetEventServicesApiV1",
     "SmedleyGetInterestPoolApiV1",

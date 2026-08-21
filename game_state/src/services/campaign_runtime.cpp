@@ -174,17 +174,18 @@ namespace smedley::game_state::services
         return SMEDLEY_CAMPAIGN_RUNTIME_STALE_HANDLE;
     }
 
-    SmedleyCampaignRuntimeResult SMEDLEY_CAMPAIGN_RUNTIME_CALL ReadCampaign(
-        SmedleyCampaignSession session, SmedleyCampaignRuntimeSnapshotV1 *snapshot)
+    SmedleyCampaignRuntimeResult SMEDLEY_CAMPAIGN_RUNTIME_CALL ReadCampaignV2(
+        SmedleyCampaignSession session, SmedleyCampaignRuntimeSnapshotV2 *snapshot)
     {
-        if (!ValidRecord(snapshot, 1)) return SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT;
+        if (!ValidRecord(snapshot, 2)) return SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT;
         if (const auto status = CampaignSessionStatus(session); status != SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS) return status;
         CampaignRuntimeSnapshot value{};
-        const auto status = ReadCampaignRuntime(&value);
+        const auto status = ReadCampaignRuntimeWithGameOver(&value);
         if (status != CampaignRuntimeObservationStatus::completed) return SMEDLEY_CAMPAIGN_RUNTIME_UNAVAILABLE;
         snapshot->game_date_raw = value.date_raw;
         snapshot->speed_index = value.speed_index;
         snapshot->paused = value.paused ? 1 : 0;
+        snapshot->game_over = value.game_over ? 1 : 0;
         return SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS;
     }
 
@@ -414,13 +415,13 @@ namespace smedley::game_state::services
 using namespace smedley::game_state::services;
 
 SMEDLEY_CAMPAIGN_RUNTIME_EXPORT SmedleyCampaignRuntimeResult SMEDLEY_CAMPAIGN_RUNTIME_CALL
-SmedleyGetCampaignRuntimeApiV1(SmedleyCampaignRuntimeApiV1 *api)
+SmedleyGetCampaignRuntimeApiV2(SmedleyCampaignRuntimeApiV2 *api)
 {
-    if (api == nullptr || api->struct_size != sizeof(*api) || api->version != SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V1
+    if (api == nullptr || api->struct_size != sizeof(*api) || api->version != SMEDLEY_CAMPAIGN_RUNTIME_API_VERSION_V2
         || api->reserved[0] != 0 || api->reserved[1] != 0) return SMEDLEY_CAMPAIGN_RUNTIME_INVALID_ARGUMENT;
     api->open_session = &OpenCampaignSession;
     api->close_session = &CloseCampaignSession;
-    api->read_campaign = &ReadCampaign;
+    api->read_campaign = &ReadCampaignV2;
     api->set_paused = &SetPaused;
     api->set_speed_index = &SetSpeed;
     api->request_quit = &RequestQuit;
@@ -439,7 +440,7 @@ SmedleyGetCampaignRuntimeApiV1(SmedleyCampaignRuntimeApiV1 *api)
     return SMEDLEY_CAMPAIGN_RUNTIME_SUCCESS;
 }
 
-static_assert(sizeof(SmedleyCampaignRuntimeSnapshotV1) == 32, "campaign runtime snapshot ABI v1 layout changed");
+static_assert(sizeof(SmedleyCampaignRuntimeSnapshotV2) == 32, "campaign runtime snapshot ABI v2 layout changed");
 static_assert(sizeof(SmedleyFrontendSaveSnapshotV1) == 288, "frontend save ABI v1 layout changed");
 static_assert(sizeof(SmedleyObserverCountrySnapshotV1) == 44, "observer country ABI v1 layout changed");
-static_assert(sizeof(SmedleyCampaignRuntimeApiV1) == 88, "campaign runtime API v1 layout changed");
+static_assert(sizeof(SmedleyCampaignRuntimeApiV2) == 88, "campaign runtime API v2 layout changed");

@@ -235,6 +235,7 @@ namespace smedley::game_state
         int32_t date_raw = 0;
         int32_t speed_index = 0;
         bool paused = false;
+        bool game_over = false;
     };
 
     struct ProcessMetricsSnapshot
@@ -245,11 +246,10 @@ namespace smedley::game_state
         std::optional<int64_t> process_peak_working_set_bytes;
     };
 
-    /**
-     * Copies the current in-campaign date, speed, and pause state after
-     * validating the current CInGameIdler. The snapshot retains no game pointer.
-     */
+    /** Copies date, speed, and pause after validating the current CInGameIdler. */
     CampaignRuntimeObservationStatus ReadCampaignRuntime(CampaignRuntimeSnapshot *snapshot);
+    /** Copies the base runtime state plus fail-closed native game-over classification. */
+    CampaignRuntimeObservationStatus ReadCampaignRuntimeWithGameOver(CampaignRuntimeSnapshot *snapshot);
     /** Sets the verified native pause state and requires immediate readback. */
     CampaignOperationStatus SetCampaignPaused(bool paused);
     /** Sets the zero-based native speed index through verified native handlers. */

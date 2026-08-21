@@ -150,7 +150,9 @@ record remains observation-only; pause uses the separate campaign-control table.
 The kernel-private game runtime owns the checked campaign runtime boundary. It returns a
 copied `CampaignRuntimeSnapshot` only after executable identity, current
 game-state/idler resolution, idler RTTI, readable date/speed/pause fields, and
-their supported ranges pass. The snapshot is synchronous and non-owning; an
+their supported ranges pass. Runtime API v2 additionally reports game over only
+after the native endgame branch, configured end date, expected dialog vtable,
+and visible-dialog state all pass. The snapshot is synchronous and non-owning; an
 unavailable observation is not a zero date, speed, or pause value.
 
 `SetCampaignPaused`, `SetCampaignSpeedIndex`, and `RequestCampaignQuit` return
@@ -231,7 +233,7 @@ operations. The scripting plugin uses only these C engine-service boundaries.
 
 ## Domain C APIs
 
-The kernel exports five additional independently discoverable v1 tables. They
+The kernel exports five additional independently discoverable domain tables. They
 are domain boundaries, not a general game-object API. Each discovery record and
 each caller-initialized single-record output requires its exact `struct_size`,
 `version`, and zero reserved fields. Bulk output arrays are caller-owned and
@@ -241,11 +243,16 @@ supplies no invented zero data.
 
 | Header | Discovery symbol | Scope |
 | --- | --- | --- |
-| `smedley/campaign_runtime_api.h` | `SmedleyGetCampaignRuntimeApiV1` | Campaign copied state plus checked pause, speed, quit, frontend-save, and observer operations. `SmedleyCampaignSession` and `SmedleyFrontendController` are opaque generation-bound handles. |
+| `smedley/campaign_runtime_api.h` | `SmedleyGetCampaignRuntimeApiV2` | Campaign copied state, including typed game-over observation, plus checked pause, speed, quit, frontend-save, and observer operations. `SmedleyCampaignSession` and `SmedleyFrontendController` are opaque generation-bound handles. |
 | `smedley/campaign_automation_api.h` | `SmedleyGetCampaignAutomationApiV1` | Campaign automation lifecycle, copied frontend/annexation/console-capture notifications, console/tag-switch control, popup suppression readback, and optional copied process metrics. `SmedleyCampaignAutomation` is opaque and session/epoch bound. |
 | `smedley/interest_pool_api.h` | `SmedleyGetInterestPoolApiV1` | State/POP pool snapshots, prepare, payout, and cleanup. Each operation takes the `SmedleyBankInterestAuthority` supplied only to its synchronous bank-interest callback. |
 | `smedley/telemetry_game_api.h` | `SmedleyGetTelemetryGameApiV1` | World, market, country, province, POP, and factory copied snapshots plus bounded hook subscriptions and drain records. `SmedleyTelemetrySession` and `SmedleyTelemetryHookSubscription` are opaque handles. |
 | `smedley/telemetry_observation_api.h` | `SmedleyGetTelemetryObservationApiV1` | Detailed caller-buffered world, market, country, province, POP, factory, and RGO observations. `SmedleyTelemetryObservationSession` is opaque and bound to its parent telemetry session, owner thread, and game-session epoch. |
+
+Campaign runtime v2 replaces v1 without a compatibility alias. Consumers must
+compile against `SmedleyCampaignRuntimeApiV2` and discover
+`SmedleyGetCampaignRuntimeApiV2`; binaries that still request the removed v1
+symbol cannot initialize campaign runtime services.
 
 Authority and session handles are process-local, opaque values. They must not be
 serialized, guessed, or retained beyond their callback/session. The interest

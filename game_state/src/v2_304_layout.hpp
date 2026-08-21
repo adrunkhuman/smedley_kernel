@@ -40,6 +40,7 @@ namespace smedley::game_state::v2_304_layout
     constexpr uintptr_t current_game_state_rva = 0x00e588e8;
     constexpr uintptr_t state_employment_registry_rva = 0x00e58728;
     constexpr uintptr_t loaded_goods_count_rva = 0x00e587f4;
+    constexpr uintptr_t campaign_defines_rva = 0x00e586dc;
 
     constexpr uintptr_t give_money_rva = 0x0055a5f0;
     constexpr uintptr_t return_country_to_ai_rva = 0x00287a70;
@@ -50,6 +51,7 @@ namespace smedley::game_state::v2_304_layout
     constexpr uintptr_t request_quit_rva = 0x0024edb0;
     constexpr uintptr_t speed_up_rva = 0x0032ee90;
     constexpr uintptr_t speed_down_rva = 0x0032efe0;
+    constexpr uintptr_t endgame_check_rva = 0x0025548d;
     constexpr uintptr_t frontend_constructor_rva = 0x36a2f0;
     constexpr uintptr_t main_menu_constructor_rva = 0x354a00;
     constexpr uintptr_t frontend_destructor_rva = 0x36b030;
@@ -63,6 +65,17 @@ namespace smedley::game_state::v2_304_layout
     constexpr size_t game_state_idler_offset = 0x0b24;
     constexpr size_t idler_pause_state_offset = 0x1538;
     constexpr size_t idler_quit_requested_offset = 0x1d20;
+    constexpr size_t idler_endgame_dialog_offset = 0x1d6c;
+    constexpr size_t campaign_defines_end_date_offset = 0x00c;
+    constexpr size_t gui_element_visible_offset = 0x067;
+    constexpr uintptr_t gui_window_vtable_rva = 0x00a3c0d8;
+
+    [[nodiscard]] constexpr bool IsGameOverState(
+        int32_t current_date_raw, int32_t end_date_raw, uint8_t dialog_visible) noexcept
+    {
+        return current_date_raw > end_date_raw && dialog_visible == 1;
+    }
+
     constexpr size_t bank_owner_offset = 0x008;
     constexpr size_t country_tag_offset = 0x01c;
     constexpr size_t country_minimum_size = 0xe9c;
