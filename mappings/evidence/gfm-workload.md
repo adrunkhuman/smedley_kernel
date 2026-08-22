@@ -81,45 +81,51 @@ not establish that the chain is expensive or that its effects are generic.
 The pinned GFM event tree contains 996 event workflows that read or write
 province modifiers and 736 modifier-writing iterator candidates. Nineteen
 candidates participate in explicit scheduling cycles. Thirteen of those have no
-local random-selection, finite-duration, ownership-mutation, or MTTH risk. The
-central monthly cleanup event `477877790` contains the clearest deterministic
-reconciliation blocks:
+local random-selection, finite-duration, ownership-mutation, or MTTH risk. That
+mechanical filter does not imply that deletion is safe. Source review classifies
+all thirteen as follows:
 
-| Source lines | Scope | Reconciliation |
-| ---: | --- | --- |
-| 1127–1141 | `any_land_province` | Remove slave-trade decadence modifiers after the owner abolishes slavery |
-| 18399–18481 | three `any_land_province` blocks | Add permanent machine-tools, distribution-channel, and tractor modifiers when province, state, and owner predicates become true |
-| 18484–18493 | `any_land_province` | Remove collectivisation after the owner stops being a proletarian dictatorship |
+Source-expressible simplifications belong in upstream GFM. Smedley should only
+own measured problems that require generic engine capabilities unavailable to
+Clausewitz scripts. No candidate in this set currently requires a Smedley
+implementation.
 
-The slave-trade block is the narrowest candidate. When event `477877790`
-executes and its `CLN` scope resolves, the source schedules another invocation
-after 30 days. Runtime recurrence remains unverified. A province matches when
-it has any of `slave_trade_decadence_1` through `_4` and its owner uses
-`no_slavery`; the effect removes all four slave-trade decadence modifiers. It
-performs no random selection or other mutation. Province event `38506`
-separately changes eligible slave-trading RGOs and removes the same modifiers
-after a five-day MTTH, so the monthly block is a reconciliation safeguard rather
-than the complete abolition policy.
+| Blocks | Role | Route |
+| --- | --- | --- |
+| Monthly casino repair, lines 19016–19019 | Compatibility repair for one fixed province | Propose deleting it upstream; retain no Smedley copy |
+| Annual capital-mobilisation removal, lines 31346–31357 | Exact copy of the monthly removal at lines 1142–1153 | Propose deleting the annual copy upstream after scheduler validation |
+| Slave-trade removal, lines 1127–1141 | Stale-penalty safeguard after abolition | Retain unless GFM covers every ownership and abolition path |
+| Monthly capital removal, lines 1142–1153, and annual addition, lines 31358–31369 | Capital-mobilisation supply-limit invariant | Retain; targeted capital-change handling is incomplete |
+| Three local industry additions, lines 18399–18481 | Backfill after one-shot country events | Retain; later acquisitions and delayed eligibility need recovery |
+| Collectivisation removal, lines 18484–18493 | Stale-bonus cleanup after government change | Retain unless GFM covers every transition path |
+| Coffee addition, lines 18730–18752 | Ownership and setup backfill | Retain or move upstream to complete ownership-transition handling |
+| Two Indian-lands blocks, lines 18995–19015 | Gameplay-policy normalisation | Retain in GFM |
+| Annual `drang_nach_osten` addition, lines 31672–31702 | Acquisition backfill | Retain in GFM |
 
-A behavior-compatible replacement still lacks decisive generic capabilities:
+The casino block is the strongest first upstream amendment. It scans every land
+province to repair one state: province `3251` produces precious goods but lacks
+the permanent `casino` modifier. The `monte_carlo_casino` decision establishes
+both values in the same effect block at `decisions/monacoflavor.txt:18-26`, and
+no other active writer or remover exists. Victoria II script has no conditional
+direct-province effect that can preserve this repair without an iterator.
+Deleting the block preserves the normal decision path but abandons recovery for
+old or externally modified saves. That compatibility tradeoff belongs in an
+upstream GFM proposal, not in Smedley.
 
-| Requirement | Current support |
-| --- | --- |
-| Enumerate the effective land-province set | The GFM region is known statically; no supported public land iterator exists |
-| Read owner slavery policy | No supported country-policy query exists |
-| Query and remove province modifiers | No mapped checked operation or public service exists |
-| Preserve monthly cleanup ordering | Generic timers exist, but no boundary preserves event `477877790` ordering |
+The four-line deletion is proposed upstream in
+[`Historical-Expansion-Mod/Greater-Flavor-Mod#547`](https://github.com/Historical-Expansion-Mod/Greater-Flavor-Mod/pull/547).
 
-The candidate also has no direct cost measurement. It therefore defines a
-bounded future engine-capability investigation, not an implementation issue or
-permission to disable the GFM block.
+The annual capital-mobilisation removal is the clearest deletion, but its yearly
+scan may offer less benefit because it runs yearly. Source equivalence depends
+on the monthly cleanup continuing to run. Neither amendment has runtime cost or
+equivalence evidence yet.
 
 ## Candidate classification
 
 | Candidate | Provisional classification | Static evidence | Required runtime evidence |
 | --- | --- | --- | --- |
 | Script-site attribution | Reviewed leads rejected; capability remains missing | The selected-option executor is too narrow, and the automatic-event leads below are not effect execution boundaries | A different boundary with controlled identity correlation and measured hook overhead |
-| Province-modifier reconciliation | Source-identified safeguard; missing engine capability | The semantic report isolates the monthly slave-trade cleanup and related policy event | Direct block cost plus checked owner-policy and modifier query/removal boundaries |
+| Province-modifier reconciliation | Two upstream GFM amendments; no Smedley implementation justified | The casino repair duplicates the normal decision outcome; annual capital removal duplicates the monthly block | GFM-side validation and upstream review; continue searching separately for Smedley candidates |
 | Derived state flags | Performance-workaround hypothesis | GFM mirrors technology, invention, existence, and government facts into flags | Read/write executions and trigger-time comparison |
 | Ghost unit and relationship repair | Engine-bug-workaround hypothesis | Cleanup explicitly repairs residual entities and relationships | Reproduction without repair and verified native entity identity |
 | Dismantlement slot variables and scope bridges | Engine-limitation/workaround hypothesis | Numbered variables and repeated scope traversal emulate collections and transactions | Executed paths and behavior-preserving operation contract |
