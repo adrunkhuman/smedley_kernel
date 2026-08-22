@@ -81,46 +81,73 @@ not establish that the chain is expensive or that its effects are generic.
 The pinned GFM event tree contains 996 event workflows that read or write
 province modifiers and 736 modifier-writing iterator candidates. Nineteen
 candidates participate in explicit scheduling cycles. Thirteen of those have no
-local random-selection, finite-duration, ownership-mutation, or MTTH risk. The
-central monthly cleanup event `477877790` contains the clearest deterministic
-reconciliation blocks:
+local random-selection, finite-duration, ownership-mutation, or MTTH risk. That
+mechanical filter does not imply that deletion is safe. Source review classifies
+all thirteen as follows:
 
-| Source lines | Scope | Reconciliation |
-| ---: | --- | --- |
-| 1127–1141 | `any_land_province` | Remove slave-trade decadence modifiers after the owner abolishes slavery |
-| 18399–18481 | three `any_land_province` blocks | Add permanent machine-tools, distribution-channel, and tractor modifiers when province, state, and owner predicates become true |
-| 18484–18493 | `any_land_province` | Remove collectivisation after the owner stops being a proletarian dictatorship |
+Issue #9 treats repetitive or brittle script as product evidence even when it
+has not been measured as a bottleneck. A selected workflow may justify a generic
+kernel capability when an end-to-end replacement materially reduces script,
+centralizes an invariant, or improves correctness. GFM-specific conditions and
+compatibility policy remain in a separate adoption plugin and a minimal,
+version-gated companion submod disables only the replaced script.
 
-The slave-trade block is the narrowest candidate. When event `477877790`
-executes and its `CLN` scope resolves, the source schedules another invocation
-after 30 days. Runtime recurrence remains unverified. A province matches when
-it has any of `slave_trade_decadence_1` through `_4` and its owner uses
-`no_slavery`; the effect removes all four slave-trade decadence modifiers. It
-performs no random selection or other mutation. Province event `38506`
-separately changes eligible slave-trading RGOs and removes the same modifiers
-after a five-day MTTH, so the monthly block is a reconciliation safeguard rather
-than the complete abolition policy.
+| Blocks | Role | Route |
+| --- | --- | --- |
+| Monthly casino repair, lines 19016–19019 | Compatibility repair for one fixed province | Possible direct-province smoke test after modifier operations exist; too small to justify them alone |
+| Annual capital-mobilisation removal, lines 31346–31357 | Exact copy of the monthly removal at lines 1142–1153 | Source simplification candidate; not an API driver by itself |
+| Slave-trade removal, lines 1127–1141 | Stale-penalty safeguard after abolition | First-slice candidate for province iteration, owner-policy reads, and checked modifier removal |
+| Monthly capital removal, lines 1142–1153, and annual addition, lines 31358–31369 | Capital-mobilisation supply-limit invariant | Adoption candidate after capital-transition behavior is mapped |
+| Three local industry additions, lines 18399–18481 | Backfill after one-shot country events | Reuse candidate for province queries and checked modifier addition |
+| Collectivisation removal, lines 18484–18493 | Stale-bonus cleanup after government change | Reuse candidate for government-transition observation and modifier removal |
+| Coffee addition, lines 18730–18752 | Ownership and setup backfill | Reuse candidate for ownership transitions and modifier addition |
+| Two Indian-lands blocks, lines 18995–19015 | Gameplay-policy normalisation | Keep policy in the GFM plugin if adopted through generic operations |
+| Annual `drang_nach_osten` addition, lines 31672–31702 | Acquisition backfill | Reuse candidate after the generic province capability is proven |
 
-A behavior-compatible replacement still lacks decisive generic capabilities:
+The casino block scans every land province to repair one state: province `3251`
+produces precious goods but lacks the permanent `casino` modifier. The
+`monte_carlo_casino` decision establishes both values in the same effect block
+at `decisions/monacoflavor.txt:18-26`, and no other active writer or remover
+exists. Deleting the block would abandon recovery for old or externally modified
+saves. A generic direct-province modifier operation could preserve that repair,
+but this four-line case does not justify the API by itself.
 
-| Requirement | Current support |
-| --- | --- |
-| Enumerate the effective land-province set | The GFM region is known statically; no supported public land iterator exists |
-| Read owner slavery policy | No supported country-policy query exists |
-| Query and remove province modifiers | No mapped checked operation or public service exists |
-| Preserve monthly cleanup ordering | Generic timers exist, but no boundary preserves event `477877790` ordering |
+The slave-trade safeguard is a stronger first vertical slice. Its invariant is
+explicit, it exercises reusable province and owner queries plus checked modifier
+removal, and the same capability family can serve several retained backfills and
+normalizers. Runtime cost remains useful for prioritization, not a prerequisite
+for addressing the script limitation.
 
-The candidate also has no direct cost measurement. It therefore defines a
-bounded future engine-capability investigation, not an implementation issue or
-permission to disable the GFM block.
+### Derived state flags
+
+Review of recurring flag maintenance found several distinct script contracts,
+not one cache-removal family. Some should stay as script state; others are
+useful cases for country-fact, transition, culture, and relationship APIs:
+
+| Flags | Role | Route |
+| --- | --- | --- |
+| `medicine_invented`, `germs_invented`, `gaslights_invented`, `electricity_invented`, and `modern_central_bank_system_invented` | Technology or invention mirrors read from POP modifiers and country policy | Candidate for generic country-fact and transition APIs; retain script until all consumer scopes are covered |
+| `biologism_invented` | Technology mirror with one country-scope reader | Source-simplification baseline; too small to justify a native API alone |
+| `monarchy_government` and `theocratic_government` | Reusable government classifications with broad gameplay-policy readers | Possible country-fact API consumers; classifications remain GFM-plugin policy |
+| `new_world_nation_fr` | Government-derived emigration policy for New World nations | Possible country-fact API consumer; emigration policy remains in GFM |
+| `can_use_monthly` | Deliberate decision-execution pulse | Retain unless the underlying decision scheduler is adopted end to end |
+| Accepted-culture flags | Provenance for cultures granted through colonial relationships | High-value country catalog, culture, relationship, and checked-mutation candidate |
+| `revolution_n_counter_researched` and `colonial_cores_africa_active` | Irreversible global phase and scheduler latches | Low priority; existing script is concise and save-visible |
+
+The one-reader `biologism_invented` cache demonstrates that some cases need only
+a source simplification. The accepted-culture system is the opposite: its
+provenance rules and explicit tag/capital expansion are a substantial adoption
+case, but require a much broader verified country-state boundary. The review
+therefore supplies API candidates without implying that every mirrored flag
+should move out of script.
 
 ## Candidate classification
 
 | Candidate | Provisional classification | Static evidence | Required runtime evidence |
 | --- | --- | --- | --- |
 | Script-site attribution | Reviewed leads rejected; capability remains missing | The selected-option executor is too narrow, and the automatic-event leads below are not effect execution boundaries | A different boundary with controlled identity correlation and measured hook overhead |
-| Province-modifier reconciliation | Source-identified safeguard; missing engine capability | The semantic report isolates the monthly slave-trade cleanup and related policy event | Direct block cost plus checked owner-policy and modifier query/removal boundaries |
-| Derived state flags | Performance-workaround hypothesis | GFM mirrors technology, invention, existence, and government facts into flags | Read/write executions and trigger-time comparison |
+| Province-modifier reconciliation | First runtime adoption API family | Thirteen reviewed workflows reuse province iteration, owner conditions, and modifier add/remove operations | Select one invariant; map and verify generic reads and checked mutation; implement plugin and companion-submod slice |
+| Derived state flags | Split adoption backlog | Simple mirrors may stay in source; technology transitions and colonial-culture provenance expose broader reusable capability needs | Rank by script reduction and API reuse; preserve policy and save-visible state in the GFM layer |
 | Ghost unit and relationship repair | Engine-bug-workaround hypothesis | Cleanup explicitly repairs residual entities and relationships | Reproduction without repair and verified native entity identity |
 | Dismantlement slot variables and scope bridges | Engine-limitation/workaround hypothesis | Numbered variables and repeated scope traversal emulate collections and transactions | Executed paths and behavior-preserving operation contract |
 | `Naval Fix.txt` redistribution | Ordinary GFM-specific gameplay policy | Treasury debit plus repeated random POP transfers | Three-way economic matrix before any overlap claim |
