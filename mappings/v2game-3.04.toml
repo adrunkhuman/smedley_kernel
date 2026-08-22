@@ -611,6 +611,22 @@ signature = "55 8b ec 83 e4 f8 6a ff"
 source = "static queued-action path synchronously calls option executor RVA 0x4a61f0; controlled country events 990001 option 0 and 990002 option 1 produced matching resolver event IDs with two records, no invalid layouts, and no drops; broader scopes, source-key semantics, and nested reentrancy are unverified"
 
 [[symbols]]
+name = "CRegionScopeEffect executor"
+rva = 0x00488ba0
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 83 e4 f8 83 ec 54 53 56 8b f1 8b 4d 08"
+source = "RTTI and constructors identify CRegionScopeEffect; disassembly shows this+0x3c points to CRegion, whose +0x8 list is traversed completely while this+0x20 filters each province scope before the this+0x8 child effect chain runs"
+
+[[symbols]]
+name = "CRegionScopeTrigger evaluator"
+rva = 0x004c5da0
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 83 e4 f8 6a ff"
+source = "RTTI and constructors identify CRegionScopeTrigger; this+0x1c points to CRegion, and reviewed control flow tests each province against the nested trigger sequence, returns true on the first matching province, and returns false after exhausting the region; runtime trigger execution remains unobserved"
+
+[[symbols]]
 name = "Pause/unpause controller candidate"
 rva = 0x0026a2c0
 kind = "function"
@@ -912,7 +928,7 @@ fields = [
 name = "CRegion"
 status = "verified-runtime"
 size = 0x0108
-source = "RTTI and contiguous runtime instances establish size; owner-specific CState instances share the same +0x250 CRegion pointer, with stable key +0x18 and display name +0x34 across split vanilla regions"
+source = "RTTI and contiguous runtime instances establish size; owner-specific CState instances share the same +0x250 CRegion pointer, with stable key +0x18 and display name +0x34 across split vanilla regions; generic region-scope disassembly consumes the +0x8 province list"
 fields = [
   { name = "provinces", offset = 0x0008 },
   { name = "key", offset = 0x0018 },

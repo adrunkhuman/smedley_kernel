@@ -136,6 +136,38 @@ with `--telemetry-category state`,
 emitted valid state records from the smaller vanilla fixture. GFM state capture
 is therefore unverified and is not part of this baseline.
 
+## Region scope iteration boundary
+
+GFM defines `any_land_province` as a custom region in `map/region.txt`, not as
+a native operator class. The pinned definition contains 3,385 unique province
+IDs ranging from 1 through 3,986. Script uses of that region compile to the
+engine's generic `CRegionScopeEffect` and `CRegionScopeTrigger` objects.
+
+Static review establishes two generic execution boundaries:
+
+| Boundary | Contract | Evidence |
+| --- | --- | --- |
+| Effect executor, RVA `0x00488ba0` | x86 `__thiscall`, two stack arguments, `ret 8`; `this+0x3c` is `CRegion*` | Traverses every entry in `CRegion+0x8`, constructs a province scope, evaluates the `this+0x20` filter, then runs the `this+0x8` child effect chain for matches. |
+| Trigger evaluator, RVA `0x004c5da0` | x86 `__thiscall`, one stack argument, `ret 4`; `this+0x1c` is `CRegion*` | Tests nested triggers for each region province, returns true on the first matching province, and returns false after exhausting the region. |
+
+Both retained entry signatures end before ASLR-relocated exception-handler
+operands. Effect timing includes region traversal, nested trigger evaluation,
+and child effects. Trigger entry timing would include only the provinces tested
+before its first match, so region cardinality is not an exact trigger-visit
+count.
+
+A temporary bounded probe filtered both boundaries by the verified region key.
+A normal 30-day GFM run produced no target-region calls. A controlled event
+overlay then exercised the effect boundary, but 622 process-local node tokens
+appeared in the same burst and could not be mapped back to script source sites.
+The probe observed no trigger calls, recursion, invalid layouts, or drops.
+
+The probe did not count linked-list visits directly, establish stable node
+identity, or measure instrumentation cost. Its build also lacked committed-tree
+provenance. The runtime observations therefore do not promote either symbol
+beyond `verified-static-callsites` or support a source-site performance claim.
+The probe and disposable overlay were removed; no production API was retained.
+
 ## Script application boundary
 
 RVA `0x00507e00` is a verified runtime selected-event-option action executor.
