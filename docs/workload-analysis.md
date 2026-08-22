@@ -27,7 +27,29 @@ The JSON report contains:
 - `mean_time_to_happen` blocks;
 - iterator and random-selector key counts;
 - flag reads and writes;
-- modifier mutations and other mutation-shaped keys.
+- modifier mutations and other mutation-shaped keys;
+- source-spanned province-modifier workflows with event context, block ancestry,
+  cadence, iterator and random scopes, flags, variables, and semantic risk flags.
+
+Schema version 2 adds event-level `province_modifier_workflows` and
+`province_modifier_scope_candidates` for outer iterators containing modifier
+writes. Candidate dependencies and risks come from the iterator subtree;
+enclosing random selectors that govern its execution are also retained.
+
+| Field | Meaning |
+| --- | --- |
+| `event_id`, `event_kind` | Enclosing top-level event definition |
+| `fire_only_once`, `is_triggered_only` | Optional direct workflow metadata |
+| `event_source` or `source` | Inclusive `start_line` and `end_line` in the reported path |
+| `modifier_reads`, `modifier_writes` | Source-spanned commands, block ancestry, static target, and optional duration |
+| `incoming_schedules` | Statically resolved event commands targeting the event; omitted when none are found |
+| `mtth_cadence` | Direct MTTH delay fields; omitted from workflows without MTTH |
+| `recurrence` | `engine_polled_mtth` and/or `explicit_schedule_cycle` when detected |
+| dependency arrays | Sorted flags, variables, random selectors, and ownership mutations |
+| `iterator_scopes` | Sorted entity iterators used by a workflow |
+| `predicate_keys` | Sorted command keys below the iterator's `limit` blocks |
+| `scope` | Outer entity iterator containing the candidate write; `random_list` is not an iterator |
+| `risk_flags` | Any of `finite_modifier_duration`, `mtth_polling`, `ownership_mutation`, `random_selection`, or `state_scope_write` |
 
 Counts use the terminology `lead` throughout the report. A large file, common
 key, broad scope, or recurring edge is only a static lead. Establishing a
@@ -39,8 +61,10 @@ The parser recognizes top-level `country_event`, `province_event`, `event`, and
 those event blocks. Workload categories use key-name heuristics rather than a
 complete Victoria II command catalog. The parser does not implement trigger
 semantics, scope resolution, event eligibility, random selection, or mod
-load-order merging. Run it on the intended effective source directories and
-interpret the result alongside the mod's policy.
+load-order merging. Workflow records are source-semantic candidates, not proof
+that an event is eligible, a command is valid in its inferred scope, or a
+modifier operation executes. Run the tool on the intended effective source
+directories and interpret the result alongside the mod's policy.
 
 Run the focused tool tests from the repository root:
 
