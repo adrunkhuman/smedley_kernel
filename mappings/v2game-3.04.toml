@@ -603,6 +603,14 @@ signature = "56 8b 70 04 85 f6 74 10"
 source = "used at runtime after press dispatch for Single Player and Play controls"
 
 [[symbols]]
+name = "Selected event option action executor"
+rva = 0x00507e00
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 83 e4 f8 6a ff"
+source = "static queued-action path synchronously calls option executor RVA 0x4a61f0; controlled country events 990001 option 0 and 990002 option 1 produced matching resolver event IDs with two records, no invalid layouts, and no drops; broader scopes, source-key semantics, and nested reentrancy are unverified"
+
+[[symbols]]
 name = "Pause/unpause controller candidate"
 rva = 0x0026a2c0
 kind = "function"
