@@ -627,6 +627,83 @@ signature = "55 8b ec 83 e4 f8 6a ff"
 source = "RTTI and constructors identify CRegionScopeTrigger; this+0x1c points to CRegion, and reviewed control flow tests each province against the nested trigger sequence, returns true on the first matching province, and returns false after exhausting the region; runtime trigger execution remains unobserved"
 
 [[symbols]]
+name = "CRemoveProvinceModifierEffect executor"
+rva = 0x00482290
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 8b 41 20 8b 4d 08 8b 51 10 56 50"
+source = "RTTI and the effect vtable identify virtual slot +0x2c; the executor resolves scope province ID +0x10 through CGameState+0xacc, loads the resolved modifier definition from this+0x20, places CProvince* in ESI, and calls the remover at RVA 0x000b39a0"
+
+[[symbols]]
+name = "CProvince modifier remover"
+rva = 0x000b39a0
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 53 8b 5d 08 57 8b be c8 00 00 00 85 ff"
+source = "called by CRemoveProvinceModifierEffect with CProvince* in ESI and a stack-passed modifier-definition pointer; production run c479cc7c removed Berlin's stage-1 record at a checked before-bank-interest boundary, decremented the global active-node observation by one, preserved Washington's stage-2 record, and left all traversed lists valid"
+
+[[symbols]]
+name = "CHasProvinceModifierTrigger evaluator"
+rva = 0x004cdfc0
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 8b 45 08 8b 51 1c 8b 48 10"
+source = "RTTI and trigger vtable identify the evaluator; resolves scope province ID +0x10 and returns true when a CProvince+0xc8 active record has definition pointer +0x8 equal to this+0x1c"
+
+[[symbols]]
+name = "CIssueGroupTrigger evaluator"
+rva = 0x004c4da0
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 83 e4 f8 51 53 56 8b 75 08 8b 46 0c"
+source = "RTTI and trigger vtable identify the evaluator; issue group this+0x20 supplies index +0x50 and category +0x5c, and category 2 loads the option-array pointer stored at CCountry+0x860 before comparing its indexed value with expected option this+0x24"
+
+[[symbols]]
+name = "CSetPoliticalReformEffect executor"
+rva = 0x004950b0
+kind = "function"
+status = "verified-static-callsites"
+signature = "55 8b ec 83 ec 08 8b 45 08 8b 50 08 89 55 f8"
+source = "RTTI and effect vtable identify the executor; loads the option-array pointer stored at CCountry+0x860 and writes target option this+0x20 at the group index read through option+0x54 then group+0x50"
+
+[[symbols]]
+name = "Modifier-definition lookup"
+rva = 0x001661b0
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 51 8b 4d 08 53 56 8b f0 8b 41 14 57"
+source = "modifier add, remove, and presence parser paths pass the definition registry in EAX and one MSVC string pointer on the stack; production run c479cc7c resolved all four pinned GFM modifier keys and used the stage-1 definition for a verified native removal"
+
+[[symbols]]
+name = "Modifier-definition registry pointer"
+rva = 0x00e5a69c
+kind = "data"
+status = "verified-runtime"
+source = "loaded by add/remove province modifier effect and has-province-modifier trigger parser paths before named lookup at RVA 0x001661b0; production run c479cc7c resolved and retained the four pinned GFM modifier definitions through a complete checked mutation"
+
+[[symbols]]
+name = "Issue-option lookup"
+rva = 0x00575ed0
+kind = "function"
+status = "verified-runtime"
+signature = "55 8b ec 51 8b 4d 08 53 56 8b f0 8b 41 14 57"
+source = "CIssueGroupTrigger parser at RVA 0x004c4a70 passes the issue-option registry in EAX and an MSVC string pointer on the stack; production run c479cc7c resolved no_slavery, validated its political group, removed Berlin's stage, and preserved nonqualifying Washington"
+
+[[symbols]]
+name = "Issue-option registry pointer"
+rva = 0x00e58a48
+kind = "data"
+status = "verified-runtime"
+source = "loaded by CIssueGroupTrigger parser at RVA 0x004c4ad4 before issue-option lookup at RVA 0x00575ed0; production run c479cc7c used the resolved no_slavery option through a complete checked reconciliation"
+
+[[symbols]]
+name = "Country database pointer"
+rva = 0x00e587e4
+kind = "data"
+status = "verified-runtime"
+source = "CIssueGroupTrigger evaluator resolves the country index from province+0x12c through the pointer array at database+0x4; production run c479cc7c resolved current owners for 3,987 province slots, selected Berlin by current policy, and preserved nonqualifying Washington"
+
+[[symbols]]
 name = "Pause/unpause controller candidate"
 rva = 0x0026a2c0
 kind = "function"
@@ -870,6 +947,7 @@ fields = [
   { name = "incomes", offset = 0x00d0 },
   { name = "flags", offset = 0x01b0 },
   { name = "ai", offset = 0x0208 },
+  { name = "political_reform_options_pointer", offset = 0x0860 },
   { name = "states", offset = 0x0e44 },
   { name = "treasury", offset = 0x0e78 },
   { name = "field_0xe80_candidate", offset = 0x0e80 },
@@ -1026,13 +1104,79 @@ status = "provisional"
 size = 0x0398
 source = "mappings/research/retired-engine-mirrors.md#cprovince-layout"
 fields = [
-  { name = "owner", offset = 0x0128 },
-  { name = "controller", offset = 0x0130 },
+  { name = "active_modifier_head", offset = 0x00c8 },
+  { name = "active_modifier_tail", offset = 0x00cc },
+  { name = "active_modifier_count", offset = 0x00d0 },
+  { name = "active_modifier_iteration_guard", offset = 0x00d4 },
+  { name = "owner_key", offset = 0x0128 },
+  { name = "owner_index", offset = 0x012c },
+  { name = "controller_key", offset = 0x0130 },
+  { name = "controller_index", offset = 0x0134 },
   { name = "state", offset = 0x0188 },
   { name = "pops", offset = 0x0194 },
   { name = "num_pops", offset = 0x01a8 },
   { name = "rgo_employment_capacity", offset = 0x01ac },
   { name = "infrastructure", offset = 0x02b8 },
+]
+
+[[layouts]]
+name = "CCountryProvinceReconciliationView"
+status = "verified-runtime"
+source = "production run c479cc7c resolved current province owners through the country database and used the selected political-reform option at +0x860 to remove Berlin's stage while preserving Washington's"
+fields = [
+  { name = "political_reform_options_pointer", offset = 0x0860 },
+]
+
+[[layouts]]
+name = "CProvinceModifierReconciliationView"
+status = "verified-runtime"
+source = "production run c479cc7c traversed all 3,987 province slots, resolved current owners, removed Berlin's stage-1 node, preserved Washington's stage-2 node, and verified list counts with no active guard"
+fields = [
+  { name = "active_modifier_head", offset = 0x00c8 },
+  { name = "active_modifier_tail", offset = 0x00cc },
+  { name = "active_modifier_count", offset = 0x00d0 },
+  { name = "active_modifier_iteration_guard", offset = 0x00d4 },
+  { name = "owner_key", offset = 0x0128 },
+  { name = "owner_index", offset = 0x012c },
+]
+
+[[layouts]]
+name = "CProvinceModifierListNode"
+status = "verified-runtime"
+size = 0x0010
+source = "presence, add, and remove province-modifier paths; production run c479cc7c traversed 807 valid active nodes before mutation and 806 after verified Berlin removal with no count or link inconsistency; forced deferred-drain behavior remains unobserved"
+fields = [
+  { name = "modifier", offset = 0x0000 },
+  { name = "previous", offset = 0x0004 },
+  { name = "next", offset = 0x0008 },
+  { name = "deferred_removal", offset = 0x000c },
+]
+
+[[layouts]]
+name = "CActiveProvinceModifier"
+status = "verified-runtime"
+size = 0x0010
+source = "add path allocates 0x10 bytes and stores the resolved definition at +0x8 and computed expiry/date at +0xc; production run c479cc7c correlated +0x8 with pinned stage definitions and verified one targeted record's removal"
+fields = [
+  { name = "definition", offset = 0x0008 },
+  { name = "expiry_date", offset = 0x000c },
+]
+
+[[layouts]]
+name = "CIssueGroup"
+status = "verified-runtime"
+source = "CIssueGroupTrigger and political/social/economic/military reform effect paths; production run c479cc7c resolved no_slavery's group as political category 2 and used its bounded index for current-owner policy selection"
+fields = [
+  { name = "index", offset = 0x0050 },
+  { name = "category", offset = 0x005c },
+]
+
+[[layouts]]
+name = "CIssueOption"
+status = "verified-runtime"
+source = "CSetPoliticalReformEffect resolves the target option's owning group before indexing the country selection array; production run c479cc7c correlated the resolved no_slavery option with Berlin's current owner and a nonmatching option with Washington's owner"
+fields = [
+  { name = "group", offset = 0x0054 },
 ]
 
 [[layouts]]

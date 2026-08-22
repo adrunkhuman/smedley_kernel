@@ -89,8 +89,9 @@ Issue #9 treats repetitive or brittle script as product evidence even when it
 has not been measured as a bottleneck. A selected workflow may justify a generic
 kernel capability when an end-to-end replacement materially reduces script,
 centralizes an invariant, or improves correctness. GFM-specific conditions and
-compatibility policy remain in a separate adoption plugin and a minimal,
-version-gated companion submod disables only the replaced script.
+compatibility policy remain in a separate adoption plugin. A version-gated
+standalone GFM-smedley build removes only the replaced script block while
+preserving the rest of the pinned GFM tree.
 
 | Blocks | Role | Route |
 | --- | --- | --- |
@@ -116,7 +117,9 @@ The slave-trade safeguard is a stronger first vertical slice. Its invariant is
 explicit, it exercises reusable province and owner queries plus checked modifier
 removal, and the same capability family can serve several retained backfills and
 normalizers. Runtime cost remains useful for prioritization, not a prerequisite
-for addressing the script limitation.
+for addressing the script limitation. Issue
+[#91](https://github.com/adrunkhuman/smedley_kernel/issues/91) owns the focused
+behavior contract and native evidence gate.
 
 ### Derived state flags
 
@@ -146,7 +149,7 @@ should move out of script.
 | Candidate | Provisional classification | Static evidence | Required runtime evidence |
 | --- | --- | --- | --- |
 | Script-site attribution | Reviewed leads rejected; capability remains missing | The selected-option executor is too narrow, and the automatic-event leads below are not effect execution boundaries | A different boundary with controlled identity correlation and measured hook overhead |
-| Province-modifier reconciliation | First runtime adoption API family | Thirteen reviewed workflows reuse province iteration, owner conditions, and modifier add/remove operations | Select one invariant; map and verify generic reads and checked mutation; implement plugin and companion-submod slice |
+| Province-modifier reconciliation | First runtime adoption API family | Thirteen reviewed workflows reuse province iteration, owner conditions, and modifier add/remove operations | Select one invariant; map and verify generic reads and checked mutation; implement plugin and standalone GFM-smedley slice |
 | Derived state flags | Split adoption backlog | Simple mirrors may stay in source; technology transitions and colonial-culture provenance expose broader reusable capability needs | Rank by script reduction and API reuse; preserve policy and save-visible state in the GFM layer |
 | Ghost unit and relationship repair | Engine-bug-workaround hypothesis | Cleanup explicitly repairs residual entities and relationships | Reproduction without repair and verified native entity identity |
 | Dismantlement slot variables and scope bridges | Engine-limitation/workaround hypothesis | Numbered variables and repeated scope traversal emulate collections and transactions | Executed paths and behavior-preserving operation contract |

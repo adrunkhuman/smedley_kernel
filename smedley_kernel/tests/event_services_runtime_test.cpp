@@ -5,6 +5,7 @@
 #include <smedley/campaign_runtime_api.h>
 #include <smedley/campaign_automation_api.h>
 #include <smedley/interest_pool_api.h>
+#include <smedley/province_modifier_reconciliation_api.h>
 #include <smedley/telemetry_game_api.h>
 #include <smedley/telemetry_observation_api.h>
 
@@ -391,6 +392,19 @@ TEST(GameServicesApiV1Test, DiscoversDomainTablesAndRejectsReservedFields)
     EXPECT_EQ(SmedleyGetInterestPoolApiV1(&interest), SMEDLEY_INTEREST_POOL_SUCCESS);
     EXPECT_EQ(interest.collect(UINT64_C(1), nullptr, 0, nullptr, nullptr, 0, nullptr, nullptr),
         SMEDLEY_INTEREST_POOL_STALE_AUTHORITY);
+
+    SmedleyProvinceModifierReconciliationApiV1 reconciliation{};
+    reconciliation.struct_size = sizeof(reconciliation);
+    reconciliation.version = SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_API_VERSION_V1;
+    EXPECT_EQ(SmedleyGetProvinceModifierReconciliationApiV1(&reconciliation),
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS);
+    EXPECT_NE(reconciliation.collect, nullptr);
+    EXPECT_NE(reconciliation.apply, nullptr);
+    EXPECT_EQ(reconciliation.collect(UINT64_C(1), nullptr, 0, nullptr, nullptr, 0, nullptr, nullptr, 0, nullptr),
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_STALE_AUTHORITY);
+    reconciliation.reserved[0] = 1;
+    EXPECT_EQ(SmedleyGetProvinceModifierReconciliationApiV1(&reconciliation),
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_INVALID_ARGUMENT);
 
     SmedleyTelemetryGameApiV1 telemetry{};
     telemetry.struct_size = sizeof(telemetry);

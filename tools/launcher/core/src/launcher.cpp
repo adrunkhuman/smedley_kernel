@@ -700,6 +700,64 @@ namespace smedley::launcher
                 AddDiagnostic(diagnostics, "mod.content_missing", "mod content directory does not exist", descriptor->content_path);
                 return false;
             }
+
+            const auto requirements_path = descriptor->content_path / L"smedley-required-plugins.txt";
+            if (fs::exists(requirements_path)) {
+                std::error_code size_error;
+                const auto requirements_size = fs::file_size(requirements_path, size_error);
+                if (size_error || requirements_size == 0 || requirements_size > 64 * 1024) {
+                    AddDiagnostic(diagnostics, "mod.requirements_size", "Smedley mod requirements must be 1 through 65536 bytes", requirements_path);
+                    return false;
+                }
+                std::ifstream requirements(requirements_path);
+                if (!requirements) {
+                    AddDiagnostic(diagnostics, "mod.requirements_open", "could not open Smedley mod requirements", requirements_path);
+                    return false;
+                }
+                bool schema_version = false;
+                while (std::getline(requirements, line)) {
+                    line = Trim(line);
+                    if (line.empty() || line[0] == '#') continue;
+                    const auto separator = line.find('=');
+                    if (separator == std::string::npos || separator == 0 || separator + 1 == line.size()) {
+                        AddDiagnostic(diagnostics, "mod.requirements_parse", "Smedley mod requirements must use key=value records", requirements_path);
+                        return false;
+                    }
+                    const auto key = Trim(line.substr(0, separator));
+                    const auto value = Trim(line.substr(separator + 1));
+                    if (key.empty() || value.empty()) {
+                        AddDiagnostic(diagnostics, "mod.requirements_parse", "Smedley mod requirements must use non-empty key=value records", requirements_path);
+                        return false;
+                    }
+                    if (key == "schema_version") {
+                        if (schema_version || value != "1") {
+                            AddDiagnostic(diagnostics, "mod.requirements_schema", "Smedley mod requirements need one schema_version=1 record", requirements_path);
+                            return false;
+                        }
+                        schema_version = true;
+                        continue;
+                    }
+                    if (key != "required_plugin") continue;
+                    const auto &plugin_id = value;
+                    const bool valid_id = !plugin_id.empty() && plugin_id.size() <= 128
+                        && std::all_of(plugin_id.begin(), plugin_id.end(), [](const unsigned char character) {
+                            return std::isalnum(character) || character == '_' || character == '-';
+                        });
+                    if (!valid_id) {
+                        AddDiagnostic(diagnostics, "mod.requirements_parse", "required_plugin must be an ASCII identifier", requirements_path);
+                        return false;
+                    }
+                    if (std::find(descriptor->required_plugins.begin(), descriptor->required_plugins.end(), plugin_id)
+                        == descriptor->required_plugins.end()) {
+                        descriptor->required_plugins.push_back(plugin_id);
+                    }
+                }
+                if (!schema_version || descriptor->required_plugins.empty()) {
+                    AddDiagnostic(diagnostics, "mod.requirements_schema",
+                                  "Smedley mod requirements need schema_version=1 and at least one required_plugin", requirements_path);
+                    return false;
+                }
+            }
             return true;
         }
 
@@ -2525,6 +2583,15 @@ namespace smedley::launcher
                 }
             }
 
+            if (!plan.profile.inject) {
+                for (const auto &mod : plan.mods) {
+                    if (!mod.required_plugins.empty()) {
+                        AddDiagnostic(&plan.diagnostics, "mod.plugin_injection",
+                                      mod.name + " requires Smedley injection", mod.descriptor_path);
+                    }
+                }
+            }
+
             if (plan.profile.inject) {
                 ValidateTelemetryProfile(plan.profile, &plan.diagnostics);
                 valid_run_profile = ValidateRunProfile(plan.profile, &plan.diagnostics, {});
@@ -2563,6 +2630,14 @@ namespace smedley::launcher
                         HasPluginExport(manifest.module_path, &plan.diagnostics);
                     }
                     plan.plugins.push_back(std::move(manifest));
+                }
+                for (const auto &mod : plan.mods) {
+                    for (const auto &required_plugin : mod.required_plugins) {
+                        if (std::find(plugin_ids.begin(), plugin_ids.end(), required_plugin) == plugin_ids.end()) {
+                            AddDiagnostic(&plan.diagnostics, "mod.required_plugin",
+                                          mod.name + " requires plugin " + required_plugin, mod.descriptor_path);
+                        }
+                    }
                 }
                 const bool campaign_automation_requested = plan.profile.save.has_value()
                     || plan.profile.observer || plan.profile.view_tag.has_value() || run_controls_requested;

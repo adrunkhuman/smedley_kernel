@@ -9,5 +9,6 @@ EXPORTS
     SmedleyGetEventServicesApiV1
     SmedleyGetInterestPoolApiV1
     SmedleyGetLoggingApiV1
+    SmedleyGetProvinceModifierReconciliationApiV1
     SmedleyGetTelemetryGameApiV1
     SmedleyGetTelemetryObservationApiV1
