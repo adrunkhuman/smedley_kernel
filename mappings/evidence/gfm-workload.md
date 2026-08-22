@@ -106,8 +106,9 @@ The casino block is the strongest first upstream amendment. It scans every land
 province to repair one state: province `3251` produces precious goods but lacks
 the permanent `casino` modifier. The `monte_carlo_casino` decision establishes
 both values in the same effect block at `decisions/monacoflavor.txt:18-26`, and
-no other active writer or remover exists. Victoria II script has no conditional
-direct-province effect that can preserve this repair without an iterator.
+no other active writer or remover exists. The pinned script corpus has no
+conditional direct-province effect that can preserve this repair without an
+iterator.
 Deleting the block preserves the normal decision path but abandons recovery for
 old or externally modified saves. That compatibility tradeoff belongs in an
 upstream GFM proposal, not in Smedley.
