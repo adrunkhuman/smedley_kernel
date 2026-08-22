@@ -147,10 +147,64 @@ GFM state capture is therefore unverified and is not part of this baseline.
 
 ## Script application boundary
 
-No valid script-application boundary is mapped. Issue
-[#85](https://github.com/adrunkhuman/smedley_kernel/issues/85) owns fresh static
-boundary discovery, a bounded observation probe, and controlled runtime
-correlation before any production API is proposed.
+RVA `0x00507e00` is a verified runtime selected-event-option action executor.
+Static review identifies a normal MSVC x86 `__thiscall` entry with the action
+object in `ECX`; it synchronously calls the narrower option executor at RVA
+`0x004a61f0`. The action object carries the selected option index at `+0x64`,
+an embedded event snapshot at `+0x68`, opaque source-key words at `+0x70` and
+`+0x74`, and resolver-key words at `+0x40` and `+0x44`. The eight-byte entry
+signature is relocation-free; the later exception-handler operand is relocated
+under ASLR and must not be matched as a literal runtime byte sequence.
+
+A bounded, opt-in observation probe correlated two disposable no-op country
+events after a verified daily subscription boundary. Event `990001` option 0
+produced resolver words `(39, 990001)`. Event `990002` option 1 produced
+resolver words `(39, 990002)`. Both produced source words `(5128522, 221)`,
+ran on thread `16032` at depth 0, and completed with two calls, two copied
+records, no invalid layouts, and no drops. This verifies that resolver word 1
+is the event ID for these controlled country events and that `+0x64` identifies
+the selected option. Source-key semantics remain opaque. The trace SHA-256 is
+`d82d1a89a1f8163a578fc4446b2d70f05a467074d05dc62856d64684bb11897f`.
+The disposable source save remained unchanged at SHA-256
+`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+
+The probe accepted only the exact supported executable and the relocation-free
+entry signature. Its callback used fixed-capacity atomic reservation for 1,024
+records, copied eight scalar values, reported invalid layouts and drops, and
+performed no allocation, waiting, formatting, or filesystem work. No pointer
+crossed the C ABI or survived the synchronous call. Both controlled calls ran
+on thread `16032` at observed recursion depth 0. That establishes the exercised
+object lifetime and thread but does not prove broader thread ownership or nested
+reentrancy behavior. Repeated enabled runs installed and removed the hook and
+exited through the verified native lifecycle without error.
+
+Paired fixed-interval runs used the same executable, plugins, saves, speed 5,
+30-day target, and lifecycle-only telemetry. Three vanilla pairs had no probe
+calls; disabled mean elapsed and process CPU were 2.007435 s and 2.833333 s,
+while enabled means were 1.903971 s and 2.479167 s. One GFM pair also had no
+probe calls: disabled elapsed and CPU were 7.221915 s and 9.109375 s; enabled
+elapsed and CPU were 6.769081 s and 9.156250 s. The GFM enabled-minus-disabled
+deltas were -6.3 percent elapsed and +0.5 percent CPU. This single GFM pair
+detected no fixed-interval regression. Because none of these runs invoked the
+probe, they measure only the installed idle path during the campaign interval,
+not installation time or active callback overhead. All runs reached the exact
+target with no telemetry drops. The disabled and enabled GFM trace SHA-256 values
+are `f4c1b187b202a5a7f25a1bcceb43d9d195a9e786f6757becb7cf7a80f649532a`
+and `5eaba5a4416b7537679ffc181cc2f013667dfaf91b73fbca0559df0c86f56d02`.
+The GFM source save remained unchanged at SHA-256
+`3c70553984e4d94773483076ee4d83ac351095042f66a9920a3ee4770f7763f4`.
+
+Static review suggested RVA `0x004a8120` was accepted-event delivery, but a
+30-day GFM run, direct event 18540, and nested event edge 32509 to 32510 all
+produced zero calls. Runtime evidence therefore rejects it as the selected-option
+boundary; the delivery interpretation remains only a static search lead.
+
+RVA `0x00507e00` is therefore verified for the narrow selected-event-option
+executor claim, not as a generic event, trigger, or effect attribution service.
+Only controlled country events were correlated, source-key semantics remain
+opaque, and nested reentrancy was not established. Those limits do not support
+a reusable production API. The exploratory hook, mod fixture, telemetry API,
+and runtime emission path were removed after correlation.
 
 ## Ownership conclusion
 
