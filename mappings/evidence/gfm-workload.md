@@ -121,13 +121,36 @@ scan may offer less benefit because it runs yearly. Source equivalence depends
 on the monthly cleanup continuing to run. Neither amendment has runtime cost or
 equivalence evidence yet.
 
+### Derived state flags
+
+Review of recurring flag maintenance found no missing engine capability. The
+flags serve several different script contracts and cannot be treated as one
+cache-removal family:
+
+| Flags | Role | Route |
+| --- | --- | --- |
+| `medicine_invented`, `germs_invented`, `gaslights_invented`, `electricity_invented`, and `modern_central_bank_system_invented` | Technology or invention mirrors read from POP modifiers and country policy | Retain unless direct country-scope checks are validated in every POP modifier context |
+| `biologism_invented` | Technology mirror with one country-scope reader | Replace the reader with `biologism = 1` and delete the monthly writer upstream |
+| `monarchy_government` and `theocratic_government` | Reusable government classifications with broad gameplay-policy readers | Retain in GFM |
+| `new_world_nation_fr` | Government-derived emigration policy for New World nations | Retain in GFM |
+| `can_use_monthly` | Deliberate decision-execution pulse | Retain; event `477877790` enables AI decisions and `84393532` clears the flag one day later |
+| Accepted-culture flags | Provenance for cultures granted through colonial relationships | Retain; accepted-culture state alone cannot distinguish colonial grants |
+| `revolution_n_counter_researched` and `colonial_cores_africa_active` | Irreversible global phase and scheduler latches | Retain with their owning GFM systems |
+
+The one-reader `biologism_invented` cache is proposed upstream in
+[`Historical-Expansion-Mod/Greater-Flavor-Mod#548`](https://github.com/Historical-Expansion-Mod/Greater-Flavor-Mod/pull/548).
+The native trigger removes one monthly all-country pass and its delayed update
+without requiring Smedley to duplicate script-visible technology state. The
+remaining reviewed flags carry scope, policy, provenance, or phase semantics;
+none currently justifies a Smedley implementation.
+
 ## Candidate classification
 
 | Candidate | Provisional classification | Static evidence | Required runtime evidence |
 | --- | --- | --- | --- |
 | Script-site attribution | Reviewed leads rejected; capability remains missing | The selected-option executor is too narrow, and the automatic-event leads below are not effect execution boundaries | A different boundary with controlled identity correlation and measured hook overhead |
 | Province-modifier reconciliation | Two upstream GFM amendments; no Smedley implementation justified | The casino repair duplicates the normal decision outcome; annual capital removal duplicates the monthly block | GFM-side validation and upstream review; continue searching separately for Smedley candidates |
-| Derived state flags | Performance-workaround hypothesis | GFM mirrors technology, invention, existence, and government facts into flags | Read/write executions and trigger-time comparison |
+| Derived state flags | One upstream GFM simplification; no Smedley implementation justified | `biologism_invented` has one country-scope reader; other reviewed flags carry scope, policy, provenance, or phase semantics | GFM-side validation and upstream review for the biologism amendment |
 | Ghost unit and relationship repair | Engine-bug-workaround hypothesis | Cleanup explicitly repairs residual entities and relationships | Reproduction without repair and verified native entity identity |
 | Dismantlement slot variables and scope bridges | Engine-limitation/workaround hypothesis | Numbered variables and repeated scope traversal emulate collections and transactions | Executed paths and behavior-preserving operation contract |
 | `Naval Fix.txt` redistribution | Ordinary GFM-specific gameplay policy | Treasury debit plus repeated random POP transfers | Three-way economic matrix before any overlap claim |
