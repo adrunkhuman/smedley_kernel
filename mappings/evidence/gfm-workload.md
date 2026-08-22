@@ -76,12 +76,55 @@ The annual event also fans out to many numbered country events. This confirms
 that the inventory can locate recurring and partitioned script work. It does
 not establish that the chain is expensive or that its effects are generic.
 
+### Province-modifier reconciliation
+
+Schema version 2 adds source-spanned province-modifier workflows and
+iterator-block candidates. It records modifier reads and writes, enclosing
+blocks, recurrence, local predicates, flags, variables, random selection,
+ownership mutation, and finite-duration risks without inferring runtime cost.
+
+The pinned GFM event tree contains 996 event workflows that read or write
+province modifiers and 736 modifier-writing iterator candidates. Nineteen
+candidates participate in explicit scheduling cycles. Thirteen of those have no
+local random-selection, finite-duration, ownership-mutation, or MTTH risk. The
+central monthly cleanup event `477877790` contains the clearest deterministic
+reconciliation blocks:
+
+| Source lines | Scope | Reconciliation |
+| ---: | --- | --- |
+| 1127–1141 | `any_land_province` | Remove slave-trade decadence modifiers after the owner abolishes slavery |
+| 18399–18481 | three `any_land_province` blocks | Add permanent machine-tools, distribution-channel, and tractor modifiers when province, state, and owner predicates become true |
+| 18484–18493 | `any_land_province` | Remove collectivisation after the owner stops being a proletarian dictatorship |
+
+The slave-trade block is the narrowest candidate. When event `477877790`
+executes and its `CLN` scope resolves, the source schedules another invocation
+after 30 days. Runtime recurrence remains unverified. A province matches when
+it has any of `slave_trade_decadence_1` through `_4` and its owner uses
+`no_slavery`; the effect removes all four slave-trade decadence modifiers. It
+performs no random selection or other mutation. Province event `38506`
+separately changes eligible slave-trading RGOs and removes the same modifiers
+after a five-day MTTH, so the monthly block is a reconciliation safeguard rather
+than the complete abolition policy.
+
+A behavior-compatible replacement still lacks decisive generic capabilities:
+
+| Requirement | Current support |
+| --- | --- |
+| Enumerate the effective land-province set | The GFM region is known statically; no supported public land iterator exists |
+| Read owner slavery policy | No supported country-policy query exists |
+| Query and remove province modifiers | No mapped checked operation or public service exists |
+| Preserve monthly cleanup ordering | Generic timers exist, but no boundary preserves event `477877790` ordering |
+
+The candidate also has no direct cost measurement. It therefore defines a
+bounded future engine-capability investigation, not an implementation issue or
+permission to disable the GFM block.
+
 ## Candidate classification
 
 | Candidate | Provisional classification | Static evidence | Required runtime evidence |
 | --- | --- | --- | --- |
 | Script-site attribution | Reviewed leads rejected; capability remains missing | The selected-option executor is too narrow, and the automatic-event leads below are not effect execution boundaries | A different boundary with controlled identity correlation and measured hook overhead |
-| Province-modifier reconciliation | Missing mutation/operation capability | Cleanup contains repeated province scans and checked modifier additions | Visits, matched provinces, mutations, and attributed time |
+| Province-modifier reconciliation | Source-identified safeguard; missing engine capability | The semantic report isolates the monthly slave-trade cleanup and related policy event | Direct block cost plus checked owner-policy and modifier query/removal boundaries |
 | Derived state flags | Performance-workaround hypothesis | GFM mirrors technology, invention, existence, and government facts into flags | Read/write executions and trigger-time comparison |
 | Ghost unit and relationship repair | Engine-bug-workaround hypothesis | Cleanup explicitly repairs residual entities and relationships | Reproduction without repair and verified native entity identity |
 | Dismantlement slot variables and scope bridges | Engine-limitation/workaround hypothesis | Numbered variables and repeated scope traversal emulate collections and transactions | Executed paths and behavior-preserving operation contract |

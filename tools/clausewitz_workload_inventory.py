@@ -22,6 +22,20 @@ FLAG_READ_KEY = re.compile(r"^has_[A-Za-z0-9_]*flag$")
 FLAG_WRITE_KEY = re.compile(r"^(?:set|clear|clr|remove)_[A-Za-z0-9_]*flag$")
 MODIFIER_MUTATION_KEY = re.compile(r"^(?:add|remove)_[A-Za-z0-9_]*modifier$")
 MUTATION_KEY = re.compile(r"^(?:set|add|remove|clear|clr|change|create|delete|destroy|activate|deactivate|kill|give)_")
+VARIABLE_READ_KEYS = frozenset({"check_variable", "is_variable_equal"})
+VARIABLE_WRITE_KEYS = frozenset(
+    {
+        "change_variable",
+        "clear_variable",
+        "clr_variable",
+        "divide_variable",
+        "multiply_variable",
+        "remove_variable",
+        "set_variable",
+        "subtract_variable",
+    }
+)
+OWNERSHIP_MUTATION_KEYS = frozenset({"annex_to", "change_tag", "inherit", "release_vassal", "secede_province"})
 DELAY_KEYS = {"days", "months", "years", "hours"}
 SCRIPT_SUFFIXES = {".txt"}
 
@@ -41,6 +55,7 @@ class Node:
 
     key: str
     line: int
+    end_line: int
     value: str | None = None
     children: list[Node] = field(default_factory=list)
 
@@ -93,7 +108,7 @@ def parse(source: str) -> Node:
     tokens = tokenize(source)
     position = 0
 
-    def parse_block() -> list[Node]:
+    def parse_block() -> tuple[list[Node], int]:
         nonlocal position
         nodes: list[Node] = []
         while position < len(tokens) and (tokens[position].value != "}" or tokens[position].quoted):
@@ -107,15 +122,18 @@ def parse(source: str) -> Node:
             value = tokens[position]
             position += 1
             if value.value == "{" and not value.quoted:
-                children = parse_block()
+                children, end_line = parse_block()
                 if position < len(tokens) and tokens[position].value == "}" and not tokens[position].quoted:
+                    end_line = tokens[position].line
                     position += 1
-                nodes.append(Node(key.value, key.line, children=children))
+                nodes.append(Node(key.value, key.line, end_line, children=children))
             elif value.value != "}" or value.quoted:
-                nodes.append(Node(key.value, key.line, value=value.value))
-        return nodes
+                nodes.append(Node(key.value, key.line, value.line, value=value.value))
+        end_line = tokens[position].line if position < len(tokens) else (tokens[-1].line if tokens else 1)
+        return nodes, end_line
 
-    return Node("", 1, children=parse_block())
+    children, end_line = parse_block()
+    return Node("", 1, end_line, children=children)
 
 
 def walk(node: Node) -> list[Node]:
@@ -125,6 +143,20 @@ def walk(node: Node) -> list[Node]:
         result.append(child)
         result.extend(walk(child))
     return result
+
+
+def walk_with_ancestors(node: Node, ancestors: tuple[Node, ...] = ()) -> list[tuple[Node, tuple[Node, ...]]]:
+    """Return descendants with their block ancestors in source order."""
+    result: list[tuple[Node, tuple[Node, ...]]] = []
+    for child in node.children:
+        result.append((child, ancestors))
+        result.extend(walk_with_ancestors(child, (*ancestors, child)))
+    return result
+
+
+def is_iterator_scope(node: Node) -> bool:
+    """Return whether a block is an entity iterator rather than a weighted choice."""
+    return bool(node.children and node.key != "random_list" and ITERATOR_SCOPE_KEY.match(node.key))
 
 
 def scalar_children(node: Node) -> dict[str, str]:
@@ -139,6 +171,11 @@ def scalar_children(node: Node) -> dict[str, str]:
 def source(path: Path, line: int) -> dict[str, int | str]:
     """Create the common machine-readable source location."""
     return {"line": line, "path": path.as_posix()}
+
+
+def source_span(path: Path, node: Node) -> dict[str, int | str]:
+    """Create a source range for semantic candidate records."""
+    return {"end_line": node.end_line, "path": path.as_posix(), "start_line": node.line}
 
 
 def report_path(path: Path, root: Path) -> Path:
@@ -164,6 +201,230 @@ def is_event_definition(node: Node, parent: Node) -> bool:
     return bool(parent.key == "" and node.children and node.key in EVENT_KEYS and "id" in scalar_children(node))
 
 
+def contextual_observation(
+    node: Node, ancestors: tuple[Node, ...], path: Path, *, target: str | None = None
+) -> dict[str, object]:
+    """Describe a command and the blocks that contain it."""
+    observation: dict[str, object] = {
+        "block_path": [ancestor.key for ancestor in ancestors],
+        "command": node.key,
+        "source": source_span(path, node),
+    }
+    if target is not None:
+        observation["target"] = target
+    return observation
+
+
+def province_modifier_workflow(definition: Node, path: Path) -> dict[str, object] | None:
+    """Summarize source semantics for an event that reads or writes province modifiers."""
+    metadata = scalar_children(definition)
+    descendants = walk_with_ancestors(definition)
+    modifier_reads: list[dict[str, object]] = []
+    modifier_writes: list[dict[str, object]] = []
+    flag_reads: set[str] = set()
+    flag_writes: set[str] = set()
+    variable_reads: set[str] = set()
+    variable_writes: set[str] = set()
+    iterator_scopes: set[str] = set()
+    random_selectors: set[str] = set()
+    ownership_mutations: set[str] = set()
+
+    for node, ancestors in descendants:
+        target = target_name(node)
+        if node.key == "has_province_modifier":
+            modifier_reads.append(contextual_observation(node, ancestors, path, target=target))
+        elif node.key in {"add_province_modifier", "remove_province_modifier"}:
+            observation = contextual_observation(node, ancestors, path, target=target)
+            duration = scalar_children(node).get("duration")
+            if duration is not None:
+                observation["duration"] = duration
+            modifier_writes.append(observation)
+        if FLAG_READ_KEY.match(node.key):
+            flag_reads.add(target or "<dynamic>")
+        if FLAG_WRITE_KEY.match(node.key):
+            flag_writes.add(target or "<dynamic>")
+        if node.key in VARIABLE_READ_KEYS:
+            variable_reads.add(target or "<dynamic>")
+        if node.key in VARIABLE_WRITE_KEYS:
+            variable_writes.add(target or "<dynamic>")
+        if is_iterator_scope(node):
+            iterator_scopes.add(node.key)
+        if node.children and (node.key == "random" or node.key.startswith("random_")):
+            random_selectors.add(node.key)
+        if node.key in OWNERSHIP_MUTATION_KEYS:
+            ownership_mutations.add(node.key)
+
+    if not modifier_reads and not modifier_writes:
+        return None
+
+    cadence: dict[str, str] = {}
+    for child in definition.children:
+        if child.key == "mean_time_to_happen" and child.children:
+            cadence = {
+                item.key: item.value for item in child.children if item.key in DELAY_KEYS and item.value is not None
+            }
+            break
+
+    risk_flags: set[str] = set()
+    if random_selectors:
+        risk_flags.add("random_selection")
+    if ownership_mutations:
+        risk_flags.add("ownership_mutation")
+    if cadence:
+        risk_flags.add("mtth_polling")
+    if any(
+        observation.get("command") == "add_province_modifier" and observation.get("duration") not in {None, "-1"}
+        for observation in modifier_writes
+    ):
+        risk_flags.add("finite_modifier_duration")
+    if any(
+        isinstance(observation["block_path"], list) and "state_scope" in observation["block_path"]
+        for observation in modifier_writes
+    ):
+        risk_flags.add("state_scope_write")
+
+    workflow: dict[str, object] = {
+        "event_id": metadata["id"],
+        "event_kind": definition.key,
+        "event_source": source_span(path, definition),
+        "flag_reads": sorted(flag_reads),
+        "flag_writes": sorted(flag_writes),
+        "iterator_scopes": sorted(iterator_scopes),
+        "modifier_reads": modifier_reads,
+        "modifier_writes": modifier_writes,
+        "ownership_mutations": sorted(ownership_mutations),
+        "random_selectors": sorted(random_selectors),
+        "risk_flags": sorted(risk_flags),
+        "variable_reads": sorted(variable_reads),
+        "variable_writes": sorted(variable_writes),
+    }
+    if cadence:
+        workflow["mtth_cadence"] = cadence
+    for key in ("fire_only_once", "is_triggered_only"):
+        if key in metadata:
+            workflow[key] = metadata[key]
+    return workflow
+
+
+def province_modifier_scope_blocks(definition: Node, path: Path) -> list[dict[str, object]]:
+    """Describe outer iterator blocks that contain province-modifier writes."""
+    metadata = scalar_children(definition)
+    cadence = any(child.key == "mean_time_to_happen" and child.children for child in definition.children)
+    blocks: list[dict[str, object]] = []
+
+    for scope_node, scope_ancestors in walk_with_ancestors(definition):
+        if not is_iterator_scope(scope_node):
+            continue
+        if any(is_iterator_scope(ancestor) for ancestor in scope_ancestors):
+            continue
+
+        descendants = walk_with_ancestors(scope_node)
+        if not any(node.key in {"add_province_modifier", "remove_province_modifier"} for node, _ in descendants):
+            continue
+
+        modifier_reads: list[dict[str, object]] = []
+        modifier_writes: list[dict[str, object]] = []
+        flag_reads: set[str] = set()
+        flag_writes: set[str] = set()
+        variable_reads: set[str] = set()
+        variable_writes: set[str] = set()
+        random_selectors: set[str] = set()
+        ownership_mutations: set[str] = set()
+        predicate_keys: set[str] = set()
+
+        if scope_node.key == "random" or scope_node.key.startswith("random_"):
+            random_selectors.add(scope_node.key)
+        for ancestor in scope_ancestors:
+            if ancestor.children and (ancestor.key == "random" or ancestor.key.startswith("random_")):
+                random_selectors.add(ancestor.key)
+        for node, local_ancestors in descendants:
+            ancestors = (*scope_ancestors, scope_node, *local_ancestors)
+            target = target_name(node)
+            if node.key == "has_province_modifier":
+                modifier_reads.append(contextual_observation(node, ancestors, path, target=target))
+            elif node.key in {"add_province_modifier", "remove_province_modifier"}:
+                observation = contextual_observation(node, ancestors, path, target=target)
+                duration = scalar_children(node).get("duration")
+                if duration is not None:
+                    observation["duration"] = duration
+                modifier_writes.append(observation)
+            if FLAG_READ_KEY.match(node.key):
+                flag_reads.add(target or "<dynamic>")
+            if FLAG_WRITE_KEY.match(node.key):
+                flag_writes.add(target or "<dynamic>")
+            if node.key in VARIABLE_READ_KEYS:
+                variable_reads.add(target or "<dynamic>")
+            if node.key in VARIABLE_WRITE_KEYS:
+                variable_writes.add(target or "<dynamic>")
+            if node.children and (node.key == "random" or node.key.startswith("random_")):
+                random_selectors.add(node.key)
+            if node.key in OWNERSHIP_MUTATION_KEYS:
+                ownership_mutations.add(node.key)
+            if any(ancestor.key == "limit" for ancestor in local_ancestors):
+                predicate_keys.add(node.key)
+
+        risk_flags: set[str] = set()
+        if cadence:
+            risk_flags.add("mtth_polling")
+        if random_selectors:
+            risk_flags.add("random_selection")
+        if ownership_mutations:
+            risk_flags.add("ownership_mutation")
+        if any(
+            observation.get("command") == "add_province_modifier" and observation.get("duration") not in {None, "-1"}
+            for observation in modifier_writes
+        ):
+            risk_flags.add("finite_modifier_duration")
+        if any(
+            isinstance(observation["block_path"], list) and "state_scope" in observation["block_path"]
+            for observation in modifier_writes
+        ):
+            risk_flags.add("state_scope_write")
+
+        blocks.append(
+            {
+                "block_path": [ancestor.key for ancestor in scope_ancestors],
+                "event_id": metadata["id"],
+                "event_kind": definition.key,
+                "flag_reads": sorted(flag_reads),
+                "flag_writes": sorted(flag_writes),
+                "modifier_reads": modifier_reads,
+                "modifier_writes": modifier_writes,
+                "ownership_mutations": sorted(ownership_mutations),
+                "predicate_keys": sorted(predicate_keys),
+                "random_selectors": sorted(random_selectors),
+                "risk_flags": sorted(risk_flags),
+                "scope": scope_node.key,
+                "source": source_span(path, scope_node),
+                "variable_reads": sorted(variable_reads),
+                "variable_writes": sorted(variable_writes),
+            }
+        )
+    return blocks
+
+
+def explicit_schedule_cycle_ids(scheduling_edges: list[dict[str, object]]) -> set[str]:
+    """Return event IDs that participate in a statically resolved scheduling cycle."""
+    adjacency: dict[str, set[str]] = {}
+    for edge in scheduling_edges:
+        adjacency.setdefault(str(edge["source_event_id"]), set()).add(str(edge["target_event_id"]))
+
+    cycle_ids: set[str] = set()
+    for start in adjacency:
+        pending = list(adjacency[start])
+        visited: set[str] = set()
+        while pending:
+            current = pending.pop()
+            if current == start:
+                cycle_ids.add(start)
+                break
+            if current in visited:
+                continue
+            visited.add(current)
+            pending.extend(adjacency.get(current, ()))
+    return cycle_ids
+
+
 def script_files(paths: list[Path]) -> list[Path]:
     """Return explicitly named files and Clausewitz text files below named directories."""
     files: set[Path] = set()
@@ -187,6 +448,8 @@ def inventory(paths: list[Path], root: Path) -> dict[str, Any]:
     flag_reads: list[dict[str, object]] = []
     flag_writes: list[dict[str, object]] = []
     modifier_mutations: list[dict[str, object]] = []
+    province_modifier_workflows: list[dict[str, object]] = []
+    province_modifier_scope_candidates: list[dict[str, object]] = []
     block_keys: Counter[str] = Counter()
     iterator_scope_keys: Counter[str] = Counter()
     random_selector_keys: Counter[str] = Counter()
@@ -203,7 +466,7 @@ def inventory(paths: list[Path], root: Path) -> dict[str, Any]:
         for node in walk(document):
             if node.children:
                 block_keys[node.key] += 1
-            if node.children and node.key != "random_list" and ITERATOR_SCOPE_KEY.match(node.key):
+            if is_iterator_scope(node):
                 iterator_scope_keys[node.key] += 1
             if node.children and node.key == "random_list":
                 random_list_blocks += 1
@@ -225,6 +488,10 @@ def inventory(paths: list[Path], root: Path) -> dict[str, Any]:
 
         for definition in definitions:
             metadata = definition_data[id(definition)]
+            workflow = province_modifier_workflow(definition, relative_path)
+            if workflow is not None:
+                province_modifier_workflows.append(workflow)
+            province_modifier_scope_candidates.extend(province_modifier_scope_blocks(definition, relative_path))
             event: dict[str, object] = {
                 "id": metadata["id"],
                 "kind": definition.key,
@@ -277,8 +544,34 @@ def inventory(paths: list[Path], root: Path) -> dict[str, Any]:
         modifier_mutations,
     ):
         observations.sort(key=sort_key)
+    incoming_schedules: dict[str, list[dict[str, object]]] = {}
+    for edge in scheduling_edges:
+        incoming_schedules.setdefault(str(edge["target_event_id"]), []).append(edge)
+    schedule_cycle_ids = explicit_schedule_cycle_ids(scheduling_edges)
+    for record in (*province_modifier_workflows, *province_modifier_scope_candidates):
+        event_id = str(record["event_id"])
+        incoming = incoming_schedules.get(event_id, [])
+        if incoming:
+            record["incoming_schedules"] = incoming
+        recurrence: list[str] = []
+        if event_id in schedule_cycle_ids:
+            recurrence.append("explicit_schedule_cycle")
+        risk_flags = record["risk_flags"]
+        if isinstance(risk_flags, list) and "mtth_polling" in risk_flags:
+            recurrence.append("engine_polled_mtth")
+        record["recurrence"] = sorted(recurrence)
+    province_modifier_workflows.sort(
+        key=lambda item: (
+            item["event_source"]["path"],
+            item["event_source"]["start_line"],
+            item["event_id"],
+        )
+    )
+    province_modifier_scope_candidates.sort(
+        key=lambda item: (item["source"]["path"], item["source"]["start_line"], item["event_id"])
+    )
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "static_counts_are_leads_not_performance_measurements": True,
         "event_definitions": event_definitions,
         "scheduling_edges": scheduling_edges,
@@ -286,6 +579,8 @@ def inventory(paths: list[Path], root: Path) -> dict[str, Any]:
         "flag_reads": flag_reads,
         "flag_writes": flag_writes,
         "modifier_mutations": modifier_mutations,
+        "province_modifier_workflows": province_modifier_workflows,
+        "province_modifier_scope_candidates": province_modifier_scope_candidates,
         "workload_leads": {
             "block_key_leads": dict(sorted(block_keys.items())),
             "event_definition_lead": len(event_definitions),
