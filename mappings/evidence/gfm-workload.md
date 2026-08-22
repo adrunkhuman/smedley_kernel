@@ -85,72 +85,69 @@ local random-selection, finite-duration, ownership-mutation, or MTTH risk. That
 mechanical filter does not imply that deletion is safe. Source review classifies
 all thirteen as follows:
 
-Source-expressible simplifications belong in upstream GFM. Smedley should only
-own measured problems that require generic engine capabilities unavailable to
-Clausewitz scripts. No candidate in this set currently requires a Smedley
-implementation.
+Issue #9 treats repetitive or brittle script as product evidence even when it
+has not been measured as a bottleneck. A selected workflow may justify a generic
+kernel capability when an end-to-end replacement materially reduces script,
+centralizes an invariant, or improves correctness. GFM-specific conditions and
+compatibility policy remain in a separate adoption plugin and a minimal,
+version-gated companion submod disables only the replaced script.
 
 | Blocks | Role | Route |
 | --- | --- | --- |
-| Monthly casino repair, lines 19016–19019 | Compatibility repair for one fixed province | Propose deleting it upstream; retain no Smedley copy |
-| Annual capital-mobilisation removal, lines 31346–31357 | Exact copy of the monthly removal at lines 1142–1153 | Propose deleting the annual copy upstream after scheduler validation |
-| Slave-trade removal, lines 1127–1141 | Stale-penalty safeguard after abolition | Retain unless GFM covers every ownership and abolition path |
-| Monthly capital removal, lines 1142–1153, and annual addition, lines 31358–31369 | Capital-mobilisation supply-limit invariant | Retain; targeted capital-change handling is incomplete |
-| Three local industry additions, lines 18399–18481 | Backfill after one-shot country events | Retain; later acquisitions and delayed eligibility need recovery |
-| Collectivisation removal, lines 18484–18493 | Stale-bonus cleanup after government change | Retain unless GFM covers every transition path |
-| Coffee addition, lines 18730–18752 | Ownership and setup backfill | Retain or move upstream to complete ownership-transition handling |
-| Two Indian-lands blocks, lines 18995–19015 | Gameplay-policy normalisation | Retain in GFM |
-| Annual `drang_nach_osten` addition, lines 31672–31702 | Acquisition backfill | Retain in GFM |
+| Monthly casino repair, lines 19016–19019 | Compatibility repair for one fixed province | Possible direct-province smoke test after modifier operations exist; too small to justify them alone |
+| Annual capital-mobilisation removal, lines 31346–31357 | Exact copy of the monthly removal at lines 1142–1153 | Source simplification candidate; not an API driver by itself |
+| Slave-trade removal, lines 1127–1141 | Stale-penalty safeguard after abolition | First-slice candidate for province iteration, owner-policy reads, and checked modifier removal |
+| Monthly capital removal, lines 1142–1153, and annual addition, lines 31358–31369 | Capital-mobilisation supply-limit invariant | Adoption candidate after capital-transition behavior is mapped |
+| Three local industry additions, lines 18399–18481 | Backfill after one-shot country events | Reuse candidate for province queries and checked modifier addition |
+| Collectivisation removal, lines 18484–18493 | Stale-bonus cleanup after government change | Reuse candidate for government-transition observation and modifier removal |
+| Coffee addition, lines 18730–18752 | Ownership and setup backfill | Reuse candidate for ownership transitions and modifier addition |
+| Two Indian-lands blocks, lines 18995–19015 | Gameplay-policy normalisation | Keep policy in the GFM plugin if adopted through generic operations |
+| Annual `drang_nach_osten` addition, lines 31672–31702 | Acquisition backfill | Reuse candidate after the generic province capability is proven |
 
-The casino block is the strongest first upstream amendment. It scans every land
-province to repair one state: province `3251` produces precious goods but lacks
-the permanent `casino` modifier. The `monte_carlo_casino` decision establishes
-both values in the same effect block at `decisions/monacoflavor.txt:18-26`, and
-no other active writer or remover exists. The pinned script corpus has no
-conditional direct-province effect that can preserve this repair without an
-iterator.
-Deleting the block preserves the normal decision path but abandons recovery for
-old or externally modified saves. That compatibility tradeoff belongs in an
-upstream GFM proposal, not in Smedley.
+The casino block scans every land province to repair one state: province `3251`
+produces precious goods but lacks the permanent `casino` modifier. The
+`monte_carlo_casino` decision establishes both values in the same effect block
+at `decisions/monacoflavor.txt:18-26`, and no other active writer or remover
+exists. Deleting the block would abandon recovery for old or externally modified
+saves. A generic direct-province modifier operation could preserve that repair,
+but this four-line case does not justify the API by itself.
 
-The four-line deletion is proposed upstream in
-[`Historical-Expansion-Mod/Greater-Flavor-Mod#547`](https://github.com/Historical-Expansion-Mod/Greater-Flavor-Mod/pull/547).
-
-The annual capital-mobilisation removal is the clearest deletion, but its yearly
-scan may offer less benefit because it runs yearly. Source equivalence depends
-on the monthly cleanup continuing to run. Neither amendment has runtime cost or
-equivalence evidence yet.
+The slave-trade safeguard is a stronger first vertical slice. Its invariant is
+explicit, it exercises reusable province and owner queries plus checked modifier
+removal, and the same capability family can serve several retained backfills and
+normalizers. Runtime cost remains useful for prioritization, not a prerequisite
+for addressing the script limitation.
 
 ### Derived state flags
 
-Review of recurring flag maintenance found no missing engine capability. The
-flags serve several different script contracts and cannot be treated as one
-cache-removal family:
+Review of recurring flag maintenance found several distinct script contracts,
+not one cache-removal family. Some should stay as script state; others are
+useful cases for country-fact, transition, culture, and relationship APIs:
 
 | Flags | Role | Route |
 | --- | --- | --- |
-| `medicine_invented`, `germs_invented`, `gaslights_invented`, `electricity_invented`, and `modern_central_bank_system_invented` | Technology or invention mirrors read from POP modifiers and country policy | Retain unless direct country-scope checks are validated in every POP modifier context |
-| `biologism_invented` | Technology mirror with one country-scope reader | Replace the reader with `biologism = 1` and delete the monthly writer upstream |
-| `monarchy_government` and `theocratic_government` | Reusable government classifications with broad gameplay-policy readers | Retain in GFM |
-| `new_world_nation_fr` | Government-derived emigration policy for New World nations | Retain in GFM |
-| `can_use_monthly` | Deliberate decision-execution pulse | Retain; event `477877790` enables AI decisions and `84393532` clears the flag one day later |
-| Accepted-culture flags | Provenance for cultures granted through colonial relationships | Retain; accepted-culture state alone cannot distinguish colonial grants |
-| `revolution_n_counter_researched` and `colonial_cores_africa_active` | Irreversible global phase and scheduler latches | Retain with their owning GFM systems |
+| `medicine_invented`, `germs_invented`, `gaslights_invented`, `electricity_invented`, and `modern_central_bank_system_invented` | Technology or invention mirrors read from POP modifiers and country policy | Candidate for generic country-fact and transition APIs; retain script until all consumer scopes are covered |
+| `biologism_invented` | Technology mirror with one country-scope reader | Source-simplification baseline; too small to justify a native API alone |
+| `monarchy_government` and `theocratic_government` | Reusable government classifications with broad gameplay-policy readers | Possible country-fact API consumers; classifications remain GFM-plugin policy |
+| `new_world_nation_fr` | Government-derived emigration policy for New World nations | Possible country-fact API consumer; emigration policy remains in GFM |
+| `can_use_monthly` | Deliberate decision-execution pulse | Retain unless the underlying decision scheduler is adopted end to end |
+| Accepted-culture flags | Provenance for cultures granted through colonial relationships | High-value country catalog, culture, relationship, and checked-mutation candidate |
+| `revolution_n_counter_researched` and `colonial_cores_africa_active` | Irreversible global phase and scheduler latches | Low priority; existing script is concise and save-visible |
 
-The one-reader `biologism_invented` cache is proposed upstream in
-[`Historical-Expansion-Mod/Greater-Flavor-Mod#548`](https://github.com/Historical-Expansion-Mod/Greater-Flavor-Mod/pull/548).
-The native trigger removes one monthly all-country pass and its delayed update
-without requiring Smedley to duplicate script-visible technology state. The
-remaining reviewed flags carry scope, policy, provenance, or phase semantics;
-none currently justifies a Smedley implementation.
+The one-reader `biologism_invented` cache demonstrates that some cases need only
+a source simplification. The accepted-culture system is the opposite: its
+provenance rules and explicit tag/capital expansion are a substantial adoption
+case, but require a much broader verified country-state boundary. The review
+therefore supplies API candidates without implying that every mirrored flag
+should move out of script.
 
 ## Candidate classification
 
 | Candidate | Provisional classification | Static evidence | Required runtime evidence |
 | --- | --- | --- | --- |
 | Script-site attribution | Reviewed leads rejected; capability remains missing | The selected-option executor is too narrow, and the automatic-event leads below are not effect execution boundaries | A different boundary with controlled identity correlation and measured hook overhead |
-| Province-modifier reconciliation | Two upstream GFM amendments; no Smedley implementation justified | The casino repair duplicates the normal decision outcome; annual capital removal duplicates the monthly block | GFM-side validation and upstream review; continue searching separately for Smedley candidates |
-| Derived state flags | One upstream GFM simplification; no Smedley implementation justified | `biologism_invented` has one country-scope reader; other reviewed flags carry scope, policy, provenance, or phase semantics | GFM-side validation and upstream review for the biologism amendment |
+| Province-modifier reconciliation | First runtime adoption API family | Thirteen reviewed workflows reuse province iteration, owner conditions, and modifier add/remove operations | Select one invariant; map and verify generic reads and checked mutation; implement plugin and companion-submod slice |
+| Derived state flags | Split adoption backlog | Simple mirrors may stay in source; technology transitions and colonial-culture provenance expose broader reusable capability needs | Rank by script reduction and API reuse; preserve policy and save-visible state in the GFM layer |
 | Ghost unit and relationship repair | Engine-bug-workaround hypothesis | Cleanup explicitly repairs residual entities and relationships | Reproduction without repair and verified native entity identity |
 | Dismantlement slot variables and scope bridges | Engine-limitation/workaround hypothesis | Numbered variables and repeated scope traversal emulate collections and transactions | Executed paths and behavior-preserving operation contract |
 | `Naval Fix.txt` redistribution | Ordinary GFM-specific gameplay policy | Treasury debit plus repeated random POP transfers | Three-way economic matrix before any overlap claim |
