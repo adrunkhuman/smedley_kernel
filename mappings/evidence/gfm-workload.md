@@ -78,11 +78,6 @@ not establish that the chain is expensive or that its effects are generic.
 
 ### Province-modifier reconciliation
 
-Schema version 2 adds source-spanned province-modifier workflows and
-iterator-block candidates. It records modifier reads and writes, enclosing
-blocks, recurrence, local predicates, flags, variables, random selection,
-ownership mutation, and finite-duration risks without inferring runtime cost.
-
 The pinned GFM event tree contains 996 event workflows that read or write
 province modifiers and 736 modifier-writing iterator candidates. Nineteen
 candidates participate in explicit scheduling cycles. Thirteen of those have no

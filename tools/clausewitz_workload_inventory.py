@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+from collections.abc import Iterable
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -58,6 +59,32 @@ class Node:
     end_line: int
     value: str | None = None
     children: list[Node] = field(default_factory=list)
+
+
+@dataclass
+class ModifierSemantics:
+    """Dependencies and province-modifier operations for one report scope."""
+
+    modifier_reads: list[dict[str, object]] = field(default_factory=list)
+    modifier_writes: list[dict[str, object]] = field(default_factory=list)
+    flag_reads: set[str] = field(default_factory=set)
+    flag_writes: set[str] = field(default_factory=set)
+    variable_reads: set[str] = field(default_factory=set)
+    variable_writes: set[str] = field(default_factory=set)
+    random_selectors: set[str] = field(default_factory=set)
+    ownership_mutations: set[str] = field(default_factory=set)
+
+    def report_fields(self) -> dict[str, object]:
+        return {
+            "flag_reads": sorted(self.flag_reads),
+            "flag_writes": sorted(self.flag_writes),
+            "modifier_reads": self.modifier_reads,
+            "modifier_writes": self.modifier_writes,
+            "ownership_mutations": sorted(self.ownership_mutations),
+            "random_selectors": sorted(self.random_selectors),
+            "variable_reads": sorted(self.variable_reads),
+            "variable_writes": sorted(self.variable_writes),
+        }
 
 
 def tokenize(source: str) -> list[Token]:
@@ -215,46 +242,66 @@ def contextual_observation(
     return observation
 
 
-def province_modifier_workflow(definition: Node, path: Path) -> dict[str, object] | None:
-    """Summarize source semantics for an event that reads or writes province modifiers."""
-    metadata = scalar_children(definition)
-    descendants = walk_with_ancestors(definition)
-    modifier_reads: list[dict[str, object]] = []
-    modifier_writes: list[dict[str, object]] = []
-    flag_reads: set[str] = set()
-    flag_writes: set[str] = set()
-    variable_reads: set[str] = set()
-    variable_writes: set[str] = set()
-    iterator_scopes: set[str] = set()
-    random_selectors: set[str] = set()
-    ownership_mutations: set[str] = set()
-
+def collect_modifier_semantics(
+    descendants: Iterable[tuple[Node, tuple[Node, ...]]],
+    path: Path,
+    inherited_random_selectors: set[str] | None = None,
+) -> ModifierSemantics:
+    """Collect shared dependencies and modifier operations from descendants."""
+    semantics = ModifierSemantics(random_selectors=set(inherited_random_selectors or ()))
     for node, ancestors in descendants:
         target = target_name(node)
         if node.key == "has_province_modifier":
-            modifier_reads.append(contextual_observation(node, ancestors, path, target=target))
+            semantics.modifier_reads.append(contextual_observation(node, ancestors, path, target=target))
         elif node.key in {"add_province_modifier", "remove_province_modifier"}:
             observation = contextual_observation(node, ancestors, path, target=target)
             duration = scalar_children(node).get("duration")
             if duration is not None:
                 observation["duration"] = duration
-            modifier_writes.append(observation)
+            semantics.modifier_writes.append(observation)
         if FLAG_READ_KEY.match(node.key):
-            flag_reads.add(target or "<dynamic>")
+            semantics.flag_reads.add(target or "<dynamic>")
         if FLAG_WRITE_KEY.match(node.key):
-            flag_writes.add(target or "<dynamic>")
+            semantics.flag_writes.add(target or "<dynamic>")
         if node.key in VARIABLE_READ_KEYS:
-            variable_reads.add(target or "<dynamic>")
+            semantics.variable_reads.add(target or "<dynamic>")
         if node.key in VARIABLE_WRITE_KEYS:
-            variable_writes.add(target or "<dynamic>")
-        if is_iterator_scope(node):
-            iterator_scopes.add(node.key)
+            semantics.variable_writes.add(target or "<dynamic>")
         if node.children and (node.key == "random" or node.key.startswith("random_")):
-            random_selectors.add(node.key)
+            semantics.random_selectors.add(node.key)
         if node.key in OWNERSHIP_MUTATION_KEYS:
-            ownership_mutations.add(node.key)
+            semantics.ownership_mutations.add(node.key)
+    return semantics
 
-    if not modifier_reads and not modifier_writes:
+
+def modifier_risk_flags(semantics: ModifierSemantics, *, mtth_polling: bool) -> list[str]:
+    """Classify replacement risks visible in collected source semantics."""
+    risks: set[str] = set()
+    if semantics.random_selectors:
+        risks.add("random_selection")
+    if semantics.ownership_mutations:
+        risks.add("ownership_mutation")
+    if mtth_polling:
+        risks.add("mtth_polling")
+    if any(
+        observation.get("command") == "add_province_modifier" and observation.get("duration") not in {None, "-1"}
+        for observation in semantics.modifier_writes
+    ):
+        risks.add("finite_modifier_duration")
+    if any(
+        isinstance(block_path := observation.get("block_path"), list) and "state_scope" in block_path
+        for observation in semantics.modifier_writes
+    ):
+        risks.add("state_scope_write")
+    return sorted(risks)
+
+
+def province_modifier_workflow(definition: Node, path: Path) -> dict[str, object] | None:
+    """Summarize source semantics for an event that reads or writes province modifiers."""
+    metadata = scalar_children(definition)
+    descendants = walk_with_ancestors(definition)
+    semantics = collect_modifier_semantics(descendants, path)
+    if not semantics.modifier_reads and not semantics.modifier_writes:
         return None
 
     cadence: dict[str, str] = {}
@@ -265,38 +312,13 @@ def province_modifier_workflow(definition: Node, path: Path) -> dict[str, object
             }
             break
 
-    risk_flags: set[str] = set()
-    if random_selectors:
-        risk_flags.add("random_selection")
-    if ownership_mutations:
-        risk_flags.add("ownership_mutation")
-    if cadence:
-        risk_flags.add("mtth_polling")
-    if any(
-        observation.get("command") == "add_province_modifier" and observation.get("duration") not in {None, "-1"}
-        for observation in modifier_writes
-    ):
-        risk_flags.add("finite_modifier_duration")
-    if any(
-        isinstance(observation["block_path"], list) and "state_scope" in observation["block_path"]
-        for observation in modifier_writes
-    ):
-        risk_flags.add("state_scope_write")
-
     workflow: dict[str, object] = {
         "event_id": metadata["id"],
         "event_kind": definition.key,
         "event_source": source_span(path, definition),
-        "flag_reads": sorted(flag_reads),
-        "flag_writes": sorted(flag_writes),
-        "iterator_scopes": sorted(iterator_scopes),
-        "modifier_reads": modifier_reads,
-        "modifier_writes": modifier_writes,
-        "ownership_mutations": sorted(ownership_mutations),
-        "random_selectors": sorted(random_selectors),
-        "risk_flags": sorted(risk_flags),
-        "variable_reads": sorted(variable_reads),
-        "variable_writes": sorted(variable_writes),
+        "iterator_scopes": sorted({node.key for node, _ in descendants if is_iterator_scope(node)}),
+        "risk_flags": modifier_risk_flags(semantics, mtth_polling=bool(cadence)),
+        **semantics.report_fields(),
     }
     if cadence:
         workflow["mtth_cadence"] = cadence
@@ -319,85 +341,35 @@ def province_modifier_scope_blocks(definition: Node, path: Path) -> list[dict[st
             continue
 
         descendants = walk_with_ancestors(scope_node)
-        if not any(node.key in {"add_province_modifier", "remove_province_modifier"} for node, _ in descendants):
+        inherited_random_selectors = {
+            node.key
+            for node in (*scope_ancestors, scope_node)
+            if node.children and (node.key == "random" or node.key.startswith("random_"))
+        }
+        semantics = collect_modifier_semantics(
+            ((node, (*scope_ancestors, scope_node, *local_ancestors)) for node, local_ancestors in descendants),
+            path,
+            inherited_random_selectors,
+        )
+        if not semantics.modifier_writes:
             continue
-
-        modifier_reads: list[dict[str, object]] = []
-        modifier_writes: list[dict[str, object]] = []
-        flag_reads: set[str] = set()
-        flag_writes: set[str] = set()
-        variable_reads: set[str] = set()
-        variable_writes: set[str] = set()
-        random_selectors: set[str] = set()
-        ownership_mutations: set[str] = set()
-        predicate_keys: set[str] = set()
-
-        if scope_node.key == "random" or scope_node.key.startswith("random_"):
-            random_selectors.add(scope_node.key)
-        for ancestor in scope_ancestors:
-            if ancestor.children and (ancestor.key == "random" or ancestor.key.startswith("random_")):
-                random_selectors.add(ancestor.key)
-        for node, local_ancestors in descendants:
-            ancestors = (*scope_ancestors, scope_node, *local_ancestors)
-            target = target_name(node)
-            if node.key == "has_province_modifier":
-                modifier_reads.append(contextual_observation(node, ancestors, path, target=target))
-            elif node.key in {"add_province_modifier", "remove_province_modifier"}:
-                observation = contextual_observation(node, ancestors, path, target=target)
-                duration = scalar_children(node).get("duration")
-                if duration is not None:
-                    observation["duration"] = duration
-                modifier_writes.append(observation)
-            if FLAG_READ_KEY.match(node.key):
-                flag_reads.add(target or "<dynamic>")
-            if FLAG_WRITE_KEY.match(node.key):
-                flag_writes.add(target or "<dynamic>")
-            if node.key in VARIABLE_READ_KEYS:
-                variable_reads.add(target or "<dynamic>")
-            if node.key in VARIABLE_WRITE_KEYS:
-                variable_writes.add(target or "<dynamic>")
-            if node.children and (node.key == "random" or node.key.startswith("random_")):
-                random_selectors.add(node.key)
-            if node.key in OWNERSHIP_MUTATION_KEYS:
-                ownership_mutations.add(node.key)
-            if any(ancestor.key == "limit" for ancestor in local_ancestors):
-                predicate_keys.add(node.key)
-
-        risk_flags: set[str] = set()
-        if cadence:
-            risk_flags.add("mtth_polling")
-        if random_selectors:
-            risk_flags.add("random_selection")
-        if ownership_mutations:
-            risk_flags.add("ownership_mutation")
-        if any(
-            observation.get("command") == "add_province_modifier" and observation.get("duration") not in {None, "-1"}
-            for observation in modifier_writes
-        ):
-            risk_flags.add("finite_modifier_duration")
-        if any(
-            isinstance(observation["block_path"], list) and "state_scope" in observation["block_path"]
-            for observation in modifier_writes
-        ):
-            risk_flags.add("state_scope_write")
 
         blocks.append(
             {
                 "block_path": [ancestor.key for ancestor in scope_ancestors],
                 "event_id": metadata["id"],
                 "event_kind": definition.key,
-                "flag_reads": sorted(flag_reads),
-                "flag_writes": sorted(flag_writes),
-                "modifier_reads": modifier_reads,
-                "modifier_writes": modifier_writes,
-                "ownership_mutations": sorted(ownership_mutations),
-                "predicate_keys": sorted(predicate_keys),
-                "random_selectors": sorted(random_selectors),
-                "risk_flags": sorted(risk_flags),
+                "predicate_keys": sorted(
+                    {
+                        node.key
+                        for node, ancestors in descendants
+                        if any(ancestor.key == "limit" for ancestor in ancestors)
+                    }
+                ),
+                "risk_flags": modifier_risk_flags(semantics, mtth_polling=cadence),
                 "scope": scope_node.key,
                 "source": source_span(path, scope_node),
-                "variable_reads": sorted(variable_reads),
-                "variable_writes": sorted(variable_writes),
+                **semantics.report_fields(),
             }
         )
     return blocks
