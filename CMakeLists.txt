@@ -75,6 +75,10 @@ if(BUILD_TESTING)
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tools/tests/check_engine_ownership_test.py)
   add_test(
+    NAME smedley_clausewitz_workload_inventory_tool_tests
+    COMMAND ${Python3_EXECUTABLE}
+      ${PROJECT_SOURCE_DIR}/tools/tests/clausewitz_workload_inventory_test.py)
+  add_test(
     NAME smedley_dll_boundary_audit
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/audit_dll_boundaries.py
       --linker ${CMAKE_LINKER}

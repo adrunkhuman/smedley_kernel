@@ -47,6 +47,10 @@ The suite includes `smedley_engine_ownership_audit` and
 `game_state/src` implementation files, and internal game-state imports in
 migrated plugins.
 
+`smedley_clausewitz_workload_inventory_tool_tests` covers supported event-key
+recognition, static lead extraction, deterministic ordering, and CLI output-path
+validation for the Clausewitz workload inventory.
+
 `smedley_dll_boundary_audit` requires the explicit `LoadPlugins`,
 `LoadPluginsThread`, and all versioned C service-provider exports from the
 kernel. It also checks exact plugin export sets and rejects every
