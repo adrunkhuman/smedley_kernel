@@ -156,64 +156,17 @@ and child effects. Trigger entry timing would include only the provinces tested
 before its first match, so region cardinality is not an exact trigger-visit
 count.
 
-A temporary exact-executable probe filtered these generic boundaries by the
-verified `any_land_province` region key. Its callbacks used a fixed 2,048-slot
-atomic node table, process-local opaque tokens, QPC timing, TLS recursion
-accounting, and explicit layout, capacity, timing-depth, and cross-thread loss
-counters. Formatting, allocation, sorting, and file output ran only on a
-reporter thread. No pointer crossed a DLL boundary or survived a synchronous
-call.
+A temporary bounded probe filtered both boundaries by the verified region key.
+A normal 30-day GFM run produced no target-region calls. A controlled event
+overlay then exercised the effect boundary, but 622 process-local node tokens
+appeared in the same burst and could not be mapped back to script source sites.
+The probe observed no trigger calls, recursion, invalid layouts, or drops.
 
-A normal 30-day GFM run, ID
-`64b18e0b-9ff5-487e-b7f3-5d3ed546fb81`, completed the exact target with no
-target-region calls. A controlled follow-up loaded GFM plus a disposable event
-overlay. Event `990003` visibly fired for PRU and its immediate block contained
-one `any_land_province` effect with an always-false limit, so it traversed the
-region without mutating any province. The run was closed manually without
-saving after several game days; its lifecycle trace therefore has no benchmark
-completion or telemetry summary.
-
-The controlled run, ID `e24eb6b9-e363-45b3-a398-043dd1e7bb80`, observed:
-
-| Observation | Value |
-| --- | ---: |
-| Effect entry calls | 622 |
-| Nominal region candidates (`622 * 3,385`) | 2,105,470 |
-| Observed region cardinality per call | 3,385 |
-| Distinct process-local effect tokens | 622 |
-| Trigger entry calls | 0 |
-| Maximum observed recursion depth | 0 |
-| Invalid layouts, node drops, timing-depth drops, cross-thread calls | 0 |
-
-The 32 longest calls accounted for 5.719 ms, including one 3.992 ms call. The
-remaining 590 calls were each no longer than 16.9 microseconds at logged
-precision, bounding the complete observed burst below approximately 15.72 ms.
-These are direct executor durations, not a probe-overhead measurement.
-
-The probe read the runtime region's adjacent cardinality metadata as 3,385 but
-did not count linked-list entries inside each call. The static executor exhausts
-the actual `CRegion+0x8` list, but 2,105,470 is therefore a nominal candidate
-total rather than a directly measured visit count. The adjacent metadata offset
-is not retained as a supported `CRegion` field.
-
-The overlay establishes that at least its controlled region effect reached the
-generic boundary, but the simultaneous burst does not map the other 621 tokens
-to GFM source sites. Tokens are process-local and carry no stable event, file,
-or line identity. The run also did not exercise the trigger evaluator. Those
-limits reject a reusable attribution API and any source-site performance claim.
-
-The exact exploratory DLL SHA-256 was
-`2806bf8e062019a4f2b45c98c12a5043f3415e30b7feb1003758028c5ac218fc`.
-The probe log SHA-256 was
-`e27f9bf751f7c44b5144f499428425a5e110c029af3f51026db72d8ed607606f`;
-the incomplete lifecycle trace SHA-256 was
-`8045ecb85e6c206d2941f231688f488d7adc585de540eb5ef148ab9451d36c38`.
-Because the probe DLL came from an uncommitted exploratory tree, its runtime
-observation does not meet exact-built-commit provenance and the retained
-symbols remain `verified-static-callsites`. The source save remained unchanged
-at SHA-256
-`3c70553984e4d94773483076ee4d83ac351095042f66a9920a3ee4770f7763f4`.
-The probe, environment gate, reporter, and disposable overlay were removed.
+The probe did not count linked-list visits directly, establish stable node
+identity, or measure instrumentation cost. Its build also lacked committed-tree
+provenance. The runtime observations therefore do not promote either symbol
+beyond `verified-static-callsites` or support a source-site performance claim.
+The probe and disposable overlay were removed; no production API was retained.
 
 ## Script application boundary
 

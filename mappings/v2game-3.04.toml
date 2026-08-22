@@ -616,7 +616,7 @@ rva = 0x00488ba0
 kind = "function"
 status = "verified-static-callsites"
 signature = "55 8b ec 83 e4 f8 83 ec 54 53 56 8b f1 8b 4d 08"
-source = "RTTI and constructors identify CRegionScopeEffect; this+0x3c points to CRegion, whose +0x8 list is traversed completely while this+0x20 filters each province scope before the this+0x8 child effect chain runs; an exact-executable exploratory GFM probe observed the boundary but was not built from a committed tree, so mappings/evidence/gfm-workload.md retains the observation without promoting this symbol to verified-runtime"
+source = "RTTI and constructors identify CRegionScopeEffect; disassembly shows this+0x3c points to CRegion, whose +0x8 list is traversed completely while this+0x20 filters each province scope before the this+0x8 child effect chain runs"
 
 [[symbols]]
 name = "CRegionScopeTrigger evaluator"
