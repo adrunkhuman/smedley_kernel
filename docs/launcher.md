@@ -157,51 +157,10 @@ plugin list, safe mode, compact diagnostics, recent runs, and Launch. `Refresh`
 rediscovers mods and plugins while preserving selections and mod order. Launch
 remains disabled while shared preflight reports an error.
 
-Installation provides five bundled plugin manifests: `campaign_runner`,
-`gfm-smedley`, `interest_bug_fix`, `telemetry`, and `scripting`. It removes retired bundled
+Installation provides four bundled plugin manifests: `campaign_runner`,
+`interest_bug_fix`, `telemetry`, and `scripting`. It removes retired bundled
 plugin DLLs and manifests rather than leaving them discoverable. The native
 plugin build contains no standalone POP-money probe.
-
-## GFM-smedley
-
-`GFM-smedley` is an evolving showcase for adopting selected GFM workflows
-through reusable Smedley capabilities. The current standalone generated mod is
-not an overlay for an installed GFM copy. Build it from the pinned GFM
-repository object with:
-
-```powershell
-python tools/build_gfm_smedley.py `
-  --game-dir "C:\Games\Victoria 2" `
-  --gfm-repository "C:\src\Greater-Flavor-Mod"
-```
-
-The builder exports commit `ee1486e251d3bb4dc5c355f5c2ec34abaea1078d`,
-copies the complete `GFM` tree to `mod/GFM-smedley`, removes only the pinned
-slave-trade cleanup block, and writes `GFMSmedley.mod` with a separate
-`GFM-smedley` user directory. It does not read or modify `mod/GFM`. Launch
-`GFMSmedley.mod` with `plugins/gfm-smedley.toml`; the generated requirement
-file prevents launcher safe mode or omission of that plugin.
-
-The builder stages and validates the pinned archive and requires exactly one
-recognized cleanup block before installation. It refuses to replace an
-existing unmanaged `GFMSmedley.mod` or `mod/GFM-smedley` directory. If the
-final descriptor or content swap fails, it restores the previous managed
-package. The command may create `GAME_DIR/mod` before later validation fails.
-Rerun the builder after upgrading from the former `gfm_adoption` plugin so the
-managed package requires the renamed `gfm-smedley` plugin.
-
-Required-plugin enforcement belongs to Smedley launcher preflight. A direct
-Victoria II launch or another launcher does not enforce the requirement; use
-Smedley to guarantee that `gfm-smedley` is injected. After campaign start,
-`DEFERRED` performs no mutation and retries on a later eligible callback. Any
-other reconciliation failure terminates Victoria II immediately rather than
-performing blocking logging in the game callback or continuing with the
-replacement script disabled.
-
-Runtime validation covers a fresh campaign created with the pinned
-GFM-smedley package. Compatibility with saves from `GFM`, other GFM revisions,
-or older generated packages is not guaranteed. Keep the separate
-`GFM-smedley` user directory and test disposable save copies before reuse.
 
 The mod list shows each mod's name and descriptor. Checked entries launch in
 displayed order; use **Move Up** and **Move Down** to choose the profile order,

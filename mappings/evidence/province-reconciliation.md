@@ -18,9 +18,8 @@ least one of `slave_trade_decadence_1` through `_4` and its current owner has
 The event reschedules itself after 30 days at line 19020. The reconciliation
 block contains no random operation. Separate RGO events create and advance the
 four permanent stages, and event `38506` independently removes them while
-changing the RGO. The generated GFM-smedley source must therefore disable only
-lines 1127-1141; the writers and independent remover remain part of the
-standalone mod.
+changing the RGO. The retired GFM adoption slice therefore disabled only lines
+1127-1141; the writers and independent remover remained active.
 
 ## Modifier lookup
 
@@ -143,9 +142,9 @@ Because the fixture contained no target modifier, these observations
 corroborate lookup lifetime, policy selection, and generic list traversal but
 do not independently authorize production mutation.
 
-## Current packaging contract
+## Retired packaging contract
 
-The current implementation generates standalone `mod/GFM-smedley` directly
+PR #92 generated standalone `mod/GFM-smedley` directly
 from pinned GFM commit `ee1486e251d3bb4dc5c355f5c2ec34abaea1078d`.
 It preserves GFM's five `replace_path` directives, writes the alphanumeric
 descriptor filename `GFMSmedley.mod`, retains visible mod and user-directory
@@ -161,10 +160,11 @@ the simplified mod without its required reconciliation behavior. The service's
 own callback supplies a domain-specific, game-thread authority; `gfm-smedley`
 does not subscribe to an unrelated event-service boundary. `DEFERRED` performs
 no mutation and leaves the cadence pending for a later eligible callback.
-Requirement enforcement applies only to launches through Smedley; direct game
-launches can bypass launcher preflight.
+Requirement enforcement applied only to launches through Smedley; direct game
+launches could bypass launcher preflight. The native GFM plugin and generated
+package were later retired; pristine GFM retains the original cleanup block.
 
-### Standalone production reconciliation runtime
+### Historical standalone reconciliation runtime
 
 The supported executable loaded only `mod/GFMSmedley.mod` and the required
 `gfm-smedley` plugin, created the separate `GFM-smedley` user directory, and
@@ -198,7 +198,7 @@ The fixture added stage 1 to Berlin province `549`, whose Prussian owner had
 selected `no_slavery`, and stage 2 to Washington province `2146`, whose USA
 owner had not. The saved result contained no managed stage on Berlin and
 retained only `slave_trade_decadence_2` on Washington. No reconciliation
-failure was logged. This establishes the final standalone package, separate
+failure was logged. This established the standalone package, separate
 save namespace, current-owner policy branch, native removal, and policy-preserve
 branch together. The immutable fresh source proves the fixture and runtime did
 not alter the user's baseline save.

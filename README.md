@@ -17,7 +17,6 @@ capture, and lifecycle-sensitive integration.
 | `smedley_launcher.exe` | Configure, validate, and launch the game through a native GUI. |
 | `smedley_cli.exe` | Run the same preflight and launch workflow from scripts or a terminal. |
 | `campaign_runner` | Load a save, set speed or pause state, enter observer mode, and run bounded benchmarks. |
-| `gfm-smedley` | Power the evolving GFM-smedley integration showcase. |
 | `telemetry` | Write bounded structured traces for lifecycle and selected game-state families. |
 | `smedley_trace.exe` | Validate, inspect, summarize, compare, and export telemetry offline. |
 | `scripting` | Run selected Lua 5.1 source files against copied state and queued operations. |
@@ -136,19 +135,6 @@ security sandbox. Prefer scripts for user-authored policy and orchestration;
 add native plugins only when the scripting execution model cannot safely meet
 the feature's engine-thread, performance, capture, or lifecycle requirements.
 See [`docs/scripting.md`](docs/scripting.md).
-
-### GFM-smedley
-
-GFM-smedley is a work-in-progress integration showcase for adopting selected
-GFM workflows through reusable Smedley capabilities. It currently replaces one
-recurring slave-trade modifier cleanup through `gfm-smedley`; later slices may
-add independently justified integrations without moving GFM policy into the
-kernel.
-
-The standalone package is generated from pinned GFM source. Current validation
-covers fresh GFM-smedley saves, not legacy GFM saves or multiplayer. See
-[`docs/launcher.md#GFM-smedley`](docs/launcher.md#gfm-smedley) for generation,
-launch, failure, and version limits.
 
 ### Interest Fix
 

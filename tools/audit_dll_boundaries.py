@@ -12,7 +12,6 @@ from pathlib import Path
 
 EXPECTED_EXPORTS = {
     "campaign_runner": {"SmedleyPluginGetApiV1"},
-    "gfm_smedley": {"SmedleyPluginGetApiV1"},
     "interest_bug_fix": {"SmedleyPluginGetApiV1"},
     "scripting": {"SmedleyPluginGetApiV1"},
     "telemetry": {

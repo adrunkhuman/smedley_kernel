@@ -89,20 +89,20 @@ Issue #9 treats repetitive or brittle script as product evidence even when it
 has not been measured as a bottleneck. A selected workflow may justify a generic
 kernel capability when an end-to-end replacement materially reduces script,
 centralizes an invariant, or improves correctness. GFM-specific conditions and
-compatibility policy remain in a separate adoption plugin. A version-gated
-standalone GFM-smedley build removes only the replaced script block while
-preserving the rest of the pinned GFM tree.
+compatibility policy remain in the downstream mod's scripts or, when required
+by a verified native constraint, a feature plugin. Each downstream replacement
+adds its script and removes the equivalent pinned source atomically.
 
 | Blocks | Role | Route |
 | --- | --- | --- |
 | Monthly casino repair, lines 19016–19019 | Compatibility repair for one fixed province | Possible direct-province smoke test after modifier operations exist; too small to justify them alone |
 | Annual capital-mobilisation removal, lines 31346–31357 | Exact copy of the monthly removal at lines 1142–1153 | Source simplification candidate; not an API driver by itself |
-| Slave-trade removal, lines 1127–1141 | Stale-penalty safeguard after abolition | Shipped first slice for province iteration, owner-policy reads, and checked modifier removal |
+| Slave-trade removal, lines 1127–1141 | Stale-penalty safeguard after abolition | Historical native slice validated province iteration, owner-policy reads, and checked modifier removal; its generated derivative was later retired while pristine GFM always retained the original block |
 | Monthly capital removal, lines 1142–1153, and annual addition, lines 31358–31369 | Capital-mobilisation supply-limit invariant | Adoption candidate after capital-transition behavior is mapped |
 | Three local industry additions, lines 18399–18481 | Backfill after one-shot country events | Reuse candidate for province queries and checked modifier addition |
 | Collectivisation removal, lines 18484–18493 | Stale-bonus cleanup after government change | Reuse candidate for government-transition observation and modifier removal |
 | Coffee addition, lines 18730–18752 | Ownership and setup backfill | Reuse candidate for ownership transitions and modifier addition |
-| Two Indian-lands blocks, lines 18995–19015 | Gameplay-policy normalisation | Keep policy in the GFM plugin if adopted through generic operations |
+| Two Indian-lands blocks, lines 18995–19015 | Gameplay-policy normalisation | Keep policy in downstream GFM scripting if adopted through generic operations |
 | Annual `drang_nach_osten` addition, lines 31672–31702 | Acquisition backfill | Reuse candidate after the generic province capability is proven |
 
 The casino block scans every land province to repair one state: province `3251`
@@ -119,7 +119,8 @@ removal, and the same capability family can serve several retained backfills and
 normalizers. Runtime cost remains useful for prioritization, not a prerequisite
 for addressing the script limitation. Issue
 [#91](https://github.com/adrunkhuman/smedley_kernel/issues/91) defines the
-focused behavior contract; PR #92 shipped and validated the replacement.
+focused behavior contract; PR #92 shipped and validated the replacement before
+the generated derivative and native consumer were retired.
 
 ### Derived state flags
 
@@ -131,7 +132,7 @@ useful cases for country-fact, transition, culture, and relationship APIs:
 | --- | --- | --- |
 | `medicine_invented`, `germs_invented`, `gaslights_invented`, `electricity_invented`, and `modern_central_bank_system_invented` | Technology or invention mirrors read from POP modifiers and country policy | Candidate for generic country-fact and transition APIs; retain script until all consumer scopes are covered |
 | `biologism_invented` | Technology mirror with one country-scope reader | Source-simplification baseline; too small to justify a native API alone |
-| `monarchy_government` and `theocratic_government` | Reusable government classifications with broad gameplay-policy readers | Possible country-fact API consumers; classifications remain GFM-plugin policy |
+| `monarchy_government` and `theocratic_government` | Reusable government classifications with broad gameplay-policy readers | Possible country-fact API consumers; classifications remain downstream GFM policy |
 | `new_world_nation_fr` | Government-derived emigration policy for New World nations | Possible country-fact API consumer; emigration policy remains in GFM |
 | `can_use_monthly` | Deliberate decision-execution pulse | Retain unless the underlying decision scheduler is adopted end to end |
 | Accepted-culture flags | Provenance for cultures granted through colonial relationships | High-value country catalog, culture, relationship, and checked-mutation candidate |
@@ -149,7 +150,7 @@ should move out of script.
 | Candidate | Classification | Static evidence | Evidence gate |
 | --- | --- | --- | --- |
 | Script-site attribution | Reviewed leads rejected; capability remains missing | The selected-option executor is too narrow, and the automatic-event leads below are not effect execution boundaries | A different boundary with controlled identity correlation and measured hook overhead |
-| Province-modifier reconciliation | First runtime adoption API family; removal slice shipped | Thirteen reviewed workflows reuse province iteration, owner conditions, and modifier add/remove operations | PR #92 verifies slave-trade removal; modifier addition and richer owner facts require separate evidence |
+| Province-modifier reconciliation | Generic API family with a retired native adoption slice | Thirteen reviewed workflows reuse province iteration, owner conditions, and modifier add/remove operations | PR #92 verifies the historical slave-trade replacement; new consumers require independent value and evidence |
 | Derived state flags | Split adoption backlog | Simple mirrors may stay in source; technology transitions and colonial-culture provenance expose broader reusable capability needs | Rank by script reduction and API reuse; preserve policy and save-visible state in the GFM layer |
 | Ghost unit and relationship repair | Engine-bug-workaround hypothesis | Cleanup explicitly repairs residual entities and relationships | Reproduction without repair and verified native entity identity |
 | Dismantlement slot variables and scope bridges | Engine-limitation/workaround hypothesis | Numbered variables and repeated scope traversal emulate collections and transactions | Executed paths and behavior-preserving operation contract |
@@ -371,4 +372,5 @@ retained.
 If attribution is verified, the kernel may own the hook, copied opaque IDs,
 timing, bounds, lifecycle, and loss reporting. A generic profiler may own
 allowlists and aggregation. GFM event identities, classifications, eligibility,
-thresholds, and replacement decisions remain mod or plugin policy.
+thresholds, and replacement decisions remain mod scripting or native feature
+plugin policy.
