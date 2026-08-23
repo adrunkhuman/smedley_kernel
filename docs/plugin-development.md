@@ -228,6 +228,9 @@ or I/O.
 | Field | Evidence | Meaning |
 | --- | --- | --- |
 | `game_date_raw` | `provisional` | Current raw Clausewitz date value; runtime progression is correlated |
+| `country_ordinal` | `verified-current` | Session-local country-vector ordinal; the kernel resolves it back to the callback country before dispatch |
+| `country_identity_available` | contract | `1` when `country_ordinal` and `campaign_session` are populated |
+| `campaign_session` | `verified-current` | Nonzero process-local observed game-state generation; changes when Smedley observes a different `CGameState` address, not a durable save identity |
 | `country_tag` | `provisional` | Three-byte country tag plus trailing NUL |
 | `treasury_raw` | `provisional` | Current country treasury signed 48.15 fixed-point raw value |
 | `has_owned_province` | `provisional` | `1` when the mapped owned-province vector is nonempty; not a complete lifecycle state |
@@ -235,8 +238,8 @@ or I/O.
 | `ai_scheduler_entry_count` | `provisional` | Country AI scheduler entries, not AI decisions |
 | `human_control_present` | `verified-runtime` | `1` when any player-control entry exists |
 
-The pointer and record are valid only during the callback. Except for the
-human-control invariant, these fields retain the provisional evidence levels
+The pointer and record are valid only during the callback. Except for country
+identity and the human-control invariant, these fields retain the provisional evidence levels
 documented in [`mappings/evidence/scripting.md`](../mappings/evidence/scripting.md). A tag is an
 identifier copied from the current event, not a durable object handle or proof
 that the country will exist later. ABI v1 exposes no mutation and no way to

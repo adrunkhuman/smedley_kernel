@@ -73,6 +73,9 @@ namespace
         event.version = SMEDLEY_DAILY_EVENT_VERSION_V1;
         event.treasury_raw = 123456;
         event.game_date_raw = 789;
+        event.country_ordinal = 73;
+        event.country_identity_available = 1;
+        event.campaign_session = 42;
         event.country_slot_count = 250;
         event.ai_scheduler_entry_count = 200;
         event.country_tag[0] = 'E';
@@ -96,6 +99,9 @@ TEST(EventApiV1Test, RegistersCopiesAndUnregistersDailySnapshot)
     EXPECT_FALSE(smedley::IsDailyEventApiDispatchThread());
     EXPECT_EQ(state.event.treasury_raw, event.treasury_raw);
     EXPECT_EQ(state.event.game_date_raw, event.game_date_raw);
+    EXPECT_EQ(state.event.country_ordinal, event.country_ordinal);
+    EXPECT_EQ(state.event.country_identity_available, event.country_identity_available);
+    EXPECT_EQ(state.event.campaign_session, event.campaign_session);
     EXPECT_EQ(std::string(state.event.country_tag, 3), "ENG");
     EXPECT_EQ(api.unregister(state.registration), SMEDLEY_EVENT_SUCCESS);
     smedley::DispatchDailyEventApi(event);

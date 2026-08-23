@@ -267,8 +267,9 @@ namespace smedley::game_state::services
     bool ValidDailyEvent(const SmedleyDailyEventV1 *event)
     {
         if (event == nullptr || event->struct_size != sizeof(*event) || event->version != SMEDLEY_DAILY_EVENT_VERSION_V1
-            || event->country_tag[3] != '\0') return false;
-        for (const auto value : event->reserved) if (value != 0) return false;
+            || event->country_tag[3] != '\0' || event->country_identity_available != 1
+            || event->campaign_session == 0 || event->country_ordinal < 0
+            || static_cast<uint32_t>(event->country_ordinal) >= event->country_slot_count) return false;
         for (uint32_t index = 0; index < 3; ++index) {
             const char value = event->country_tag[index];
             if (!((value >= 'A' && value <= 'Z') || (value >= '0' && value <= '9'))) return false;
@@ -394,22 +395,20 @@ namespace smedley::game_state::services
     {
         if (!ValidDailyEvent(event) || country_ordinal == nullptr) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT;
         std::lock_guard<std::recursive_mutex> lock(metadata_mutex);
-        if (const auto status = ObservationSessionStatus(session); status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        TelemetryObservationSessionSlot *slot = nullptr;
+        if (const auto status = ObservationSessionStatus(session, &slot);
+            status != SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS) return status;
+        if (slot == nullptr || event->campaign_session != slot->epoch) return SMEDLEY_TELEMETRY_OBSERVATION_STALE_HANDLE;
         *country_ordinal = -1;
-        uint32_t countries = 0;
         const auto game_state = CurrentGameSession().game_state;
-        if (!ReadCountryCount(game_state, &countries)) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_SOURCE;
-        for (uint32_t ordinal = 0; ordinal < countries; ++ordinal) {
-            const auto country = ResolveCountry(game_state, static_cast<int32_t>(ordinal));
-            if (!country) continue;
-            TelemetryCountrySnapshot source{};
-            if (!ReadTelemetryCountry(country, &source)) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_SOURCE;
-            if (std::memcmp(source.tag().value, event->country_tag, sizeof(event->country_tag)) == 0) {
-                *country_ordinal = static_cast<int32_t>(ordinal);
-                return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
-            }
+        const auto country = ResolveCountry(game_state, event->country_ordinal);
+        TelemetryCountrySnapshot source{};
+        if (!country || !ReadTelemetryCountry(country, &source)) return SMEDLEY_TELEMETRY_OBSERVATION_INVALID_SOURCE;
+        if (std::memcmp(source.tag().value, event->country_tag, sizeof(event->country_tag)) != 0) {
+            return SMEDLEY_TELEMETRY_OBSERVATION_UNAVAILABLE;
         }
-        return SMEDLEY_TELEMETRY_OBSERVATION_UNAVAILABLE;
+        *country_ordinal = event->country_ordinal;
+        return SMEDLEY_TELEMETRY_OBSERVATION_SUCCESS;
     }
     SmedleyTelemetryObservationResult SMEDLEY_TELEMETRY_OBSERVATION_CALL ReadObservationCountry(
         SmedleyTelemetryObservationSession session, int32_t ordinal, SmedleyTelemetryCountryObservationV1 *country)

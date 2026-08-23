@@ -69,9 +69,13 @@ namespace
             0x55, 0x8b, 0xec, 0x83, 0xb8, 0x84, 0x01, 0x00, 0x00, 0x00,
         };
         constexpr size_t game_state_countries_offset = 0x0adc;
+        constexpr size_t game_state_country_ais_offset = 0x0a4;
+        constexpr size_t game_state_player_nations_offset = 0x0aec;
         constexpr size_t game_state_provinces_offset = 0x0acc;
         constexpr size_t game_state_date_offset = 0x0b0c;
         constexpr size_t country_tag_offset = 0x01c;
+        constexpr size_t country_owned_provinces_offset = 0x9d8;
+        constexpr size_t country_treasury_offset = 0xe78;
         constexpr size_t country_overlord_offset = 0xcf8;
         constexpr size_t country_vassals_offset = 0xd38;
         constexpr size_t country_sphere_leader_offset = 0x1428;
@@ -520,5 +524,31 @@ namespace
         EXPECT_FALSE(province_snapshot.production_available());
         size_t building_slots = 1;
         EXPECT_FALSE(province_snapshot.building_slot_count_candidate(&building_slots));
+    }
+
+    TEST_F(RuntimeFixture, ValidatesDailyCountryOrdinalAgainstCurrentVector)
+    {
+        std::array<std::byte, 0x1600> country{};
+        WriteTag(&country, country_tag_offset, "PRU");
+        WriteField(&country, country_tag_offset + sizeof(uint32_t), int32_t{1});
+        WriteField(&country, country_treasury_offset, int64_t{32768});
+        const ForeignVector empty{};
+        WriteField(&country, country_owned_provinces_offset, empty);
+        std::array<const void *, 2> countries{nullptr, country.data()};
+        const ForeignVector country_vector{countries.data(), countries.data() + countries.size(),
+            countries.data() + countries.size()};
+        WriteField(&game_state_, game_state_countries_offset, country_vector);
+        WriteField(&game_state_, game_state_country_ais_offset, empty);
+        WriteField(&game_state_, game_state_player_nations_offset, empty);
+        WriteField(&game_state_, game_state_date_offset, int32_t{100});
+
+        DailyUpdateSnapshot snapshot{};
+        const CountryRef country_ref{static_cast<const void *>(country.data())};
+        ASSERT_TRUE(ReadDailyUpdateSnapshot(country_ref, &snapshot));
+        EXPECT_EQ(snapshot.country_ordinal, 1);
+        EXPECT_NE(snapshot.campaign_session, 0u);
+
+        WriteField(&country, country_tag_offset + sizeof(uint32_t), int32_t{0});
+        EXPECT_FALSE(ReadDailyUpdateSnapshot(country_ref, &snapshot));
     }
 }

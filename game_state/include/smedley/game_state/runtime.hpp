@@ -100,6 +100,8 @@ namespace smedley::game_state
     struct DailyUpdateSnapshot
     {
         int32_t date_raw = 0;
+        int32_t country_ordinal = -1;
+        uint64_t campaign_session = 0;
         int64_t treasury_raw = 0;
         uint32_t country_slot_count = 0;
         uint32_t ai_scheduler_entry_count = 0;
