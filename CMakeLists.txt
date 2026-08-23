@@ -79,16 +79,16 @@ if(BUILD_TESTING)
     COMMAND ${Python3_EXECUTABLE}
       ${PROJECT_SOURCE_DIR}/tools/tests/clausewitz_workload_inventory_test.py)
   add_test(
-    NAME smedley_gfm_adoption_submod_tool_tests
+    NAME smedley_gfm_smedley_tool_tests
     COMMAND ${Python3_EXECUTABLE}
-      ${PROJECT_SOURCE_DIR}/tools/tests/build_gfm_adoption_submod_test.py)
+      ${PROJECT_SOURCE_DIR}/tools/tests/build_gfm_smedley_test.py)
   add_test(
     NAME smedley_dll_boundary_audit
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/audit_dll_boundaries.py
       --linker ${CMAKE_LINKER}
       --kernel $<TARGET_FILE:smedley_kernel>
       --campaign-runner $<TARGET_FILE:campaign_runner>
-      --gfm-adoption $<TARGET_FILE:gfm_adoption>
+      --gfm-smedley $<TARGET_FILE:gfm-smedley>
       --interest-bug-fix $<TARGET_FILE:interest_bug_fix>
       --scripting $<TARGET_FILE:scripting>
       --telemetry $<TARGET_FILE:telemetry>)

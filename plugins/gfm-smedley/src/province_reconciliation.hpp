@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-namespace gfm_adoption
+namespace gfm_smedley
 {
     constexpr uint32_t slave_trade_modifier_mask = (1u << 4) - 1;
     constexpr int32_t reconciliation_interval_raw = 30 * 24;

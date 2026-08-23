@@ -420,7 +420,7 @@ TEST_F(LauncherCoreTest, RejectsRequiredPluginModWithoutInjectionOrPlugin)
 {
     Write(root / L"mod" / L"Example.mod", "name = \"Example\"\npath = \"mod/Example Content\"\n");
     Write(root / L"mod" / L"Example Content" / L"smedley-required-plugins.txt",
-          "schema_version=1\nrequired_plugin=gfm_adoption\n");
+          "schema_version=1\nrequired_plugin=gfm-smedley\n");
     launcher::Profile profile;
     profile.game_dir = root;
     profile.inject = false;
@@ -440,10 +440,10 @@ TEST_F(LauncherCoreTest, RejectsRequiredPluginModWithoutInjectionOrPlugin)
 
     const auto plugin_binary = BuiltAbiFixture();
     ASSERT_TRUE(fs::is_regular_file(plugin_binary));
-    fs::copy_file(plugin_binary, root / L"plugins" / L"gfm_adoption.dll");
-    Write(root / L"plugins" / L"gfm_adoption.toml",
-          "id = \"gfm_adoption\"\nname = \"GFM adoption\"\nversion = \"1\"\nmodule = \"gfm_adoption.dll\"\n");
-    profile.plugins = {L"plugins/gfm_adoption.toml"};
+    fs::copy_file(plugin_binary, root / L"plugins" / L"gfm-smedley.dll");
+    Write(root / L"plugins" / L"gfm-smedley.toml",
+          "id = \"gfm-smedley\"\nname = \"GFM-smedley\"\nversion = \"1\"\nmodule = \"gfm-smedley.dll\"\n");
+    profile.plugins = {L"plugins/gfm-smedley.toml"};
 
     plan = launcher::BuildLaunchPlan(profile);
     EXPECT_TRUE(std::none_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {

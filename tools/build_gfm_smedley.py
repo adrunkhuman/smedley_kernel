@@ -132,7 +132,7 @@ def build(game_dir: Path, gfm_repository: Path) -> tuple[Path, Path]:
             raise ValueError(f"unsupported GFM cleanup source SHA-256: {digest}")
         staged_cleanup.write_bytes(remove_cleanup_block(source))
         (staged_root / "smedley-required-plugins.txt").write_bytes(
-            f"schema_version=1\nrequired_plugin=gfm_adoption\ngfm_revision={PINNED_GFM_REVISION}\n"
+            f"schema_version=1\nrequired_plugin=gfm-smedley\ngfm_revision={PINNED_GFM_REVISION}\n"
             f"gfm_cleanup_sha256={digest}\nremoved_blocks=1\n".encode()
         )
         staged_descriptor = Path(staging_directory) / f"{DESCRIPTOR_NAME}.new"

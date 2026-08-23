@@ -97,7 +97,7 @@ preserving the rest of the pinned GFM tree.
 | --- | --- | --- |
 | Monthly casino repair, lines 19016–19019 | Compatibility repair for one fixed province | Possible direct-province smoke test after modifier operations exist; too small to justify them alone |
 | Annual capital-mobilisation removal, lines 31346–31357 | Exact copy of the monthly removal at lines 1142–1153 | Source simplification candidate; not an API driver by itself |
-| Slave-trade removal, lines 1127–1141 | Stale-penalty safeguard after abolition | First-slice candidate for province iteration, owner-policy reads, and checked modifier removal |
+| Slave-trade removal, lines 1127–1141 | Stale-penalty safeguard after abolition | Shipped first slice for province iteration, owner-policy reads, and checked modifier removal |
 | Monthly capital removal, lines 1142–1153, and annual addition, lines 31358–31369 | Capital-mobilisation supply-limit invariant | Adoption candidate after capital-transition behavior is mapped |
 | Three local industry additions, lines 18399–18481 | Backfill after one-shot country events | Reuse candidate for province queries and checked modifier addition |
 | Collectivisation removal, lines 18484–18493 | Stale-bonus cleanup after government change | Reuse candidate for government-transition observation and modifier removal |
@@ -113,13 +113,13 @@ exists. Deleting the block would abandon recovery for old or externally modified
 saves. A generic direct-province modifier operation could preserve that repair,
 but this four-line case does not justify the API by itself.
 
-The slave-trade safeguard is a stronger first vertical slice. Its invariant is
+The slave-trade safeguard was selected as the first vertical slice. Its invariant is
 explicit, it exercises reusable province and owner queries plus checked modifier
 removal, and the same capability family can serve several retained backfills and
 normalizers. Runtime cost remains useful for prioritization, not a prerequisite
 for addressing the script limitation. Issue
-[#91](https://github.com/adrunkhuman/smedley_kernel/issues/91) owns the focused
-behavior contract and native evidence gate.
+[#91](https://github.com/adrunkhuman/smedley_kernel/issues/91) defines the
+focused behavior contract; PR #92 shipped and validated the replacement.
 
 ### Derived state flags
 
@@ -146,10 +146,10 @@ should move out of script.
 
 ## Candidate classification
 
-| Candidate | Provisional classification | Static evidence | Required runtime evidence |
+| Candidate | Classification | Static evidence | Evidence gate |
 | --- | --- | --- | --- |
 | Script-site attribution | Reviewed leads rejected; capability remains missing | The selected-option executor is too narrow, and the automatic-event leads below are not effect execution boundaries | A different boundary with controlled identity correlation and measured hook overhead |
-| Province-modifier reconciliation | First runtime adoption API family | Thirteen reviewed workflows reuse province iteration, owner conditions, and modifier add/remove operations | Select one invariant; map and verify generic reads and checked mutation; implement plugin and standalone GFM-smedley slice |
+| Province-modifier reconciliation | First runtime adoption API family; removal slice shipped | Thirteen reviewed workflows reuse province iteration, owner conditions, and modifier add/remove operations | PR #92 verifies slave-trade removal; modifier addition and richer owner facts require separate evidence |
 | Derived state flags | Split adoption backlog | Simple mirrors may stay in source; technology transitions and colonial-culture provenance expose broader reusable capability needs | Rank by script reduction and API reuse; preserve policy and save-visible state in the GFM layer |
 | Ghost unit and relationship repair | Engine-bug-workaround hypothesis | Cleanup explicitly repairs residual entities and relationships | Reproduction without repair and verified native entity identity |
 | Dismantlement slot variables and scope bridges | Engine-limitation/workaround hypothesis | Numbered variables and repeated scope traversal emulate collections and transactions | Executed paths and behavior-preserving operation contract |

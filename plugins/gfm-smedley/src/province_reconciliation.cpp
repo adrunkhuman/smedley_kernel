@@ -1,6 +1,6 @@
 #include "province_reconciliation.hpp"
 
-namespace gfm_adoption
+namespace gfm_smedley
 {
     namespace
     {

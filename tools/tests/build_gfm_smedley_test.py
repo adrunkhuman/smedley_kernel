@@ -12,7 +12,7 @@ from unittest import mock
 
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
-import build_gfm_adoption_submod as submod
+import build_gfm_smedley as submod
 
 
 BLOCK = b"""\t\tany_land_province = {
@@ -33,7 +33,7 @@ BLOCK = b"""\t\tany_land_province = {
 """
 
 
-class BuildGfmAdoptionSubmodTest(unittest.TestCase):
+class BuildGfmSmedleyTest(unittest.TestCase):
     def test_removes_only_the_exact_cleanup_block(self) -> None:
         source = b"before\n" + BLOCK + b"after\n"
 
@@ -51,7 +51,7 @@ class BuildGfmAdoptionSubmodTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "found 2"):
             submod.remove_cleanup_block(BLOCK + BLOCK)
 
-    def test_builds_standalone_gfm_smedley_with_crlf_descriptor(self) -> None:
+    def test_upgrades_managed_pre_rename_package(self) -> None:
         source = b"before\n" + BLOCK + b"after\n"
         with tempfile.TemporaryDirectory() as directory:
             game_dir = Path(directory)
@@ -61,6 +61,10 @@ class BuildGfmAdoptionSubmodTest(unittest.TestCase):
             unrelated = source_path.parents[1] / "map" / "provinces.bmp"
             unrelated.parent.mkdir()
             unrelated.write_bytes(b"not copied")
+            managed_root = game_dir / "mod" / submod.SUBMOD_DIRECTORY
+            managed_root.mkdir(parents=True)
+            (game_dir / "mod" / submod.DESCRIPTOR_NAME).write_bytes(b"old descriptor")
+            (game_dir / submod.STAMP_RELATIVE).write_bytes(b"schema_version=1\nrequired_plugin=gfm_adoption\n")
 
             def export_fixture(_repository: Path, destination: Path) -> Path:
                 exported = destination / "GFM"
@@ -82,7 +86,7 @@ class BuildGfmAdoptionSubmodTest(unittest.TestCase):
             )
             self.assertEqual(submod.DESCRIPTOR.count(b"replace_path"), 5)
             self.assertEqual(submod.DESCRIPTOR.count(b"\r\n"), 8)
-            self.assertIn(b"required_plugin=gfm_adoption\n", (game_dir / submod.STAMP_RELATIVE).read_bytes())
+            self.assertIn(b"required_plugin=gfm-smedley\n", (game_dir / submod.STAMP_RELATIVE).read_bytes())
 
     def test_preserves_installed_package_when_descriptor_swap_fails(self) -> None:
         source = b"before\n" + BLOCK + b"after\n"

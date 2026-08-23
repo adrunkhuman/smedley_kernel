@@ -153,12 +153,12 @@ identity `GFM-smedley`, and removes only event `477877790`'s pinned 15-line
 reconciliation block. `mod/GFM` is neither an input nor a launch dependency.
 
 The generated `smedley-required-plugins.txt` declares
-`required_plugin=gfm_adoption`. Launcher preflight rejects GFM-smedley in safe
+`required_plugin=gfm-smedley`. Launcher preflight rejects GFM-smedley in safe
 mode or without that plugin. Plugin initialization runs before the suspended
 game process resumes; an initialization failure terminates the child. A checked
 service failure after campaign start is fatal because continuing would leave
 the simplified mod without its required reconciliation behavior. The service's
-own callback supplies a domain-specific, game-thread authority; `gfm_adoption`
+own callback supplies a domain-specific, game-thread authority; `gfm-smedley`
 does not subscribe to an unrelated event-service boundary. `DEFERRED` performs
 no mutation and leaves the cadence pending for a later eligible callback.
 Requirement enforcement applies only to launches through Smedley; direct game
@@ -167,7 +167,7 @@ launches can bypass launcher preflight.
 ### Standalone production reconciliation runtime
 
 The supported executable loaded only `mod/GFMSmedley.mod` and the required
-`gfm_adoption` plugin, created the separate `GFM-smedley` user directory, and
+`gfm-smedley` plugin, created the separate `GFM-smedley` user directory, and
 reached the frontend with checksum `BBSV`. The plugin accepted simplified event SHA-256
 `34709cb3ae8c40cba441a05c6cba57952e84d5c6a234464879e14254dc1546c0`.
 
@@ -175,15 +175,20 @@ A bounded run with `campaign_runner` loaded a disposable fixture derived from a
 fresh GFM-smedley Prussia campaign, advanced at speed 5 from `1836.1.1` through
 `1836.1.4`, and saved the result. A post-review replay with the final kernel
 binary reached the same target without a reconciliation failure and requested
-native game exit.
+native game exit. A rename replay loaded `gfm-smedley.dll`, registered the
+plugin as `gfm-smedley`, reached the same target, and left the input fixture
+unchanged.
 
 | Runtime input | Identity |
 | --- | --- |
 | Repository base plus issue work | Base `e4befd2040961ff18968cceb74aca644ede27f57` |
+| Rename replay source | Merged base `479aef63fe3f9f3e982559d3586d6e958a3c639b` plus rename work |
 | `v2game.exe` | SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648` |
-| Final replay `smedley_kernel.dll` | SHA-256 `d88cec1f13bbd1d89b4903d90aa1ac21b572fb991f0338d0669824e20ccbb770` |
+| Rename replay `smedley_kernel.dll` | SHA-256 `ffee3cccf2837a53f59e57ce27e3c2a2ed5b7c50ec3cfea84737e9cf61f7f70e` |
+| Pre-rename replay `smedley_kernel.dll` | SHA-256 `d88cec1f13bbd1d89b4903d90aa1ac21b572fb991f0338d0669824e20ccbb770` |
 | Saved-result `smedley_kernel.dll` | SHA-256 `11df3cb1afc188d289a2915e7dd506c862c978d3b43a41b604568772a29fdaf4` |
-| `gfm_adoption.dll` | SHA-256 `96083bcd46bfc3c0e31c73d477d73e497af11b6ae17077dc58edfb7c9eb815ab` |
+| `gfm-smedley.dll` | SHA-256 `1ff4b2a8105aa95a6d430090cc1d9851488b85a13746fa3897d2668420aeddf1` |
+| Pre-rename `gfm_adoption.dll` | SHA-256 `96083bcd46bfc3c0e31c73d477d73e497af11b6ae17077dc58edfb7c9eb815ab` |
 | `campaign_runner.dll` | SHA-256 `a86058e05c043dd6502e68d2bd2da1922a3949c0ad44f258377ee09b30eb88fe` |
 | Fresh source save before and after | SHA-256 `b32dc06746be5a77512081d778a6cc7b4d060c9f28e77cd6f0939153c33de1ac` |
 | Disposable input fixture | SHA-256 `0d1c453c7835ecadde6d7b6acea08207c8eaa7bfea54f519bb7269b6b2e6e165` |
