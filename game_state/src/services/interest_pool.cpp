@@ -251,6 +251,10 @@ namespace smedley::game_state
             bank_authority = previous;
         }
     }
+    BankInterestAccess *FindBankInterestGameServices(SmedleyBankInterestAuthority authority) noexcept
+    {
+        return Authority(authority);
+    }
 }
 
 using namespace smedley::game_state::services;

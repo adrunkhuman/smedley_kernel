@@ -54,6 +54,13 @@ province_ids = []
 `GAME_DIR/mod`, and the launcher supplies Victoria II's verified syntax:
 `-mod=mod/<descriptor>.mod`. A mod is data interpreted by the game.
 
+A generated mod may include `smedley-required-plugins.txt` at its content root.
+Each `required_plugin=<id>` line makes that selected plugin part of the mod's
+launch contract. Shared preflight rejects safe mode or a profile missing any
+required plugin. The launcher initializes all selected plugins while Victoria II
+is suspended and terminates the child instead of resuming it if initialization
+fails.
+
 `plugins` selects Smedley TOML manifests under `GAME_DIR/plugins`. Their DLLs
 are injected native code. A plugin is not sandboxed and has the same authority
 as the user running Victoria II. Load DLLs and manifests only from trusted
@@ -150,10 +157,47 @@ plugin list, safe mode, compact diagnostics, recent runs, and Launch. `Refresh`
 rediscovers mods and plugins while preserving selections and mod order. Launch
 remains disabled while shared preflight reports an error.
 
-Installation provides four bundled plugin manifests: `campaign_runner`,
-`interest_bug_fix`, `telemetry`, and `scripting`. It removes retired bundled
+Installation provides five bundled plugin manifests: `campaign_runner`,
+`gfm_adoption`, `interest_bug_fix`, `telemetry`, and `scripting`. It removes retired bundled
 plugin DLLs and manifests rather than leaving them discoverable. The native
 plugin build contains no standalone POP-money probe.
+
+## GFM-smedley
+
+`GFM-smedley` is a standalone generated mod, not an overlay for an installed
+GFM copy. Build it from the pinned GFM repository object with:
+
+```powershell
+python tools/build_gfm_adoption_submod.py `
+  --game-dir "C:\Games\Victoria 2" `
+  --gfm-repository "C:\src\Greater-Flavor-Mod"
+```
+
+The builder exports commit `ee1486e251d3bb4dc5c355f5c2ec34abaea1078d`,
+copies the complete `GFM` tree to `mod/GFM-smedley`, removes only the pinned
+slave-trade cleanup block, and writes `GFMSmedley.mod` with a separate
+`GFM-smedley` user directory. It does not read or modify `mod/GFM`. Launch
+`GFMSmedley.mod` with `plugins/gfm_adoption.toml`; the generated requirement
+file prevents launcher safe mode or omission of that plugin.
+
+The builder stages and validates the pinned archive and requires exactly one
+recognized cleanup block before installation. It refuses to replace an
+existing unmanaged `GFMSmedley.mod` or `mod/GFM-smedley` directory. If the
+final descriptor or content swap fails, it restores the previous managed
+package. The command may create `GAME_DIR/mod` before later validation fails.
+
+Required-plugin enforcement belongs to Smedley launcher preflight. A direct
+Victoria II launch or another launcher does not enforce the requirement; use
+Smedley to guarantee that `gfm_adoption` is injected. After campaign start,
+`DEFERRED` performs no mutation and retries on a later eligible callback. Any
+other reconciliation failure terminates Victoria II immediately rather than
+performing blocking logging in the game callback or continuing with the
+replacement script disabled.
+
+Runtime validation covers a fresh campaign created with the pinned
+GFM-smedley package. Compatibility with saves from `GFM`, other GFM revisions,
+or older generated packages is not guaranteed. Keep the separate
+`GFM-smedley` user directory and test disposable save copies before reuse.
 
 The mod list shows each mod's name and descriptor. Checked entries launch in
 displayed order; use **Move Up** and **Move Down** to choose the profile order,

@@ -12,6 +12,7 @@ from pathlib import Path
 
 EXPECTED_EXPORTS = {
     "campaign_runner": {"SmedleyPluginGetApiV1"},
+    "gfm_adoption": {"SmedleyPluginGetApiV1"},
     "interest_bug_fix": {"SmedleyPluginGetApiV1"},
     "scripting": {"SmedleyPluginGetApiV1"},
     "telemetry": {
@@ -31,6 +32,7 @@ EXPECTED_KERNEL_EXPORTS = {
     "SmedleyGetEventServicesApiV1",
     "SmedleyGetInterestPoolApiV1",
     "SmedleyGetLoggingApiV1",
+    "SmedleyGetProvinceModifierReconciliationApiV1",
     "SmedleyGetTelemetryGameApiV1",
     "SmedleyGetTelemetryObservationApiV1",
 }

@@ -10,6 +10,8 @@ namespace smedley::events { class BankInterestEvent; }
 
 namespace smedley::game_state
 {
+    class BankInterestAccess;
+
     template <size_t Capacity>
     struct TelemetryEntityIndex
     {
@@ -53,4 +55,5 @@ namespace smedley::game_state
     bool BindBankInterestGameServices(SmedleyBankInterestAuthority authority,
         events::BankInterestEvent &event) noexcept;
     void UnbindBankInterestGameServices(SmedleyBankInterestAuthority authority) noexcept;
+    BankInterestAccess *FindBankInterestGameServices(SmedleyBankInterestAuthority authority) noexcept;
 }

@@ -184,6 +184,7 @@ namespace smedley::launcher
         std::vector<std::string> dependencies;
         fs::path descriptor_path;
         fs::path content_path;
+        std::vector<std::string> required_plugins;
     };
 
     struct Profile

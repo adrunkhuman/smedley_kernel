@@ -8,6 +8,7 @@ target_sources(smedley_kernel_runtime PRIVATE
   src/services/campaign_runtime.cpp
   src/services/campaign_automation.cpp
   src/services/interest_pool.cpp
+  src/services/province_modifier_reconciliation.cpp
   src/services/telemetry.cpp
   src/artisan_consumption_hook.cpp
   src/factory_consumption_hook.cpp
@@ -17,7 +18,10 @@ target_include_directories(smedley_kernel_runtime PUBLIC include)
 target_link_libraries(smedley_kernel PRIVATE psapi)
 
 if(BUILD_TESTING)
-  add_executable(smedley_game_state_tests tests/readers_test.cpp $<TARGET_OBJECTS:smedley_kernel_runtime>)
+  add_executable(smedley_game_state_tests
+    tests/province_modifier_list_test.cpp
+    tests/readers_test.cpp
+    $<TARGET_OBJECTS:smedley_kernel_runtime>)
   target_link_libraries(smedley_game_state_tests PRIVATE GTest::gtest_main bcrypt shell32 minhook psapi)
   target_include_directories(smedley_game_state_tests PRIVATE "${PROJECT_SOURCE_DIR}/include" include "${PROJECT_SOURCE_DIR}/smedley_kernel/include")
   add_executable(smedley_game_runtime_tests tests/runtime_test.cpp $<TARGET_OBJECTS:smedley_kernel_runtime>)

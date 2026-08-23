@@ -233,7 +233,7 @@ operations. The scripting plugin uses only these C engine-service boundaries.
 
 ## Domain C APIs
 
-The kernel exports five additional independently discoverable domain tables. They
+The kernel exports six additional independently discoverable domain tables. They
 are domain boundaries, not a general game-object API. Each discovery record and
 each caller-initialized single-record output requires its exact `struct_size`,
 `version`, and zero reserved fields. Bulk output arrays are caller-owned and
@@ -246,6 +246,7 @@ supplies no invented zero data.
 | `smedley/campaign_runtime_api.h` | `SmedleyGetCampaignRuntimeApiV2` | Campaign copied state, including typed game-over observation, plus checked pause, speed, quit, frontend-save, and observer operations. `SmedleyCampaignSession` and `SmedleyFrontendController` are opaque generation-bound handles. |
 | `smedley/campaign_automation_api.h` | `SmedleyGetCampaignAutomationApiV1` | Campaign automation lifecycle, copied frontend/annexation/console-capture notifications, console/tag-switch control, popup suppression readback, and optional copied process metrics. `SmedleyCampaignAutomation` is opaque and session/epoch bound. |
 | `smedley/interest_pool_api.h` | `SmedleyGetInterestPoolApiV1` | State/POP pool snapshots, prepare, payout, and cleanup. Each operation takes the `SmedleyBankInterestAuthority` supplied only to its synchronous bank-interest callback. |
+| `smedley/province_modifier_reconciliation_api.h` | `SmedleyGetProvinceModifierReconciliationApiV1` | Bounded province-modifier and current-owner policy snapshots plus checked removal. Its own synchronous callback supplies a domain-specific authority; consumers do not subscribe to the underlying engine event. |
 | `smedley/telemetry_game_api.h` | `SmedleyGetTelemetryGameApiV1` | World, market, country, province, POP, and factory copied snapshots plus bounded hook subscriptions and drain records. `SmedleyTelemetrySession` and `SmedleyTelemetryHookSubscription` are opaque handles. |
 | `smedley/telemetry_observation_api.h` | `SmedleyGetTelemetryObservationApiV1` | Detailed caller-buffered world, market, country, province, POP, factory, and RGO observations. `SmedleyTelemetryObservationSession` is opaque and bound to its parent telemetry session, owner thread, and game-session epoch. |
 
@@ -255,12 +256,13 @@ compile against `SmedleyCampaignRuntimeApiV2` and discover
 symbol cannot initialize campaign runtime services.
 
 Authority and session handles are process-local, opaque values. They must not be
-serialized, guessed, or retained beyond their callback/session. The interest
-authority is invalid immediately when its callback returns. Stale authority,
-session, controller, and subscription values fail closed without engine
-traversal. Hook records have at most 64 signed raw values; `drain_hooks` reports
-loss explicitly and never returns engine addresses. Capability installation and
-uninstallation stay inside the checked runtime.
+serialized, guessed, or retained beyond their callback/session. Interest and
+province-reconciliation authorities are invalid immediately when their
+respective callbacks return. Stale authority, session, controller, and
+subscription values fail closed without engine traversal. Hook records have at
+most 64 signed raw values; `drain_hooks` reports loss explicitly and never
+returns engine addresses. Capability installation and uninstallation stay
+inside the checked runtime.
 
 Session reads and hook operations are thread-affine. Telemetry sessions may be
 opened and read from a synchronous daily-event callback; process-owner lifecycle
@@ -293,10 +295,12 @@ without traversing its stale game objects or changing hook patches. Explicit
 close on a live session may use the existing checked uninstall path. The same
 fail-closed expiry policy retires campaign frontend ABI handles without invoking
 their stale engine tokens. A bounded bank-interest authority binding is required
-before a callback runs; if no binding slot is available, that callback is skipped
-without disabling its registration. A zero-capacity hook drain still consumes all
-selected queues and reports every consumed record and source-overflow counter as
-`dropped`.
+before a bank-interest callback runs; if no binding slot is available, that
+callback is skipped without disabling its registration. Province reconciliation
+adds a separate bounded authority inside its own callback and revalidates the
+underlying synchronous boundary on every operation. A zero-capacity hook drain
+still consumes all selected queues and reports every consumed record and
+source-overflow counter as `dropped`.
 
 The campaign automation table has one bounded registration. Installation activates
 checked frontend and campaign hooks and kernel-owned console capture; it exports

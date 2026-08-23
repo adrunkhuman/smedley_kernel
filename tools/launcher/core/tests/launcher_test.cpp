@@ -403,6 +403,8 @@ TEST_F(LauncherCoreTest, DiscoversModDescriptorAndDependencies)
 {
     Write(root / L"mod" / L"Example.mod",
           "name = \"Example\"\npath = \"mod/Example Content\"\nuser_dir = \"Example User\"\ndependencies = { \"Base\", \"Patch\" }\n");
+    Write(root / L"mod" / L"Example Content" / L"smedley-required-plugins.txt",
+          "schema_version=1\nrequired_plugin=example_plugin\nrequired_plugin=example_plugin\n");
 
     const auto discovery = launcher::DiscoverMods(root);
 
@@ -410,7 +412,61 @@ TEST_F(LauncherCoreTest, DiscoversModDescriptorAndDependencies)
     ASSERT_EQ(discovery.mods.size(), 1u);
     EXPECT_EQ(discovery.mods[0].name, "Example");
     EXPECT_EQ(discovery.mods[0].dependencies, (std::vector<std::string>{"Base", "Patch"}));
+    EXPECT_EQ(discovery.mods[0].required_plugins, (std::vector<std::string>{"example_plugin"}));
     EXPECT_EQ(discovery.mods[0].content_path, root / L"mod" / L"Example Content");
+}
+
+TEST_F(LauncherCoreTest, RejectsRequiredPluginModWithoutInjectionOrPlugin)
+{
+    Write(root / L"mod" / L"Example.mod", "name = \"Example\"\npath = \"mod/Example Content\"\n");
+    Write(root / L"mod" / L"Example Content" / L"smedley-required-plugins.txt",
+          "schema_version=1\nrequired_plugin=gfm_adoption\n");
+    launcher::Profile profile;
+    profile.game_dir = root;
+    profile.inject = false;
+    profile.mods = {L"mod/Example.mod"};
+
+    auto plan = launcher::BuildLaunchPlan(profile);
+
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "mod.plugin_injection";
+    }));
+
+    profile.inject = true;
+    plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::any_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "mod.required_plugin";
+    }));
+
+    const auto plugin_binary = BuiltAbiFixture();
+    ASSERT_TRUE(fs::is_regular_file(plugin_binary));
+    fs::copy_file(plugin_binary, root / L"plugins" / L"gfm_adoption.dll");
+    Write(root / L"plugins" / L"gfm_adoption.toml",
+          "id = \"gfm_adoption\"\nname = \"GFM adoption\"\nversion = \"1\"\nmodule = \"gfm_adoption.dll\"\n");
+    profile.plugins = {L"plugins/gfm_adoption.toml"};
+
+    plan = launcher::BuildLaunchPlan(profile);
+    EXPECT_TRUE(std::none_of(plan.diagnostics.begin(), plan.diagnostics.end(), [](const auto &diagnostic) {
+        return diagnostic.code == "mod.plugin_injection" || diagnostic.code == "mod.required_plugin";
+    }));
+}
+
+TEST_F(LauncherCoreTest, RejectsMalformedOrEmptyModRequirements)
+{
+    Write(root / L"mod" / L"Example.mod", "name = \"Example\"\npath = \"mod/Example Content\"\n");
+    const auto requirements = root / L"mod" / L"Example Content" / L"smedley-required-plugins.txt";
+
+    Write(requirements, "schema_version=1\nrequired_plugin =\n");
+    auto discovery = launcher::DiscoverMods(root);
+    EXPECT_TRUE(discovery.mods.empty());
+    ASSERT_FALSE(discovery.diagnostics.empty());
+    EXPECT_EQ(discovery.diagnostics.back().code, "mod.requirements_parse");
+
+    Write(requirements, "schema_version=1\ngfm_revision=abc\n");
+    discovery = launcher::DiscoverMods(root);
+    EXPECT_TRUE(discovery.mods.empty());
+    ASSERT_FALSE(discovery.diagnostics.empty());
+    EXPECT_EQ(discovery.diagnostics.back().code, "mod.requirements_schema");
 }
 
 TEST(LauncherDateTest, ConvertsFixedClausewitzDatesAndRejectsInvalidInput)

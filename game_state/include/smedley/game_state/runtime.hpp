@@ -531,6 +531,10 @@ namespace smedley::game_state
         uint64_t session_epoch() const noexcept { return session_epoch_; }
         bool after() const noexcept { return after_; }
         bool first_country() const noexcept { return first_country_; }
+        PopInterestMutationStatus CheckSynchronousAccess(bool require_after) const
+        {
+            return CheckMutationAccess(require_after);
+        }
 
     private:
         BankInterestAccess(GameSession session, CountryRef country, const void *bank,
