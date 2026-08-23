@@ -277,6 +277,28 @@ for a callback already acquired and returns `SMEDLEY_EVENT_SERVICES_BUSY` from
 that callback itself. Game callbacks must not allocate, log, perform I/O, block,
 retain record pointers or authority tokens, throw, or unregister.
 
+## Province modifier reconciliation capability v1
+
+[`include/smedley/province_modifier_reconciliation_api.h`](../include/smedley/province_modifier_reconciliation_api.h)
+owns its callback registration and authority. Consumers do not subscribe to a
+bank-interest or other unrelated event to obtain mutation access. Resolve
+`SmedleyGetProvinceModifierReconciliationApiV1`, initialize the table metadata,
+and register one bounded callback through `register_callback`.
+
+The callback receives a copied 32-byte record containing only a
+`SmedleyProvinceModifierReconciliationAuthority`. The authority, province
+handles, and country handles are valid only on that game thread during the
+callback. `collect` returns bounded snapshots for caller-supplied modifier and
+owner-option keys. `apply` preflights the complete batch, invokes the verified
+native remover, and checks owner, policy, target absence, and unrelated
+modifier bits after mutation. `DEFERRED` performs no mutation;
+`PARTIAL_MUTATION` requires the consumer to stop automation.
+
+The service supports 16 registrations. Returning `DISABLE`, returning an
+unknown callback result, or throwing makes a registration inert. Explicit
+`unregister_callback` waits for in-flight work and returns `BUSY` when called
+from its own callback.
+
 ## Campaign control capability v1
 
 [`include/smedley/campaign_control_api.h`](../include/smedley/campaign_control_api.h)

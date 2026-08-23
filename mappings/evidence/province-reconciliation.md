@@ -120,21 +120,12 @@ bounds, and live transition behavior remain unverified.
 
 ## Read-only runtime correlation
 
-Launcher run `56e41037-8f4a-4196-b8a6-df7cbad44668` loaded the pinned GFM v3.0
-save for one game day at speed 5 with `campaign_runner` and a temporary
-read-only probe. The probe ran once at the verified before-bank-interest
-callback, accepted the exact executable and both lookup signatures, bounded all
-foreign vectors and lists, and performed no engine write. It copied results for
-a worker thread to format and write.
-
-| Runtime input | Identity |
-| --- | --- |
-| Repository HEAD before the uncommitted issue work | `e4befd2040961ff18968cceb74aca644ede27f57` |
-| `v2game.exe` | SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648` |
-| `smedley_kernel.dll` | SHA-256 `46e76f0ef78e9307a8ba414dc2d60fa4a94ff6b79f50c50c1d7b80c4461fab9b` |
-| `campaign_runner.dll` | SHA-256 `a86058e05c043dd6502e68d2bd2da1922a3949c0ad44f258377ee09b30eb88fe` |
-| Temporary probe DLL | SHA-256 `28a9c8edb74d9386f12c06d0cbdd2c09042e47c607a74f7af564e08b3cfecac5` |
-| Source save before and after | SHA-256 `3c70553984e4d94773483076ee4d83ac351095042f66a9920a3ee4770f7763f4` |
+A one-day read-only run against base
+`e4befd2040961ff18968cceb74aca644ede27f57` and supported executable SHA-256
+`62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648`
+accepted both lookup signatures, bounded all foreign vectors and lists, and
+performed no engine write. The source save remained SHA-256
+`3c70553984e4d94773483076ee4d83ac351095042f66a9920a3ee4770f7763f4`.
 
 All four `slave_trade_decadence_*` lookups returned distinct non-null
 definitions. `no_slavery` resolved to a non-null option whose owning group had
@@ -148,11 +139,9 @@ one of the four slave-trade definitions in this save, so the run cannot validate
 their presence correlation or any removal behavior. GFM's error log remained
 empty and the game exited through the verified native request.
 
-The temporary source, manifest, DLL, output, and compiler artifacts were
-removed. Because the probe was external to the committed tree and the fixture
-contained no target modifier, these observations corroborate lookup lifetime,
-policy selection, and generic list traversal but do not promote the mappings or
-authorize production mutation.
+Because the fixture contained no target modifier, these observations
+corroborate lookup lifetime, policy selection, and generic list traversal but
+do not independently authorize production mutation.
 
 ## Current packaging contract
 
@@ -168,36 +157,33 @@ The generated `smedley-required-plugins.txt` declares
 mode or without that plugin. Plugin initialization runs before the suspended
 game process resumes; an initialization failure terminates the child. A checked
 service failure after campaign start is fatal because continuing would leave
-the simplified mod without its required reconciliation behavior. `DEFERRED`
-performs no mutation and leaves the cadence pending for a later eligible
-callback. Requirement enforcement applies only to launches through Smedley;
-direct game launches can bypass launcher preflight.
+the simplified mod without its required reconciliation behavior. The service's
+own callback supplies a domain-specific, game-thread authority; `gfm_adoption`
+does not subscribe to an unrelated event-service boundary. `DEFERRED` performs
+no mutation and leaves the cadence pending for a later eligible callback.
+Requirement enforcement applies only to launches through Smedley; direct game
+launches can bypass launcher preflight.
 
 ### Standalone production reconciliation runtime
 
-Startup run `2ac35102-c1da-41b8-82b4-5f974d626b94` selected only
-`mod/GFMSmedley.mod` and the required `gfm_adoption` plugin. Victoria II
-created the separate `GFM-smedley` user directory and map cache, loaded GFM's
-province history, decisions, and events, and reached the frontend with checksum
-`BBSV`. The plugin accepted simplified event SHA-256
+The supported executable loaded only `mod/GFMSmedley.mod` and the required
+`gfm_adoption` plugin, created the separate `GFM-smedley` user directory, and
+reached the frontend with checksum `BBSV`. The plugin accepted simplified event SHA-256
 `34709cb3ae8c40cba441a05c6cba57952e84d5c6a234464879e14254dc1546c0`.
 
-Run `aae4ca66-18dc-4e1d-83e0-72cb61041421` then selected
-`mod/GFMSmedley.mod`, `campaign_runner`, and `gfm_adoption`. It loaded a
-disposable fixture derived from a fresh GFM-smedley Prussia campaign, advanced
-exactly three days at speed 5 from `1836.1.1` through `1836.1.4`, and paused at
-the exact target. The resulting campaign was saved before normal exit.
-Post-review run `d8746d73-370e-47bd-a68c-7f249d0077ff` replayed the same
-fixture with the final kernel binary, reached the same target without a
-reconciliation failure, and requested native game exit.
+A bounded run with `campaign_runner` loaded a disposable fixture derived from a
+fresh GFM-smedley Prussia campaign, advanced at speed 5 from `1836.1.1` through
+`1836.1.4`, and saved the result. A post-review replay with the final kernel
+binary reached the same target without a reconciliation failure and requested
+native game exit.
 
 | Runtime input | Identity |
 | --- | --- |
 | Repository base plus issue work | Base `e4befd2040961ff18968cceb74aca644ede27f57` |
 | `v2game.exe` | SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648` |
-| Final replay `smedley_kernel.dll` | SHA-256 `598b0501c82531bf2338e7a63d03decc56a81435ff1694164cbe369713e81a4b` |
+| Final replay `smedley_kernel.dll` | SHA-256 `d88cec1f13bbd1d89b4903d90aa1ac21b572fb991f0338d0669824e20ccbb770` |
 | Saved-result `smedley_kernel.dll` | SHA-256 `11df3cb1afc188d289a2915e7dd506c862c978d3b43a41b604568772a29fdaf4` |
-| `gfm_adoption.dll` | SHA-256 `6f20d9041eda33315f8ac16d58ac0d1015e68f062581a71b3e0aa2f7ce02ec52` |
+| `gfm_adoption.dll` | SHA-256 `96083bcd46bfc3c0e31c73d477d73e497af11b6ae17077dc58edfb7c9eb815ab` |
 | `campaign_runner.dll` | SHA-256 `a86058e05c043dd6502e68d2bd2da1922a3949c0ad44f258377ee09b30eb88fe` |
 | Fresh source save before and after | SHA-256 `b32dc06746be5a77512081d778a6cc7b4d060c9f28e77cd6f0939153c33de1ac` |
 | Disposable input fixture | SHA-256 `0d1c453c7835ecadde6d7b6acea08207c8eaa7bfea54f519bb7269b6b2e6e165` |
@@ -212,36 +198,10 @@ save namespace, current-owner policy branch, native removal, and policy-preserve
 branch together. The immutable fresh source proves the fixture and runtime did
 not alter the user's baseline save.
 
-The earlier ordered-overlay runtime below remains supporting evidence for the
-native service's bounded traversal counters and read-only postcondition probe.
+## Supporting traversal evidence
 
-## Prototype production reconciliation runtime
-
-Launcher run `c479cc7c-47eb-4bdb-a133-0d8b9950d1c0` exercised the production
-`gfm_adoption` plugin and public reconciliation service for three game days at
-speed 5. The launch selected the original `mod/GFM.mod` first and the generated
-one-file `mod/SmedleyGFMAdoption.mod` overlay second. The overlay removed only
-GFM event `477877790`'s 15-line slave-trade reconciliation block; its 30-day
-reschedule and all other GFM files remained active.
-
-| Runtime input | Identity |
-| --- | --- |
-| Repository base plus uncommitted issue work | Base `e4befd2040961ff18968cceb74aca644ede27f57` |
-| `v2game.exe` | SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648` |
-| `smedley_kernel.dll` | SHA-256 `871ffc7efc03fcf498ffa8b02655a9cb792a2bcdd7898be726019110bb661243` |
-| `campaign_runner.dll` | SHA-256 `a86058e05c043dd6502e68d2bd2da1922a3949c0ad44f258377ee09b30eb88fe` |
-| `gfm_adoption.dll` | SHA-256 `9b40744b6c361da62e69bbd65e42c6a9f24b12d060e4aa94da9786e5bcd8765d` |
-| Temporary read-only postcondition probe | SHA-256 `3f54511ebd068c85112464ab21b8db9006fc0309162271ec321409de6a4dc20d` |
-| Source save before and after | SHA-256 `b032fbd3fa00c62994e7450c44699ca9fb56c50fe2fc67392df3d7ee8127d2ce` |
-
-A control run against the same immutable fixture observed 3,987 readable
-province slots, 807 active modifier nodes, stage 1 on Berlin province `549`,
-and stage 2 on Washington province `2146`. Berlin's current owner selected the
-resolved `no_slavery` option; Washington's owner did not.
-
-The production run initialized the pinned plugin without a service-failure
-log, completed through the verified native exit, and produced this read-only
-postcondition on the third country-zero before-interest boundary:
+An earlier ordered-overlay validation of the same service supplied bounded
+before-and-after traversal counters that the saved standalone result cannot:
 
 | Observation | Result |
 | --- | ---: |
@@ -254,11 +214,10 @@ postcondition on the third country-zero before-interest boundary:
 | Invalid list or policy records | 0 |
 
 The one-node decrease, Berlin's verified absence, and Washington's preserved
-stage establish that the native remover, modifier identities, current-owner
-resolution, and selected political-reform path work together at this callback
-boundary. The temporary probe performed no mutation. Source-save identity
-before and after establishes that all runtime mutation was confined to the
-loaded disposable campaign.
+stage corroborate the native remover, modifier identities, current-owner
+resolution, selected political-reform path, and list integrity at this callback
+boundary. The immutable source save remained SHA-256
+`b032fbd3fa00c62994e7450c44699ca9fb56c50fe2fc67392df3d7ee8127d2ce`.
 
 The service still treats a nonzero province iteration guard as `DEFERRED`; this
 path is covered by policy tests but was not forced in the live game. Host tests

@@ -190,9 +190,9 @@ Required-plugin enforcement belongs to Smedley launcher preflight. A direct
 Victoria II launch or another launcher does not enforce the requirement; use
 Smedley to guarantee that `gfm_adoption` is injected. After campaign start,
 `DEFERRED` performs no mutation and retries on a later eligible callback. Any
-other reconciliation failure is fatal: the plugin logs the failure and
-terminates Victoria II rather than continuing with the replacement script
-disabled.
+other reconciliation failure terminates Victoria II immediately rather than
+performing blocking logging in the game callback or continuing with the
+replacement script disabled.
 
 Runtime validation covers a fresh campaign created with the pinned
 GFM-smedley package. Compatibility with saves from `GFM`, other GFM revisions,

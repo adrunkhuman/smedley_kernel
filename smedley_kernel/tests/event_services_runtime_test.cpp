@@ -40,6 +40,42 @@ namespace
         SmedleyInterestPoolResult result = SMEDLEY_INTEREST_POOL_SUCCESS;
     };
 
+    struct ReconciliationAuthorityState
+    {
+        SmedleyProvinceModifierReconciliationApiV1 *api = nullptr;
+        SmedleyProvinceModifierReconciliationRegistration registration = 0;
+        SmedleyProvinceModifierReconciliationEventV1 event{};
+        SmedleyProvinceModifierReconciliationResult during = SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_UNAVAILABLE;
+        SmedleyProvinceModifierReconciliationResult cross_thread = SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS;
+        SmedleyProvinceModifierReconciliationResult self_unregister = SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS;
+        SmedleyProvinceModifierReconciliationCallbackResult callback_result
+            = SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALLBACK_CONTINUE;
+        int calls = 0;
+        bool unregister_during_callback = false;
+    };
+
+    SmedleyProvinceModifierReconciliationCallbackResult
+    SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALL CaptureReconciliation(
+        void *context, const SmedleyProvinceModifierReconciliationEventV1 *event)
+    {
+        auto *state = static_cast<ReconciliationAuthorityState *>(context);
+        ++state->calls;
+        state->event = *event;
+        uint32_t province_count = 0;
+        uint32_t country_count = 0;
+        state->during = state->api->collect(event->authority, nullptr, 0, nullptr,
+            nullptr, 0, &province_count, nullptr, 0, &country_count);
+        std::thread caller([&] {
+            state->cross_thread = state->api->collect(event->authority, nullptr, 0, nullptr,
+                nullptr, 0, &province_count, nullptr, 0, &country_count);
+        });
+        caller.join();
+        if (state->unregister_during_callback) {
+            state->self_unregister = state->api->unregister_callback(state->registration);
+        }
+        return state->callback_result;
+    }
+
     SmedleyEventServicesCallbackResult SMEDLEY_EVENT_SERVICES_CALL CheckAuthorityThread(
         void *context, const SmedleyBankInterestEventV1 *event)
     {
@@ -400,6 +436,8 @@ TEST(GameServicesApiV1Test, DiscoversDomainTablesAndRejectsReservedFields)
         SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS);
     EXPECT_NE(reconciliation.collect, nullptr);
     EXPECT_NE(reconciliation.apply, nullptr);
+    EXPECT_NE(reconciliation.register_callback, nullptr);
+    EXPECT_NE(reconciliation.unregister_callback, nullptr);
     EXPECT_EQ(reconciliation.collect(UINT64_C(1), nullptr, 0, nullptr, nullptr, 0, nullptr, nullptr, 0, nullptr),
         SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_STALE_AUTHORITY);
     reconciliation.reserved[0] = 1;
@@ -457,6 +495,80 @@ TEST(GameServicesApiV1Test, DiscoversDomainTablesAndRejectsReservedFields)
         SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT);
     EXPECT_EQ(observations.read_market(UINT64_C(1), UINT32_C(1) << 31, nullptr, 0, &market_count),
         SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT);
+}
+
+TEST(GameServicesApiV1Test, ScopesReconciliationAuthorityToItsOwnedCallback)
+{
+    SmedleyProvinceModifierReconciliationApiV1 reconciliation{};
+    reconciliation.struct_size = sizeof(reconciliation);
+    reconciliation.version = SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_API_VERSION_V1;
+    ASSERT_EQ(SmedleyGetProvinceModifierReconciliationApiV1(&reconciliation),
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS);
+    ReconciliationAuthorityState state{&reconciliation};
+    ASSERT_EQ(reconciliation.register_callback(
+                  &CaptureReconciliation, &state, &state.registration),
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS);
+
+    smedley::DispatchBankInterestEventServices(SMEDLEY_BANK_INTEREST_AFTER, 0, false);
+    smedley::DispatchBankInterestEventServices(SMEDLEY_BANK_INTEREST_BEFORE, 1, false);
+    EXPECT_EQ(state.calls, 0);
+    smedley::DispatchBankInterestEventServices(SMEDLEY_BANK_INTEREST_BEFORE, 0, false);
+
+    EXPECT_EQ(state.calls, 1);
+    EXPECT_EQ(state.event.struct_size, sizeof(state.event));
+    EXPECT_EQ(state.event.version, SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_EVENT_VERSION_V1);
+    EXPECT_NE(state.event.authority, 0u);
+    EXPECT_EQ(state.during, SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_STALE_AUTHORITY);
+    EXPECT_EQ(state.cross_thread, SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_STALE_AUTHORITY);
+    uint32_t province_count = 0;
+    uint32_t country_count = 0;
+    EXPECT_EQ(reconciliation.collect(state.event.authority, nullptr, 0, nullptr,
+                  nullptr, 0, &province_count, nullptr, 0, &country_count),
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_STALE_AUTHORITY);
+    EXPECT_EQ(reconciliation.unregister_callback(state.registration),
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS);
+}
+
+TEST(GameServicesApiV1Test, ContainsReconciliationCallbackLifecycle)
+{
+    SmedleyProvinceModifierReconciliationApiV1 reconciliation{};
+    reconciliation.struct_size = sizeof(reconciliation);
+    reconciliation.version = SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_API_VERSION_V1;
+    ASSERT_EQ(SmedleyGetProvinceModifierReconciliationApiV1(&reconciliation),
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS);
+    ReconciliationAuthorityState self{&reconciliation};
+    self.unregister_during_callback = true;
+    ASSERT_EQ(reconciliation.register_callback(&CaptureReconciliation, &self, &self.registration),
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS);
+    smedley::DispatchBankInterestEventServices(SMEDLEY_BANK_INTEREST_BEFORE, 0, false);
+    EXPECT_EQ(self.self_unregister, SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_BUSY);
+    EXPECT_EQ(reconciliation.unregister_callback(self.registration),
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS);
+
+    ReconciliationAuthorityState disabled{&reconciliation};
+    disabled.callback_result = SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALLBACK_DISABLE;
+    ASSERT_EQ(reconciliation.register_callback(
+                  &CaptureReconciliation, &disabled, &disabled.registration),
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS);
+    smedley::DispatchBankInterestEventServices(SMEDLEY_BANK_INTEREST_BEFORE, 0, false);
+    smedley::DispatchBankInterestEventServices(SMEDLEY_BANK_INTEREST_BEFORE, 0, false);
+    EXPECT_EQ(disabled.calls, 1);
+    EXPECT_EQ(reconciliation.unregister_callback(disabled.registration),
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS);
+
+    std::array<SmedleyProvinceModifierReconciliationRegistration,
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_MAX_REGISTRATIONS> registrations{};
+    for (auto &registration : registrations) {
+        ASSERT_EQ(reconciliation.register_callback(&CaptureReconciliation, &disabled, &registration),
+            SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS);
+    }
+    SmedleyProvinceModifierReconciliationRegistration overflow = 0;
+    EXPECT_EQ(reconciliation.register_callback(&CaptureReconciliation, &disabled, &overflow),
+        SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CAPACITY);
+    for (const auto registration : registrations) {
+        EXPECT_EQ(reconciliation.unregister_callback(registration),
+            SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS);
+    }
 }
 
 TEST(GameServicesApiV1Test, EncodesSharedTelemetryIdentityWithoutNativeAddressBits)

@@ -238,14 +238,12 @@ namespace smedley::game_state
         binding->thread = std::this_thread::get_id();
         binding->access.emplace(BankInterestAccess::FromEvent(event));
         bank_authority = binding;
-        BindProvinceModifierReconciliation(authority);
         return true;
     }
     void UnbindBankInterestGameServices(SmedleyBankInterestAuthority authority) noexcept
     {
         if (bank_authority != nullptr && bank_authority->authority == authority) {
             std::lock_guard<std::mutex> lock(bank_authority_mutex);
-            UnbindProvinceModifierReconciliation(authority);
             auto *previous = bank_authority->previous;
             const auto index = static_cast<size_t>(bank_authority - bank_authority_slots.data());
             ResetBankAuthoritySlot(bank_authority);

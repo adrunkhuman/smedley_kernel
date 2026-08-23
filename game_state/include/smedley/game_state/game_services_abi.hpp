@@ -56,6 +56,4 @@ namespace smedley::game_state
         events::BankInterestEvent &event) noexcept;
     void UnbindBankInterestGameServices(SmedleyBankInterestAuthority authority) noexcept;
     BankInterestAccess *FindBankInterestGameServices(SmedleyBankInterestAuthority authority) noexcept;
-    void BindProvinceModifierReconciliation(SmedleyBankInterestAuthority authority) noexcept;
-    void UnbindProvinceModifierReconciliation(SmedleyBankInterestAuthority authority) noexcept;
 }

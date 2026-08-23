@@ -1,4 +1,5 @@
 #include <smedley/province_modifier_reconciliation_api.h>
+#include <smedley/event_services_api.h>
 
 #include <smedley/executable_identity.hpp>
 #include <smedley/game_state/game_services_abi.hpp>
@@ -8,8 +9,11 @@
 #include <windows.h>
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <mutex>
+#include <thread>
 
 #include "../foreign_memory.hpp"
 #include "../v2_304_layout.hpp"
@@ -79,7 +83,9 @@ namespace smedley::game_state::services
         struct ReconciliationSlot
         {
             ReconciliationSlot *previous = nullptr;
-            SmedleyBankInterestAuthority authority = 0;
+            SmedleyProvinceModifierReconciliationAuthority authority = 0;
+            std::thread::id thread{};
+            BankInterestAccess *access = nullptr;
             std::array<uintptr_t, SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_MAX_KEYS> definitions{};
             std::array<CachedProvince, SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_MAX_PROVINCES> provinces{};
             std::array<CachedCountry, SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_MAX_COUNTRIES> countries{};
@@ -93,19 +99,30 @@ namespace smedley::game_state::services
             bool collected = false;
         };
 
-        std::array<ReconciliationSlot, 2> slots{};
-        thread_local ReconciliationSlot *active_slot = nullptr;
-
-        void Reset(ReconciliationSlot *slot) noexcept
+        struct CallbackSlot
         {
-            const auto previous = slot->previous;
+            SmedleyProvinceModifierReconciliationCallbackV1Fn callback = nullptr;
+            void *context = nullptr;
+            SmedleyEventServicesRegistration event_registration = 0;
+            bool reserved = false;
+        };
+
+        std::array<ReconciliationSlot, 2> slots{};
+        std::array<bool, slots.size()> slot_active{};
+        std::mutex slot_mutex;
+        thread_local ReconciliationSlot *active_slot = nullptr;
+        std::array<CallbackSlot, SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_MAX_REGISTRATIONS> callback_slots{};
+        std::mutex callback_mutex;
+        std::atomic<uint64_t> next_authority{1};
+
+        void ResetQuery(ReconciliationSlot *slot) noexcept
+        {
             for (uint32_t index = 0; index < slot->matched_province_count; ++index) {
                 slot->provinces[slot->matched_provinces[index]] = {};
             }
             for (uint32_t index = 0; index < slot->matched_country_count; ++index) {
                 slot->countries[slot->matched_countries[index]] = {};
             }
-            slot->authority = 0;
             slot->definitions = {};
             slot->matched_province_count = 0;
             slot->matched_country_count = 0;
@@ -113,16 +130,26 @@ namespace smedley::game_state::services
             slot->owner_option = 0;
             slot->owner_group_index = 0;
             slot->collected = false;
-            slot->previous = previous;
         }
 
-        ReconciliationSlot *Active(SmedleyBankInterestAuthority authority) noexcept
+        void ResetSlot(ReconciliationSlot *slot) noexcept
+        {
+            ResetQuery(slot);
+            slot->previous = nullptr;
+            slot->authority = 0;
+            slot->thread = {};
+            slot->access = nullptr;
+        }
+
+        ReconciliationSlot *Active(SmedleyProvinceModifierReconciliationAuthority authority) noexcept
         {
             return authority != 0 && active_slot != nullptr && active_slot->authority == authority
+                && active_slot->thread == std::this_thread::get_id()
                 ? active_slot : nullptr;
         }
 
-        uint64_t Handle(SmedleyBankInterestAuthority authority, uint32_t index, HandleDomain domain) noexcept
+        uint64_t Handle(SmedleyProvinceModifierReconciliationAuthority authority,
+                        uint32_t index, HandleDomain domain) noexcept
         {
             if (authority == 0 || authority > (UINT64_MAX >> handle_payload_bits)
                 || index >= handle_index_mask) return 0;
@@ -130,7 +157,7 @@ namespace smedley::game_state::services
                 | (static_cast<uint64_t>(index) + 1);
         }
 
-        bool HandleIndex(SmedleyBankInterestAuthority authority, uint64_t handle, uint32_t limit,
+        bool HandleIndex(SmedleyProvinceModifierReconciliationAuthority authority, uint64_t handle, uint32_t limit,
                          HandleDomain domain, uint32_t *index) noexcept
         {
             if (index == nullptr || handle == 0 || (handle >> handle_payload_bits) != authority
@@ -201,15 +228,169 @@ namespace smedley::game_state::services
                 && NativeSignature(*base + modifier_remover_rva, remover_signature.data(), remover_signature.size());
         }
 
-        SmedleyProvinceModifierReconciliationResult CheckAuthority(SmedleyBankInterestAuthority authority,
-                                                                   BankInterestAccess **access) noexcept
+        SmedleyProvinceModifierReconciliationResult CheckAuthority(
+            SmedleyProvinceModifierReconciliationAuthority authority, ReconciliationSlot **slot) noexcept
         {
-            if (access == nullptr) return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_INVALID_ARGUMENT;
-            *access = FindBankInterestGameServices(authority);
-            if (Active(authority) == nullptr || *access == nullptr
-                || (*access)->CheckSynchronousAccess(false) != PopInterestMutationStatus::success) {
+            if (slot == nullptr) return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_INVALID_ARGUMENT;
+            *slot = Active(authority);
+            if (*slot == nullptr) return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_STALE_AUTHORITY;
+            if ((*slot)->access == nullptr || !(*slot)->access->first_country()
+                || (*slot)->access->CheckSynchronousAccess(false) != PopInterestMutationStatus::success) {
                 return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_STALE_AUTHORITY;
             }
+            return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS;
+        }
+
+        SmedleyProvinceModifierReconciliationAuthority NextAuthority() noexcept
+        {
+            constexpr uint64_t max_authority = UINT64_MAX >> handle_payload_bits;
+            for (;;) {
+                const auto authority = next_authority.fetch_add(1, std::memory_order_relaxed) & max_authority;
+                if (authority != 0) return authority;
+            }
+        }
+
+        bool BindAuthority(SmedleyProvinceModifierReconciliationAuthority authority,
+                           BankInterestAccess *access) noexcept
+        {
+            std::lock_guard<std::mutex> lock(slot_mutex);
+            for (size_t index = 0; index < slots.size(); ++index) {
+                if (slot_active[index]) continue;
+                slot_active[index] = true;
+                auto &slot = slots[index];
+                ResetSlot(&slot);
+                slot.previous = active_slot;
+                slot.authority = authority;
+                slot.thread = std::this_thread::get_id();
+                slot.access = access;
+                active_slot = &slot;
+                return true;
+            }
+            return false;
+        }
+
+        void UnbindAuthority(SmedleyProvinceModifierReconciliationAuthority authority) noexcept
+        {
+            if (active_slot == nullptr || active_slot->authority != authority) return;
+            std::lock_guard<std::mutex> lock(slot_mutex);
+            auto *slot = active_slot;
+            active_slot = slot->previous;
+            const auto index = static_cast<size_t>(slot - slots.data());
+            ResetSlot(slot);
+            slot_active[index] = false;
+        }
+
+        SmedleyEventServicesCallbackResult SMEDLEY_EVENT_SERVICES_CALL DispatchReconciliation(
+            void *context, const SmedleyBankInterestEventV1 *event)
+        {
+            if (context == nullptr || event == nullptr || event->struct_size != sizeof(*event)
+                || event->version != SMEDLEY_BANK_INTEREST_EVENT_VERSION_V1) {
+                return SMEDLEY_EVENT_SERVICES_CALLBACK_DISABLE;
+            }
+            if (event->phase != SMEDLEY_BANK_INTEREST_BEFORE || event->country_index != 0) {
+                return SMEDLEY_EVENT_SERVICES_CALLBACK_CONTINUE;
+            }
+            auto *slot = static_cast<CallbackSlot *>(context);
+            const auto authority = NextAuthority();
+            if (!BindAuthority(authority, FindBankInterestGameServices(event->authority))) {
+                return SMEDLEY_EVENT_SERVICES_CALLBACK_CONTINUE;
+            }
+            SmedleyProvinceModifierReconciliationEventV1 reconciliation_event{};
+            reconciliation_event.struct_size = sizeof(reconciliation_event);
+            reconciliation_event.version = SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_EVENT_VERSION_V1;
+            reconciliation_event.authority = authority;
+            SmedleyProvinceModifierReconciliationCallbackResult result
+                = SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALLBACK_DISABLE;
+            try {
+                result = slot->callback(slot->context, &reconciliation_event);
+            } catch (...) {
+            }
+            UnbindAuthority(authority);
+            return result == SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALLBACK_CONTINUE
+                ? SMEDLEY_EVENT_SERVICES_CALLBACK_CONTINUE : SMEDLEY_EVENT_SERVICES_CALLBACK_DISABLE;
+        }
+
+        bool EventServices(SmedleyEventServicesApiV1 *api) noexcept
+        {
+            if (api == nullptr) return false;
+            *api = {};
+            api->struct_size = sizeof(*api);
+            api->version = SMEDLEY_EVENT_SERVICES_API_VERSION_V1;
+            return SmedleyGetEventServicesApiV1(api) == SMEDLEY_EVENT_SERVICES_SUCCESS
+                && api->register_bank_interest != nullptr && api->unregister != nullptr;
+        }
+
+        SmedleyProvinceModifierReconciliationResult SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALL
+        RegisterCallback(SmedleyProvinceModifierReconciliationCallbackV1Fn callback, void *context,
+                         SmedleyProvinceModifierReconciliationRegistration *registration)
+        {
+            if (callback == nullptr || registration == nullptr) {
+                return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_INVALID_ARGUMENT;
+            }
+            *registration = 0;
+            SmedleyEventServicesApiV1 events{};
+            if (!EventServices(&events)) return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_UNAVAILABLE;
+            CallbackSlot *slot = nullptr;
+            {
+                std::lock_guard<std::mutex> lock(callback_mutex);
+                for (auto &candidate : callback_slots) {
+                    if (candidate.reserved) continue;
+                    candidate.reserved = true;
+                    candidate.callback = callback;
+                    candidate.context = context;
+                    slot = &candidate;
+                    break;
+                }
+            }
+            if (slot == nullptr) return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CAPACITY;
+            SmedleyEventServicesRegistration event_registration = 0;
+            const auto result = events.register_bank_interest(
+                &DispatchReconciliation, slot, &event_registration);
+            if (result == SMEDLEY_EVENT_SERVICES_SUCCESS) {
+                std::lock_guard<std::mutex> lock(callback_mutex);
+                slot->event_registration = event_registration;
+                *registration = event_registration;
+                return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS;
+            }
+            {
+                std::lock_guard<std::mutex> lock(callback_mutex);
+                *slot = {};
+            }
+            return result == SMEDLEY_EVENT_SERVICES_CAPACITY
+                ? SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CAPACITY
+                : SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_UNAVAILABLE;
+        }
+
+        SmedleyProvinceModifierReconciliationResult SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALL
+        UnregisterCallback(SmedleyProvinceModifierReconciliationRegistration registration)
+        {
+            if (registration == 0) return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_INVALID_ARGUMENT;
+            SmedleyEventServicesApiV1 events{};
+            if (!EventServices(&events)) return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_UNAVAILABLE;
+            CallbackSlot *slot = nullptr;
+            SmedleyEventServicesRegistration event_registration = 0;
+            {
+                std::lock_guard<std::mutex> lock(callback_mutex);
+                for (auto &candidate : callback_slots) {
+                    if (candidate.reserved && candidate.event_registration == registration) {
+                        slot = &candidate;
+                        event_registration = candidate.event_registration;
+                        break;
+                    }
+                }
+            }
+            if (slot == nullptr) return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_NOT_FOUND;
+            const auto result = events.unregister(event_registration);
+            if (result == SMEDLEY_EVENT_SERVICES_BUSY) {
+                return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_BUSY;
+            }
+            if (result != SMEDLEY_EVENT_SERVICES_SUCCESS) {
+                return result == SMEDLEY_EVENT_SERVICES_NOT_FOUND
+                    ? SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_NOT_FOUND
+                    : SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_UNAVAILABLE;
+            }
+            std::lock_guard<std::mutex> lock(callback_mutex);
+            if (slot->event_registration == event_registration) *slot = {};
             return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS;
         }
 
@@ -283,14 +464,15 @@ namespace smedley::game_state::services
         }
 
         SmedleyProvinceModifierReconciliationResult SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALL Collect(
-            SmedleyBankInterestAuthority authority, const SmedleyReconciliationKeyV1 *modifier_keys,
+            SmedleyProvinceModifierReconciliationAuthority authority,
+            const SmedleyReconciliationKeyV1 *modifier_keys,
             uint32_t modifier_count, const SmedleyReconciliationKeyV1 *owner_option_key,
             SmedleyReconciliationProvinceSnapshotV1 *provinces, uint32_t province_capacity,
             uint32_t *province_count, SmedleyReconciliationCountrySnapshotV1 *countries,
             uint32_t country_capacity, uint32_t *country_count)
         {
-            BankInterestAccess *access = nullptr;
-            const auto authority_status = CheckAuthority(authority, &access);
+            ReconciliationSlot *slot = nullptr;
+            const auto authority_status = CheckAuthority(authority, &slot);
             if (authority_status != SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS) return authority_status;
             if (modifier_keys == nullptr || modifier_count == 0
                 || modifier_count > SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_MAX_KEYS
@@ -309,9 +491,7 @@ namespace smedley::game_state::services
             if (!smedley::IsCurrentExecutableSupported()) {
                 return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_UNSUPPORTED;
             }
-            auto *slot = Active(authority);
-            Reset(slot);
-            slot->authority = authority;
+            ResetQuery(slot);
             uintptr_t base = 0;
             if (!NativeBoundary(&base) || !ResolveQuery(base, modifier_keys, modifier_count, *owner_option_key, slot)) {
                 return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_UNAVAILABLE;
@@ -323,11 +503,11 @@ namespace smedley::game_state::services
             uint32_t country_slots = 0;
             MemoryRegionCache cache{};
             if (!ReadValue(base + country_database_rva, &country_database, &cache) || country_database == 0
-                || !foreign_memory::ReadVector(reinterpret_cast<const void *>(access->game_state().address()),
+                || !foreign_memory::ReadVector(reinterpret_cast<const void *>(slot->access->game_state().address()),
                     v2_304_layout::game_state_provinces_offset,
                     sizeof(uintptr_t), SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_MAX_PROVINCES,
                     &province_vector, &province_slots, &cache)
-                || !foreign_memory::ReadVector(reinterpret_cast<const void *>(access->game_state().address()),
+                || !foreign_memory::ReadVector(reinterpret_cast<const void *>(slot->access->game_state().address()),
                     v2_304_layout::game_state_countries_offset,
                     sizeof(uintptr_t), SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_MAX_COUNTRIES,
                     &country_vector, &country_slots, &cache)) {
@@ -402,13 +582,13 @@ namespace smedley::game_state::services
         }
 
         SmedleyProvinceModifierReconciliationResult SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALL Apply(
-            SmedleyBankInterestAuthority authority, const SmedleyReconciliationRemovalV1 *removals,
+            SmedleyProvinceModifierReconciliationAuthority authority,
+            const SmedleyReconciliationRemovalV1 *removals,
             uint32_t removal_count, SmedleyReconciliationBatchResultV1 *result)
         {
-            BankInterestAccess *access = nullptr;
-            const auto authority_status = CheckAuthority(authority, &access);
+            ReconciliationSlot *slot = nullptr;
+            const auto authority_status = CheckAuthority(authority, &slot);
             if (authority_status != SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS) return authority_status;
-            auto *slot = Active(authority);
             if (!ValidRecord(result, 1) || removals == nullptr || removal_count == 0
                 || removal_count > SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_MAX_PROVINCES
                 || slot == nullptr || !slot->collected) {
@@ -427,7 +607,7 @@ namespace smedley::game_state::services
             uint32_t country_slots = 0;
             if (!NativeBoundary(&base) || !ReadValue(base + country_database_rva, &country_database)
                 || country_database == 0
-                || !foreign_memory::ReadVector(reinterpret_cast<const void *>(access->game_state().address()),
+                || !foreign_memory::ReadVector(reinterpret_cast<const void *>(slot->access->game_state().address()),
                     v2_304_layout::game_state_countries_offset,
                     sizeof(uintptr_t), SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_MAX_COUNTRIES,
                     &country_vector, &country_slots)) {
@@ -550,32 +730,6 @@ namespace smedley::game_state::services
     }
 }
 
-namespace smedley::game_state
-{
-    void BindProvinceModifierReconciliation(SmedleyBankInterestAuthority authority) noexcept
-    {
-        using namespace services;
-        for (auto &slot : slots) {
-            if (slot.authority != 0) continue;
-            Reset(&slot);
-            slot.previous = active_slot;
-            slot.authority = authority;
-            active_slot = &slot;
-            return;
-        }
-    }
-
-    void UnbindProvinceModifierReconciliation(SmedleyBankInterestAuthority authority) noexcept
-    {
-        using namespace services;
-        if (active_slot == nullptr || active_slot->authority != authority) return;
-        auto *slot = active_slot;
-        active_slot = slot->previous;
-        slot->previous = nullptr;
-        Reset(slot);
-    }
-}
-
 using namespace smedley::game_state::services;
 
 SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_EXPORT SmedleyProvinceModifierReconciliationResult
@@ -587,15 +741,19 @@ SmedleyGetProvinceModifierReconciliationApiV1(SmedleyProvinceModifierReconciliat
         || api->reserved[0] != 0 || api->reserved[1] != 0) {
         return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_INVALID_ARGUMENT;
     }
+    api->register_callback = &RegisterCallback;
+    api->unregister_callback = &UnregisterCallback;
     api->collect = &Collect;
     api->apply = &Apply;
     return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS;
 }
 
 static_assert(sizeof(void *) == 4, "province modifier reconciliation requires the supported x86 executable");
+static_assert(sizeof(SmedleyProvinceModifierReconciliationEventV1) == 32,
+    "reconciliation event ABI v1 layout changed");
 static_assert(sizeof(SmedleyReconciliationKeyV1) == 88, "reconciliation key ABI v1 layout changed");
 static_assert(sizeof(SmedleyReconciliationProvinceSnapshotV1) == 40, "reconciliation province ABI v1 layout changed");
 static_assert(sizeof(SmedleyReconciliationCountrySnapshotV1) == 32, "reconciliation country ABI v1 layout changed");
 static_assert(sizeof(SmedleyReconciliationRemovalV1) == 48, "reconciliation removal ABI v1 layout changed");
 static_assert(sizeof(SmedleyReconciliationBatchResultV1) == 36, "reconciliation result ABI v1 layout changed");
-static_assert(sizeof(SmedleyProvinceModifierReconciliationApiV1) == 24, "reconciliation API v1 layout changed");
+static_assert(sizeof(SmedleyProvinceModifierReconciliationApiV1) == 32, "reconciliation API v1 layout changed");

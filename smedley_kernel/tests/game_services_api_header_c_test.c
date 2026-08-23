@@ -22,11 +22,12 @@ typedef char campaign_automation_popup_size[sizeof(SmedleyCampaignPopupSnapshotV
 typedef char campaign_automation_metrics_size[sizeof(SmedleyCampaignProcessMetricsV1) == 56 ? 1 : -1];
 typedef char interest_pool_api_size[sizeof(SmedleyInterestPoolApiV1) == 32 ? 1 : -1];
 typedef char reconciliation_key_size[sizeof(SmedleyReconciliationKeyV1) == 88 ? 1 : -1];
+typedef char reconciliation_event_size[sizeof(SmedleyProvinceModifierReconciliationEventV1) == 32 ? 1 : -1];
 typedef char reconciliation_province_size[sizeof(SmedleyReconciliationProvinceSnapshotV1) == 40 ? 1 : -1];
 typedef char reconciliation_country_size[sizeof(SmedleyReconciliationCountrySnapshotV1) == 32 ? 1 : -1];
 typedef char reconciliation_removal_size[sizeof(SmedleyReconciliationRemovalV1) == 48 ? 1 : -1];
 typedef char reconciliation_result_size[sizeof(SmedleyReconciliationBatchResultV1) == 36 ? 1 : -1];
-typedef char reconciliation_api_size[sizeof(SmedleyProvinceModifierReconciliationApiV1) == 24 ? 1 : -1];
+typedef char reconciliation_api_size[sizeof(SmedleyProvinceModifierReconciliationApiV1) == 32 ? 1 : -1];
 typedef char telemetry_game_api_size[sizeof(SmedleyTelemetryGameApiV1) == 60 ? 1 : -1];
 typedef char telemetry_world_snapshot_size[sizeof(SmedleyTelemetryWorldSnapshotV1) == 44 ? 1 : -1];
 typedef char telemetry_market_snapshot_size[sizeof(SmedleyTelemetryMarketSnapshotV1) == 72 ? 1 : -1];
@@ -47,6 +48,7 @@ void compile_game_services_api_headers_as_c(void)
     interest.struct_size = sizeof(interest); interest.version = SMEDLEY_INTEREST_POOL_API_VERSION_V1;
     reconciliation.struct_size = sizeof(reconciliation);
     reconciliation.version = SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_API_VERSION_V1;
+    (void)reconciliation.register_callback;
     telemetry.struct_size = sizeof(telemetry); telemetry.version = SMEDLEY_TELEMETRY_GAME_API_VERSION_V1;
     (void)telemetry.subscribe_hooks;
     (void)campaign_v2.read_campaign;

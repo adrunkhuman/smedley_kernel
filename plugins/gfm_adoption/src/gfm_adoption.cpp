@@ -1,7 +1,6 @@
 #include "province_reconciliation.hpp"
 
 #include <smedley/event_api.h>
-#include <smedley/event_services_api.h>
 #include <smedley/logging_api.h>
 #include <smedley/province_modifier_reconciliation_api.h>
 #define SMEDLEY_PLUGIN_BUILD
@@ -133,8 +132,9 @@ namespace gfm_adoption
                 if (event_api_.register_daily(&DailyCallback, this, &daily_registration_) != SMEDLEY_EVENT_SUCCESS) {
                     return false;
                 }
-                if (event_services_api_.register_bank_interest(&BankCallback, this, &bank_registration_)
-                    != SMEDLEY_EVENT_SERVICES_SUCCESS) {
+                if (reconciliation_api_.register_callback(
+                        &ReconciliationCallback, this, &reconciliation_registration_)
+                    != SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS) {
                     event_api_.unregister(daily_registration_);
                     daily_registration_ = 0;
                     return false;
@@ -146,9 +146,11 @@ namespace gfm_adoption
 
             void Unload() noexcept
             {
-                if (bank_registration_ != 0) event_services_api_.unregister(bank_registration_);
+                if (reconciliation_registration_ != 0) {
+                    reconciliation_api_.unregister_callback(reconciliation_registration_);
+                }
                 if (daily_registration_ != 0) event_api_.unregister(daily_registration_);
-                bank_registration_ = 0;
+                reconciliation_registration_ = 0;
                 daily_registration_ = 0;
                 enabled_ = false;
             }
@@ -161,26 +163,25 @@ namespace gfm_adoption
                 return SMEDLEY_EVENT_CALLBACK_CONTINUE;
             }
 
-            SmedleyEventServicesCallbackResult OnBank(const SmedleyBankInterestEventV1 *event) noexcept
+            SmedleyProvinceModifierReconciliationCallbackResult OnReconciliation(
+                const SmedleyProvinceModifierReconciliationEventV1 *event) noexcept
             {
                 if (!enabled_ || event == nullptr || event->struct_size != sizeof(*event)
-                    || event->version != SMEDLEY_BANK_INTEREST_EVENT_VERSION_V1 || event->authority == 0) {
-                    return SMEDLEY_EVENT_SERVICES_CALLBACK_DISABLE;
+                    || event->version != SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_EVENT_VERSION_V1
+                    || event->authority == 0) {
+                    return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALLBACK_DISABLE;
                 }
-                if (!due_ || event->phase != SMEDLEY_BANK_INTEREST_BEFORE || event->country_index != 0) {
-                    return SMEDLEY_EVENT_SERVICES_CALLBACK_CONTINUE;
-                }
+                if (!due_) return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALLBACK_CONTINUE;
                 const auto status = Reconcile(event->authority);
                 if (status == SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_DEFERRED) {
-                    return SMEDLEY_EVENT_SERVICES_CALLBACK_CONTINUE;
+                    return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALLBACK_CONTINUE;
                 }
                 if (status != SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS) {
-                    Log(SMEDLEY_LOG_FAILURE, "required GFM-smedley reconciliation failed; terminating");
                     TerminateProcess(GetCurrentProcess(), ERROR_OPERATION_ABORTED);
-                    return SMEDLEY_EVENT_SERVICES_CALLBACK_DISABLE;
+                    return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALLBACK_DISABLE;
                 }
                 due_ = false;
-                return SMEDLEY_EVENT_SERVICES_CALLBACK_CONTINUE;
+                return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALLBACK_CONTINUE;
             }
 
         private:
@@ -190,30 +191,27 @@ namespace gfm_adoption
                 if (kernel == nullptr) return false;
                 const auto get_events = reinterpret_cast<SmedleyGetEventApiV1Fn>(
                     GetProcAddress(kernel, SMEDLEY_EVENT_GET_API_V1_SYMBOL));
-                const auto get_event_services = reinterpret_cast<SmedleyGetEventServicesApiV1Fn>(
-                    GetProcAddress(kernel, SMEDLEY_EVENT_SERVICES_GET_API_V1_SYMBOL));
                 const auto get_reconciliation = reinterpret_cast<SmedleyGetProvinceModifierReconciliationApiV1Fn>(
                     GetProcAddress(kernel, SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_GET_API_V1_SYMBOL));
                 const auto get_logging = reinterpret_cast<SmedleyGetLoggingApiV1Fn>(
                     GetProcAddress(kernel, SMEDLEY_LOGGING_GET_API_V1_SYMBOL));
-                if (get_events == nullptr || get_event_services == nullptr
-                    || get_reconciliation == nullptr || get_logging == nullptr) return false;
+                if (get_events == nullptr || get_reconciliation == nullptr || get_logging == nullptr) return false;
                 event_api_ = {sizeof(event_api_), SMEDLEY_EVENT_API_VERSION_V1};
-                event_services_api_ = {sizeof(event_services_api_), SMEDLEY_EVENT_SERVICES_API_VERSION_V1};
                 reconciliation_api_ = {sizeof(reconciliation_api_),
                     SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_API_VERSION_V1};
                 logging_api_ = {sizeof(logging_api_), SMEDLEY_LOGGING_API_VERSION_V1};
                 return get_events(&event_api_) == SMEDLEY_EVENT_SUCCESS
-                    && get_event_services(&event_services_api_) == SMEDLEY_EVENT_SERVICES_SUCCESS
                     && get_reconciliation(&reconciliation_api_) == SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_SUCCESS
                     && get_logging(&logging_api_) == SMEDLEY_LOGGING_SUCCESS
                     && event_api_.register_daily != nullptr && event_api_.unregister != nullptr
-                    && event_services_api_.register_bank_interest != nullptr && event_services_api_.unregister != nullptr
+                    && reconciliation_api_.register_callback != nullptr
+                    && reconciliation_api_.unregister_callback != nullptr
                     && reconciliation_api_.collect != nullptr && reconciliation_api_.apply != nullptr
                     && logging_api_.write != nullptr;
             }
 
-            SmedleyProvinceModifierReconciliationResult Reconcile(SmedleyBankInterestAuthority authority) noexcept
+            SmedleyProvinceModifierReconciliationResult Reconcile(
+                SmedleyProvinceModifierReconciliationAuthority authority) noexcept
             {
                 uint32_t province_count = 0;
                 uint32_t country_count = 0;
@@ -277,14 +275,15 @@ namespace gfm_adoption
                 }
             }
 
-            static SmedleyEventServicesCallbackResult SMEDLEY_EVENT_SERVICES_CALL BankCallback(
-                void *context, const SmedleyBankInterestEventV1 *event) noexcept
+            static SmedleyProvinceModifierReconciliationCallbackResult
+            SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALL ReconciliationCallback(
+                void *context, const SmedleyProvinceModifierReconciliationEventV1 *event) noexcept
             {
                 try {
-                    return context == nullptr ? SMEDLEY_EVENT_SERVICES_CALLBACK_DISABLE
-                        : static_cast<State *>(context)->OnBank(event);
+                    return context == nullptr ? SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALLBACK_DISABLE
+                        : static_cast<State *>(context)->OnReconciliation(event);
                 } catch (...) {
-                    return SMEDLEY_EVENT_SERVICES_CALLBACK_DISABLE;
+                    return SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_CALLBACK_DISABLE;
                 }
             }
 
@@ -297,11 +296,10 @@ namespace gfm_adoption
             }
 
             SmedleyEventApiV1 event_api_{};
-            SmedleyEventServicesApiV1 event_services_api_{};
             SmedleyProvinceModifierReconciliationApiV1 reconciliation_api_{};
             SmedleyLoggingApiV1 logging_api_{};
             SmedleyEventRegistration daily_registration_ = 0;
-            SmedleyEventServicesRegistration bank_registration_ = 0;
+            SmedleyProvinceModifierReconciliationRegistration reconciliation_registration_ = 0;
             ReconciliationSchedule schedule_{};
             bool enabled_ = false;
             bool due_ = true;
