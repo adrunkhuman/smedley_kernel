@@ -19,7 +19,7 @@
 #include <string_view>
 #include <vector>
 
-namespace gfm_adoption
+namespace gfm_smedley
 {
     namespace
     {
@@ -36,7 +36,7 @@ namespace gfm_adoption
             0x79, 0xe1, 0x42, 0x54, 0xdc, 0x15, 0x46, 0xc0,
         };
         constexpr wchar_t gfm_smedley_argument[] = L"-mod=mod/GFMSmedley.mod";
-        constexpr char component[] = "gfm_adoption";
+        constexpr char component[] = "gfm-smedley";
 
         bool HashMatches(const std::filesystem::path &path)
         {
@@ -88,7 +88,6 @@ namespace gfm_adoption
 
         struct LaunchOptions
         {
-            bool enabled = true;
             bool gfm_smedley = false;
         };
 
@@ -100,7 +99,6 @@ namespace gfm_adoption
             if (arguments == nullptr) return options;
             for (int index = 1; index < count; ++index) {
                 const std::wstring_view argument(arguments[index]);
-                if (argument == L"-smedley-gfm-adoption=0") options.enabled = false;
                 if (argument == gfm_smedley_argument) options.gfm_smedley = true;
             }
             LocalFree(arguments);
@@ -122,7 +120,6 @@ namespace gfm_adoption
             bool Load()
             {
                 const auto options = ReadLaunchOptions();
-                if (!options.enabled) return !options.gfm_smedley;
                 if (!options.gfm_smedley || !PinnedGfmSmedleyInstalled() || !AcquireServices()) return false;
                 SetKey(&modifier_keys_[0], "slave_trade_decadence_1");
                 SetKey(&modifier_keys_[1], "slave_trade_decadence_2");
@@ -319,7 +316,7 @@ namespace gfm_adoption
                 SMEDLEY_PROVINCE_MODIFIER_RECONCILIATION_MAX_PROVINCES> service_removals_{};
         };
 
-        static_assert(sizeof(State) <= SMEDLEY_PLUGIN_MAX_INSTANCE_BYTES, "GFM adoption state exceeds host storage");
+        static_assert(sizeof(State) <= SMEDLEY_PLUGIN_MAX_INSTANCE_BYTES, "GFM-smedley state exceeds host storage");
 
         SmedleyPluginResult SMEDLEY_PLUGIN_CALL Create(void *instance, uint32_t size)
         {
@@ -360,11 +357,11 @@ SMEDLEY_PLUGIN_EXPORT SmedleyPluginResult SMEDLEY_PLUGIN_CALL SmedleyPluginGetAp
     for (const uint32_t value : api->reserved) {
         if (value != 0) return SMEDLEY_PLUGIN_INVALID_ARGUMENT;
     }
-    api->instance_size = sizeof(gfm_adoption::State);
-    api->instance_alignment = alignof(gfm_adoption::State);
-    api->create = &gfm_adoption::Create;
-    api->load = &gfm_adoption::Load;
-    api->unload = &gfm_adoption::Unload;
-    api->destroy = &gfm_adoption::Destroy;
+    api->instance_size = sizeof(gfm_smedley::State);
+    api->instance_alignment = alignof(gfm_smedley::State);
+    api->create = &gfm_smedley::Create;
+    api->load = &gfm_smedley::Load;
+    api->unload = &gfm_smedley::Unload;
+    api->destroy = &gfm_smedley::Destroy;
     return SMEDLEY_PLUGIN_SUCCESS;
 }

@@ -11,10 +11,11 @@ install(CODE "file(REMOVE
   \"${plugins_install_dir}/economy_trace.dll\" \"${plugins_install_dir}/economy_trace.toml\"
   \"${plugins_install_dir}/interest_probe.dll\" \"${plugins_install_dir}/interest_probe.toml\"
   \"${plugins_install_dir}/interest_fix.dll\" \"${plugins_install_dir}/interest_fix.toml\"
+  \"${plugins_install_dir}/gfm_adoption.dll\" \"${plugins_install_dir}/gfm_adoption.toml\"
   \"${plugins_install_dir}/economic_telemetry.dll\" \"${plugins_install_dir}/economic_telemetry.toml\")")
 
 add_subdirectory("campaign_runner")
-add_subdirectory("gfm_adoption")
+add_subdirectory("gfm-smedley")
 add_subdirectory("interest_bug_fix")
 add_subdirectory("telemetry")
 add_subdirectory("scripting")

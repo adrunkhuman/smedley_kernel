@@ -37,6 +37,9 @@ but they do not yet identify the engine handlers behind each control.
   documents the verified native frontend sequence used by `--save`.
 - [`evidence/gfm-workload.md`](evidence/gfm-workload.md) records the pinned GFM
   workload fixture, static inventory, runtime baseline, and attribution limits.
+- [`evidence/province-reconciliation.md`](evidence/province-reconciliation.md)
+  records the checked province-modifier removal boundary and GFM-smedley runtime
+  validation.
 - [`evidence/interest-payout.md`](evidence/interest-payout.md) records the
   interest-payout investigation and runtime results.
 - [`evidence/scripting.md`](evidence/scripting.md) records the scripting
