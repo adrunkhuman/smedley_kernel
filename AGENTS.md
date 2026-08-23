@@ -131,9 +131,10 @@ Before any engine read, call, hook, or write:
   Do not create a kernel API merely to mirror one consumer's workflow.
 - Split code by responsibility, not file size. Keep dependencies target-scoped
   and co-locate tests with the behavior they cover.
-- Do not add compatibility layers, aliases, or duplicate implementations without
-  a concrete persisted-data, shipped-API, or external-consumer requirement.
-  Delete superseded implementations once migration is complete.
+- Public APIs are still in development and provide no backward-compatibility
+  guarantee. Change them in place and migrate all in-repo consumers together;
+  version tags do not require retaining superseded tables, symbols, aliases, or
+  implementations.
 - Keep generated inputs, generated outputs, handwritten implementation, and
   mapping evidence distinct. Generated outputs must be reproducible.
 - Probes are opt-in, state the exact claim and restoration condition, and are
