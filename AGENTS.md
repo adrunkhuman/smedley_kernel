@@ -39,12 +39,17 @@ traces, installed artifacts, or other copyrighted or generated runtime data.
   the kernel and plugins.
 - Name and group kernel services by the capability they provide, not by the
   first plugin that needs them. Generic capability belongs in the kernel;
-  plugin-specific composition and policy remain in the plugin.
+  consumer-specific composition and policy remain in scripts or plugins.
 - Observation and telemetry services may group related capabilities when the
   instrumentation facility itself is the stable product abstraction. Do not
   split a coherent facility into consumer-shaped one-off APIs.
 - Scripts and Lua use supported copied state and queued operations. They do not
   receive raw engine pointers, layouts, or unrestricted mutation access.
+- Prefer constrained Lua for user-authored mod policy, composition, and
+  low-rate orchestration. Add a native feature plugin only when synchronous
+  callback authority, hot-path execution, high-volume capture, lifecycle
+  integration, or another verified constraint does not fit the copied-state
+  and queued-operation scripting model.
 - Native plugins are trusted code, not a sandbox. Plugin failure must be
   contained at the kernel boundary and must not silently leave a partially
   initialized campaign.

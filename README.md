@@ -6,7 +6,9 @@ control, observer mode, telemetry, constrained Lua scripting, and optional
 native plugins without replacing the game engine.
 
 Use the launcher and profiles for normal play. Use the CLI for automation.
-Native development is optional.
+Constrained Lua is the expected surface for ordinary mod extensions. Native
+plugins remain available for synchronous engine fixes, hot paths, high-volume
+capture, and lifecycle-sensitive integration.
 
 ## What It Includes
 
@@ -130,7 +132,10 @@ offline validation and exports. See [`docs/telemetry.md`](docs/telemetry.md).
 `scripting` runs visible Lua 5.1 source files in independent constrained states.
 Scripts receive copied events and supported queued operations, not Victoria
 II's Lua state or raw game pointers. This is constrained execution, not a
-security sandbox. See [`docs/scripting.md`](docs/scripting.md).
+security sandbox. Prefer scripts for user-authored policy and orchestration;
+add native plugins only when the scripting execution model cannot safely meet
+the feature's engine-thread, performance, capture, or lifecycle requirements.
+See [`docs/scripting.md`](docs/scripting.md).
 
 ### GFM-smedley
 
