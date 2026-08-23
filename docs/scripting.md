@@ -86,6 +86,7 @@ must not be interpreted as a live object handle:
 | `mapping_id` | string (`"v2game-3.04"`) | exact supported executable |
 | `quality` | string (`"provisional"`) | applies to mapped game-state fields below |
 | `date_raw` | number | copied raw Clausewitz date |
+| `country.ordinal` | number | session-local country-vector ordinal, validated against the callback country |
 | `country.tag` | string | copied three-character tag |
 | `country.exists` | boolean | true when the mapped owned-province collection is non-empty |
 | `country.treasury_raw` | number | copied fixed-point raw treasury value |
@@ -93,9 +94,15 @@ must not be interpreted as a live object handle:
 | `world.country_slot_count` | number | mapped country pointer slot count |
 | `world.ai_scheduler_entry_count` | number | mapped AI scheduler entry count |
 | `world.human_control_present` | boolean | any nonzero mapped player-control entry |
+| `world.session_id` | number | process-local observed game-state generation that namespaces queued records |
 
 Daily callbacks originate once per country update, not once per game day. Use
-the country tag or remember `date_raw` when a script needs lower volume.
+the country ordinal or remember `date_raw` when a script needs lower volume.
+Ordinals are deterministic only within the currently observed game state and
+are not durable save identities. Key transient state by `world.session_id`,
+ordinal, and tag; use the tag for state that must survive reload. The session ID
+changes when Smedley observes a different game-state address, but it is not a
+complete campaign-lifecycle or save identity.
 
 ## Host API
 

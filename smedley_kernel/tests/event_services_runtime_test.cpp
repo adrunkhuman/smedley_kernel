@@ -487,7 +487,7 @@ TEST(GameServicesApiV1Test, DiscoversDomainTablesAndRejectsReservedFields)
     daily.struct_size = sizeof(daily);
     daily.version = SMEDLEY_DAILY_EVENT_VERSION_V1;
     std::memcpy(daily.country_tag, "PRU", sizeof(daily.country_tag));
-    daily.reserved[0] = 1;
+    daily.country_identity_available = 2;
     EXPECT_EQ(observations.resolve_daily_country(UINT64_C(1), &daily, &country_ordinal),
         SMEDLEY_TELEMETRY_OBSERVATION_INVALID_ARGUMENT);
     uint32_t market_count = 0;

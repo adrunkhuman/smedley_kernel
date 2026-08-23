@@ -24,12 +24,14 @@ snapshots into Lua tables.
 | Script field | Native source | Evidence | Limit |
 | --- | --- | --- | --- |
 | `date_raw` | `CGameState+0xb0c` through `current_date_raw()` | `provisional` | Raw Clausewitz date; runtime progression is correlated but the historical layout remains broader than this API |
+| `country.ordinal` | `CCountry+0x20` | `verified-current` | Bounded value must resolve through the current `CGameState` country vector to the callback country |
 | `country.tag` | `CCountry+0x1c` | `provisional` | Copied three-byte tag |
 | `country.exists` | non-empty `CCountry+0x9d8` owned-province vector | `provisional` | Means at least one mapped owned-province entry, not every possible country lifecycle state |
 | `country.treasury_raw` | `CCountry+0xe78` | `provisional` | Signed 48.15 fixed-point raw value |
 | `world.country_slot_count` | `CGameState+0xadc` vector size | `provisional` | Includes country slots, not necessarily living countries |
 | `world.ai_scheduler_entry_count` | `CGameState+0xa4` vector size | `provisional` | Scheduler entries, not an AI decision trace |
 | `world.human_control_present` | any nonzero `CGameState+0xaec` entry | `verified-runtime` | Same ownership invariant used by observer acceptance |
+| `world.session_id` | kernel `CurrentGameSession().epoch` | `verified-current` | Process-local generation changes when the observed `CGameState` address changes; same-address storage reuse is not a verified lifecycle boundary |
 
 No native pointer, game-owned string, mutable container, console manager, or
 Victoria II Lua value crosses to the worker.

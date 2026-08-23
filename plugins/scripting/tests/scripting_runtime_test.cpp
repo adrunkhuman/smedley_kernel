@@ -69,6 +69,8 @@ function on_load(context)
 end
 function on_daily(event)
     assert(event.kind == "daily")
+    assert(event.world.session_id == 42)
+    assert(event.country.ordinal == 73)
     assert(event.country.tag == "ENG")
     if event.date_raw == 100 then
         smedley.after_days(1, function(later)
@@ -88,7 +90,7 @@ end
     std::string error;
 
     ASSERT_TRUE(runtime.Start(&error)) << error;
-    scripting::EventSnapshot first{100, 32768, 272, 271, {'E', 'N', 'G', '\0'}, true, false};
+    scripting::EventSnapshot first{100, 73, 42, 32768, 272, 271, {'E', 'N', 'G', '\0'}, true, false};
     scripting::EventSnapshot second = first;
     second.date_raw = 124;
     ASSERT_TRUE(runtime.TryPush(first));
@@ -118,13 +120,43 @@ TEST_F(ScriptingRuntimeTest, LogsPauseResultsOnWorker)
     std::string error;
 
     ASSERT_TRUE(runtime.Start(&error)) << error;
-    scripting::EventSnapshot event{100, 0, 1, 1, {'J', 'A', 'N', '\0'}, true, false};
+    scripting::EventSnapshot event{100, 0, 42, 0, 1, 1, {'J', 'A', 'N', '\0'}, true, false};
     ASSERT_TRUE(runtime.TryPush(event));
     ASSERT_TRUE(WaitFor([&] { return runtime.stats().processed == 1; }));
     runtime.ReportPauseResult(scripting::PauseResult::Completed);
     ASSERT_TRUE(WaitFor([&] { return log_thread.load() != caller_thread; }));
     EXPECT_TRUE(WaitFor([&] { return consumed.load(); }));
     runtime.Stop();
+}
+
+TEST_F(ScriptingRuntimeTest, DiscardsScheduledCallbacksAfterSessionChange)
+{
+    const auto script = Write("session.lua", R"(
+function on_daily(event)
+    if event.date_raw == 100 then
+        smedley.after_days(1, function() smedley.request_pause() end)
+    end
+end
+)");
+    std::atomic<int> pauses{0};
+    scripting::Config config;
+    config.scripts = {script};
+    scripting::Runtime runtime(config, [](bool, const std::string &) {},
+        [&] { pauses.fetch_add(1); return true; });
+    std::string error;
+
+    ASSERT_TRUE(runtime.Start(&error)) << error;
+    scripting::EventSnapshot first{100, 0, 42, 0, 1, 1, {'J', 'A', 'N', '\0'}, true, false};
+    scripting::EventSnapshot replacement = first;
+    replacement.date_raw = 124;
+    replacement.campaign_session = 43;
+    ASSERT_TRUE(runtime.TryPush(first));
+    ASSERT_TRUE(runtime.TryPush(replacement));
+    ASSERT_TRUE(WaitFor([&] { return runtime.stats().processed == 2; }));
+    runtime.Stop();
+
+    EXPECT_EQ(pauses.load(), 0);
+    EXPECT_EQ(runtime.stats().script_errors, 0u);
 }
 
 TEST_F(ScriptingRuntimeTest, DisablesInfiniteCallbackAtInstructionLimit)
@@ -139,7 +171,7 @@ TEST_F(ScriptingRuntimeTest, DisablesInfiniteCallbackAtInstructionLimit)
     std::string error;
 
     ASSERT_TRUE(runtime.Start(&error)) << error;
-    scripting::EventSnapshot event{100, 0, 1, 1, {'J', 'A', 'N', '\0'}, true, false};
+    scripting::EventSnapshot event{100, 0, 42, 0, 1, 1, {'J', 'A', 'N', '\0'}, true, false};
     ASSERT_TRUE(runtime.TryPush(event));
     ASSERT_TRUE(runtime.TryPush(event));
     ASSERT_TRUE(runtime.TryPush(event));
@@ -189,7 +221,7 @@ end
     std::string error;
 
     ASSERT_TRUE(runtime.Start(&error)) << error;
-    scripting::EventSnapshot event{100, 0, 1, 1, {'J', 'A', 'N', '\0'}, true, false};
+    scripting::EventSnapshot event{100, 0, 42, 0, 1, 1, {'J', 'A', 'N', '\0'}, true, false};
     ASSERT_TRUE(runtime.TryPush(event));
     ASSERT_TRUE(WaitFor([&] { return runtime.stats().processed == 1; }));
     ASSERT_TRUE(runtime.TryPush(event));
@@ -207,6 +239,9 @@ TEST(ScriptingEventApiTest, CopiesTheDailyAbiSnapshot)
     event.struct_size = sizeof(event);
     event.version = SMEDLEY_DAILY_EVENT_VERSION_V1;
     event.game_date_raw = 100;
+    event.country_ordinal = 73;
+    event.country_identity_available = 1;
+    event.campaign_session = 42;
     event.treasury_raw = 32768;
     event.country_slot_count = 272;
     event.ai_scheduler_entry_count = 271;
@@ -219,6 +254,8 @@ TEST(ScriptingEventApiTest, CopiesTheDailyAbiSnapshot)
 
     ASSERT_TRUE(scripting::CopyDailyEventSnapshot(event, &snapshot));
     EXPECT_EQ(snapshot.date_raw, 100);
+    EXPECT_EQ(snapshot.country_ordinal, 73);
+    EXPECT_EQ(snapshot.campaign_session, 42u);
     EXPECT_EQ(snapshot.treasury_raw, 32768);
     EXPECT_EQ(snapshot.country_slot_count, 272u);
     EXPECT_EQ(snapshot.ai_scheduler_entry_count, 271u);
@@ -227,6 +264,9 @@ TEST(ScriptingEventApiTest, CopiesTheDailyAbiSnapshot)
     EXPECT_TRUE(snapshot.human_control_present);
 
     event.version = 0;
+    EXPECT_FALSE(scripting::CopyDailyEventSnapshot(event, &snapshot));
+    event.version = SMEDLEY_DAILY_EVENT_VERSION_V1;
+    event.country_ordinal = 272;
     EXPECT_FALSE(scripting::CopyDailyEventSnapshot(event, &snapshot));
 }
 

@@ -62,6 +62,7 @@ namespace smedley::scripting
         {
             int target_date_raw = 0;
             int reference = LUA_NOREF;
+            uint64_t campaign_session = 0;
         };
 
         Runtime *runtime = nullptr;
@@ -158,7 +159,8 @@ namespace smedley::scripting
             lua_pushvalue(state, 2);
             const int reference = luaL_ref(state, LUA_REGISTRYINDEX);
             try {
-                script->scheduled.push_back({static_cast<int>(target), reference});
+                script->scheduled.push_back({static_cast<int>(target), reference,
+                    script->current_event->campaign_session});
             } catch (...) {
                 luaL_unref(state, LUA_REGISTRYINDEX, reference);
                 return luaL_error(state, "could not allocate a scheduled callback");
@@ -301,9 +303,11 @@ namespace smedley::scripting
             SetField(state, "country_slot_count", static_cast<lua_Number>(event.country_slot_count));
             SetField(state, "ai_scheduler_entry_count", static_cast<lua_Number>(event.ai_scheduler_entry_count));
             SetField(state, "human_control_present", event.human_control_present);
+            SetField(state, "session_id", static_cast<lua_Number>(event.campaign_session));
             lua_setfield(state, -2, "world");
 
             lua_newtable(state);
+            SetField(state, "ordinal", static_cast<lua_Number>(event.country_ordinal));
             SetField(state, "tag", event.country_tag.data());
             SetField(state, "exists", event.country_exists);
             SetField(state, "treasury_raw", static_cast<lua_Number>(event.treasury_raw));
@@ -332,6 +336,11 @@ namespace smedley::scripting
             Invoke(1, &event, &error);
             if (disabled) return;
             for (size_t index = 0; index < scheduled.size() && !disabled;) {
+                if (scheduled[index].campaign_session != event.campaign_session) {
+                    luaL_unref(state, LUA_REGISTRYINDEX, scheduled[index].reference);
+                    scheduled.erase(scheduled.begin() + static_cast<std::ptrdiff_t>(index));
+                    continue;
+                }
                 if (scheduled[index].target_date_raw > event.date_raw) {
                     ++index;
                     continue;
@@ -381,9 +390,13 @@ namespace smedley::scripting
     bool CopyDailyEventSnapshot(const SmedleyDailyEventV1 &event, EventSnapshot *snapshot)
     {
         if (snapshot == nullptr || event.struct_size != sizeof(event)
-            || event.version != SMEDLEY_DAILY_EVENT_VERSION_V1) return false;
+            || event.version != SMEDLEY_DAILY_EVENT_VERSION_V1 || event.country_identity_available != 1
+            || event.campaign_session == 0 || event.country_ordinal < 0
+            || static_cast<uint32_t>(event.country_ordinal) >= event.country_slot_count) return false;
         EventSnapshot value;
         value.date_raw = event.game_date_raw;
+        value.country_ordinal = event.country_ordinal;
+        value.campaign_session = event.campaign_session;
         value.treasury_raw = event.treasury_raw;
         value.country_slot_count = event.country_slot_count;
         value.ai_scheduler_entry_count = event.ai_scheduler_entry_count;

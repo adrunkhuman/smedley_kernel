@@ -1324,6 +1324,12 @@ namespace smedley::game_state
     bool ReadDailyUpdateSnapshot(CountryRef country_ref, DailyUpdateSnapshot *snapshot)
     {
         if (snapshot == nullptr) return false;
+        int32_t country_ordinal = -1;
+        const auto session = CurrentGameSession();
+        if (!ReadField(reinterpret_cast<const void *>(country_ref.address()),
+                country_tag_offset + sizeof(uint32_t), &country_ordinal)
+            || country_ordinal < 0 || country_ordinal >= max_game_countries
+            || ResolveCountry(session.game_state, country_ordinal).address() != country_ref.address()) return false;
         TelemetryCurrentState current{};
         TelemetryCountrySnapshot country{};
         if (!ReadTelemetryCurrentState(&current) || !current.world_daily_available()
@@ -1335,6 +1341,8 @@ namespace smedley::game_state
 
         DailyUpdateSnapshot value{};
         value.date_raw = current.date_raw;
+        value.country_ordinal = country_ordinal;
+        value.campaign_session = session.epoch;
         value.treasury_raw = country.treasury_raw();
         value.country_slot_count = current.country_count_value;
         value.ai_scheduler_entry_count = current.country_ai_count_value;

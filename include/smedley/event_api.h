@@ -51,7 +51,9 @@ typedef struct SmedleyDailyEventV1 {
     char country_tag[4];
     uint32_t has_owned_province;
     uint32_t human_control_present;
-    uint32_t reserved[4];
+    int32_t country_ordinal;
+    uint32_t country_identity_available;
+    uint64_t campaign_session;
 } SmedleyDailyEventV1;
 
 /* The snapshot pointer is valid only for this call. Callbacks run on

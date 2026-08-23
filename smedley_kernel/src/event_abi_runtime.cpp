@@ -167,10 +167,18 @@ namespace smedley
         event.country_tag[2] = snapshot.country_tag.value[2];
         event.has_owned_province = snapshot.country_exists ? 1 : 0;
         event.human_control_present = snapshot.human_control_present ? 1 : 0;
+        event.country_ordinal = snapshot.country_ordinal;
+        event.country_identity_available = 1;
+        event.campaign_session = snapshot.campaign_session;
         DispatchDailyEventApi(event);
     }
 }
 
 static_assert(sizeof(SmedleyDailyEventV1) == 56, "event ABI v1 layout changed");
+static_assert(offsetof(SmedleyDailyEventV1, country_slot_count) == 20, "event ABI v1 prefix changed");
+static_assert(offsetof(SmedleyDailyEventV1, country_tag) == 28, "event ABI v1 prefix changed");
+static_assert(offsetof(SmedleyDailyEventV1, human_control_present) == 36, "event ABI v1 prefix changed");
+static_assert(offsetof(SmedleyDailyEventV1, country_ordinal) == 40, "event ABI v1 extension changed");
+static_assert(offsetof(SmedleyDailyEventV1, campaign_session) == 48, "event ABI v1 extension changed");
 static_assert(sizeof(SmedleyEventApiV1) == 32, "event API v1 layout changed");
 static_assert(std::atomic<uint64_t>::is_always_lock_free, "daily hook registration requires lock-free atomics");
