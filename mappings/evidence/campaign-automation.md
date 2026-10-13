@@ -1,386 +1,169 @@
 # Campaign automation
 
-`smedley_cli --save` enters a Victoria 2 campaign without synthetic mouse or
-keyboard input. The visible screen changes because Victoria 2's own frontend
-handlers run; the harness dispatches native GUI signals rather than coordinates.
+Native frontend entry, full-AI observer mode, speed/pause control, bounded-date
+runs, and native exit are `verified-runtime` on the supported executable.
+Automation dispatches Victoria II's own GUI signals, not synthetic input.
+See [launcher controls](../../docs/launcher.md) for usage,
+[service boundaries](../../docs/game-state-boundary.md) for ownership, and the
+[mapping catalog](../v2game-3.04.toml) for signatures.
 
 ## Sequence
 
-1. The launcher starts Victoria 2 suspended, injects Smedley and
-   `campaign_runner`, then resumes the game.
-2. Constructor hooks capture the main-menu controller (RVA `0x354a00`) and
-   Single Player controller (RVA `0x36a2f0`). Their primary vtables are
-   `0xa13dbc` and `0xa14ed0`; scalar deleting destructors at `0x354df0` and
-   `0x36b030` invalidate the captures before object storage is released.
-3. Ten seconds after the Single Player controller appears, the checked
-   kernel-owned frontend capability resolves
-   `mainmenu_panel/single_player_button` through the main controller's GUI
-   registry at `+0x704`. Native main-menu update RVA `0x354f90` independently
-   performs the same registry `+0x6c` and returned-panel `+0x34` lookups.
-4. The runtime dispatches native press and release at RVAs `0x5ee510` and `0x5ee550`
-   enter the Single Player lobby.
-5. The runner retains basename policy while the runtime confirms the requested
-   save filename at `+0x590`,
-   constructing it only from the canonical empty inline-string state; it rejects
-   malformed metadata or a different existing value. The controller's GUI
-   registry and lookup target must also remain valid. It then sets `+0x5bc=1`
-   and `+0x5bd=0` and reads both fields back.
-6. Victoria 2's normal lobby update calls `CCurrentGameState::LoadSave` from
-   call RVA `0x36f8b3`, performs its complete post-load contract, clears
-   `+0x5bc`, and sets `+0x5bd`.
-7. The runtime resolves `play_button` through the lobby GUI registry at `+0x278`
-   and emits the same native press/release sequence.
-8. The kernel-owned game-state implementation copies and validates the current campaign idler,
-   proving `CGameState+0xb24` changed from RTTI `CFrontEnd` to `CInGameIdler`.
-9. When `--observe` is present, the runner invokes the native return-to-AI
-   transition at RVA `0x287a70` for the current player country.
-10. The runner verifies that every `CGameState+0xaec` player-control entry is
-    zero, the former player country's `CCountry+0x208` AI pointer is non-null,
-    and the global AI scheduler list grew.
-11. The runner invokes the registered native `debug` command with argument
-    `fow`, verifies the process-global byte at RVA `0xb092fb` is `0`, and leaves the map fully
-    visible.
-12. The kernel-owned game-state implementation invokes the native speed-up or speed-down handler until
-    `CGameState+0xb28` matches the selected speed minus one, reading the field
-    after every call. Both paths are runtime-verified against the supported
-    executable; the retained speed-down probe selected speed 2 from a higher
-    initial speed and checked each decrement.
-13. The kernel-owned game-state implementation checks the pause state at `CInGameIdler+0x1538`, invokes
-    `CInGameIdler::TogglePause` at RVA `0x26a2c0` when the value differs from the
-    requested state, and verifies the result. Observer mode rejects
-    `start_paused` because its watchdog requires simulation advancement.
-14. While observer mode remains active, nine duplicated generic message
-    dispatcher hooks skip visible popup and `CPauseGame` construction. This
-    covers configurable notifications including technology, invention, upper
-    house, bankruptcy, and diplomatic/Great War messages. Logging, map notices,
-    icons, message production, effects, and AI event choices continue normally.
+All addresses below are RVAs unless marked as object offsets. Runtime checks
+establish identity, captured constructor thread, readable metadata, and
+postconditions before advancing to the next phase.
 
-## Command
-
-```powershell
-smedley_cli --game-dir "C:\path\to\Victoria 2" `
-  --plugin plugins/campaign_runner.toml `
-  --save "C:\Users\name\Documents\Paradox Interactive\Victoria II\save games\autosave.v2" `
-  --observe `
-  --detach
-```
-
-The CLI constrains the save to Victoria 2's `save games` directory. The plugin
-uses the file name to select a row already known to the game.
-
-`--observe` is optional and requires `--save`. It leaves the current player tag
-intact as the UI viewing perspective because Victoria II has no native
-spectator/null-country UI. The underlying country is no longer human-owned: the
-native transition clears its player-control entry, constructs its `CCountryAI`,
-and registers that AI with the scheduler. The runner remains paused if any
-country is still human-controlled, AI restoration cannot be verified, or full
-map visibility cannot be enabled.
-
-Observer message suppression is presentation-only. Victoria II duplicates the
-same policy gate across nine dispatchers; all nine are signature-checked and
-bypassed regardless of the user's `messagetypes.txt` policy. This avoids
-per-message configuration without suppressing the underlying message,
-simulation effect, log entry, map notice, or icon.
-
-## Fixed-date benchmark
-
-`--run-days N` and `--run-until-date-raw N` are mutually exclusive bounded
-campaign targets. After the final requested speed and unpaused-state readback
-(and, for observer mode, full AI/FOW/valid-view postconditions), the runner
-reads a copied raw date. Relative targets add `N * 24`
-in int64; absolute targets must advance and be aligned to the recorded
-verified-runtime 24 raw units per game day.
-
-A recurring Win32 `SetTimer` uses `USER_TIMER_MINIMUM` (effectively 10 ms).
-It does not poll a game hook or mutate from `DailyUpdateEvent`.
-Each tick consumes a copied, checked `CInGameIdler` observation with date, pause,
-and typed game-over state, plus lightweight observer invariants. Game over has
-terminal precedence over exact-target completion and pause recovery. At the exact
-target it invokes verified `TogglePause`, then requires a subsequent stable
-paused observation before completion. This extra UI cycle lets the native
-endgame branch publish its dialog before an exact end-date target can be called
-successful. Overshoot, timeout, date regression, invalid
-idler/pause state, or observer invariant failure is a failed benchmark. Both
-terminal paths stop monitoring and popup suppression, cancel the timer, and
-leave the campaign safely paused/open when pause readback succeeds. A successful
-exact-target run, or typed game over, may then request the verified native quit
-operation when `quit_after_run` is explicitly enabled. Other failures never
-attempt an exit, and no terminal path writes a save.
-
-The benchmark is terminally paused before the exit request. The kernel-owned runtime
-validates the idler RTTI, exact vtable target, and post-call request flag. A failed
-validation or readback logs a failure and leaves the campaign paused and open.
-Before dispatch, the runner waits up to five seconds for the optional sibling
-telemetry drain. Completed or unavailable telemetry permits exit. Busy, timeout,
-or failure leaves the campaign paused and open. A completed drain has stopped
-telemetry ingress, consumed accepted payload records, and joined its writer; it
-then writes any enabled final summary, flushes, and closes the file. Unavailable
-means telemetry is absent, inactive, or lacks the drain symbol, so that
-compatibility path permits exit without a final-summary or durability guarantee.
-
-Game-over classification fails closed. The kernel verifies the supported bytes
-at RVA `0x25548d`, resolves the current `CInGameIdler`, requires its dialog at
-`+0x1d6c` to use window vtable RVA `0xa3c0d8`, and reads the dialog visibility byte
-at `+0x67`. It reports game over only when that byte is exactly one and
-`CGameState+0xb0c` is greater than `[RVA 0xe586dc]+0xc`. Missing or mismatched
-state makes the whole runtime observation unavailable rather than silently
-classifying a pause.
-
-Runtime evidence on August 21, 2026 used the supported executable and unmodified
-`benchmark_1936_interest_probe.v2` fixture. At visible game over the current date
-was `60759360`, configured end date `60759336`, pause was one, and the verified
-dialog was visible. A separate ordinary paused campaign reported current date
-`59883384`, the same configured end date and dialog vtable, pause one, and dialog
-visibility zero. This comparison distinguishes the terminal state from an
-ordinary pause; host tests alone do not establish the engine mapping.
-
-Live acceptance on August 21, 2026 used that fixture, no mods, native speed 5,
-and a one-day bounded target from `60759336` to `60759360`. Leave-open run
-`e17a2ecb-64b7-4177-b16f-1de9c36d5315` emitted one terminal
-`benchmark.failed` record with reason `game_over`, actual date `60759360`, and
-paused true; trace validation passed with no sequence gaps. The process remained
-open, and the visible end-date screen was manually confirmed responsive.
-`quit_after_run` run `d7ebea5f-ea81-4b59-883d-fb5b839cdf3d` emitted the same
-typed terminal result, drained telemetry through final sequence 10 with dropped
-zero and no write failure, requested native exit, and exited without external
-termination. The fixture retained SHA-256
-`592c41f7258c1b383e796a2cbe9829d0159f1eb898fd79dedf960fab5b66a1d9`.
-Regression run `5cc040f5-11a4-4d3b-999b-e38546c1e9d6` used the non-terminal
-`benchmark.v2` fixture and completed an ordinary one-day exact target at
-`59883408`, paused true, with a responsive map left open. This confirms the
-target-pause handshake does not convert normal completion into game over or
-leave observer/configuration recovery running.
-
-An invalid runtime target or unavailable benchmark timer is terminal. The runner
-first attempts and reads back pause; its failure record reports whether that
-readback is known. It never claims the campaign is paused when that readback
-fails.
-
-Runtime acceptance on July 31, 2026 ran the unmodified `benchmark.v2` save
-twice with no mods, observer mode, native speed 5, `--run-days 365`, and only
-the `campaign_runner` and `telemetry` plugins. Runs
-`a53ae91b-5e1b-4a52-9422-c63c65d52643` and
-`5a0134ce-2125-4da6-a59e-9b0dc7e8f551` both started at raw date `59883384`,
-paused at target and actual date `59892144`, emitted one start and one completed
-record, and remained responsive and open. Each trace contained 374 strictly
-ordered records with no gaps, drops, or write failure. Their bounded intervals
-took 21,124,677 and 21,230,817 microseconds (17.28 and 17.19 game days per
-second, a 0.50 percent repeat difference). Both observed 98,644 daily callbacks,
-and the source save retained SHA-256
-`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
-This verifies the fixed-date pause harness on the supported executable; it does
-not establish a final telemetry flush, saved result, or replay
-equivalence.
-
-Runtime acceptance on August 1, 2026 mapped the accepted `QUIT` confirmation
-callback at RVA `0x276500` to primary `CInGameIdler` vtable slot `+0x110`. Its
-target at RVA `0x24edb0` sets `CInGameIdler+0x1d20` to one. Detached run
-`21b024dd-ec69-4d46-a22e-1d309ab83b21` loaded the unmodified `benchmark.v2`,
-completed an exact one-day target, read back that native quit-request state, and
-exited without `ExitProcess`, `TerminateProcess`, `WM_CLOSE`, or synthetic
-input. The source save retained SHA-256
-`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
-This verifies process exit only. The telemetry drain was added afterward and has
-separate acceptance evidence below; the kernel still has no generic pre-exit
-plugin lifecycle notification.
-
-Runtime drain acceptance on August 1, 2026 used detached run
-`4d3d4e44-b4e5-4d7f-b10a-b50bd5b96cfb` with the bundled `campaign_runner` and
-`telemetry` plugins, lifecycle capture, and an exact one-day target. The runner
-logged drain completion before the native quit request and the process exited.
-The validated 11-record trace placed `benchmark.completed` at sequence 10 and
-`telemetry.summary` as the final newline-terminated sequence 11. Summary counters
-reported accepted 10, written 10, dropped 0, and no write failure. The source
-save retained SHA-256
-`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
-This acceptance covers the bundled completed-drain path, not timeout retry or
-legacy-plugin compatibility.
-
-Additional final-DLL acceptance covered three non-happy-path boundaries. Run
-`31a41204-121e-4e11-be5d-6ae3fb47f771` used no observer mode and an absolute
-target, completing exactly 10 days at raw date `59883624` with paused readback.
-Run `e1c015df-5b89-4f08-9925-90c49214f924` used a one-second timeout and failed
-after 1,013,936 microseconds at raw date `59883864`, reporting `timeout` and
-paused readback. Run `866c652a-fbef-49f5-91e1-b76bcadc0e81` requested the
-nonadvancing start date, emitted standalone `invalid_target`, and remained
-paused without inventing unavailable progress counters. All three traces had
-zero sequence gaps; available counters reported zero drops and no write
-failure. The source save hash remained unchanged.
-
-The resource-profiling build repeated the same unmodified vanilla observer
-benchmark with one Windows process snapshot immediately before each terminal
-record. Both traces contained 375 ordered records, including exactly one
-`benchmark.resources`, with zero gaps, drops, or write failures:
-
-| Run | Wall us | Process CPU us | CPU / wall | Working set start -> end | Private bytes start -> end | Process peak working set |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `c835ced2-9140-4acb-a656-648795a77de3` | 20,874,288 | 27,500,000 | 131.741% | 1,338,437,632 -> 1,360,338,944 | 1,540,493,312 -> 1,564,241,920 | 1,372,725,248 |
-| `8b259c50-5cf7-476a-a634-95b87b152c9a` | 21,133,183 | 31,734,375 | 150.164% | 1,362,038,784 -> 1,361,985,536 | 1,565,822,976 -> 1,568,247,808 | 1,373,532,160 |
-
-Wall throughput was 17.49 and 17.27 game days per second, a 1.23 percent
-repeat difference, while process CPU differed by 14.30 percent. Two runs do not
-bound CPU-time variance sufficiently for an optimization claim. CPU / wall can
-exceed 100 percent because Windows sums process CPU time across threads. The
-source save again retained SHA-256
-`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
-
-Earlier GFM probes `2ee97720-b85b-4616-9749-b59ad9e04e90` and
-`26e16827-a6a2-45e1-84f9-963ce6f80460` used a copied vanilla save and never
-reached the verified `CInGameIdler` transition. They establish only that
-preflight resolved the descriptor's `user_dir = "GFM"`. The later GFM-authored
-fixture in the compatibility acceptance below establishes the current runtime
-boundary.
+| Step | Verified boundary and contract |
+| --- | --- |
+| Capture frontend | Suspended launch initializes `campaign_runner` before resume. Main-menu constructor `0x354a00` and Single Player constructor `0x36a2f0` capture controllers with primary vtables `0xa13dbc` and `0xa14ed0`. Scalar deleting destructors `0x354df0` and `0x36b030` invalidate captures before storage release. |
+| Enter lobby | Ten seconds after Single Player capture, resolve `mainmenu_panel/single_player_button` through main-controller registry `+0x704`. Native update `0x354f90` independently uses registry slot `+0x6c` and returned-panel slot `+0x34`. Press/release entries `0x5ee510` / `0x5ee550` dispatch the signal. |
+| Select save | Confirm basename at lobby `+0x590`; construct only from canonical empty inline-string state. Reject malformed metadata or a different existing name. Require valid registry/lookup target, write `+0x5bc=1`, `+0x5bd=0`, and read back both. |
+| Load and play | Normal lobby update calls `CCurrentGameState::LoadSave` at callsite `0x36f8b3`, completes its post-load contract, clears `+0x5bc`, and sets `+0x5bd`. Resolve `play_button` through lobby registry `+0x278`, dispatch press/release, and verify `CGameState+0xb24` RTTI changes from `CFrontEnd` to `CInGameIdler`. |
+| Restore AI | Native return-to-AI `0x287a70` clears human control and constructs/registers `CCountryAI`. Require every `CGameState+0xaec` player-control entry zero, former player `CCountry+0x208` AI pointer non-null, and scheduler growth. |
+| Reveal map | Registered native `debug` command with argument `fow`; require global byte `0xb092fb=0`. |
+| Set speed/pause | Native up/down handlers must reach `CGameState+0xb28 = selected speed - 1`, with readback after every call. The retained down probe selected speed 2 from a higher speed and checked every decrement. `CInGameIdler::TogglePause` at `0x26a2c0` must produce the requested `+0x1538` state. |
 
 ## Current boundary
 
-Campaign entry, full-AI observer mode, and native unpause are verified. A
-runtime test using the `benchmark.v2` save returned `JAN` to AI control, changed
-the scheduler count from 271 to 272, and found no remaining nonzero
-player-control entries. The corrected `debug fow` invocation produced
-zero-valued visibility readback and continued advancing at speed 5.
+The kernel owns frontend captures, generations, vtables, thread checks, native
+calls, console capture/replacement, annex/message trampolines, and copied
+observations. The runner receives opaque generation-bound capabilities and
+copied names, tags, counts, and flags; malformed, stale, released, unsupported,
+or cross-thread state fails closed before lookup or mutation. Constructor,
+destructor, annex, and message hooks install transactionally with reverse-order
+rollback. Captures clear at phase transition and shutdown. Modules remain loaded
+for process lifetime; without thread quiescence, shutdown makes callbacks inert
+rather than rewriting live hook bytes.
 
-Observer mode hooks `CCountry::Annex` at RVA `0x118620`, before the function
-captures `CGameState::_player_tag` or removes provinces. If the annexed ordinal
-is the current observer view, the hook selects a living scheduled-AI country
-and changes only the verified `CGameState+0xb5c` viewing tag. It verifies that
-all player-control entries remain zero, the target AI remains scheduled, and
-the scheduler count is unchanged. The normal timer-driven safe-switch state
-machine remains as a fallback for country disappearance outside this path.
+Observer mode keeps a country tag only as a UI perspective: Victoria II has no
+native spectator/null-country UI. Human ownership is the `player_nations` map;
+AI participation is `CCountry::_ai` plus scheduler membership. A `benchmark.v2`
+probe returned JAN to AI, grew the scheduler from 271 to 272, verified zero human
+entries and FOW zero, and advanced at speed 5. Failed AI/FOW checks leave the
+campaign paused; observer mode cannot start paused.
 
-Runtime run `bac0c2f2-94a5-403d-a836-47a5689a5bcc` loaded a deterministic
-`ENG = { inherit = THIS }` fixture, reached verified JAN observer postconditions,
-moved the view to ENG inside the annex entry hook, avoided the game-over
-transition, and continued in `CInGameIdler` beyond April 1837. An earlier run
-confirmed that native `tag` is asynchronous and cannot complete at this
-boundary; direct reassignment of the camera tag is intentionally narrower and
-does not alter country ownership or AI scheduling.
+| Observer operation | Boundary and evidence |
+| --- | --- |
+| Annex handoff | `CCountry::Annex` entry `0x118620`, before player-tag capture or province removal, selects a living scheduled-AI country and changes only `CGameState+0xb5c`. Require zero human entries, scheduled target AI, and unchanged scheduler count. Timer-driven safe switch remains the fallback for other disappearances. |
+| Manual switch | Observer-only native `tag` replacement rejects direct use. Registered `switch TAG` pauses, calls the saved asynchronous handler, waits for ownership transition, restores target AI and exact scheduler count, then resumes. Native `tag` is unchanged outside observer mode. `--view-tag` dispatches the same transaction after watchdog start. |
+| Popup suppression | Nine signature-checked generic dispatchers bypass visible popup and `CPauseGame` construction regardless of `messagetypes.txt`. Technology, invention, upper-house, bankruptcy, diplomatic/Great War notifications are covered; message production, effects, AI choices, logs, map notices, and icons remain intact. |
 
-For manual view changes, observer mode replaces native `tag` with an error and
-registers `switch TAG`. `switch` validates a living scheduled-AI target, pauses,
-calls the saved native handler, waits for its asynchronous ownership transition,
-returns the target to AI, verifies exact scheduler restoration, and resumes.
-Outside observer mode, native `tag` is not modified.
-`--view-tag TAG` dispatches that same registered `switch` command once after the
-observer watchdog starts, providing a deterministic initial view and an
-end-to-end automation path for testing the transaction.
+| Runtime evidence | Result |
+| --- | --- |
+| `bac0c2f2-94a5-403d-a836-47a5689a5bcc`, deterministic `ENG = { inherit = THIS }` fixture | JAN observer verified; view moved to ENG inside Annex entry, no game over, `CInGameIdler` continued beyond April 1837. Earlier native `tag` attempt proved asynchronous and unsuitable at that boundary. |
+| Initial `--view-tag ENG` acceptance | JAN → ENG; AI and exact scheduler restored one second later; simulation resumed; subsequent `tag FRA` rejected. |
+| `b14dc611-cfd0-4b15-ae47-bfd3473cbf5e` | Runtime-owned console callback completed ENG switch/AI restoration and suppressed 15 generic popups; responsive process, unchanged vanilla source hash below. |
+| Message-coverage probes | Six dispatches bypassed over about 3,085 advancing days without watchdog pause; after all-nine coverage, six policy-marked popups suppressed while 385,895 country rows advanced without pause. |
+| `01edd2fb-4c64-468b-8db9-efeefecc7b05` | Checked frontend/console/observer/annex/message/pause/speed/quit integration: JAN AI, full map, exact three-day target `59883456`, telemetry drain and native exit; zero gaps, drops, or writer failure. |
 
-Runtime acceptance with `--view-tag ENG` switched the view from JAN to ENG,
-restored ENG's AI and exact scheduler count one second later, and resumed the
-simulation. A subsequent native `tag FRA` command was rejected by the
-observer-only replacement handler.
+These runs validate exercised mappings and integration, not a broader UI-thread
+contract. Extraction into kernel services and synthetic fail-closed tests do not
+add engine evidence.
 
-The checked observer runtime boundary now owns the retained mappings for console
-manager capture, native-tag replacement/restoration, `switch` registration/removal,
-checked copied command arguments/results, annex/message trampolines, popup counters,
-and country
-resolution/existence, player-control entries, scheduler membership/counts,
-camera tag handoff, `ReturnCountryToAI`, native asynchronous `tag`, and
-`debug fow`. It returns copied tags, counts, and flags to the runner and rejects
-unreadable or malformed state before a mutation. This refactoring adds
-fail-closed host tests and does not promote the existing supported-game evidence
-for those mappings: the runtime observations above remain the evidence for their
-semantics and thread assumptions.
+## Fixed-date benchmark
 
-Post-migration run `01edd2fb-4c64-468b-8db9-efeefecc7b05` loaded the checked
-runtime-owned frontend, console, observer, annex/message, pause, speed, and quit
-boundaries with telemetry. It registered the observer-safe console command,
-restored JAN to AI, enabled full-map visibility, advanced exactly three days,
-paused at raw date `59883456`, drained telemetry, and exited through the native
-quit path with zero trace gaps, drops, or writer failure.
+One game day is runtime-verified as 24 raw date units. Relative targets add
+`N * 24` in int64 to the copied date after speed/unpause and optional observer
+postconditions; absolute targets must advance and align to that scale.
+A Win32 `SetTimer` at `USER_TIMER_MINIMUM` (effectively 10 ms), not a daily hook,
+consumes checked date, pause, typed game-over state, and observer invariants.
+The callback must match the frontend constructor thread; that correlation does
+not prove general engine UI-thread ownership.
 
-Run `b14dc611-cfd0-4b15-ae47-bfd3473cbf5e` exercised the runtime-owned console
-event and copied command callback with `--view-tag ENG`. The asynchronous native
-switch completed, ENG returned to scheduled AI, the simulation resumed, and 15
-generic popup events were suppressed while the process remained responsive.
-The source save retained SHA-256
-`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+| Terminal condition | Contract |
+| --- | --- |
+| Exact target | Toggle pause, then require a later stable paused observation. This extra UI cycle lets the native endgame dialog publish before success is declared. |
+| Game over | Takes precedence over target completion and pause recovery; emits failure reason `game_over`. |
+| Other failure | Overshoot, timeout, regression, invalid idler/pause, observer failure, invalid target, or unavailable timer is terminal. Attempt pause/readback; never claim paused when readback fails or invent unavailable progress counters. |
+| All terminal paths | Stop monitoring/popup suppression and cancel timer; leave safely paused/open when readback succeeds. Never write a save. Only exact success or typed game over may request explicitly enabled native quit. |
+| Pre-exit drain | One five-second deadline for optional telemetry. Completed drain stops ingress, consumes accepted payloads, joins writer, writes enabled summary, flushes/closes. Absent/inactive/legacy sink is unavailable and permits exit without summary/durability guarantee. Busy, timeout, or failure leaves paused/open. |
+| Native quit | Validate idler RTTI, exact vtable target, and request-flag readback. Accepted `QUIT` confirmation `0x276500` dispatches primary vtable slot `+0x110` to `0x24edb0`, which sets idler `+0x1d20=1`. No external termination or synthetic input. |
 
-A subsequent observer test bypassed six generic message dispatches while the
-campaign advanced about 3,085 days without a watchdog-detected pause.
-After expanding coverage to all nine dispatchers, a smoke run suppressed six
-policy-marked popups while advancing 385,895 country rows without pausing.
+### Game-over mapping
 
-The player tag remains `JAN` as a UI viewing perspective; it is not an ownership
-marker for AI scheduling. Human ownership is represented by the
-`player_nations` map, and AI participation by `CCountry::_ai` plus the global AI
-scheduler list.
+Require supported bytes at `0x25548d`, current `CInGameIdler`, dialog pointer
+`+0x1d6c` with window vtable `0xa3c0d8`, visibility byte `+0x67` exactly one,
+and `CGameState+0xb0c > [RVA 0xe586dc]+0xc`. Missing or mismatched state makes
+the entire observation unavailable, not an ordinary pause.
 
-Structured telemetry can be loaded alongside `campaign_runner` when state
-output is needed. Do not call pause or speed functions based on a non-null
-pointer alone; verify the idler phase first. Frontend and main-menu native work
-are each refused unless execution remains on the thread captured by that
-controller's constructor hook.
-Controller pointers are discarded after their known phase transition and at
-plugin shutdown. Destructor hooks also discard a matching capture before the
-native scalar deleting destructor releases storage. The related constructor,
-destructor, annexation, and message hooks install transactionally and roll back
-in reverse order on startup failure. Plugin modules remain loaded for the
-process lifetime and there is no thread-quiescence protocol, so shutdown makes
-callbacks inert instead of racing other game threads to rewrite live executable
-memory.
+The August 21, 2026 comparison used the supported executable and unmodified
+`benchmark_1936_interest_probe.v2`: visible game over had date `60759360`,
+configured end `60759336`, pause one, dialog visible. Ordinary pause had date
+`59883384`, the same end/vtable, pause one, and dialog visibility zero.
 
-The checked frontend boundary owns constructor/destructor signatures and
-trampolines, controller addresses, generations, vtable checks, and captured
-thread IDs. The runner receives only an opaque generation-bound capability and
-copied save status/name. A stale, released, cross-thread, malformed, or
-unsupported capability fails closed before GUI lookup, string mutation, signal
-dispatch, or save-flag writes. This extraction preserves the prior
-`verified-runtime` mapping evidence above; its synthetic host tests establish
-only fail-closed API behavior and do not add live-game evidence.
+### Acceptance inputs
+
+| Input | Identity / reproduction settings |
+| --- | --- |
+| Executable / mapping | SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648`; `v2game-3.04` |
+| Vanilla `benchmark.v2` | SHA-256 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`; unchanged across recorded runs |
+| End-date fixture | SHA-256 `592c41f7258c1b383e796a2cbe9829d0159f1eb898fd79dedf960fab5b66a1d9`; unchanged |
+| Common settings | No mods, native speed 5, `campaign_runner` and `telemetry` unless noted; observer specified per row. Launcher flags/profiles: [launcher](../../docs/launcher.md). |
+
+### Bounded-run evidence
+
+| Date / run ID | Settings and result |
+| --- | --- |
+| July 31, 2026: `a53ae91b-5e1b-4a52-9422-c63c65d52643`, `5a0134ce-2125-4da6-a59e-9b0dc7e8f551` | Vanilla observer, 365 days: `59883384` → target/actual `59892144`, one start/completed record each, paused and responsive/open. Each trace: 374 ordered records, no gaps/drops/write failure; 98,644 daily callbacks. Wall 21,124,677 / 21,230,817 us; 17.28 / 17.19 days/s, 0.50% repeat difference. Establishes pause harness, not final flush/save/replay equivalence. |
+| August 1, 2026: `21b024dd-ec69-4d46-a22e-1d309ab83b21` | Detached one-day target, native request readback and exit without `ExitProcess`, `TerminateProcess`, `WM_CLOSE`, or synthetic input. Predates drain; process exit only. |
+| August 1, 2026: `4d3d4e44-b4e5-4d7f-b10a-b50bd5b96cfb` | Detached one-day target, bundled lifecycle telemetry: drain logged before native exit. Valid 11-record trace: completed sequence 10, final newline-terminated summary 11; accepted/written 10, dropped 0, no writer failure. Covers completed drain, not timeout retry/legacy compatibility. |
+| Final-DLL: `31a41204-121e-4e11-be5d-6ae3fb47f771` | Non-observer absolute target, exact 10 days to `59883624`, paused readback. |
+| Final-DLL: `e1c015df-5b89-4f08-9925-90c49214f924` | One-second timeout, failed at 1,013,936 us/date `59883864`, reason `timeout`, paused readback. |
+| Final-DLL: `866c652a-fbef-49f5-91e1-b76bcadc0e81` | Nonadvancing start-date target: standalone `invalid_target`, remained paused, no fabricated progress counters. All three final-DLL traces: zero gaps; available counters zero drops/write failure; unchanged source. |
+| August 21, 2026: `e17a2ecb-64b7-4177-b16f-1de9c36d5315` | End-date fixture, one day `60759336` → `60759360`: one `benchmark.failed`, `game_over`, paused true; no gaps. Process left open, end-date screen manually responsive. |
+| August 21, 2026: `d7ebea5f-ea81-4b59-883d-fb5b839cdf3d` | Same typed terminal result with `quit_after_run`: drain through final sequence 10, dropped 0, no write failure, native exit without external termination. |
+| August 21, 2026: `5cc040f5-11a4-4d3b-999b-e38546c1e9d6` | Ordinary vanilla one-day regression target `59883408`, paused true, responsive map left open; no false game over or lingering observer/configuration recovery. |
+
+### Resource measurements
+
+The resource-profiling build repeated the vanilla 365-day observer interval with
+one Windows process snapshot before the terminal record. Each trace had 375
+ordered records, exactly one `benchmark.resources`, no gaps/drops/write failure,
+and unchanged source save.
+
+| Run | Wall us | Process CPU us | CPU / wall | Working set start → end | Private bytes start → end | Peak working set |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `c835ced2-9140-4acb-a656-648795a77de3` | 20,874,288 | 27,500,000 | 131.741% | 1,338,437,632 → 1,360,338,944 | 1,540,493,312 → 1,564,241,920 | 1,372,725,248 |
+| `8b259c50-5cf7-476a-a634-95b87b152c9a` | 21,133,183 | 31,734,375 | 150.164% | 1,362,038,784 → 1,361,985,536 | 1,565,822,976 → 1,568,247,808 | 1,373,532,160 |
+
+Throughput was 17.49 / 17.27 days/s (1.23% repeat difference); CPU differed
+14.30%. Two samples do not bound CPU variance for optimization claims.
+CPU/wall exceeds 100% because Windows sums CPU across process threads.
 
 ## Lifecycle Telemetry
 
-With an already active optional telemetry plugin, the runner dynamically
-resolves its C ABI and emits `verified-runtime` records after the requested
-save filename is confirmed present and the save flags are written, `+0x5bd`
-observation, RTTI entry readback, observer postconditions,
-speed readback, and final pause readback above. The Win32 timer callback is
-required to match the frontend constructor thread, but that correlation does
-not independently identify the thread as the engine's general UI thread.
-`observer.configured` waits for an observed valid view after
-any requested switch. View tags are exactly three normalized uppercase ASCII
-alphanumeric characters, including dynamic tags such as `D01`.
+With an active optional sink, copied C-ABI lifecycle records follow confirmed
+save name/flag writes, load flag `+0x5bd`, RTTI entry, observer postconditions,
+speed and pause readback. `observer.configured` waits for a valid view after
+requested switching. Tags are three normalized uppercase ASCII alphanumeric
+characters, including dynamic tags such as `D01`. See
+[telemetry](../../docs/telemetry.md) for the record contract.
 
-Runtime acceptance on July 31, 2026 used `benchmark.v2`, observer view `ENG`,
-speed 5, and the lifecycle/state telemetry categories. Records observed the
-save-selection flags, load-complete flag, `CInGameIdler`, speed 5 readback, final
-unpaused readback, and ENG observer postconditions in that order. The resulting
-trace `f2d403e1-82f8-46b8-8832-a136c822d38a` advanced 515 game days and
-validated 1,039 strictly ordered records with no sequence gaps, drops, write
-failure, or campaign-runner telemetry warning. This validates the emission
-points; it does not establish a general timer-callback thread contract.
+| Acceptance | Evidence |
+| --- | --- |
+| July 31, 2026: `f2d403e1-82f8-46b8-8832-a136c822d38a` | Vanilla, observer ENG, speed 5, lifecycle/state capture. Ordered save selection → load complete → `CInGameIdler` → speed 5 → unpaused → ENG observer postconditions. Advanced 515 days; 1,039 ordered records, no gaps/drops/write failure or runner telemetry warning. Verifies emission points, not general timer-thread ownership. |
+| August 3, 2026: `bab8f3b3-e9dd-4eca-8c63-ac391a738637` | Vanilla, runner only, speed 5, one day. Exact controller vtables; Play followed by frontend `0x36b030` and main-menu `0x354df0` destructor phase-release observations before console initialization; unpause and bounded native exit. Source unchanged. |
+| August 3, 2026: `a2221287-f1f7-4dbb-95c2-d53aa50aa92d` | Unmodded compatibility: 293 valid records. |
+| August 3, 2026: `0a1415cd-acd8-4962-867d-f2479028b753` | Observer compatibility: 294 valid records including `observer.configured`. |
+| August 3, 2026: `df59cb6d-e112-43c3-8134-916519d26fea` | GFM compatibility: 672 valid records; descriptor `mod/GFM.mod`, name `Greater Flavor Mod`, no declared version; native GFM save SHA-256 `276a53c07afc713bb685ded48c64f6a8c5fa13c4539cc70a380fd4347c4f0dad`. |
 
-Runtime lifecycle acceptance on August 3, 2026 used run
-`bab8f3b3-e9dd-4eca-8c63-ac391a738637`, unmodded `benchmark.v2`, campaign runner
-only, speed 5, and a one-day bounded run. Exact primary-vtable checks passed for
-both controllers. After native Play dispatch, the frontend destructor hook at
-RVA `0x36b030` and main-menu destructor hook at RVA `0x354df0` both recorded
-phase-release observations before console initialization. The campaign then
-selected speed 5, unpaused, advanced one day, and exited through the native
-bounded-run path. The source save retained SHA-256
-`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+The three compatibility runs used the common executable/mapping, both plugins,
+speed 5, one day, and quit after success. Each exercised controller-vtable and
+bounded string checks, save-flag pre/postconditions, destructor invalidation,
+and GUI dispatch; each advanced exactly one day and exited natively with zero
+gaps/drops/write failure. Vanilla and GFM source hashes stayed unchanged.
+Destructor logging was removed after correlation; callbacks only invalidate.
 
-Compatibility acceptance on August 3, 2026 exercised the hardened path with
-structured telemetry enabled against mapping `v2game-3.04` and executable
-SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648`.
-Every run selected `campaign_runner` and `telemetry`, speed 5, a one-day target,
-and native quit after success:
+Earlier GFM probes `2ee97720-b85b-4616-9749-b59ad9e04e90` and
+`26e16827-a6a2-45e1-84f9-963ce6f80460` used a copied vanilla save and never
+reached `CInGameIdler`. They prove only descriptor preflight resolved
+`user_dir = "GFM"`, not campaign compatibility.
 
-- unmodded run `a2221287-f1f7-4dbb-95c2-d53aa50aa92d` produced 293 valid
-  records with no gaps, drops, or write failure;
-- observer run `0a1415cd-acd8-4962-867d-f2479028b753` produced 294 valid
-  records, including `observer.configured`, with no gaps, drops, or write
-  failure;
-- GFM run `df59cb6d-e112-43c3-8134-916519d26fea` produced 672 valid records
-  with no gaps, drops, or write failure from descriptor `mod/GFM.mod` (`Greater
-  Flavor Mod`; the descriptor declares no version) and a native GFM save with
-  SHA-256 `276a53c07afc713bb685ded48c64f6a8c5fa13c4539cc70a380fd4347c4f0dad`.
+## Limits
 
-Each run exercised exact controller-vtable checks, bounded save-string metadata,
-save-flag preconditions and postconditions, destructor invalidation, and native
-GUI dispatch. Each advanced exactly one game day and exited through the bounded
-native path. The unmodded and GFM source-save hashes remained unchanged. Destructor
-logging used to establish lifecycle evidence was removed after these probes;
-steady-state destructor callbacks only invalidate matching captures. No native
-return-to-menu operation is mapped, so repeated loads within one process remain
-outside the current acceptance boundary.
+No native return-to-menu operation is mapped; repeated loads in one process are
+outside acceptance. Native exit has no generic pre-exit plugin notification,
+checkpoint save, or final game-state assertion. Drain guarantees apply only to
+the exercised bundled path. Run IDs and source hashes identify historical
+acceptance, but exact binary hashes were not recorded here; they are not proof
+that every later build repeats those results.

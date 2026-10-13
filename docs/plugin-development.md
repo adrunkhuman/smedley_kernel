@@ -10,19 +10,11 @@ in [`game-state-boundary.md`](game-state-boundary.md).
 
 ## Kernel-owned engine services
 
-`smedley_kernel.dll` is the single owner of bounded Victoria II readers,
-session and controller state, hook queues, and checked native mutations. The
-former `smedley_game_state` and `smedley_game_runtime` static targets no longer
-exist. Their implementation remains organized under `game_state/`, but CMake
-compiles it only into the kernel.
-
-Plugins retain lifecycle, publication, and gameplay policy; they do not own raw
-traversal or native calling conventions. `scripting` and `campaign_runner`
-consume only versioned C services. The runner resolves logging, campaign
-runtime, campaign automation, and event services at load time; its hook
-callbacks publish copied bounded work that its timer path consumes.
-All bundled plugins, including `telemetry`, resolve only versioned C service
-tables. Internal C++ declarations are not a plugin ABI.
+Plugins dynamically resolve versioned C services for copied state and checked
+operations. They retain lifecycle, publication, and gameplay policy; engine
+traversal, hooks, native calls, and session state belong to the kernel. See the
+[service catalog and lifetime rules](game-state-boundary.md#public-services).
+Internal C++ declarations are not a plugin ABI.
 
 The current export sets include `SmedleyPluginGetApiV1` for every bundled plugin.
 Telemetry additionally exports `SmedleyTelemetryEmitV1`, `SmedleyTelemetryEmitReliableV1`, and
@@ -31,14 +23,8 @@ production-plugin import from `smedley_kernel.dll`. CMake automatic export
 generation is disabled for the kernel and plugins; the kernel exports only its
 explicit loader entry points and versioned C service providers.
 
-First-party plugins have no raw adapter exception. The layering CTest rejects raw engine
-headers, memory-map access, native POP-money wrappers, and game-object `void*`
-declarations, named engine RVAs/field offsets, and native x86 call stubs from
-every plugin production source. Raw engine work belongs in the kernel-owned
-`game_state/` implementation; the ordinary mapping evidence and review
-requirements still apply. A separate ownership audit rejects recreated static
-runtime targets, duplicate engine-source ownership, and internal C++ imports in
-migrated plugins.
+First-party plugins have no raw-adapter exception. Source, ownership, and DLL
+[boundary audits](game-state-boundary.md#ownership) enforce this separation.
 
 ## Foreign engine objects
 

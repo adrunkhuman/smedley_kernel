@@ -192,7 +192,12 @@ domain document before changing that area:
 | Launcher, profiles, and automation options | `docs/launcher.md` |
 | Telemetry schemas, capture, health, and exports | `docs/telemetry.md` |
 | Scripting API and limits | `docs/scripting.md` |
+| Interest-fix behavior and configuration | `docs/interest-fix.md` |
 | Mapping catalog and evidence | `mappings/README.md` and `mappings/` |
 
-Document steady-state behavior in `docs/`, evidence in `mappings/`, and future
-work in GitHub issues. Do not duplicate detailed domain contracts here.
+Document current behavior in `docs/`, claim-led evidence in `mappings/`, and
+future work in GitHub issues. Update the existing authoritative section rather
+than appending a progress report. Keep each contract and evidence record in one
+place and link to it. Retain failed probes only when they constrain a claim;
+superseded implementation narratives belong in Git history. Do not duplicate
+detailed domain contracts here.

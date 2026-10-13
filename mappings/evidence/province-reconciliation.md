@@ -1,231 +1,165 @@
 # Province reconciliation boundaries
 
-Issue [#91](https://github.com/adrunkhuman/smedley_kernel/issues/91) uses
-GFM's slave-trade cleanup to drive generic province-modifier and country-policy
-capabilities. This document records static executable evidence, read-only
-runtime correlation, and controlled production mutation on the supported
-executable.
+The narrow province-modifier/current-owner policy boundary is
+`verified-runtime` for lookup, bounded traversal, policy selection, and native
+removal in the controlled fixtures below. The kernel service remains; the
+GFM-specific native consumer and generated derivative from
+[issue #91](https://github.com/adrunkhuman/smedley_kernel/issues/91) / PR #92
+were retired. Pristine GFM retains its original cleanup block. Historical
+package acceptance does not establish current package behavior.
+
+See the [mapping catalog](../v2game-3.04.toml) for signatures and
+[service boundary](../../docs/game-state-boundary.md) for current API ownership.
 
 ## GFM contract
 
-The source contract is pinned to GFM v3.0 commit
-`ee1486e251d3bb4dc5c355f5c2ec34abaea1078d`. Country event `477877790`
-iterates `any_land_province` at
-`events/V2ME Cleanup (GFM).txt:1127-1141`. A province qualifies when it has at
-least one of `slave_trade_decadence_1` through `_4` and its current owner has
-`slavery = no_slavery`. The block removes all four modifier names.
-
-The event reschedules itself after 30 days at line 19020. The reconciliation
-block contains no random operation. Separate RGO events create and advance the
-four permanent stages, and event `38506` independently removes them while
-changing the RGO. The retired GFM adoption slice therefore disabled only lines
-1127-1141; the writers and independent remover remained active.
+Pinned GFM v3.0 commit `ee1486e251d3bb4dc5c355f5c2ec34abaea1078d`,
+`events/V2ME Cleanup (GFM).txt:1127-1141`: country event `477877790` iterates
+`any_land_province`, removing all four `slave_trade_decadence_1` through `_4`
+when any stage is present and the current owner has `slavery = no_slavery`.
+The event reschedules after 30 days at line 19020; this block has no randomness.
+Separate RGO events create/advance permanent stages, and event `38506` removes
+them while changing the RGO. The historical replacement disabled only the
+15-line cleanup block, leaving those writers and independent remover active.
 
 ## Modifier lookup
 
-The executable contains RTTI for `CAddProvinceModifierEffect`,
-`CRemoveProvinceModifierEffect`, and `CHasProvinceModifierTrigger`. Their parser
-paths resolve script names through the same registry pointer at preferred VA
-`0x0125a69c` and lookup function at RVA `0x001661b0`:
+RTTI identifies `CAddProvinceModifierEffect`, `CRemoveProvinceModifierEffect`,
+and `CHasProvinceModifierTrigger`. Their parsers share registry pointer
+preferred VA `0x0125a69c` and lookup RVA `0x001661b0`.
 
-| Parser | Resolved field | Evidence |
-| --- | ---: | --- |
-| Add effect, RVA `0x0048132d` | effect `+0x24` | Loads the registry pointer, passes the parsed string to RVA `0x001661b0`, and retains the returned definition pointer. |
-| Remove effect, RVA `0x00482170` | effect `+0x20` | Uses the same registry and lookup path. |
-| Presence trigger, RVA `0x004cdea0` | trigger `+0x1c` | Uses the same registry and lookup path. |
+| Parser RVA | Retained definition | Static evidence |
+| --- | --- | --- |
+| Add `0x0048132d` | effect `+0x24` | Loads registry, passes parsed string to shared lookup, stores returned pointer. |
+| Remove `0x00482170` | effect `+0x20` | Same registry/lookup. |
+| Presence `0x004cdea0` | trigger `+0x1c` | Same registry/lookup. |
 
-The lookup takes its registry in `EAX`, one stack-passed MSVC string pointer,
-and returns an opaque definition pointer. Registry identity, lifetime, duplicate
-key behavior, and lookup safety outside script loading remain unverified.
+The lookup ABI is registry in `EAX`, one stack MSVC-string pointer, opaque
+returned definition. Static paths are `verified-static-callsites`; runtime
+resolution of the four keys is recorded below. Duplicate-key behavior and
+lookup safety outside the exercised lifecycle remain unverified.
 
 ## Province modifier storage
 
-`CHasProvinceModifierTrigger::Evaluate`, RVA `0x004cdfc0`, resolves the current
-province from scope `+0x10`, reads the province's list head at `+0xc8`, and walks
-a linked list. Each node points to an active modifier record; record `+0x08` is
-compared with the trigger's resolved definition pointer at `this+0x1c`.
-
-The linked-list contract recovered from the query, add, and remove paths is:
+Presence evaluator RVA `0x004cdfc0` resolves province from scope `+0x10`, walks
+its `+0xc8` list, and compares record `+0x08` to trigger `this+0x1c`.
+Query/add/remove paths establish this narrow layout:
 
 | Object | Field | Meaning |
-| --- | ---: | --- |
-| `CProvince` | `+0xc8` | Active-modifier list head |
-| `CProvince` | `+0xcc` | Active-modifier list tail |
-| `CProvince` | `+0xd0` | Active-modifier count |
-| `CProvince` | `+0xd4` | Nonzero while physical unlinking must be deferred |
-| List node | `+0x00` | Active modifier record pointer |
-| List node | `+0x04` | Previous node |
-| List node | `+0x08` | Next node |
-| List node | `+0x0c` | Deferred-removal marker |
-| Active modifier | `+0x08` | Modifier definition pointer |
-| Active modifier | `+0x0c` | Expiry/date value used by the add path |
+| --- | --- | --- |
+| `CProvince` | `+0xc8` / `+0xcc` / `+0xd0` | Active-modifier head / tail / count |
+| `CProvince` | `+0xd4` | Nonzero defers physical unlinking |
+| List node | `+0x00` / `+0x04` / `+0x08` / `+0x0c` | Record / previous / next / deferred-removal marker |
+| Active modifier | `+0x08` / `+0x0c` | Definition pointer / expiry-date value used by add path |
 
-The active modifier's complete type, ownership, expiry encoding, and interaction
-with save serialization remain unverified.
+Complete active-modifier type, ownership, expiry encoding, and save-serialization
+interaction are unverified; the runtime tests validate only this borrowed view.
 
 ## Modifier removal
 
-`CRemoveProvinceModifierEffect::Execute`, RVA `0x00482290`, is the effect-chain
-entry reached through virtual slot `+0x2c`. It resolves the current province from
-scope `+0x10`, loads the definition pointer from `this+0x20`, places the
-`CProvince*` in `ESI`, passes the definition on the stack, and calls RVA
-`0x000b39a0`.
+`CRemoveProvinceModifierEffect::Execute`, RVA `0x00482290`, is reached through
+virtual slot `+0x2c`. It resolves scope province `+0x10`, loads definition
+`this+0x20`, and calls RVA `0x000b39a0` with borrowed province in `ESI` and one
+stack definition pointer. The remover returns `ret 4`, with no success result.
 
-The remover traverses the list and compares active-record `+0x08` with the
-requested definition. When province `+0xd4` is nonzero it sets node `+0x0c`
-instead of unlinking. Otherwise it repairs previous, next, head, and tail links,
-frees the node, decrements `CProvince+0xd0`, and continues so duplicate matching
-records are also removed. It returns with `ret 4`.
-
-The nonstandard internal ABI is therefore:
-
-- `ESI`: borrowed `CProvince*`;
-- stack argument 0: borrowed modifier-definition pointer;
-- no explicit success result;
-- removal may be deferred by the province iteration guard.
-
-No reviewed callsite establishes that this function is safe from an arbitrary
-daily callback. The guard also means immediate absence is not a valid
-postcondition in every phase. Thread, phase, lifetime, and deferred-drain
-behavior require runtime evidence before a checked mutation can be exposed.
+It compares record `+0x08`, marks node `+0x0c` when province `+0xd4` is nonzero,
+otherwise repairs previous/next/head/tail links, frees the node, and decrements
+`+0xd0`. Traversal continues to remove duplicate matches.
+This is `verified-static-callsites`; controlled immediate removal/list
+postconditions are `verified-runtime` below. It is not an arbitrary daily-callback
+mutation contract. The service supplies its own synchronous game-thread authority;
+a nonzero guard returns `DEFERRED` without mutation, leaving consumer cadence
+pending. Deferred unlink/drain behavior was not forced in-game.
 
 ## Political reform selection
 
-`CIssueGroupTrigger` parses its option key at RVA `0x004c4a70`. It loads the
-registry pointer at preferred VA `0x01258a48`, passes the parsed MSVC string to
-lookup RVA `0x00575ed0`, and receives an issue-option pointer. The parser accepts
-the option only when option `+0x54` equals the trigger's group at `this+0x20`,
-then retains it at `this+0x24`.
+| Path | `verified-static-callsites` contract |
+| --- | --- |
+| `CIssueGroupTrigger` parser, RVA `0x004c4a70` | Registry preferred VA `0x01258a48`, lookup RVA `0x00575ed0`, parsed MSVC string → option. Accept only option `+0x54 == this+0x20` group; retain at `this+0x24`. |
+| Evaluator, RVA `0x004c4da0` | Group `this+0x20` supplies index `+0x50`, category `+0x5c`. Province owner key/index `+0x128` / `+0x12c` resolves country through database pointer preferred VA `0x012587e4`, array `+0x4`. Category 2 indexes the selected-option array at `CCountry+0x860` and compares with `this+0x24`. |
+| `CSetPoliticalReformEffect::Execute`, RVA `0x004950b0` | Independently writes `CCountry+0x860` selection using target option's group `+0x54` and group index `+0x50`. |
 
-`CIssueGroupTrigger::Evaluate`, RVA `0x004c4da0`, compares an expected issue
-option at `this+0x24` against the current country's selected option. The issue
-group at `this+0x20` supplies its group index at `+0x50` and category at `+0x5c`.
-For a province scope, owner key/index words are stored at `CProvince+0x128` and
-`+0x12c`. The evaluator uses the index to resolve `CCountry*` through the
-country database pointer at preferred VA `0x012587e4`, whose pointer array is at
-database `+0x4`. Category `2` then reads the selected-option array pointer from
-`CCountry+0x860` and indexes that array by the issue-group index.
-
-`CSetPoliticalReformEffect::Execute`, RVA `0x004950b0`, independently writes the
-selected option into the array referenced by `CCountry+0x860`. It obtains the
-index from the target option's group pointer at option `+0x54`, then group
-`+0x50`. This establishes the selected-political-reform array and issue/group
-relationship at `verified-static-callsites`.
-
-The pinned GFM source defines `slavery` as a political issue and `no_slavery` as
-one option. Static lookup by the option key is established, and the returned
-option supplies its owning group. Registry lifetime, country identity, array
-bounds, and live transition behavior remain unverified.
+Pinned GFM defines political issue `slavery` and option `no_slavery`. Runtime
+lookup, bounded array indexing, and current-owner selection are correlated below;
+live reform transitions are not.
 
 ## Read-only runtime correlation
 
-A one-day read-only run against base
-`e4befd2040961ff18968cceb74aca644ede27f57` and supported executable SHA-256
-`62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648`
-accepted both lookup signatures, bounded all foreign vectors and lists, and
-performed no engine write. The source save remained SHA-256
-`3c70553984e4d94773483076ee4d83ac351095042f66a9920a3ee4770f7763f4`.
+One-day run on base `e4befd2040961ff18968cceb74aca644ede27f57`, supported
+executable SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648`,
+and unchanged source save SHA-256
+`3c70553984e4d94773483076ee4d83ac351095042f66a9920a3ee4770f7763f4`:
+both lookup signatures accepted, foreign vectors/lists bounded, no engine writes.
 
-All four `slave_trade_decadence_*` lookups returned distinct non-null
-definitions. `no_slavery` resolved to a non-null option whose owning group had
-index `1` and category `2`. The selected-option path found 311 countries with
-that exact option among 653 country slots.
+| Observation | Result / limit |
+| --- | --- |
+| Four slave-trade keys | Distinct non-null definitions |
+| `no_slavery` | Non-null option; owning group index 1, category 2; selected by 311 of 653 country slots |
+| Province/list traversal | 3,987 readable slots, 805 nodes; all declared counts agreed; zero guards or invalid records |
+| Target presence | No target definitions active: cannot validate their presence or removal from this save |
+| Lifecycle | Empty GFM error log, verified native exit |
 
-The province vector contained 3,987 readable slots. Traversal visited 805
-active-modifier nodes, agreed with every province's declared list count, found
-no active iteration guard, and reported no invalid record. No active record used
-one of the four slave-trade definitions in this save, so the run cannot validate
-their presence correlation or any removal behavior. GFM's error log remained
-empty and the game exited through the verified native request.
+This corroborates exercised registry lifetime, policy selection, and generic
+traversal, not mutation authorization by itself.
 
-Because the fixture contained no target modifier, these observations
-corroborate lookup lifetime, policy selection, and generic list traversal but
-do not independently authorize production mutation.
+## Historical standalone reconciliation runtime
 
-## Retired packaging contract
-
-PR #92 generated standalone `mod/GFM-smedley` directly
-from pinned GFM commit `ee1486e251d3bb4dc5c355f5c2ec34abaea1078d`.
-It preserves GFM's five `replace_path` directives, writes the alphanumeric
-descriptor filename `GFMSmedley.mod`, retains visible mod and user-directory
-identity `GFM-smedley`, and removes only event `477877790`'s pinned 15-line
-reconciliation block. `mod/GFM` is neither an input nor a launch dependency.
-
-The generated `smedley-required-plugins.txt` declares
-`required_plugin=gfm-smedley`. Launcher preflight rejects GFM-smedley in safe
-mode or without that plugin. Plugin initialization runs before the suspended
-game process resumes; an initialization failure terminates the child. A checked
-service failure after campaign start is fatal because continuing would leave
-the simplified mod without its required reconciliation behavior. The service's
-own callback supplies a domain-specific, game-thread authority; `gfm-smedley`
-does not subscribe to an unrelated event-service boundary. `DEFERRED` performs
-no mutation and leaves the cadence pending for a later eligible callback.
-Requirement enforcement applied only to launches through Smedley; direct game
-launches could bypass launcher preflight. The native GFM plugin and generated
-package were later retired; pristine GFM retains the original cleanup block.
-
-### Historical standalone reconciliation runtime
-
-The supported executable loaded only `mod/GFMSmedley.mod` and the required
-`gfm-smedley` plugin, created the separate `GFM-smedley` user directory, and
-reached the frontend with checksum `BBSV`. The plugin accepted simplified event SHA-256
+The retired standalone fixture selected only `mod/GFMSmedley.mod` and the
+required `gfm-smedley` consumer (`gfm_adoption` before rename). It reached
+checksum `BBSV` and accepted simplified event SHA-256
 `34709cb3ae8c40cba441a05c6cba57952e84d5c6a234464879e14254dc1546c0`.
+These package names identify historical test inputs, not installation advice;
+current launch/preflight behavior is in [launcher](../../docs/launcher.md).
 
-A bounded run with `campaign_runner` loaded a disposable fixture derived from a
-fresh GFM-smedley Prussia campaign, advanced at speed 5 from `1836.1.1` through
-`1836.1.4`, and saved the result. A post-review replay with the final kernel
-binary reached the same target without a reconciliation failure and requested
-native game exit. A rename replay loaded `gfm-smedley.dll`, registered the
-plugin as `gfm-smedley`, reached the same target, and left the input fixture
-unchanged.
+A disposable fixture from a fresh GFM-smedley Prussia campaign added stage 1 to Berlin province `549`
+(owner selected `no_slavery`) and stage 2 to Washington `2146` (USA owner had
+not). `campaign_runner` advanced at speed 5 from `1836.1.1` to `1836.1.4` and
+saved. Berlin had no managed stage in the result; Washington retained only
+`slave_trade_decadence_2`. No reconciliation failure was logged. Post-review
+final-kernel and rename replays reached the same target and requested native
+exit; the rename replay left input unchanged.
 
 | Runtime input | Identity |
 | --- | --- |
-| Repository base plus issue work | Base `e4befd2040961ff18968cceb74aca644ede27f57` |
+| Repository base plus issue work | `e4befd2040961ff18968cceb74aca644ede27f57` |
 | Rename replay source | Merged base `479aef63fe3f9f3e982559d3586d6e958a3c639b` plus rename work |
 | `v2game.exe` | SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648` |
-| Rename replay `smedley_kernel.dll` | SHA-256 `ffee3cccf2837a53f59e57ce27e3c2a2ed5b7c50ec3cfea84737e9cf61f7f70e` |
-| Pre-rename replay `smedley_kernel.dll` | SHA-256 `d88cec1f13bbd1d89b4903d90aa1ac21b572fb991f0338d0669824e20ccbb770` |
-| Saved-result `smedley_kernel.dll` | SHA-256 `11df3cb1afc188d289a2915e7dd506c862c978d3b43a41b604568772a29fdaf4` |
+| Rename replay kernel | SHA-256 `ffee3cccf2837a53f59e57ce27e3c2a2ed5b7c50ec3cfea84737e9cf61f7f70e` |
+| Pre-rename replay kernel | SHA-256 `d88cec1f13bbd1d89b4903d90aa1ac21b572fb991f0338d0669824e20ccbb770` |
+| Saved-result kernel | SHA-256 `11df3cb1afc188d289a2915e7dd506c862c978d3b43a41b604568772a29fdaf4` |
 | `gfm-smedley.dll` | SHA-256 `1ff4b2a8105aa95a6d430090cc1d9851488b85a13746fa3897d2668420aeddf1` |
 | Pre-rename `gfm_adoption.dll` | SHA-256 `96083bcd46bfc3c0e31c73d477d73e497af11b6ae17077dc58edfb7c9eb815ab` |
 | `campaign_runner.dll` | SHA-256 `a86058e05c043dd6502e68d2bd2da1922a3949c0ad44f258377ee09b30eb88fe` |
-| Fresh source save before and after | SHA-256 `b32dc06746be5a77512081d778a6cc7b4d060c9f28e77cd6f0939153c33de1ac` |
-| Disposable input fixture | SHA-256 `0d1c453c7835ecadde6d7b6acea08207c8eaa7bfea54f519bb7269b6b2e6e165` |
+| Fresh source before/after | SHA-256 `b32dc06746be5a77512081d778a6cc7b4d060c9f28e77cd6f0939153c33de1ac` |
+| Disposable input | SHA-256 `0d1c453c7835ecadde6d7b6acea08207c8eaa7bfea54f519bb7269b6b2e6e165` |
 | Saved result | SHA-256 `1d9ed0c7f0346191a3ed88ac906894564bdb10f95d927aa85440102d3c0f27d0` |
 
-The fixture added stage 1 to Berlin province `549`, whose Prussian owner had
-selected `no_slavery`, and stage 2 to Washington province `2146`, whose USA
-owner had not. The saved result contained no managed stage on Berlin and
-retained only `slave_trade_decadence_2` on Washington. No reconciliation
-failure was logged. This established the standalone package, separate
-save namespace, current-owner policy branch, native removal, and policy-preserve
-branch together. The immutable fresh source proves the fixture and runtime did
-not alter the user's baseline save.
+This verifies current-owner policy removal/preservation and native removal in
+that implementation. The immutable fresh source shows fixture/runtime work did
+not alter the baseline save; it does not prove an exact clean-commit build or
+newer implementation acceptance.
 
 ## Supporting traversal evidence
 
-An earlier ordered-overlay validation of the same service supplied bounded
-before-and-after traversal counters that the saved standalone result cannot:
+An earlier ordered-overlay run of the same service supplied counters not
+recoverable from the standalone saved result:
 
 | Observation | Result |
-| --- | ---: |
-| Readable province slots | 3,987 |
-| Active modifier nodes | 806 |
-| Berlin stage mask | `0` |
-| Washington stage mask | `2` |
+| --- | --- |
+| Readable province slots / active nodes | 3,987 / 806 |
+| Berlin / Washington stage masks | `0` / `2` |
 | Remaining managed-stage provinces | 1 |
-| Active iteration guards | 0 |
-| Invalid list or policy records | 0 |
+| Active guards / invalid list or policy records | 0 / 0 |
+| Immutable source SHA-256 | `b032fbd3fa00c62994e7450c44699ca9fb56c50fe2fc67392df3d7ee8127d2ce` |
 
-The one-node decrease, Berlin's verified absence, and Washington's preserved
-stage corroborate the native remover, modifier identities, current-owner
-resolution, selected political-reform path, and list integrity at this callback
-boundary. The immutable source save remained SHA-256
-`b032fbd3fa00c62994e7450c44699ca9fb56c50fe2fc67392df3d7ee8127d2ce`.
+The one-node decrease, Berlin absence, Washington preservation, and list
+integrity corroborate modifier identity, current-owner resolution, political
+selection, and removal at this callback boundary.
 
-The service still treats a nonzero province iteration guard as `DEFERRED`; this
-path is covered by policy tests but was not forced in the live game. Host tests
-also reject malformed previous links, tail pointers, and declared counts before
-native removal. Broader `CProvince` and `CCountry` fields outside the narrow
-reconciliation view remain provisional.
+## Limits
+
+Live evidence covers immediate removal with guard zero, not forced deferred
+drain, duplicate removal, arbitrary threads/phases, or live reform transitions.
+Host policy tests cover `DEFERRED`; malformed previous links, tails, and counts
+are rejected before removal. Those tests do not extend runtime coverage.
+Broader province/country layouts remain provisional.

@@ -1,7 +1,9 @@
-# Fiscal and credit boundary evidence (issue #29)
+# Fiscal and credit boundaries
 
-This is the canonical evidence record for accepted fiscal, banking, and credit
-boundaries. Unknown paths remain unavailable rather than inferred.
+Evidence for fiscal, banking, and credit claims. Unknown paths remain
+unavailable rather than inferred. See the [modder guide](../../docs/fiscal-credit.md)
+for behavior and [issue #29](https://github.com/adrunkhuman/smedley_kernel/issues/29)
+for follow-up work.
 
 ## Target and conventions
 
@@ -15,7 +17,9 @@ boundaries. Unknown paths remain unavailable rather than inferred.
 
 Evidence levels follow the repository mapping conventions. Runtime observations
 identify the supported executable only; they do not establish compatibility
-with other builds.
+with other builds. Runs below do not all record a source revision, and two CSV
+hashes are abbreviated; those identities cannot establish exact-build acceptance
+or independently verify the artifacts.
 
 ## Core layouts
 
@@ -81,7 +85,7 @@ VA `0x00488add`, and records the amount at daily accounting `+0x18` via VA
 `CCountry::TakeLoan` at RVA `0x00122910` is
 `verified-static-callsites`. It attempts a domestic self-tagged creditor before
 the ordinal-zero Shadowy Financiers fallback. Detailed origination evidence is
-in `interest-payout.md`.
+in [interest payout](interest-payout.md#borrower--named-bank).
 
 ### Daily interest
 
@@ -198,3 +202,7 @@ source or sink. Do not present it as categorized money or a world-money total.
 - Runtime observation of complete repayment entry removal.
 - Default principal treatment and modifier/prestige outcomes.
 - Source of the forced negative-treasury recovery.
+- Semantics of `CCountry+0x40/+0x44`.
+- The proposed `CGameState+0xb5c` loan-rate link is only a historical lead;
+  no relation to `LOAN_BASE_INTEREST` is established. The verified camera-tag use
+  does not establish a financial meaning.

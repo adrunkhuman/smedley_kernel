@@ -2,8 +2,9 @@
 
 This reference states the fiscal and credit behavior established for the
 supported Victoria II 3.04 executable. It assumes familiarity with the game's
-budget and national-bank systems. See `fiscal-credit-boundaries.md` for the
-runtime evidence, addresses, and conservation limits.
+budget and national-bank systems. See [fiscal evidence](../mappings/evidence/fiscal-credit-boundaries.md)
+for runtime observations, addresses, and conservation limits. The optional
+[interest fix](interest-fix.md) changes the missing state-to-POP payout stage.
 
 ## Behavior contract
 
@@ -28,16 +29,6 @@ runtime evidence, addresses, and conservation limits.
   source.
 - Preserve creditor identity. Domestic and foreign named creditors resolve to a
   country bank; Shadowy Financiers follow the ordinal-zero path.
-
-## Address index
-
-| Boundary | Address | Evidence |
-| --- | --- | --- |
-| Poor/middle/rich tax receipts | VAs `0x00508ca4`, `0x00508cde`, `0x00508d1a` | `verified-runtime` |
-| Tariff receipt | VA `0x00488add` | `verified-static-callsites` |
-| `CCountry::PayDailyInterest` | RVA `0x00123c30` | `verified-runtime` |
-| `CCountry::RepayLoan` | RVA `0x001238d0` | `verified-runtime` |
-| Interest-shortfall handler | RVA `0x001241f0` | `verified-runtime` invocation |
 
 ## Unresolved behavior
 

@@ -82,15 +82,9 @@ verify the exact supported executable identity and active mapping signatures,
 use an x86 Release build and a disposable save, and record enabled plugins,
 mods, settings, and mapping version. A successful launch alone does not prove
 injection, plugin initialization, campaign control, observer behavior, or
-telemetry completeness. See [`docs/game-state-boundary.md`](docs/game-state-boundary.md)
-for the engine boundary and retained runtime evidence.
+telemetry completeness. See the [engine boundary](docs/game-state-boundary.md) and
+[mapping evidence](mappings/README.md).
 
-## Legacy bindings
-
-The legacy generated C++ engine bindings and
-`SMEDLEY_REGENERATE_BINDINGS` option were removed. They are not required by,
-and cannot be regenerated as part of, the current build. Add engine access as a
-narrow kernel-private layout, document its mapping evidence, and do not restore
-the mirror headers or generator to support new code. Historical model inputs and
-their disposition are recorded in
-[`mappings/research/retired-engine-mirrors.md`](mappings/research/retired-engine-mirrors.md).
+New engine access belongs in narrow kernel-private layouts with mapping
+evidence. There is no generated-bindings build step; see
+[ownership rules](docs/game-state-boundary.md#ownership).
