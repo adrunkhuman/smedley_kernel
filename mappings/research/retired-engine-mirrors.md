@@ -9,20 +9,18 @@ authoritative.
 
 ## Archived inputs
 
-The parent of the retirement commit retains every deleted file. These Git blob
-IDs identify the exact historical inputs without keeping them in the build or
-source include graph.
+The parent of retirement commit `9e71255` retains the deleted inputs. Inspect
+an archived file without restoring it to the build:
 
-| Historical input | Git blob |
+```sh
+git show 9e71255^:codegen/models/v2/classes/CCountry.toml
+```
+
+| Input group | Archived paths |
 | --- | --- |
-| `codegen/codegen/__init__.py` | `e15213be4b06734fefbce18a5b367b284456ec64` |
-| `codegen/generated_outputs.txt` | `58a3eb0ee35f3a5b647c17b923dd1159c71535dc` |
-| `codegen/models/clausewitz/functions/lua.toml` | `410806bb1343666398439b1107b8e80f1696890d` |
-| `codegen/models/v2/classes/CCountry.toml` | `6cba0351615c4613503150a4974cd6166e9ba980` |
-| `codegen/models/v2/classes/CCountryDataBase.toml` | `aaec2993c6cf8665f57959d561b73c2cf14362ae` |
-| `codegen/models/v2/classes/CCultureDataBase.toml` | `b1a4af7827969d629c4a42b53cbac8e838e0269a` |
-| `codegen/models/v2/classes/CCurrentGameState.toml` | `33ae7d76be7031787dc59d3b2936efe45c860e34` |
-| `codegen/models/v2/classes/CTraitDefinitionArray.toml` | `5f23742ca8a615b77e547b3c5c82c0d91fbe0b4a` |
+| Generator | `codegen/codegen/__init__.py`, `codegen/generated_outputs.txt` |
+| Lua model | `codegen/models/clausewitz/functions/lua.toml` |
+| Engine models under `codegen/models/v2/classes/` | `CCountry.toml`, `CCountryDataBase.toml`, `CCultureDataBase.toml`, `CCurrentGameState.toml`, `CTraitDefinitionArray.toml` |
 
 The country model also listed many guessed wrappers. Only the following native
 boundaries remain active catalog entries or retained evidence:
@@ -39,7 +37,7 @@ boundaries remain active catalog entries or retained evidence:
 Model-only wrappers, including `GetLuaState`, database singleton accessors,
 `AddToSphere`, `MonthlyUpdate`, and `Westernize`, are not retained mappings.
 Their names, offsets, signatures, calling conventions, and semantics are
-historical-unverified and unsupported. The archived blobs are search history,
+historical-unverified and unsupported. The archived inputs are search leads,
 not permission to regenerate wrappers or call those candidates.
 
 ## Current game-state singleton

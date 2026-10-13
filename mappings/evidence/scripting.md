@@ -1,94 +1,73 @@
 # Scripting boundary
 
-The built-in `scripting` plugin executes user-selected Lua 5.1 source in private
-states compiled into `scripting.dll`. The retired Victoria II Lua-state wrapper
-had no production consumer; the plugin does not resolve either Victoria II Lua
-DLL or export its Lua symbols. The final x86 Release DLL exports only `SmedleyPluginGetApiV1` and
-dynamically resolves the event, campaign-control, and logging C services.
-The wrapper, its generated model, and the regeneration path were not
-compatibility surfaces and were intentionally removed. Private Lua 5.1 states
-remain the only supported scripting runtime. Future engine access must use the
-versioned C services documented in `docs/plugins.md`.
+Scripting uses private Lua 5.1 states compiled into `scripting.dll`, not either
+Victoria II Lua DLL or the game's Lua state. The x86 Release DLL exports only
+`SmedleyPluginGetApiV1`; no Lua symbols or C++ ABI cross the plugin boundary.
+Engine access uses versioned C services. Current script operations and limits
+are in [scripting](../../docs/scripting.md), with ABI requirements in
+[plugins](../../docs/plugins.md).
 
-## Data path
+## Copied state
 
-The plugin registers through the versioned C daily-event service. The
-kernel-owned game-state implementation consumes the hook's country pointer,
-builds a checked fixed-size snapshot, and dispatches a copied
-`SmedleyDailyEventV1`; malformed or unavailable input suppresses dispatch. The
-plugin copies that record and attempts a bounded queue lock without waiting. It performs no Lua
-execution, script parsing, garbage collection, user logging, result logging, or
-filesystem access. One worker owns every private `lua_State` and converts copied
-snapshots into Lua tables.
+The kernel consumes the native daily hook's country pointer and builds a
+checked fixed-size `SmedleyDailyEventV1`. Malformed or unavailable input
+suppresses dispatch rather than producing invented values. Only copied records
+cross to the script worker; no native pointer, game-owned string, mutable
+container, console manager, or Victoria II Lua value does.
+
+Game callbacks perform a bounded, nonblocking queue attempt. Lua execution,
+parsing, allocation, garbage collection, logging, and filesystem access stay on
+the worker, which owns the private Lua states. A later Lua table is a snapshot,
+not live object access or synchronous game-thread authority.
 
 | Script field | Native source | Evidence | Limit |
 | --- | --- | --- | --- |
-| `date_raw` | `CGameState+0xb0c` through `current_date_raw()` | `provisional` | Raw Clausewitz date; runtime progression is correlated but the historical layout remains broader than this API |
+| `date_raw` | `CGameState+0xb0c` | `provisional` | Raw Clausewitz date; progression is correlated, not the entire historical layout |
 | `country.tag` | `CCountry+0x1c` | `provisional` | Copied three-byte tag |
-| `country.exists` | non-empty `CCountry+0x9d8` owned-province vector | `provisional` | Means at least one mapped owned-province entry, not every possible country lifecycle state |
-| `country.treasury_raw` | `CCountry+0xe78` | `provisional` | Signed 48.15 fixed-point raw value |
-| `world.country_slot_count` | `CGameState+0xadc` vector size | `provisional` | Includes country slots, not necessarily living countries |
+| `country.exists` | non-empty `CCountry+0x9d8` owned-province vector | `provisional` | At least one mapped owned-province entry, not every possible country lifecycle state |
+| `country.treasury_raw` | `CCountry+0xe78` | `provisional` | Signed 48.15 fixed-point raw value; monetary value is `treasury_raw / 32768` |
+| `world.country_slot_count` | `CGameState+0xadc` vector size | `provisional` | Country slots, not necessarily living countries |
 | `world.ai_scheduler_entry_count` | `CGameState+0xa4` vector size | `provisional` | Scheduler entries, not an AI decision trace |
-| `world.human_control_present` | any nonzero `CGameState+0xaec` entry | `verified-runtime` | Same ownership invariant used by observer acceptance |
+| `world.human_control_present` | any nonzero `CGameState+0xaec` entry | `verified-runtime` | Correlated with the zero-human-control observer invariant |
 
-No native pointer, game-owned string, mutable container, console manager, or
-Victoria II Lua value crosses to the worker.
+## Queued pause
 
-## Pause transaction
+A script can request pause through a one-slot atomic transaction. A later daily
+callback on the game update path performs the checked native operation:
 
-`smedley.request_pause()` sets a one-slot atomic request from the worker. A
-later daily callback on the game update path performs the transaction:
-
-1. The checked kernel-owned game-state adapter requires the kernel's supported
-   executable identity and reads the current game-state and idler pointers only
-   through readable spans.
+1. Require the supported executable identity and readable current game-state
+   and idler pointers.
 2. Require RTTI `.?AVCInGameIdler@@` at `CGameState+0xb24`.
-3. Require the verified prologue at RVA `0x26a2c0`:
+3. Require the prologue at RVA `0x26a2c0`:
    `55 8b ec 64 a1 00 00 00 00`.
-4. Read `CInGameIdler+0x1538` through a readable span and accept only pause
-   state `0` or `1`.
+4. Read `CInGameIdler+0x1538` through a readable span; accept only `0` or `1`.
 5. Invoke `TogglePause` only from state `0`.
 6. Require state `1` on immediate readback through a readable span.
 
-The script's boolean result means that the atomic request was queued, not that
-the later transaction completed. Completion or explicit rejection is logged.
-The slot is not reopened until the worker consumes that result, preventing a
-later request from overwriting an earlier transaction outcome.
-Only pause is exposed: a paused simulation supplies no next daily callback for
-a symmetric queued unpause.
+A successful script return means queued, not completed. The slot remains
+occupied until the worker consumes the completion or rejection, so another
+request cannot overwrite the outcome. Only pause is exposed: a paused
+simulation supplies no next daily callback for symmetric queued unpause.
 
-The scripting plugin owns neither these addresses nor a game pointer. It
-acquires `SmedleyCampaignControlApiV1` and calls `set_paused(1)`, then maps the C
-success, outside-campaign, invalid-state, signature-mismatch, and
-readback-failed results to the existing `PauseResult` values and worker log
-messages. The copied C daily event remains observation-only; campaign control is
-a separate mutation capability.
+The copied daily event is observation-only; campaign control is a separate
+mutation capability. The plugin owns neither engine addresses nor a game
+pointer. It requests `set_paused(1)` through `SmedleyCampaignControlApiV1`;
+queue admission does not bypass that service's checks.
 
-## Runtime acceptance
+## Runtime scope and limits
 
-Run `b076f162-9700-40c3-9c9b-7f56c53991b3` used the exact supported executable,
-no mods, source save `benchmark.v2`, native speed 5, `campaign_runner`, and
-`scripting` with `scripts/examples/pause_after_30_days.lua`. The source save
-started with and retained SHA-256
-`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+Private Lua coexisted with both game DLLs, `lua51.dll` and `lua5.1.dll`, loaded
+on the supported executable. Copied daily-event delivery, in-memory day
+scheduling, and queued pause with paused readback were observed in an unmodded
+campaign at native speed 5. The paused process remained responsive.
 
-The plugin initialized while Victoria II's `lua51.dll` and `lua5.1.dll` were
-both loaded. Campaign automation reached `CInGameIdler` and unpaused at
-16:49:11. The script scheduler queued its callback at raw date `59884128`; at
-16:49:12 the plugin invoked the transaction and logged paused readback. The
-process remained responsive after the pause. It was then terminated as test
-cleanup because a verified native clean-exit path does not exist.
+These observations concern the historical private runtime and checked engine
+adapters. They predate the C service-table migration and lack exact-built-commit
+provenance, so they do not establish runtime acceptance of the current binary
+interface. Native clean exit from the scripted paused state and crash-time
+teardown are not established.
 
-This verifies private-runtime coexistence, daily copied-event delivery,
-in-memory day scheduling, and pause transaction completion on the supported
-runtime. It does not establish safe arbitrary mutation, save-persistent script
-state, crash-time teardown, deterministic multiplayer behavior, or support for
-another executable or mod.
-
-Post-reader-migration run `d0cfef6e-ae3c-42ab-ada2-c3db7601ca13` repeated the same
-save, plugins, script, and speed with checked snapshot and pause boundaries. It
-predates the later C service-table migration and therefore validates the
-underlying engine adapters, not the new binary interface. At raw date `59884128` the worker logged the queued
-request, the next game-thread transaction logged paused readback, and the
-process remained responsive. Test cleanup then terminated the paused process;
-the source save retained the same SHA-256.
+The boundary does not establish arbitrary mutation safety, save-persistent
+script state, deterministic multiplayer behavior, or support for another
+executable or mod. The mapped state fields retain their individual evidence
+levels; successful pause does not promote the broader layouts.

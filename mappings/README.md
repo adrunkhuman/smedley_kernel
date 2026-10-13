@@ -37,8 +37,8 @@ account for ASLR.
 | `verified-static-xref` | GUI name has reviewed executable references. |
 
 Evidence levels apply to specific claims, not entire objects or features.
-Historical runs establish only their recorded implementation, fixture, and
-scope; moving code or passing host tests does not extend those claims.
+An observed field or path does not establish adjacent layout, arbitrary-input
+behavior, or acceptance of a different implementation.
 
 ## Evidence by boundary
 
@@ -46,7 +46,7 @@ scope; moving code or passing host tests does not extend those claims.
 | --- | --- |
 | Save loading, observer, bounded runs, native exit | [Campaign automation](evidence/campaign-automation.md) |
 | Native speed and daily pacing | [Speed control](evidence/speed-control.md) |
-| Observation fields, hooks, units, capture validation | [Telemetry](evidence/telemetry.md) |
+| Observation fields, hooks, units, and accounting limits | [Telemetry](evidence/telemetry.md) |
 | Bank/state interest pipeline and POP payout | [Interest payout](evidence/interest-payout.md) |
 | Taxes, loans, repayment, default, conservation | [Fiscal and credit](evidence/fiscal-credit-boundaries.md) |
 | Province modifiers and checked removal | [Province reconciliation](evidence/province-reconciliation.md) |
@@ -66,12 +66,16 @@ nearest-prologue guesses require manual disassembly review.
 
 ## Maintaining evidence
 
-Organize records as **established claims → supporting evidence → limits**.
-Keep identities, addresses, units, commands, counterexamples, and uncertainty
-needed to reproduce or audit a claim. For runtime evidence, record revision,
-fixture, configuration, result, and artifact identity where known; mark missing
-provenance rather than guessing. Keep comparable runs in a table, not a sequence
-of progress reports. Link shared evidence instead of copying it.
+Organize records as **contract → mechanism → limits**. State what a field or
+function means, how values are calculated or transferred, and where the claim
+stops. Keep executable identity, primary instruction/callsite addresses, units,
+and source references needed to inspect the mechanism.
+
+Do not narrate test execution or retain fixture names, run inventories, capture
+bookkeeping, opaque IDs, or private-artifact hashes. Include a numerical example
+or measurement only when it explains a rule, exception, or consequential cost;
+state the conditions needed to interpret it. Keep unknowns beside the relevant
+claim and link shared facts instead of copying them.
 
 Update conclusions when evidence changes. Remove superseded implementation
 narration; Git retains it. Keep unresolved facts beside the relevant claim and
