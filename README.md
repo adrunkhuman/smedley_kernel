@@ -75,6 +75,6 @@ Run history records launcher activity—not successful injection or game health.
 
 ## License
 
-LGPL v3 for the inherited core and other retained components; MIT for the
+LGPL v3 for the inherited core and other retained components; MIT-0 for the
 independent components listed in the [license map](LICENSE.md). Third-party
 dependencies keep their own licenses.

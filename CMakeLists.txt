@@ -58,7 +58,7 @@ if(EXISTS "${V2_GAME_DIR}")
   set(smedley_license_dir "${V2_GAME_DIR}/smedley-licenses")
   install(FILES LICENSE.md LICENSE.txt THIRD_PARTY_NOTICES.md
     DESTINATION "${smedley_license_dir}")
-  install(FILES LICENSES/MIT.txt LICENSES/GPL-3.0.txt
+  install(FILES LICENSES/MIT-0.txt LICENSES/GPL-3.0.txt
     DESTINATION "${smedley_license_dir}/LICENSES")
   install(FILES third_party/minhook-LICENSE.txt
     DESTINATION "${smedley_license_dir}/third_party")
