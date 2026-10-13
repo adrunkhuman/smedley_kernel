@@ -129,9 +129,10 @@ Before any engine read, call, hook, or write:
 
 ## Ownership And Structure
 
-- Give each engine capability and production source one owner. `game_state/`
-  contains kernel-owned implementation; `plugins/` contains plugin-owned policy
-  and integration.
+- Give each engine capability and production source one owner. `kernel/game_state/`
+  contains kernel-owned engine access; `plugins/` contains plugin-owned policy
+  and integration. Shipped applications live in `apps/`, shared internal
+  libraries in `lib/`, and development utilities in `tools/`.
 - Add general engine capability at the narrowest reusable kernel boundary.
   Do not create a kernel API merely to mirror one consumer's workflow.
 - Split code by responsibility, not file size. Keep dependencies target-scoped

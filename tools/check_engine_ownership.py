@@ -28,12 +28,12 @@ MIGRATED_PLUGINS = (Path("plugins/campaign_runner"), Path("plugins/scripting"))
 
 def audit(root: Path) -> list[str]:
     findings: list[str] = []
-    game_state_cmake = (root / "game_state/CMakeLists.txt").read_text(encoding="utf-8")
+    game_state_cmake = (root / "kernel/game_state/CMakeLists.txt").read_text(encoding="utf-8")
     if "target_sources(smedley_kernel_runtime PRIVATE" not in game_state_cmake:
-        findings.append("game_state/CMakeLists.txt: engine sources must belong to smedley_kernel")
+        findings.append("kernel/game_state/CMakeLists.txt: engine sources must belong to smedley_kernel")
     for source in sorted(ENGINE_SOURCES):
         if game_state_cmake.count(source) != 1:
-            findings.append(f"game_state/CMakeLists.txt: expected one smedley_kernel source entry for {source}")
+            findings.append(f"kernel/game_state/CMakeLists.txt: expected one smedley_kernel source entry for {source}")
 
     for cmake in root.rglob("CMakeLists.txt"):
         text = cmake.read_text(encoding="utf-8")
@@ -41,9 +41,9 @@ def audit(root: Path) -> list[str]:
         for removed_target in REMOVED_TARGETS:
             if removed_target in text:
                 findings.append(f"{relative}: removed engine runtime target recreated: {removed_target}")
-        if cmake != root / "game_state/CMakeLists.txt":
+        if cmake != root / "kernel/game_state/CMakeLists.txt":
             for source in ENGINE_SOURCES:
-                if f"game_state/{source}" in text or source in text:
+                if f"kernel/game_state/{source}" in text or source in text:
                     findings.append(f"{relative}: engine source has a second owner: {source}")
 
     for plugin in MIGRATED_PLUGINS:

@@ -8,10 +8,13 @@ engine layouts. Native plugins remain trusted DLLs, not sandboxed code.
 
 | Layer | Owns | Must not expose or duplicate |
 | --- | --- | --- |
-| `smedley_kernel/` | Injection lifecycle, executable identity, event dispatch, plugin loading, hooks. | C++ ABI across DLLs. |
-| `game_state/` | Kernel-private layouts, bounded readers, native calls, checked mutations, session/controller state. Compiled only into `smedley_kernel.dll`. | A separate plugin-side runtime or raw engine objects. |
+| `kernel/` | Injection lifecycle, executable identity, event dispatch, plugin loading, hooks. | C++ ABI across DLLs. |
+| `kernel/game_state/` | Kernel-private layouts, bounded readers, native calls, checked mutations, session/controller state. Compiled only into `smedley_kernel.dll`. | A separate plugin-side runtime or raw engine objects. |
 | `plugins/` | Allocation and observer policy, capture selection, aggregation, timers, retries, scripts, logging, publication. | Engine offsets, native stubs, raw pointers, or copies of kernel state. |
 | `include/smedley/` | Public versioned C service headers. | STL types, exceptions, or compiler-specific ownership. |
+| `apps/` | Launcher GUI/CLI and offline trace application; launcher C++ headers live with its core. | Private engine access. |
+| `lib/telemetry_registry/` | Shared static capture registry, with module-local source and headers. | Plugin DLL ABI or engine state. |
+| `tools/` | Audits, mapping validation, workload inventory, and research scripts. | Shipped launcher/trace application code. |
 | `mappings/` | Signatures, provenance, evidence levels, and known limits. | Unsupported hypotheses presented as safe operations. |
 
 Tests enforce complementary boundaries:
@@ -19,7 +22,7 @@ Tests enforce complementary boundaries:
 | CTest | Check |
 | --- | --- |
 | `smedley_game_layering_audit` | Scan first-party plugin production C/C++ for raw headers, engine addresses, native stubs, `memory::Map`, and game-object pointers. |
-| `smedley_engine_ownership_audit` | Reject duplicated `game_state/src` ownership, recreated shared runtimes, and plugin imports of kernel-private headers. |
+| `smedley_engine_ownership_audit` | Reject duplicated `kernel/game_state/src` ownership, recreated shared runtimes, and plugin imports of kernel-private headers. |
 | `smedley_dll_boundary_audit` | Check exact exports and reject plugin imports from `smedley_kernel.dll`. |
 
 These checks enforce source/build policy; they do not prove that arbitrary

@@ -86,7 +86,7 @@ separate country traversal. Global families have no country entity.
 | `pop.cashflow` | `summary`, `account`, `components` | C, P; required |
 | `pop.cashflow.aggregate` | `summary`, `account`, `components` | C |
 
-The shared compiled [registry](../../telemetry_registry/telemetry_registry.cpp)
+The shared compiled [registry](../../lib/telemetry_registry/src/telemetry_registry.cpp)
 is authoritative for selections, filters, event schemas and admission. Disabled
 families do not install hooks or traverse groups unless another enabled family
 needs that capability. Lifecycle-only capture does not open/read observation

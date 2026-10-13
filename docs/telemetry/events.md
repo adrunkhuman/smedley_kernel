@@ -34,7 +34,7 @@ quality. Missing game state suppresses country records and increments
 {"schema":"smedley.telemetry","schema_version":1,"run_id":"9f0...","sequence":8,"wall_time_utc":"2026-07-31T12:34:56.789Z","monotonic_us":912345,"game_date_raw":12345,"event_type":"country.daily","category":"state","mapping_id":"v2game-3.04","quality":"provisional","entities":{"country_tag":"ENG"},"payload":{"treasury_raw":32768,"treasury":1.000000}}
 ```
 
-`smedley_telemetry_registry`, the [compiled registry](../../telemetry_registry/telemetry_registry.cpp), supplies
+`smedley_telemetry_registry`, the [compiled registry](../../lib/telemetry_registry/src/telemetry_registry.cpp), supplies
 the complete state event/entity/payload catalog in emission order. Its schema
 strings use comma-separated field names, `-` for an empty object and trailing
 `?` for optional fields. The [configuration catalog](configuration.md#families-and-filters)

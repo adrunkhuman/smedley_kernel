@@ -14,9 +14,9 @@ class EngineOwnershipAuditTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
-        (self.root / "game_state").mkdir()
+        (self.root / "kernel/game_state").mkdir(parents=True)
         sources = "\n".join(f"  {source}" for source in sorted(ENGINE_SOURCES))
-        (self.root / "game_state/CMakeLists.txt").write_text(
+        (self.root / "kernel/game_state/CMakeLists.txt").write_text(
             f"target_sources(smedley_kernel_runtime PRIVATE\n{sources})\n", encoding="utf-8"
         )
         (self.root / "plugins/scripting/src").mkdir(parents=True)
@@ -32,7 +32,7 @@ class EngineOwnershipAuditTest(unittest.TestCase):
 
     def test_rejects_second_source_owner(self) -> None:
         (self.root / "plugins/CMakeLists.txt").write_text(
-            "add_library(plugin game_state/src/runtime.cpp)\n", encoding="utf-8"
+            "add_library(plugin kernel/game_state/src/runtime.cpp)\n", encoding="utf-8"
         )
         self.assertTrue(any("second owner" in finding for finding in audit(self.root)))
 

@@ -24,6 +24,8 @@ target_include_directories(smedley_kernel PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/include/smedley"
   "${PROJECT_SOURCE_DIR}/third_party/toml/include")
 
+add_subdirectory(game_state)
+
 if(BUILD_TESTING)
   FILE(GLOB_RECURSE test_sources CONFIGURE_DEPENDS tests/*_test.cpp)
 
@@ -33,7 +35,7 @@ if(BUILD_TESTING)
     "${PROJECT_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/smedley"
-    "${PROJECT_SOURCE_DIR}/game_state/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/game_state/include"
     "${PROJECT_SOURCE_DIR}/third_party/toml/include")
 
   add_library(smedley_plugin_abi_c_compile_test OBJECT tests/plugin_abi_header_c_test.c)

@@ -110,7 +110,7 @@ It does not cover runtime timeout retry.
 
 ## Contributor checklist
 
-Update the shared [registry](../../telemetry_registry/telemetry_registry.cpp),
+Update the shared [registry](../../lib/telemetry_registry/src/telemetry_registry.cpp),
 owning collector, launcher selection behavior, strict trace handling, tests
 and these references together. Cadence, required filters, event ownership,
 schema membership, admission and hook planning are enforced. Cost class,

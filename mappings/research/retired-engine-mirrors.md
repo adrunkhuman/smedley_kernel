@@ -100,7 +100,7 @@ subsets it reads.
 
 ## Retirement boundary
 
-The live frontend and console consumers use narrow layouts under `game_state/src`
+The live frontend and console consumers use narrow layouts under `kernel/game_state/src`
 with compile-time x86 size and offset assertions. Those layouts are private
 implementation records, not a replacement engine-object library. New access
 requires a responsibility-specific reader or operation, exact executable

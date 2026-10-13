@@ -207,7 +207,7 @@ services and exports `SmedleyPluginGetApiV1`. Preallocated buffers and a bounded
 result queue separate synchronous engine work from worker logging/CSV/telemetry;
 authority handles are scrubbed before callback return. See
 [current source](../../plugins/interest_bug_fix/src/interest_bug_fix.cpp) and
-[kernel service](../../game_state/src/services/interest_pool.cpp).
+[kernel service](../../kernel/game_state/src/services/interest_pool.cpp).
 CSV uses country index, unavailable date `-1`, metadata flags, state/payout and
 allocation/mutation results, and cumulative dropped results. Telemetry is
 attempted with `metadata-degraded` quality, which the current bundled sink

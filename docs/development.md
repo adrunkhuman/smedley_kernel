@@ -63,7 +63,7 @@ ctest --test-dir build -C Release --output-on-failure
 The suite includes `smedley_engine_ownership_audit` and
 `smedley_engine_ownership_tool_tests`. They reject recreated
 `smedley_game_state` or `smedley_game_runtime` targets, duplicate ownership of
-`game_state/src` implementation files, and internal game-state imports in
+`kernel/game_state/src` implementation files, and internal game-state imports in
 migrated plugins.
 
 `smedley_clausewitz_workload_inventory_tool_tests` covers supported event-key

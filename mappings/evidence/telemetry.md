@@ -23,7 +23,7 @@ mod set or reproduction command recorded, that provenance remains unavailable.
 | Country metrics/military/diplomacy; province/needs | Provisional despite selected save correlations | Broader transitions, symmetry and UI/type coverage remain needed. |
 | Coordinated drain | Historical bundled completed path accepted | Runtime timeout retry not exercised. |
 
-Kernel-owned `game_state/` services perform foreign reads and hooks; plugins use
+Kernel-owned `kernel/game_state/` services perform foreign reads and hooks; plugins use
 versioned C tables, copied records and opaque session identities. The old
 `PopRef`/`FactoryRef` adapter description is superseded. Guarded spans and
 bounded metadata checks reject unavailable groups, not infer zero or promote

@@ -46,16 +46,13 @@ if(BUILD_TESTING)
   FetchContent_MakeAvailable(googletest)
 endif()
 
-add_library(smedley_telemetry_registry STATIC telemetry_registry/telemetry_registry.cpp)
-target_include_directories(smedley_telemetry_registry PUBLIC "${CMAKE_SOURCE_DIR}/include")
-
-add_subdirectory ("smedley_kernel")
-add_subdirectory ("game_state")
+add_subdirectory ("lib/telemetry_registry")
+add_subdirectory ("kernel")
 add_subdirectory ("plugins")
-add_subdirectory ("tools/launcher/core")
-add_subdirectory ("tools/launcher/cli")
-add_subdirectory ("tools/launcher/gui")
-add_subdirectory ("tools/trace")
+add_subdirectory ("apps/launcher/core")
+add_subdirectory ("apps/launcher/cli")
+add_subdirectory ("apps/launcher/gui")
+add_subdirectory ("apps/trace")
 
 if(BUILD_TESTING)
   add_test(
