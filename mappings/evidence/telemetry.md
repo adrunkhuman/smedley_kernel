@@ -1,247 +1,190 @@
 # Telemetry mapping evidence
 
-Current [user contracts](../../docs/telemetry/README.md) are separate from this evidence.
-The supported target is the English Windows HoD 3.04 executable specified in
-[AGENTS.md](../../AGENTS.md). All runs below are **historical validation of their
-recorded implementation**, not verification of the current worktree. Where a
-run has no commit, mod set or reproduction command recorded, that provenance
-remains unavailable.
+This document records native fields, units, call boundaries and limits for the
+English Windows HoD 3.04 executable specified in [AGENTS.md](../../AGENTS.md).
+Addresses are **RVAs** unless explicitly labelled VA. Expected bytes and field
+provenance belong to the [catalog](../v2game-3.04.toml); evidence levels are
+defined in the [mapping guide](../README.md). Current capture and export
+contracts belong to the [user documentation](../../docs/telemetry/README.md).
+
+Evidence levels apply to individual claims, not whole objects. Historical
+runtime correlations do not establish current-worktree acceptance. Unreadable
+or malformed state is unavailable, not numeric zero.
 
 ## Established claims and limits
 
-| Boundary | Evidence level / established claim | Limit |
+| Boundary | Established claim | Limit |
 | --- | --- | --- |
-| Raw dates | Runtime-observed 24 units/day; fixed 365-day calendar anchor | `CGameState+0xb0c` and emitted dates remain provisional. |
-| World/treasury snapshots | Provisional container/field observations | Slots ≠ playable countries; scheduler ≠ general AI definition; no money-supply identity. |
-| Factory identity/finance | Narrow runtime UI/save/toggle correlations | No wholesale layout promotion; upgrades/profit/funding rules incomplete. |
-| Factory physical consumption | `verified-runtime` callsites and reconciled stock boundaries | Exact executable, complete bounded capture and consecutive boundaries required. |
-| Producer sales | Direct inventory/proceeds evidence | Emitted quality remains provisional; domestic/export attribution unproven. |
+| Raw dates | Runtime-observed 24 units/day and fixed 365-day calendar anchor | `CGameState+0xb0c` and surrounding game-state semantics remain provisional. |
+| World/treasury snapshots | Provisional container and field observations | Country slots are not playable-country counts; scheduler is not a general AI definition; no money-supply identity. |
+| Factory identity/finance | Narrow runtime UI/save/toggle correlations | No wholesale layout promotion; upgrade, profit and funding rules are incomplete. |
+| Factory physical consumption | `verified-runtime` callsites and stock boundaries | Consecutive, complete boundaries are required. Requested inputs are not fulfilled purchases. |
+| Producer sales | Direct inventory/proceeds correlations | Quality remains provisional; domestic/export attribution is unproven. |
 | Artisan recipe consumption | `verified-runtime` coefficient × production account | Recipe switches break cross-date input/output identity. |
-| RGO output/owner modifier | Exact UI/static/runtime correlations below | Income is not precious-metal cash creation. |
-| POP economy/GiveMoney | Narrow fields and call ABI runtime verified | Hook does not cover every redistribution path. |
+| RGO output/owner modifier | Narrow runtime/UI correlations and static arithmetic | Income is not precious-metal cash creation. |
+| POP economy/GiveMoney | Narrow fields and native call ABI runtime verified | Does not cover every redistribution path. |
 | POP identity/lifecycle | Consecutive ID and descriptive-key correlations | No permanent cross-transition identity or demographic cause classification. |
-| Country metrics/military/diplomacy; province/needs | Provisional despite selected save correlations | Broader transitions, symmetry and UI/type coverage remain needed. |
-| Coordinated drain | Historical bundled completed path accepted | Runtime timeout retry not exercised. |
-
-Kernel-owned `kernel/game_state/` services perform foreign reads and hooks; plugins use
-versioned C tables, copied records and opaque session identities. Guarded spans and
-bounded metadata checks reject unavailable groups, not infer zero or promote
-layout quality. Ownership migration smoke preserves earlier evidence levels.
-
-## Validation fixture and reproduction
-
-Many vanilla runs used unchanged `benchmark.v2`. Source-save preservation is
-reported only where recorded, not inferred for other runs. Historical
-`interest_fix` labels below refer to the plugin before its rename to
-`interest_bug_fix`.
-
-The retained verification/export commands are:
-
-```powershell
-smedley_trace validate run.jsonl
-smedley_trace summary run.jsonl
-smedley_trace assert-benchmark run.jsonl --completed --days 365
-smedley_trace assert-benchmark timeout.jsonl --failed timeout
-smedley_trace factory-value-added run.jsonl factory-va.csv --country BEL
-smedley_trace producer-sales run.jsonl producer-sales.csv --country FRA
-smedley_trace pop-cashflow run.jsonl pop-cashflow.csv --country FRA
-smedley_trace pop-stock-lifecycle run.jsonl pop-stock.csv --country FRA
-smedley_trace country-gdp run.jsonl gdp.csv --country PRU
-smedley_trace country-gdp run.jsonl gdp.csv --country FRA --gold-to-cash-rate 0.5
-```
-
-The [current capture recipe](../../docs/telemetry/trace.md#country-gdp) reproduces
-the required data shape, not the exact historical run. Runtime reproduction
-requires executable/signature validation, recorded plugins/mods/settings,
-exact built revision, disposable or verified-unchanged source save, and log/trace
-inspection. Generated traces, saves and process data are not repository inputs.
+| Country metrics/military/diplomacy; province/needs | Provisional despite selected save correlations | Broader transitions, symmetry and UI/type coverage remain unresolved. |
 
 ## Delivery and lifecycle
 
-Campaign save-selection observation occurs after filename `+0x590` and flags
-`+0x5bc/+0x5bd` are written. Load completion is first nonzero `+0x5bd` before
+Campaign save-selection observation is after filename `+0x590` and flags
+`+0x5bc/+0x5bd` are written. Load completion is the first nonzero `+0x5bd` before
 play dispatch; campaign entry separately requires `CInGameIdler` RTTI readback.
-These are narrow observation boundaries, not proof that loading and entry are
-one phase. Final observer configuration waits for AI/view postconditions.
-
-| Historical probe | Supporting evidence | Limit/counterexample |
-| --- | --- | --- |
-| ENG-view observer, 515 days | Save selection → load → entry → speed/pause → delayed ENG-view observer configuration; 515 days, 1039 ordered records, no gaps/drops/write failure; responsive; mean enqueue/format 0.217 us. | One observer scenario, not current performance acceptance. |
-| Initial non-observer probe | 272 slots, 271 scheduler entries, human control true. | Back-to-back lifecycle drops and missing terminal event isolated nonblocking ingress contention. |
-| Reliable-ingress repeat, one day | Same world values; exact one day, all 12 expected records, no gaps/drops/write failure; source save unchanged. | Supports separate reliable lifecycle ingress, not losslessness on full queues. |
-| Drain/native quit | Valid trace ended `benchmark.completed` sequence 10, summary 11; accepted/written 10/10, dropped 0, write failure false; process exited, source unchanged. | Completed bundled drain only; no runtime timeout-retry test. |
-| Kernel-ownership smoke, FRA/all-country | Exact supported executable, unchanged benchmark, observer automation, three FRA/all-country daily rules; factory consumption/sales, artisan consumption and POP cash flow together. 3 exact days, target 59883456; 13308 ordered records, no gaps/drops/write/family-invalid failures; factory 61, artisan 2083, aggregate cash flow 11132 accepted. Paused, drained, native exit, source save unchanged. | Smoke of moved boundaries; no mapping promotion or current-worktree acceptance. |
+These narrow observed boundaries do not make loading and entry one phase. The
+[automation evidence](campaign-automation.md) owns the native campaign-control
+claims; [native API documentation](../../docs/telemetry/native-api.md) owns
+publication and drain behavior.
 
 ## Dates and world snapshots
 
-`CGameState+0xb0c` supplies provisional raw date. A GFM lifecycle
-probe: 153 dated progress records, 152 transitions, delta 3648 = 152 × 24.
-Calendar encoding is
-`raw = 24 * (365 * (year + 5000) + zero_based_day_of_year)`; benchmark date
-`1836.1.2` anchors raw `59883384`. Monthly/yearly use calendar periods; weekly
-uses first eligible date plus seven-day intervals. Unit evidence does not
-upgrade surrounding game-state semantics.
+`CGameState+0xb0c` supplies provisional raw date. The runtime-observed day unit
+is 24. Calendar encoding is
+`raw = 24 * (365 * (year + 5000) + zero_based_day_of_year)`;
+`1836.1.2` corresponds to raw `59883384`. This unit correlation does not upgrade
+surrounding game-state semantics.
 
-`world.daily` reads country slots `CGameState+0xadc`, AI scheduler `+0xa4` and
-player control `+0xaec`. Observer automation independently uses these containers.
-Ten-day vanilla observer run emitted ten
-world and ten JAN treasury records: 272 slots, 272 scheduler entries, no human
-control, matching logged scheduler growth 271 → 272. All 40 records were
-healthy and exact-target. Non-observer counterexamples are in the delivery
-section. Counts remain provisional container observations.
+World observations read country slots `CGameState+0xadc`, AI scheduler `+0xa4`
+and player control `+0xaec`. Native container observations include 272 country
+slots with 271 scheduler entries and human control enabled, versus 272 scheduler
+entries and no human control in observer mode. Slots and scheduler entries
+represent different populations; these counts remain provisional, not general
+country or AI classifications.
 
 ### Economic inventory
-
-The kernel's bounded traversal (see [interest payout](interest-payout.md)) scans
-country ordinals 1 through `country_count - 1`. Complete scans require clear
-traversal flags and unique POP identities. Limits: 512 countries, 4096 provinces,
-100000 POPs. Structural incompleteness leaves health only; credit-specific flags
-suppress credit without invalidating independently complete holdings/capacity.
 
 | Field/source | Evidence and interpretation |
 | --- | --- |
 | Treasury `CCountry+0xe78` | Provisional readable-slot sum; interest-boundary deltas independently runtime verified. |
-| POP money `+0x180` | GiveMoney behavior runtime verified; world traversal completeness provisional. |
-| Savings `+0x250` | Runtime storage and 1000:1 relation to state scale; deposit/claim, not liquid money. |
-| Country-bank `+0x20` | Runtime-verified temporary interest destination, not bank cash. |
-| Creditor interest `+0x10`, debt `+0x18`, `was_paid` | Save correlation and 12 exact repayment calls with debtor/creditor identity. `_candidate_raw` suffix retained for schema compatibility, not current narrow field quality. |
-| State `+0x258/+0x260` | Savings correlation runtime verified with rounding drift; `+0x260` nonconserved/provisional. |
+| POP money `+0x180` | `verified-runtime` GiveMoney effects; world traversal completeness remains provisional. |
+| POP savings `+0x250` | `verified-runtime` storage and 1000:1 relation to state scale; deposit/claim, not liquid money. |
+| Country-bank `+0x20` | `verified-runtime` temporary interest destination, not bank cash. |
+| Creditor interest `+0x10`, debt `+0x18`, paid byte `+0x20` | `verified-runtime` save/repayment correlation; distinct rate, principal and payment status. |
+| State `+0x258/+0x260` | Narrow runtime savings/pool correlations; rounding drift and nonconservation prevent a broader conservation claim. State layout remains provisional. |
 
-These components can be different sides/phases of the same value; no additive
-money-supply identity, bankruptcy or comprehensive world-money claim is made.
-
-| Historical run | Supporting result |
-| --- | --- |
-| Two-day observer inventory | 2 exact observer days, 2 complete scans: 271 countries/597 states/2311 provinces; 19996 then 20030 POPs; 92611/90725 us; 8 accepted economic records, no gaps/drops/write failure; source unchanged. |
-| Seven-day integrated inventory | 7 exact days from integrated single handler: seven each health/capacity/holdings/credit; complete, all snapshot/collection/credit flags clear; no duplicates/gaps/drops/write failure. |
+Country ordinals span 1 through `country_count - 1`; linked state/province/POP
+storage is described in [interest evidence](interest-payout.md#verified-traversal-and-mutation-boundaries).
+Complete inventories require unique identities and complete native traversal.
+These components can be different sides or phases of the same value. They do
+not form an additive money-supply identity or establish bankruptcy effects.
 
 ## Country and province candidates
 
-These remain provisional. Country identity is normalized three-character tag;
-country observations use its daily event, not an additional country traversal.
+These remain **provisional**. Country identity is a normalized three-character
+tag. The examples are narrow save correlations, not general layout verification.
 
-| Family | Sources / bounds | Historical supporting evidence | Limits |
+| Family | Sources / units | Correlation | Limits |
 | --- | --- | --- | --- |
-| Metrics | `CCountry`: plurality `+0x1a8`, diplomatic points `+0x65c`, exhaustion `+0x680`, leadership `+0x7d0`, research `+0xe3c`, prestige `+0xea0`, ranks `+0x1404..+0x1410`, infamy `+0x1430`. Scalars /1000 except leadership /32768. | PRU one-day metrics: save-matched raw prestige 50055, plurality 25059, diplomatic 5000, research 32603, leadership 270728; zero infamy/exhaustion; ranks overall/military/industrial 4, prestige 5. | Zero keys omitted in save; rankings lack serialized counterpart. |
-| Military | Unit list `+0x7b4`, leadership `+0x7d0`, mobilized `+0x120`, rank `+0x1408`, scheduled vector `+0x15dc`; world wars `CGameState+0xb3c`. Units/scheduled ≤100000; wars ≤4096. | Vanilla PRU military: PRU 12 units, no active/scheduled mobilization, leadership 270728, rank 4, world wars 3. | Unit/war/combat storage and durable identities unmapped; no composition, participants, battle, casualties or movement. |
-| Diplomacy | Flags `+0xcf4/+0xcf5`, overlord `+0xcf8`, vassals `+0xd38`, allies `+0xd58`, guarantees `+0xd78`, neighbors `+0xd88`, spherelings `+0x1418`, leader `+0x1428`. Each vector ≤512; three normalized tag bytes + terminator. | Vanilla PRU diplomacy: PRU no overlord/leader, 15 spherelings, 5 allies, 0 vassals/guarantees, 21 neighbors. | Change-over-time/symmetry untested; no relation objects/influence. Invalid metadata suppresses affected status/relations and increments invalid. |
-| Province daily | `CProvince`: ID `+0x58`, owner `+0x128`, controller `+0x130`, colonial `+0x190`, life rating `+0x1a4`, infrastructure `+0x2b8`. | Unchanged vanilla benchmark: province 1 RUS/RUS, colonial 2, life 20; 425 FRA/FRA, life 40; 549 PRU/PRU, infrastructure 160 versus save railroad 1. Summary 4 attempts/3 accepted/1 contended drop. | Correlation and drop accounting, not infrastructure-to-building conversion. |
-| Province production | Construction list `+0xd8` ≤4096; building vector `+0x118` ≤64. | Berlin building slots: 3 slots/0 constructions; save fort/railroad, omitted naval base. | Definition slots, not active-building/factory count; factories state-level. |
+| Metrics | `CCountry`: plurality `+0x1a8`, diplomatic points `+0x65c`, exhaustion `+0x680`, leadership `+0x7d0`, research `+0xe3c`, prestige `+0xea0`, ranks `+0x1404..+0x1410`, infamy `+0x1430`. Scalars /1000 except leadership /32768. | PRU raw prestige `50055`, plurality `25059`, diplomatic `5000`, research `32603`, leadership `270728`; overall/military/industrial rank 4, prestige rank 5. | Zero keys may be omitted in saves; rankings lack a serialized counterpart. |
+| Military | Unit list `+0x7b4`, leadership `+0x7d0`, mobilized `+0x120`, rank `+0x1408`, scheduled vector `+0x15dc`; world wars `CGameState+0xb3c`. | PRU 12 units, no active/scheduled mobilization, leadership `270728`, rank 4; world wars 3. | Unit/war/combat storage and durable identities unmapped; no composition, participants, battles, casualties or movement. |
+| Diplomacy | Flags `+0xcf4/+0xcf5`, overlord `+0xcf8`, vassals `+0xd38`, allies `+0xd58`, guarantees `+0xd78`, neighbors `+0xd88`, spherelings `+0x1418`, leader `+0x1428`. | PRU no overlord/leader, 15 spherelings, 5 allies, 0 vassals/guarantees, 21 neighbors. | Change-over-time and symmetry unestablished; relation objects/influence unmapped. |
+| Province daily | `CProvince`: ID `+0x58`, owner `+0x128`, controller `+0x130`, colonial `+0x190`, life rating `+0x1a4`, infrastructure `+0x2b8`. | Province 1 RUS/RUS, colonial 2, life 20; 425 FRA/FRA, life 40; 549 PRU/PRU, infrastructure `160` versus serialized railroad 1. | Infrastructure-to-building conversion is not established. |
+| Province production | Construction list `+0xd8`, building vector `+0x118`. | Berlin has 3 building slots and 0 constructions; save names fort/railroad and omits naval base. | Definition slots, not active-building/factory count; factories are state-level. |
 
 ## State factories
 
 ### Established fields and identity
 
-Unchanged vanilla benchmark/UI: Brandenburg has four factories, Nordrhein one,
-Schlesien two on 1836.1.2. Read-only live probe: Berlin 549 resolves to state
-list `CState+0x60`, lengths 4/1/2. RTTI `CStateBuilding`, constructor RVA
-`0x000f2bc0` initializes through `+0x218`: payload size `0x220`. The owning
-list node is allocated as `0x230`, with previous/next/byte marker at
-`+0x220/+0x224/+0x228`; these are not factory payload fields.
+Narrow runtime/save/UI correlations identify state list `CState+0x60` as factory
+storage: Brandenburg has four factories, Nordrhein one and Schlesien two on
+1836.1.2. RTTI `CStateBuilding` and constructor RVA `0x000f2bc0` establish a
+`0x220` payload; list-node storage is separate, as detailed below.
 
-| Field | Supporting evidence |
+| Field | Narrow runtime meaning / units |
 | --- | --- |
-| Definition `+0x18`, level `+0x20`, employees `+0x128` | UI-order Glass/Ammunition/Small Arms/Paper keys; all level 1, employees 1998/1698/1848/2431. |
-| Output `+0xd8` | Small Arms 0.410 on 1836.1.2, 0.389 on 1836.1.3, /32768. |
-| Employment `+0xf0` | 16-byte `CPopEmployment` records: POP pointer +8, assigned count +12; type-key splits exactly match UI/save. |
-| Stock `+0x28` | Goods pool reproduces Small Arms ammunition/steel/cement/machine-parts save amounts. |
-| Recipe `CBuilding+0x12c` | Production type output good `+0x80`, base output `+0x88` match definitions/live key. |
-| Finance `+0x150/+0x158/+0x160/+0x168/+0x170` | Budget/spending/sales/paychecks/investment correlated twice; nonnegative /32768000 amounts, expense signs only UI. |
-| Injection money `+0x210` (int64), days `+0x218` (int32) | Named serialization and live rundown establish these offsets, distinct from project pointer `+0x1d0` and subsidy `+0x1d8`; see below. |
-| Subsidized `+0x180`, closed `+0x188` | Paused UI toggles each 0 → 1 with stable object/list position. Native close clears the remaining injection and days; its broader effects are not inferred from the toggle alone. |
-| State ID `CState+0xc` | Save-correlated Brandenburg 750; `+0x8=47` is object-type discriminator, not region ID. |
-| Region `CState+0x250 -> CRegion` | RTTI/contiguous size `0x108`; key `+0x18=PRU_549`, display `+0x34=Brandenburg`; split-owner portions share key/pointer (ENG/BRE/HAM/HAN Osthannover examples). |
+| Definition `+0x18`, level `+0x20`, employees `+0x128` | Definition key, factory level and employed count. Glass/Ammunition/Small Arms/Paper correspond to UI order, level 1 and employee counts 1998/1698/1848/2431. |
+| Output `+0xd8` | /32768 quantity; Small Arms 0.410 on 1836.1.2 and 0.389 on 1836.1.3. |
+| Employment `+0xf0` | 16-byte `CPopEmployment` records: POP pointer `+8`, assigned count `+12`; type-key splits agree with UI/save. |
+| Stock `+0x28` | Goods pool, distinct from requested inputs. |
+| Recipe `CBuilding+0x12c` | Production type; output good `+0x80`, base output `+0x88`. |
+| Finance `+0x150/+0x158/+0x160/+0x168/+0x170` | Budget/spending/sales/paychecks/investment; nonnegative /32768000 amounts. Expense signs are presentation, not stored negative values. |
+| Injection money `+0x210`, days `+0x218` | Int64 money and int32 remaining days, distinct from project pointer `+0x1d0` and subsidy `+0x1d8`. |
+| Subsidized `+0x180`, closed `+0x188` | Flags corresponding to paused UI toggles. Native close clears remaining injection and days; broader close effects are not established by flag correlation alone. |
+| State ID `CState+0x0c` | Serialized state identity (Brandenburg 750); `+0x08=47` is object-type discriminator, not region ID. |
+| Region `CState+0x250 -> CRegion` | RTTI/contiguous size `0x108`; key `+0x18=PRU_549`, display `+0x34=Brandenburg`. Split-owner portions can share region key/pointer. |
 
-English game localized names include Windows-1252 Württemberg/Westpreußen.
-Only stable ASCII region keys are emitted until UTF-8 transcoding has a contract.
-Upgrade projects use embedded `CPopProject` at state `+0x1c8` with external goods
-storage; observed 730-day Small Arms upgrade matches its definition. Progress,
-material acquisition and policy/ownership/funds/level/project-dependent
-availability remain unmapped. Vanilla paycheck leftover factor 0.25 (GFM 0.3)
-does not establish paycheck cadence; the referenced wiki supplied no cadence.
-
-Bounds: 512 states, 64 factories/state, 4096 factories, 1024 employment
-assignments/factory, 16384 input records/country. Checked links/spans/keys,
-assignment totals, goods indices and nonnegative amounts apply only to selected
-groups; malformed selected data suppresses the country poll/increments invalid.
+English localized names include Windows-1252 Württemberg/Westpreußen; stable
+ASCII region keys are distinct from localized names. Upgrade projects use
+embedded `CPopProject` at state `+0x1c8` with external goods storage. A Small Arms
+upgrade duration of 730 days agrees with its definition; progress, material
+acquisition and policy/ownership/funds/level/project-dependent availability
+remain unmapped. Vanilla paycheck leftover factor 0.25 (GFM 0.3) does not
+establish paycheck cadence.
 
 ### Injection fields and node extent
 
-All addresses in this subsection are preferred **VAs**, not RVAs, for the
-cataloged executable.
+All addresses in this subsection are preferred **VAs**, not RVAs.
 
 | Claim | Primary static evidence (`verified-static-callsites`) |
 | --- | --- |
 | Injection money `+0x210`, days `+0x218` | Writer VA `0x004f3ef0` receives the serialization subobject at complete object `+8`. Named token `injected_money` (`0x6c4`) reads subobject `+0x208/+0x20c` at VAs `0x004f4346/0x004f434c`; `injected_days` (`0x6c5`) reads subobject `+0x210` at VA `0x004f4394`. |
 | `+0x1d0` is a `CGoodsProject*`, not money | Load path allocates `0xc0`, calls RTTI-identified constructor VA `0x00860390` and stores the pointer at complete object `+0x1d0`. Close VA `0x004f5750` invokes its deleting destructor and nulls the pointer. |
 | `+0x1d8/+0x1dc` is an int64 subsidy amount, not days | Finance VA `0x004f4b30` stores both halves at VAs `0x004f4d0a/0x004f4d10` in the subsidized funding branch. |
-| Payload `0x220`, node allocation `0x230` | Value-copy helper advances by `0x220` at VA `0x004c0a97`. VA `0x004cf426` allocates `0x230`; the unchanged base reaches the factory copy constructor, then links/byte marker are initialized at VAs `0x004cf453/0x004cf459/0x004cf463`. Marker lifecycle and trailing padding remain unclaimed. |
+| Payload `0x220`, node allocation `0x230` | Value-copy helper advances by `0x220` at VA `0x004c0a97`. VA `0x004cf426` allocates `0x230`; the unchanged base reaches the factory copy constructor, then links/byte marker are initialized at VAs `0x004cf453/0x004cf459/0x004cf463`. Previous/next/marker are `+0x220/+0x224/+0x228`, outside the payload. Marker lifecycle and trailing padding remain unclaimed. |
 
-`verified-runtime`: seven vanilla Prussian factories in the states containing
-provinces 549/575/682 have remaining-day sequences `6,5,4,3,2,1,0,0`. Money at
-`+0x210` matches save `injected_money * 32768` within formatting precision and the
-exact native tranche rundown at VA `0x004f56b0`. The January 1 game-date save
-contains six remaining days, not an observed seven-day starting state. Matching
-uses province sets, factory count/order and unique amounts, not decoded live type IDs.
-The fixture is an isolated Proton campaign, no Smedley or mods, with passive GDB
-callsite capture; it does not establish plugin acceptance.
-
-The current factory reader does not expose injection fields. These mappings do
-not authorize direct mutation.
+Injection money at `+0x210` uses /32768 scale (`verified-runtime`). Native
+tranche function VA `0x004f56b0` divides remaining money by remaining days,
+subtracts that tranche from `+0x210`, and decrements `+0x218`. On the final day
+it consumes the whole remainder. This countdown does not establish general
+funding policy or authorize direct mutation.
 
 ### Input demand versus consumption
 
 Requested pool `CStateBuilding+0x80`: RVA `0x000dd470` copies/scales recipe,
-adds scaled maintenance, subtracts `+0x28` stock and clamps zero; daily RVA
-`0x00084060` stores it before settlement `0x00082ff0`. Partial fulfillment
-proves it remains requested demand, not fulfilled purchase.
-Loaded-goods count at global RVA `0x00e587f4` bounds pool indices: zero means
-empty in-registry; out-of-registry ordinal 48 held stale `0xff` (PRU)/`0xee`
-(BEL); GFM probe loaded 48 goods.
+adds scaled maintenance, subtracts `+0x28` stock and clamps zero. Daily RVA
+`0x00084060` stores it before settlement `0x00082ff0`. Loaded-goods count at
+global RVA `0x00e587f4` bounds pool indices: zero within the registry means an
+empty slot; out-of-registry values can be stale (`0xff`/`0xee` at ordinal 48).
+An observed 48-good registry is not a universal mod limit.
 
-Physical boundaries: daily callsite `0x000845fd -> 0x00082ff0` exposes
-post-consumption stock at factory+0x28 before purchases. Primary/secondary
-calls `0x0008369d/0x000836aa -> 0x0007dc20` add delivered pools.
-Hooks verify five-byte calls and preserve registers/flags/original calls.
-Closing = pre-purchase + primary + secondary; consumption = previous closing −
-current post-consumption. Skipped purchases use previous post-consumption stock
-as opening. Daily bound 2048 records/512 factories; overflow explicit invalid.
+**Requested inputs are not fulfilled purchases.** Under shortages, cement
+request value exceeds spending by 0.09938/0.41326 currency and canned food by
+0.23857. Fully supplied requested-value/spending differences below 0.00009 do
+not prove universal fulfillment. Request-as-purchase inventory equations are
+therefore invalid.
 
-| Historical run | Supporting evidence / counterexample |
-| --- | --- |
-| PRU fully supplied, two dates | 2 dates, 50 input/92 factory records, no invalid/drops. Second-day requested × same-date price matches all 7 spending amounts within 0.000081 currency (Glass 0.000056). Fully supplied case cannot prove fulfillment. |
-| BEL shortages, three dates | 6 factories/3 dates/123 accepted, no invalid/drops. Cement request value exceeds spending 0.09938/0.41326; Canned Food 0.23857; fully supplied within 0.00009. Disproves request-as-purchase inventory equations. |
-| Same BEL shortage case, provisional monetary estimate | Spending + opening stock value − closing stock value gives intermediate consumption. Current-price endpoints avoid inventory revaluation but transaction spending has a different price basis. Two dates: gross/intermediate/VA 110.4296/94.1747/16.2549 and 116.1762/98.4568/17.7194; all six factory results positive. Assumes interval alignment/no other transfers. Superseded by physical boundaries. |
-| BEL 30-day monetary estimate | 1230 accepted, no invalid/drops; 29 intervals/174 positive factory results despite Canned Food/Cement/Steel/Fabric/Small Arms shortages. Average gross/intermediate/VA 119.3726/99.8497/19.5229; VA range 16.2549–20.7850. Supports alignment, not common price basis. |
-| BEL 30-day physical boundaries | 174 intervals, no incomplete boundaries/negative consumption/reconciliation failures. Max difference from old monetary estimate 0.000811603; average VA 19.522634493, range 16.255384248–20.784684079. |
-| Physical-flow summary/detail | Complete flow summary/detail; first intervals VA 16.255384248/17.719507277. Establishes narrow callsite/phase/physical consumption as verified-runtime. |
-| Flows-only, four dates | 4 dates, no ordinary inputs/finance; 24 production, 24 complete summaries, 69 flows; no gaps/drops/invalid/write failure. First hook warm-up; 2 exported intervals VA 17.719507277/19.813987492, verified-runtime. |
+Physical boundaries (`verified-runtime`): daily callsite
+`0x000845fd -> 0x00082ff0` exposes post-consumption stock at factory `+0x28`
+before purchases. Primary/secondary calls
+`0x0008369d/0x000836aa -> 0x0007dc20` add delivered pools:
+
+- Closing stock = pre-purchase stock + primary delivery + secondary delivery.
+- Consumption = previous closing stock − current post-consumption stock.
+- With skipped purchases, opening stock is the previous post-consumption stock.
+
+Spending + opening stock value − closing stock value is only a provisional
+monetary consumption estimate. Pricing both stock endpoints at current prices
+avoids inventory revaluation, but transaction spending has a different price
+basis. Physical stock boundaries do not need that monetary assumption.
 
 ### Finance, inventory and merges
 
-Finance callsite `0x00088710 -> 0x000f4b30`: first argument live factory,
-64-bit amount matches sales income `+0x160`; output `+0xd8`, closing unsold
-`+0x1f8`, opening unsold caller local at hook-stack `+0xc4`. Realized sold =
-opening + produced − closing; proceeds = call amount.
+Finance callsite `0x00088710 -> 0x000f4b30` takes the live factory as its first
+argument; the 64-bit amount matches sales income `+0x160`. Output is `+0xd8`,
+closing unsold quantity `+0x1f8`, opening unsold caller local at hook-stack
+`+0xc4`. Narrow runtime correlations support:
 
-| Historical probe | Supporting result / limit |
-| --- | --- |
-| Four-day factory finance | Every factory budget delta exactly sales + investment − spending − paychecks. Output/income/price inferred sold-output ratios 0.14–2.16: disproves sales inference without inventory. Later direct boundary supersedes that limitation. |
-| Five-day producer inventory | 21 factory accounts, no invalid; closing chains to opening, including raw 0/10479/27007/42396/52866. |
-| Vanilla PRU factory/UI correlation | 1836.1.3 seven PRU factories: four anchored Berlin 549, one 575, two 682; 28 identity/employment/production/finance accepted, no filtered/dropped/invalid; independent Brandenburg UI/process values exact. |
-| Factory employment/input detail | 53 accepted (7 each four groups +25 inputs), no gaps/filters/drops/invalid; IDs 750/753/756, worker splits and Small Arms stocks match save. |
-| Factory region keys | Same 53 records with region keys; no gaps/filters/drops/invalid. |
-| Paused non-duplicate `changeowner` fixture | SAX provinces 558/559/560 → PRU. PRU state 757/pointer survives; SAX 907 disappears; unchanged level-1 fabric node moves into PRU immediately, no tick; `SAX_558` unchanged, PRU provinces 687/558/559/560. |
-| Equal-level duplicate fixture | Subsidized recipient PRU fabric node, budget 1000.00 versus unsubsidized source SAX node, 931.91. Transfer 558/559/560 leaves original PRU node/subsidy/budget, removes SAX node. Recipient wins equal-level duplicates. |
+- Budget delta = sales + investment − spending − paychecks.
+- Realized sold quantity = opening unsold + produced − closing unsold.
+- Proceeds = finance call amount, independently of physical sold quantity.
 
-Public OpenVic testing reported duplicate reconciliation but disputed the winner;
-the controlled supported-game fixtures establish only the two cases above.
-Different levels and merges above eight distinct types remain untested.
+Output/income/price-based sold-output ratios range from 0.14 to 2.16. Inventory
+carryover invalidates inferring sales from same-day or one-day-shifted output.
+
+Ownership transfer has narrow `verified-runtime` topology consequences. With
+no duplicate type, transfer of SAX provinces 558/559/560 to PRU preserves
+recipient state 757, removes source state 907 and moves the unchanged level-1
+fabric node immediately, without a daily tick. Region key `SAX_558` is unchanged.
+With equal-level duplicate fabric nodes, the recipient node survives with its
+subsidy flag and budget 1000.00; the source node with budget 931.91 is removed.
+This establishes the recipient winner only for that equal-level case. Different
+levels and merges above eight distinct types remain unresolved.
 
 ## World market
 
 `CGameState+0xbcc -> CWorldMarket`; goods pools use zero-based mod-load ordinals
-and /32768 values, matching benchmark save byte-for-byte.
+and /32768 values. The following fields have narrow runtime/save correlations,
+not wholesale world-market layout verification:
 
 | Offset | Save field |
 | --- | --- |
@@ -251,18 +194,15 @@ and /32768 values, matching benchmark save byte-for-byte.
 | `+0x280` / `+0x2d8` | `price_pool` / `last_price_history` |
 | `+0x434` / `+0x4f4` | `actual_sold` / `actual_sold_world` |
 
-World-market snapshot: 192 records/48 goods, no
-gaps/filters/drops/invalid. Small Arms ordinal 1 save values: price 37.01001,
-previous 37.00000, supply 40.24960, demand 320.48798, real demand 25.16080,
-sold 20.36069, world sold 4.80011. These global totals cannot establish producer
-or country sales. The four-day finance counterexample above disproves same-day
-or one-day output/income/price inference; direct inventory now supplies the
-separate producer account.
+For Small Arms ordinal 1, serialized price 37.01001, supply 40.24960, demand
+320.48798 and real demand 25.16080 distinguish price, offered quantity, demand
+and realized demand. Sold 20.36069 and world sold 4.80011 are global totals,
+not producer- or country-attributed sales.
 
 ## Artisan production
 
-Runtime/save correlation: economy at `CPop+0x1d4`, engine ID `CPop+0x0c`.
-Offsets below are relative to the economy object.
+Narrow runtime/save correlations place the economy at `CPop+0x1d4` and engine ID
+at `CPop+0x0c`. Offsets below are relative to the economy object.
 
 | Offset | Field |
 | --- | --- |
@@ -272,36 +212,28 @@ Offsets below are relative to the economy object.
 | `+0xd0` / `+0xd8` / `+0xe0` | Domestic/export clearing values / leftover output |
 | `+0xe8` / `+0xf0` / `+0xf8` | Throttle / needs cost / production income |
 
-Quantities/fractions use /32768; money /32768000. Berlin POP 8845 exactly
-matched save: ammunition recipe, production 3116, afforded 32768, spending and
-needs cost 1126244000, income 163852000, recipe inputs 65536/65536/163840.
-Gross output = factor × base output >>15.
-
-Later factor 23565 gives recipe consumption 47130/47130/117825. Independent
-boundary trace: prior closing 47132/47132/117830, residual 2/2/5, exactly the
-same consumption. This verifies physical recipe consumption without assuming
-input continuity when recipes switch.
+Quantities/fractions use /32768; money /32768000. Gross output = factor × base
+output >>15. Recipe inputs `65536/65536/163840` with factor `23565` produce
+consumption `47130/47130/117825`; prior closing stock `47132/47132/117830`
+less residual `2/2/5` gives the same physical consumption (`verified-runtime`).
+This does not assume recipe continuity across dates.
 
 Settlement caller `0x00086bff -> 0x00083aa0` holds POP in EBX; primary/secondary
-additions `0x00083fca/0x00083fda` hold POP in EDI/economy in ESI. Three-day
-country-filtered run captured all four boundaries after warm-up
-for nine Berlin artisans: 40 per-good records, no gaps/drops/invalid. Bound:
-8192 records/date for at most 16 country tags.
+additions `0x00083fca/0x00083fda` hold POP in EDI/economy in ESI.
 
-Counterexample: `0x00086b81 -> 0x000dd3c0` copies/scales recipe and subtracts
-stock from a **temporary requirement pool** via `0x0007dca0`, not artisan stock.
-Temporary before/after wrapper found unchanged stock. It is not the physical
-consumption boundary; that exploratory wrapper is not retained behavior.
+**False consumption boundary:** `0x00086b81 -> 0x000dd3c0` copies/scales recipe
+and subtracts stock from a **temporary requirement pool** via `0x0007dca0`,
+not artisan stock. Stock itself remains unchanged at that boundary.
 Sales require consecutive POP/province/country/output identity; recipe changes
-break the chain. Shared sales validation is below.
+break the chain.
 
 ## RGO production
 
-Paused UI: `CProvince+0x1ac` capacity, Berlin 549 fruit 195625 / Görlitz 687
-coal 60000. Farmer/labourer employment sums 110896/54730 match UI.
-Runtime vector global RVA `0x00e58728` has exactly 3249 elements, accessor
-`0x000c25b0`, static index `province_id * 0xb0`; eight-byte prefix then live
-`CStateEmployment`.
+Narrow runtime/UI correlations identify `CProvince+0x1ac` as capacity: Berlin
+549 fruit `195625`, Görlitz 687 coal `60000`; farmer/labourer employment sums are
+`110896/54730`. Runtime vector global RVA `0x00e58728`, accessor `0x000c25b0`,
+uses static index `province_id * 0xb0`; an eight-byte prefix precedes live
+`CStateEmployment`. Observed vector length 3249 is not a mod-independent bound.
 
 | Record offset | Meaning / scale |
 | --- | --- |
@@ -312,134 +244,103 @@ Runtime vector global RVA `0x00e58728` has exactly 3249 elements, accessor
 | `+0x88` | Base size, /32768 |
 | `+0x90` / `+0x98` / `+0xa0` | Domestic/export clearing values / leftover quantity, /32768 |
 
-Berlin `orchard`/fruit ordinal 33: UI base 11.20 × efficiency 1.90 × throughput
-0.9703 = 20.648. Görlitz `coal_mine`/coal 10: 7.20 × 1.45 × 0.5472 = 5.713.
-RVA `0x000de350` multiplies efficiency, throughput, recipe `CProductionType+0x88`,
-record size `+0x88`, shifting 15 bits after each: raw 676588/187206 exactly
-matches UI. Tooltips expose owner/technology/worker/infrastructure contributions.
+RVA `0x000de350` multiplies efficiency, throughput, recipe
+`CProductionType+0x88` and record size `+0x88`, shifting 15 bits after each
+multiplication. Berlin fruit: UI base 11.20 × efficiency 1.90 × throughput
+0.9703 ≈ 20.648; raw output `676588`. Görlitz coal: 7.20 × 1.45 × 0.5472
+≈ 5.713; raw output `187206`. Native raw results agree with the UI.
 
-Owner modifier UI RVA `0x00340f8d`: province `+0x188 -> CState`, production type
-`+0xf0 -> +0x28` chooses owner type in state `+0x118` population array; divide
-by total RGO capacity state `+0xc8`. Berlin 4275/457875 → raw 305 (0.0093);
-Görlitz 848/60000 → 463 (0.0141), exact UI contributions.
+Owner modifier UI RVA `0x00340f8d`: province `+0x188 -> CState`, production
+type `+0xf0 -> +0x28` chooses owner type in state `+0x118` population array;
+divide by total RGO capacity state `+0xc8`. Berlin `4275/457875` gives raw
+`305` (0.0093), Görlitz `848/60000` gives `463` (0.0141), matching UI
+contributions. These are narrow runtime/static correlations.
 
-| Historical run | Supporting result |
-| --- | --- |
-| Berlin/Görlitz one-day accounts | Exact one day; both provinces' four groups, 2 attempts/8 accepted, no filtered/dropped/invalid. |
-| Berlin/Görlitz gross output | Exact gross raws 676588/187206, exact date, 8 accepted, no invalid/drops. |
-| Berlin/Görlitz owner modifiers | Separate modifier records with 305/463; 10 accepted, no filtered/dropped/invalid. |
-| Metz precious-metal income | Province 412 `precious_metal_mine`/ordinal 17; gross 262128 (7.9995), income 7385056000, no gaps/drops/invalid. Income matches save `last_income=225374.02344` at save /32768, not gross × vanilla cash rate 0.5. |
+**Precious-metal income is not cash creation.** Metz province 412,
+`precious_metal_mine`/ordinal 17, has gross raw output `262128` (7.9995) and
+income `7385056000`. Income matches serialized `last_income=225374.02344` at
+save /32768, not gross output × vanilla cash rate 0.5. Cash-output valuation
+requires the active-mod rate (vanilla 0.5, GFM 1.0), not non-tradeable market
+price or RGO income.
 
-Thus precious-metal RGO income is not cash creation. GDP uses explicit active-mod
-rate (vanilla 0.5, GFM 1.0), never non-tradeable market price or income.
+## Producer sales and GDP limits
 
-## Producer sales and GDP validation
+Sold = opening + produced − closing; revenue is independent. RGO/artisan opening
+stock requires a prior closing boundary and identity continuity. Missing
+settlement/shutdown phases cannot be treated as complete intervals.
+Domestic/export sequential clearing does not establish a producer-attributed
+split. Artisan export values are nonnegative but can be `32931`–`118028`, so
+an upper bound of `32768` is false despite the fixed-point scale.
 
-Sold = opening + produced − closing; revenue retained independently. RGO/artisan
-opening stock needs warm-up and continuity. Domestic/export sequential clearing
-semantics do not prove a producer-attributed split. Export value is nonnegative
-but not bounded to 32768; the old upper-bound validation was false.
-
-| Historical run | Supporting evidence / counterexample |
-| --- | --- |
-| Five-day producer inventory | Factory/RGO/artisan pairs 21/184/498; RGO/artisan summaries 230/630; zero producer invalid/drops, all complete quantity chains reconcile. Missing first-day pairs explicit warm-up. |
-| 30-day strict producer sales | Strict 5152 rows: 196 factory/1334 RGO/3622 artisan; no gaps/drops/write failures/invalid/reconciliation failures. |
-| Annual false-bound rejection | 387773 records; factory/RGO healthy, Machine Parts 199 post-warm-up no-settlement days exercise incomplete/shutdown. All 44881 artisan pairs reconcile but 213 other invalid attempts cause correct strict rejection. |
-| Annual export-bound diagnostic | All 349 rejected artisan reads have nonnegative export values 32931–118028, disproving the /32768 upper bound. Different diagnostic run/count, not a reclassification of the 213 count above. |
-| Annual corrected-bound export | Exact 365 days, 385929 records, no gaps/drops/write failures/family-invalid; strict 63952 producer accounts. Supersedes false-bound rejection, not producer mapping uncertainty. |
-| Three-day PRU GDP | Capture contracts, 2859 records; no gaps/drops/write/family-invalid; nominal 1422.356650989, real 1415.854841757, population 3564450. |
-| FRA GDP, vanilla cash rate | Contracts/healthy daily 87 RGOs, 164 active artisans, POP/market/flows; vanilla rate 0.5: nominal 3997.530945404, real 3985.369406416, population 8784157, precious-metal VA 4.024536133. |
-
-These validate historical strict offline exports, not current in-game
-`country.economy` interval completeness. No distinct runtime validation of that
-newer interval account was recorded in the source material.
+Physical consumption and producer inventory support narrow offline value-added
+accounts, not current in-game `country.economy` interval completeness. Runtime
+support for that newer interval account remains unestablished.
 
 ## POP snapshots, identity and needs
 
-| Source | Evidence |
+| Source | Evidence level / meaning |
 | --- | --- |
-| Money `+0x180`, savings `+0x250`, interest flow `+0x210`, total flow `+0x218` | Narrow runtime evidence reused from interest work/GiveMoney. |
-| ID `+0x0c`, size `+0x58`, employment `+0x60`, province `+0x64`, type `+0x68` | Current in-process ID; size/employment/province/type candidates. Candidate IDs from province `+0x58`, type `+0x28`. |
+| Money `+0x180`, savings `+0x250`, interest flow `+0x210`, total flow `+0x218` | `verified-runtime` narrow GiveMoney/storage effects; see [interest evidence](interest-payout.md#verified-traversal-and-mutation-boundaries). |
+| ID `+0x0c`, size `+0x58`, employment `+0x60`, province `+0x64`, type `+0x68` | Current in-process ID; size/employment/province/type remain candidates. Candidate IDs come from province `+0x58`, type `+0x28`. |
 | Consciousness `+0x118`, militancy `+0x120`, literacy `+0x128` | Candidate 48.15 (/32768) rates. |
-| Life/everyday/luxury `+0x130/+0x138/+0x140` | Provisional bounded satisfaction, not demand/spending. |
-| Culture pointer `CCulture*` at `+0x6c`, religion object pointer at `+0x70` | Constructors RVAs `0x00554a40/0x00554f40`; keys culture `+0x18`, religion `+0x10` (not extra serialized string `+0x2c`). |
+| Life/everyday/luxury `+0x130/+0x138/+0x140` | Provisional bounded satisfaction, not demand or spending. |
+| Culture pointer at `+0x6c`, religion pointer at `+0x70` | Narrow static/save correlation; constructors RVAs `0x00554a40/0x00554f40`, keys culture `+0x18`, religion `+0x10` (not extra serialized string `+0x2c`). |
 
-| Historical probe | Supporting evidence / limit |
-| --- | --- |
-| POP satisfaction/save correlation | POP 18563: satisfaction raws 32768/24672/30; save everyday 0.75293/luxury 0.00092, omitted/default life. Ratios 0.7529296875/0.0009155273; full life correlation. Narrow field evidence only, not a broad layout claim. |
-| PRU POP identity/save correlation | POP 18563 clergymen/polish/catholic matches unchanged save; 449 PRU records, no invalid/gaps/drops/write failure. |
-| Complete line-oriented save audit | 23429 POPs/unique IDs; province+type+culture+religion yields 22610 keys, 329 duplicate keys, all artisans; adding recipe still 126 duplicates. Descriptive tuple cannot replace individual ID. |
-| Berlin economy/demographics | Province 549: 23 economy +23 demographic records, no filtered/dropped/invalid. First POP size 4275, consciousness 98337, literacy 22938, militancy 0 match save 4275/3.00101/0.70001/0; type candidates 1/2 correlate aristocrat/artisan. |
-| Shared Berlin POP copy | 23 economy/23 demographic/10 aggregate accepted, no drops/invalid; first copy 90224 us, other rules 0 extra. Type 2 nine POPs/size 60020; types 7/8 four/three POPs. Aggregates intentionally cross culture/religion. |
-| PRU three-day ID continuity | 1348 economy/1348 demographic/709 aggregate records, healthy; date/ID keys match; unique IDs 449/449/450, original 449 persist. Consecutive stability only, new-ID cause unknown. |
-| World lifecycle with PRU detail | Complete 19996-POP world opening stock, PRU detail; after warm-up +40/−6 then +43/−6, PRU appeared 27654. All 3453 records valid, no gaps/drops/write/lifecycle-invalid. Observed changes, not demographic causes. |
-| PRU needs/lifecycle warm-up | 449 PRU needs +lifecycle warm-up, 1632 total, no gaps/drops/write/family-invalid; all satisfaction values 0–32768, no broad layout event. Separate reader rejection does not invalidate established shared POP copy. |
+Satisfaction raws `32768/24672/30` correspond to full life satisfaction,
+everyday `0.7529296875` and luxury `0.0009155273`; serialized everyday/luxury
+are `0.75293/0.00092`. Size `4275`, consciousness `98337`, literacy `22938`,
+militancy `0` correspond to serialized `4275/3.00101/0.70001/0`. These
+correlations do not promote the broader layout.
+
+Descriptive dimensions cannot replace individual POP ID: among 23,429 unique
+serialized IDs, province+type+culture+religion produces 22,610 keys with 329
+duplicate keys, all artisans. Adding recipe still leaves 126 duplicate keys.
+Consecutive IDs can persist, but new-ID causes and permanent identity are unknown.
 
 ### Migration-like counterexample to durable ID
 
-17-day FRA cohort fixture followed French/Catholic
-craftsmen, type candidate 7, size 65:
+A French/Catholic craftsmen cohort (type candidate 7), size 65, has the following
+observed identity sequence:
 
-| Raw date | Province / ID | Observation |
+| Raw date | Province / ID | Identity consequence |
 | --- | --- | --- |
-| Through 59883744 | 412 / 27606 | Original cohort remains. |
-| 59883768 | 420 / 28227 | Original disappears; same complete dimensions/size appear. |
-| 59883792 | 458 / 28266 | Prior ID disappears; same dimensions/size appear again. |
+| Through `59883744` | 412 / 27606 | Original ID present. |
+| `59883768` | 420 / 28227 | Original absent; same complete dimensions/size at a new ID. |
+| `59883792` | 458 / 28266 | Prior ID absent; same dimensions/size at another new ID. |
 
-Both moves conserve all 65 observed people but replace ID, so they emit
-appearance/disappearance, not `scope_changed`. Native migration boundary was
-not instrumented: matched pairs are not universal proof of migration.
-Exact target, 200010 records, no gaps/drops/family-invalid/write failure; strict
-export accepted all 17 stocks/reconciliations; source save unchanged.
-Promotion/demotion/split/merge/deletion/save-reload/ID reuse semantics remain
-unestablished. Only surviving IDs can have scope changes.
+Both transitions conserve the 65 observed people but replace ID. Matched pairs
+are not universal proof of migration: the native migration boundary and
+promotion/demotion/split/merge/deletion/save-reload/ID reuse semantics remain
+unestablished. Only surviving IDs support observed scope changes.
 
 ## POP cash-flow accounting
 
-`CPop::GiveMoney` RVA `0x0055a5f0`: seven reviewed direct callers establish
-EAX=POP, ESI=index, stack 64-bit amount, `ret 8`. Reversible +1000/−1000 fixture
-verified money `+0x180`, indexed flow `+0x1d8`, total `+0x218`, exact restoration.
-Presentation callers establish 0 needs, 1 welfare, 2 salary, 3 expenses,
-4 events, 5 projects, 6 bank, 7 interest. Observational hook records posted and
-actual pre/post delta, preserving engine clamping.
+`CPop::GiveMoney` RVA `0x0055a5f0` has the
+[verified native ABI and narrow field effects](interest-payout.md#verified-traversal-and-mutation-boundaries).
+Presentation callers establish the indexed flow meanings:
 
-| Historical run | Supporting evidence / limit |
-| --- | --- |
-| Individual/country residual accounting | 1765/1799 opening-seen individual accounts reconcile; 34 residuals equal/opposite, type residuals cancel at country scope. Evidence for redistribution outside observed calls, not incomplete capture by itself. |
-| Five-day GiveMoney/strict export | 5-day hook/strict export, 7598 records; no gaps/drops/write/family-invalid. |
+| Index | Meaning | Index | Meaning |
+| --- | --- | --- | --- |
+| 0 | Needs | 4 | Events |
+| 1 | Welfare | 5 | Projects |
+| 2 | Salary | 6 | Bank |
+| 3 | Expenses | 7 | Interest |
 
+Posted amounts and actual pre/post money deltas differ under engine clamping.
+Equal-and-opposite individual residuals can cancel at country scope; type-level
+residuals can likewise cancel. This supports redistribution outside the observed
+calls, not a claim that every residual indicates missing cash flow.
 Promotion/demotion/split/merge/direct redistribution are not proven to pass
-through GiveMoney. Individual/type residuals stay explicit. Taxes/tariffs lack
-independent field/call attribution and cannot be inferred from needs/expenses.
+through GiveMoney. Taxes/tariffs lack independent field/call attribution here
+and cannot be inferred from needs/expenses.
 
-<a id="historical-pre-batching-paired-ten-year-observer-benchmark"></a>
-<a id="final-batched-paired-ten-year-observer-benchmark"></a>
+## Historical performance constraints
 
-## Historical paired ten-year benchmarks
-
-Each pair ran consecutively on unchanged `benchmark.v2`, observer mode,
-speed 5, 3650 days, 30-day economic sampling, queue 8192, country filter `ZZZ`
-(suppresses country detail, not global records). Start/target
-59883384/59970984 exact; paused/responsive after completion; source save
-unchanged. Each trace has 122 health/capacity/holdings/credit snapshots; all 244
-health records per pair complete with snapshot/probe/credit flags zero.
-
-| Implementation | Variant | Records |
-| --- | --- | ---: |
-| Pre-batching `f057bf5`, timeout 7200 s | Baseline | 4270 |
-| Pre-batching `f057bf5`, timeout 7200 s | `interest_fix` | 235918 |
-| Batched `d8458bd`, timeout 1800 s | Baseline | 4270 |
-| Batched `d8458bd`, timeout 1800 s | `interest_fix` | 11571 |
-
-Every trace: gaps/drops/write failure `0/0/false`. All peaks below bounds:
-
-| Peak/cost | Pre baseline | Pre fix | Batched baseline | Batched fix | Limit |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Countries | 271 (52.92%) | 271 (52.92%) | 271 (52.92%) | 271 (52.92%) | 512 |
-| Provinces | 2359 (57.59%) | 2359 (57.59%) | 2360 (57.61%) | 2348 (57.32%) | 4096 |
-| POPs | 22963 (22.96%) | 23044 (23.04%) | 23059 (23.05%) | 23074 (23.07%) | 100000 |
-| Collection median us | 103560 | 103693 | 28950 | 29205 | — |
-| Collection max us | 111399 | 124363 | 35310 | 34712 | — |
+These **direct-creditor** implementations predate the state-pool design and the
+C-service port. Comparisons use the same vanilla save, observer mode, speed 5,
+3,650 days, 30-day economic sampling, queue capacity 8192 and country filter
+`ZZZ` (suppresses country detail, not global work). Pre-batching is revision
+`f057bf5`; batched is `d8458bd`.
 
 | Performance | Pre baseline | Pre fix | Batched baseline | Batched fix |
 | --- | ---: | ---: | ---: | ---: |
@@ -449,30 +350,21 @@ Every trace: gaps/drops/write failure `0/0/false`. All peaks below bounds:
 | Peak working set bytes | 1471287296 | 1489620992 | 1473703936 | 1479155712 |
 | End working set bytes | unrecorded | unrecorded | 1381883904 | 1393106944 |
 | End private bytes | 1593921536 | 1565233152 | 1590743040 | 1604603904 |
+| Fix callback s | — | 1629.137 | — | 72.554 |
 
-Pre-batching elapsed/CPU ratios 8.40x/6.70x, days/s 0.119x, peak memory delta
-+18333696, end private −28688384. Fix callback time 1629.137 s: 78.5% of its
-elapsed, 87.7% of CPU increase. Batched elapsed/CPU 1.411x/1.323x, days/s
-0.709x; peak/end working set +5451776/+11223040, private +13860864. Callback
-72.554 s = 79.2% of 91.599 s elapsed increase. Recipient traversal/allocation,
-mutation and postcondition costs remain material. The 8.40x → 1.41x comparison
-is fixture-specific, not a current or cross-machine/save/mod performance claim.
+Workload size and collection costs needed to interpret those comparisons:
 
-Batched fix: 3650 health/value pairs; destination bank gain 2003503700
-(domestic 343963354, foreign 1659540346), exact POP payout 2003503700000;
-zero rejected debtors/failed recipients/result drops/postcondition failures.
-
-Final samples are separate raw categories from divergent simulations, not
-additive money supply or causal decomposition:
-
-| Field | Pre baseline | Pre fix | Batched baseline | Batched fix |
+| Peak/cost | Pre baseline | Pre fix | Batched baseline | Batched fix |
 | --- | ---: | ---: | ---: | ---: |
-| `treasury_observed_raw` | 99950580341 | 114708632203 | 99030403012 | 106278163339 |
-| `pop_money_observed_raw` | 29809689504634 | 23300428465520 | 28056708337586 | 31425196653994 |
-| `pop_savings_observed_raw` | 128776949934488 | 127667712827126 | 125012634775634 | 144892903609587 |
-| `creditor_count` | 455 | 576 | 492 | 622 |
-| `creditor_debt_candidate_raw` | 4019948489 | 2864622699 | 2629676588 | 3551628691 |
-| `state_interest_candidate_raw` | 1924693371 | 1179563725 | 1438307103 | 1850768026 |
+| Countries | 271 | 271 | 271 | 271 |
+| Provinces | 2359 | 2359 | 2360 | 2348 |
+| POPs | 22963 | 23044 | 23059 | 23074 |
+| Collection median µs | 103560 | 103693 | 28950 | 29205 |
+| Collection max µs | 111399 | 124363 | 35310 | 34712 |
 
-All final samples: negative-treasury countries 0, bank interest accumulator 0.
-Bankruptcy and comprehensive money supply remain unmapped.
+Pre-batching elapsed/CPU ratios are 8.40×/6.70×; batched ratios are
+1.411×/1.323×. Pre-batching callback time is 78.5% of fix elapsed time;
+batched callback time is 79.2% of the 91.599 s elapsed increase. Recipient
+traversal, allocation, mutation and postconditions remain material costs.
+These measurements do not establish current performance, portability across
+machines/saves/mods, state-pool payout cost or comprehensive money-supply effects.

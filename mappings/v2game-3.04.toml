@@ -38,7 +38,7 @@ rva = 0x00108d3e
 kind = "hook"
 status = "verified-runtime"
 signature = "e8 ed ae 01 00"
-source = "sole direct call from CCountry::DailyUpdate to RVA 0x00123c30; a seven-day run produced 1,897 complete before/after country pairs and an unsubscribed smoke run preserved exact date advancement"
+source = "sole direct call from CCountry::DailyUpdate to PayDailyInterest at RVA 0x00123c30; country pointer is already on the stack, callee uses ret 4, and continuation is RVA 0x00108d43; see mappings/evidence/interest-payout.md#verified-traversal-and-mutation-boundaries"
 
 [[symbols]]
 name = "CCountry::PayDailyInterest"
@@ -46,7 +46,7 @@ rva = 0x00123c30
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
-source = "paired runtime observations verified exact resolved destination-bank +0x20 deltas on all 12 calls with creditor entries; conditional construction refunds in the shortfall handler make net treasury deltas unsuitable for conservation claims; the sole direct caller at RVA 0x00108d3e and ret 4 cleanup are statically established"
+source = "walks CCountry+0xe8c creditors, computes dues from debt +0x18 and interest +0x10, debits sufficient treasury, sets was_paid +0x20, and credits resolved nonzero-ordinal destination-bank +0x20; ordinal zero skips that bank credit; sole direct caller RVA 0x00108d3e, ret 4; conditional construction refunds in the shortfall path prevent a general net-treasury conservation claim; see mappings/evidence/fiscal-credit-boundaries.md#daily-interest"
 
 [[symbols]]
 name = "CCountry poor-tax treasury receipt"
@@ -54,7 +54,7 @@ rva = 0x00108ca4
 kind = "label"
 status = "verified-runtime"
 signature = "01 8b 78 0e 00 00 8b 54 24 34 11 93 7c 0e 00 00"
-source = "CCountry::DailyUpdate adds tax_settings[0] to treasury and daily accounting +0x00; one-day class-tax fixture measured SWE +778031 raw, exactly floor(sum(poor_tax.tax_income) * 32768 / 1000), with zero flags/drops"
+source = "CCountry::DailyUpdate adds tax_settings[0] to treasury and daily accounting +0x00; poor-class receipt raw = floor(sum(poor_tax.tax_income) * 32768 / 1000), with one floor per class; runtime formula correlation is limited to SWE; see mappings/evidence/fiscal-credit-boundaries.md#class-taxes"
 
 [[symbols]]
 name = "CCountry middle-tax treasury receipt"
@@ -62,7 +62,7 @@ rva = 0x00108cde
 kind = "label"
 status = "verified-runtime"
 signature = "01 b3 78 0e 00 00 8b 7c 24 2c 8d 54 24 28 11 bb"
-source = "CCountry::DailyUpdate adds tax_settings[1] to treasury and daily accounting +0x08; one-day class-tax fixture measured SWE +424367 raw, exactly floor(sum(middle_tax.tax_income) * 32768 / 1000), with zero flags/drops"
+source = "CCountry::DailyUpdate adds tax_settings[1] to treasury and daily accounting +0x08; middle-class receipt raw = floor(sum(middle_tax.tax_income) * 32768 / 1000), with one floor per class; runtime formula correlation is limited to SWE; see mappings/evidence/fiscal-credit-boundaries.md#class-taxes"
 
 [[symbols]]
 name = "CCountry rich-tax treasury receipt"
@@ -70,7 +70,7 @@ rva = 0x00108d1a
 kind = "label"
 status = "verified-runtime"
 signature = "01 8b 78 0e 00 00 8b 54 24 2c 53 11 93 7c 0e 00"
-source = "CCountry::DailyUpdate adds tax_settings[2] to treasury and daily accounting +0x10; one-day class-tax fixture measured SWE +62756 raw, exactly floor(sum(rich_tax.tax_income) * 32768 / 1000), with zero flags/drops"
+source = "CCountry::DailyUpdate adds tax_settings[2] to treasury and daily accounting +0x10; rich-class receipt raw = floor(sum(rich_tax.tax_income) * 32768 / 1000), with one floor per class; runtime formula correlation is limited to SWE; see mappings/evidence/fiscal-credit-boundaries.md#class-taxes"
 
 [[symbols]]
 name = "CCountry tariff treasury receipt"
@@ -78,7 +78,7 @@ rva = 0x00088add
 kind = "label"
 status = "verified-static-callsites"
 signature = "01 86 78 0e 00 00 11 96 7c 0e 00 00 8b 0d 38 87"
-source = "trade settlement multiplies the computed tariff base by CCountry+0x1440, adds the fixed-point result to treasury at VA 0x00488add, and adds the same result to daily accounting +0x18; the serialized field is tariffs, but a per-call runtime amount is not yet retained"
+source = "trade settlement multiplies the computed tariff base by serialized tariffs at CCountry+0x1440, adds the fixed-point result to treasury at VA 0x00488add, and adds the same result to daily accounting +0x18 at VA 0x00488af7; per-call runtime amount correlation is unverified; see mappings/evidence/fiscal-credit-boundaries.md#tariffs"
 
 [[symbols]]
 name = "CCountry loan-repayment order call"
@@ -86,7 +86,7 @@ rva = 0x0018beec
 kind = "hook"
 status = "verified-runtime"
 signature = "e8 df 79 f9 ff"
-source = "seven-day repayment fixture bracketed 12 calls from the order path to CCountry::RepayLoan with creditor/debtor identity; every requested amount exactly equaled both the debtor treasury debit and CCreditor debt reduction, with zero flags/drops"
+source = "order-path call to CCountry::RepayLoan at RVA 0x001238d0; requested raw amount equals debtor treasury debit and creditor principal reduction at the correlated boundary, not a claim about every repayment branch; see mappings/evidence/fiscal-credit-boundaries.md#principal-repayment"
 
 [[symbols]]
 name = "CCountry::RepayLoan"
@@ -94,7 +94,7 @@ rva = 0x001238d0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 6a ff 68 c8 e7 b9 00 64 a1 00 00 00 00"
-source = "static flow walks CCountry+0xe8c creditors, reduces CCreditor+0x18, debits CCountry+0xe78, and removes fully repaid entries; for a nonzero lender ordinal it also reduces resolved CBank+0x18 with a zero clamp, while ordinal-zero Shadowy Financiers skip the bank mutation; the seven-day repayment fixture observed 12 exact requested/treasury/debt reductions through caller RVA 0x0018beec; isolated native UI full repayment removed seven named creditors with matching treasury/lent reductions and unchanged reserves; see mappings/evidence/fiscal-credit-boundaries.md#native-ui-loan-and-full-repayment"
+source = "walks CCountry+0xe8c creditors, reduces CCreditor+0x18, debits CCountry+0xe78, and removes fully repaid entries; nonzero lender ordinals reduce resolved CBank+0x18 with a zero clamp, while ordinal-zero Shadowy Financiers skip the bank mutation; reviewed repayment does not credit bank reserves; caller RVA 0x0018beec; sufficient-treasury named repayment has runtime treasury/principal/lent correlation, not reserve-to-treasury conservation; see mappings/evidence/fiscal-credit-boundaries.md#principal-repayment"
 
 [[symbols]]
 name = "POP savings bank-deposit co-update"
@@ -102,7 +102,7 @@ rva = 0x00086f85
 kind = "label"
 status = "verified-static-callsites"
 signature = "01 81 58 02 00 00 11 91 5c 02 00 00 8b 71 58 8b"
-source = "the same signed 64-bit amount is added to CState+0x258 and its owner CBank+0x10 before the POP+0x250 savings update; save/runtime correlation independently identifies CBank+0x10 as serialized bank money, but this instruction span was not bracketed at runtime"
+source = "the same signed 64-bit amount is added to CState+0x258 and its owner CBank+0x10 before the POP+0x250 savings update; save/runtime correlation identifies CBank+0x10 as serialized bank money; the co-update has static, not atomic runtime, verification; see mappings/evidence/fiscal-credit-boundaries.md#bank-and-ui-projection"
 
 [[symbols]]
 name = "CCountry::Annex pre-game-over observer handoff"
@@ -110,7 +110,7 @@ rva = 0x00118620
 kind = "hook"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8"
-source = "entry disassembly identifies this at +0x4, a referenced tag at +0x8, the annexed tag key at +0xc, and its ordinal at +0x10 before CGameState::_player_tag is captured; ret 0x10 at RVA 0x11928e confirms the four-dword stack contract; a deterministic ENG inherit=JAN fixture moved the observer view from JAN to ENG at this boundary, preserved full AI ownership and scheduler count, avoided the game-over transition, and continued simulation beyond April 1837"
+source = "entry disassembly identifies this at stack +0x4, a referenced tag at +0x8, annexed tag key at +0xc, and ordinal at +0x10 before player-tag capture and province removal; ret 0x10 at RVA 0x11928e confirms the four-dword stack contract; synchronous CGameState+0xb5c observer-view handoff requires a living scheduled-AI target, zero human-control entries, and unchanged scheduler count; native tag is asynchronous and cannot substitute at this boundary; see mappings/evidence/campaign-automation.md#observer-ownership-and-view"
 
 [[symbols]]
 name = "CState constructor"
@@ -126,7 +126,7 @@ rva = 0x000f5bf0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 83 ec 10 53 8b 5f 20"
-source = "the post-country caller at RVA 0x00285f0f passes every CCountry+0xe88 bank; static flow either recapitalizes CBank+0x10 when it is at most 33 or allocates CBank+0x20 across CCountry+0xe44 states using CState+0x258 weights, adds shares to CState+0x260, and clears CBank+0x20; the seven-day native cash-flow fixture observed the state pool rise on each subsequent day while native POP cash-flow index 7 remained absent"
+source = "post-country caller RVA 0x00285f0f passes each CCountry+0xe88 bank in EDI; positive pending interest +0x20 recapitalizes +0x10 when the denominator is at most 33, otherwise savings-weighted shares are added to CState+0x260 through CCountry+0xe44; pending interest clears on every return path; truncation and discarded remainder prevent general conservation, and no state-to-POP consumer is identified in reviewed paths; low-reserve and over-allocation branches lack runtime verification; see mappings/evidence/interest-payout.md#named-bank--state-pool"
 
 [[symbols]]
 name = "CCountry::PayDailyInterest creditor shortfall handler"
@@ -134,7 +134,7 @@ rva = 0x001241f0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00 6a ff 68 30 70 ba 00 50 64 89 25 00 00 00 00 a1 e8 88 25 01 8b 0d dc 86 25 01 81 ec"
-source = "called from PayDailyInterest at VA 0x005241cd after the accumulated shortfall threshold; runtime brackets retained VNZ, NZL, and forced-shortfall SWE country/creditor identity and observed no synchronous treasury/principal/count mutation; static flow applies bad_debtor/in_bankrupcy modifiers, emits creditor default notifications, and performs construction/factory cleanup; it does not directly write creditor debt or call RemoveDebts"
+source = "called from PayDailyInterest at VA 0x005241cd after the accumulated shortfall threshold; static flow applies bad_debtor/in_bankrupcy modifiers, emits creditor default notifications, and performs construction/factory cleanup; it does not directly write creditor debt or call RemoveDebts; invocation has runtime correlation, but general default write-off and modifier outcomes remain unverified; see mappings/evidence/fiscal-credit-boundaries.md#interest-shortfall-and-default"
 
 [[symbols]]
 name = "CCountry conditional debt-cleanup call"
@@ -142,7 +142,7 @@ rva = 0x00108ace
 kind = "hook"
 status = "verified-static-callsites"
 signature = "e8 6d 88 00 00"
-source = "CCountry::DailyUpdate calls RemoveDebts(true) only when the country is absent from two preceding membership searches; an all-country runtime bracket observed ITA, ALD, LIB, and JAN calls, never forced-shortfall SWE, so this call is not a verified default/write-off boundary"
+source = "CCountry::DailyUpdate calls RemoveDebts(true) only when the country is absent from two preceding membership searches; the membership semantics are unresolved, and this is not a verified default/write-off boundary; see mappings/evidence/fiscal-credit-boundaries.md#interest-shortfall-and-default"
 
 [[symbols]]
 name = "CCountry::RemoveDebts"
@@ -158,7 +158,7 @@ rva = 0x001246f7
 kind = "label"
 status = "verified-static-callsites"
 signature = "01 8b 78 0e 00 00 8b 74 24 10 11 bb 7c 0e 00 00"
-source = "conditional branch inside the shortfall handler credits the affected country's treasury and accounting +0x40 with a canceled province-construction object's +0xb8/+0xbc amount before unlink/free; it is not a general bankruptcy refund and did not execute in three bracketed outer-handler calls"
+source = "conditional branch inside the shortfall handler credits the affected country's treasury and accounting +0x40 with a canceled province-construction object's +0xb8/+0xbc amount before unlink/free; this branch lacks runtime verification and is not a general bankruptcy refund; see mappings/evidence/fiscal-credit-boundaries.md#interest-shortfall-and-default"
 
 [[symbols]]
 name = "CBank::DistributeInterest post-country call"
@@ -174,7 +174,7 @@ rva = 0x000a9362
 kind = "label"
 status = "verified-runtime"
 signature = "8b 81 94 01 00 00 8b 91 98 01 00 00 2b d0 33 ff"
-source = "current executable walks 16-byte CProvince+0x194/+0x198 records and follows each POP next pointer at +0x27c; a seven-day destination run resolved 346-661 provinces and 2,635-5,565 POPs per creditor-bearing sample with exact list count/tail agreement"
+source = "native traversal walks CProvince+0x194/+0x198 vectors of 16-byte list records and follows separately allocated POP nodes through next +0x27c; declared count and tail must agree with traversal, not a contiguous POP array; see mappings/evidence/interest-payout.md#verified-traversal-and-mutation-boundaries"
 
 [[symbols]]
 name = "POP savings state-scale update"
@@ -182,7 +182,7 @@ rva = 0x000b5b92
 kind = "label"
 status = "verified-runtime"
 signature = "8b 83 94 01 00 00 8b 34 02 85 f6 0f 84 98 00 00 00 8b 86 50 02 00 00"
-source = "current executable reads POP +0x250, divides through the 1000.0 fixed-point global at RVA 0x00b0b168, and subtracts the result from state +0x258; live destination aggregates tracked within 19-108 raw state units"
+source = "reads POP savings +0x250, divides through the 1000.0 fixed-point global at RVA 0x00b0b168, and subtracts the result from state savings +0x258; POP savings use 1000 times state money scale, but per-POP truncation means recomputed aggregates are not interchangeable with stored state savings; see mappings/evidence/interest-payout.md#state-pool--pop-missing-native-consumer-and-verified-scale"
 
 [[symbols]]
 name = "POP money scale"
@@ -190,7 +190,7 @@ rva = 0x00b0b168
 kind = "data"
 status = "verified-runtime"
 signature = "00 00 f4 01 00 00 00 00"
-source = "64-bit fixed-point raw value 32768000 (1000.0 at 15 fractional bits), referenced by the POP +0x250 to state +0x258 update path and corroborated by seven-day aggregate runtime correlation"
+source = "64-bit fixed-point raw value 32768000 (1000.0 at 15 fractional bits), used by the POP +0x250 to state +0x258 update path; runtime unit correlation establishes the 1000:1 savings scale, not aggregate equality; see mappings/evidence/interest-payout.md#state-pool--pop-missing-native-consumer-and-verified-scale"
 
 [[symbols]]
 name = "Native tag console-command handler"
@@ -198,7 +198,7 @@ rva = 0x0001f720
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 6a ff"
-source = "runtime command-bridge test invoked this registered handler with ENG and observed CGameState+0xb5c change; static disassembly establishes the SResult/vector ABI"
+source = "registered tag console-command handler with statically established SResult/vector ABI; changes CGameState+0xb5c viewing tag through an asynchronous ownership transition, not an immediate Annex-entry handoff; see mappings/evidence/campaign-automation.md#observer-ownership-and-view"
 
 [[symbols]]
 name = "Generic message popup-policy branch"
@@ -206,7 +206,7 @@ rva = 0x0002bc68
 kind = "hook"
 status = "verified-runtime"
 signature = "80 7f 0e 00 75 23"
-source = "runtime --observe test bypassed six generic dispatches while advancing about 3,085 days without pausing; static dispatch checks popup +0x0e and pausepopup +0x10"
+source = "generic configurable message dispatch checks policy popup +0x0e and pausepopup +0x10; bypassing popup/CPauseGame construction preserves later notification handling, not message effects or AI-choice suppression; see mappings/evidence/campaign-automation.md#observer-ownership-and-view"
 
 [[symbols]]
 name = "Generic message popup-policy branch 2"
@@ -350,7 +350,7 @@ rva = 0x00020eb0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 6a ff"
-source = "runtime --observe invoked registered debug command with argv[0] fow, read back zero visibility flag, and continued simulation"
+source = "registered debug console-command dispatcher accepts argv[0] fow; native command toggles fog-enabled global RVA 0x00b092fb, where zero reveals the map; see mappings/evidence/campaign-automation.md#observer-ownership-and-view"
 
 [[symbols]]
 name = "Fog-of-war enabled flag"
@@ -358,7 +358,7 @@ rva = 0x00b092fb
 kind = "global"
 status = "verified-runtime"
 signature = "01"
-source = "1 enables normal fog; runtime --observe used debug fow to toggle this to 0 and trigger native idler map invalidation"
+source = "byte flag: 1 enables normal fog, 0 reveals the map; native debug fow command toggles it and triggers idler map invalidation; see mappings/evidence/campaign-automation.md#observer-ownership-and-view"
 
 [[symbols]]
 name = "Return player country to native AI control"
@@ -366,7 +366,7 @@ rva = 0x00287a70
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
-source = "runtime --observe test cleared JAN human control, attached AI 0x7133c528, and grew scheduler count 271->272; static caller is queued transition handler RVA 0x32c220"
+source = "queued transition handler RVA 0x32c220 calls the native return-to-AI boundary, which clears human control and constructs/registers CCountryAI; participation requires both CCountry+0x208 and scheduler membership, not a view tag alone; see mappings/evidence/campaign-automation.md#observer-ownership-and-view"
 
 [[symbols]]
 name = "CPop constructor candidate 1"
@@ -406,7 +406,7 @@ rva = 0x0055a5f0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 b8 84 01 00 00 00"
-source = "native body and reviewed direct callers establish EAX CPop pointer, ESI cash-flow type, stack-passed 64-bit amount, and ret 8; complete direct-call scan has 15 callsites selecting indices 0-6, none 7, without excluding indirect/inlined consumers; reversible runtime +1000/-1000 calls verified exact money +0x180, indexed cash-flow +0x1d8, and total +0x218 effects and restoration"
+source = "native body and reviewed direct callers establish EAX CPop pointer, ESI cash-flow index, stack-passed 64-bit amount, and ret 8; at correlated unclamped values the signed amount changes money +0x180, indexed flow +0x1d8, and total +0x218 equally, leaving savings +0x250 unchanged; 15 direct callsites select indices 0-6, none 7, without excluding indirect/inlined consumers or proving clamp/overflow behavior; see mappings/evidence/interest-payout.md#verified-traversal-and-mutation-boundaries"
 
 [[symbols]]
 name = "POP daily-interest cash-flow presentation"
@@ -414,7 +414,7 @@ rva = 0x00566440
 kind = "label"
 status = "verified-static-callsites"
 signature = "8b 88 10 02 00 00 8b 80 14 02 00 00 8b d1 0b d0"
-source = "reads CPop +0x210/+0x214 and formats it through localisation key POP_DAILY_INTEREST; a reversible runtime fixture independently confirmed that selected slot 7 changed by +1000 and restored"
+source = "reads CPop +0x210/+0x214, cash-flow index 7 of +0x1d8, and formats it through localisation key POP_DAILY_INTEREST; slot effects have runtime correlation, presentation behavior itself does not; see mappings/evidence/interest-payout.md#verified-traversal-and-mutation-boundaries"
 
 [[symbols]]
 name = "Game heap initialization hook"
@@ -436,7 +436,7 @@ name = "CStateEmployment vector global"
 rva = 0x00e58728
 kind = "data"
 status = "verified-runtime"
-source = "accessor RVA 0x000c25b0 and multiple static callers index the returned begin pointer by province ID times 0xb0; the live 3,249-element vector maps Berlin 549 and Görlitz 687 to matching province, production type, goods, employment, modifiers, and income"
+source = "accessor RVA 0x000c25b0 and reviewed callers index the vector begin pointer by province ID times 0xb0; an eight-byte prefix precedes CStateEmployment records; province/production/goods/employment/income fields have narrow runtime/UI correlations, not a mod-independent vector-length bound; see mappings/evidence/telemetry.md#rgo-production"
 
 [[symbols]]
 name = "CStateEmployment vector accessor"
@@ -451,7 +451,7 @@ name = "Loaded goods count"
 rva = 0x00e587f4
 kind = "data"
 status = "verified-runtime"
-source = "daily factory caller RVA 0x00084060 passes this count to the goods-pool index remapper at RVA 0x00ab1550; GFM runtime value 48 exactly bounds valid world-market and requested-input ordinals"
+source = "daily factory caller RVA 0x00084060 passes the loaded-goods count to index remapper RVA 0x00ab1550; it bounds valid world-market and requested-input ordinals, not a universal 48-good mod limit; zero within the registry means an empty pool slot, while out-of-registry bytes may be stale; see mappings/evidence/telemetry.md#input-demand-versus-consumption"
 
 [[symbols]]
 name = "Factory settlement callsite"
@@ -459,7 +459,7 @@ rva = 0x000845fd
 kind = "callsite"
 status = "verified-runtime"
 signature = "e8 ee e9 ff ff"
-source = "opt-in factory flow hook observed post-consumption stock and reconciled it with deliveries at RVAs 0x0008369d/0x000836aa across 174 live intervals"
+source = "daily callsite to RVA 0x00082ff0 exposes factory stock +0x28 after consumption and before purchases; primary/secondary calls RVAs 0x0008369d/0x000836aa add delivered pools; physical consumption requires consecutive complete stock boundaries, not requested inputs or same-day spending alone; see mappings/evidence/telemetry.md#input-demand-versus-consumption"
 
 [[symbols]]
 name = "Factory sales settlement callsite"
@@ -467,14 +467,14 @@ rva = 0x00088710
 kind = "callsite"
 status = "verified-runtime"
 signature = "e8 1b c4 06 00"
-source = "the first stack argument is CStateBuilding* and the first 64-bit value argument exactly matches sales_income +0x160; the factory-sales fixture reconciled opening inventory, output +0xd8, closing inventory +0x1f8, and proceeds for all 21 captured factory settlements"
+source = "call to finance RVA 0x000f4b30 takes CStateBuilding* as first stack argument and 64-bit proceeds matching sales_income +0x160; sold quantity = opening unsold + output +0xd8 - closing unsold +0x1f8; proceeds are independent of produced quantity, and domestic/export attribution is unproven; see mappings/evidence/telemetry.md#finance-inventory-and-merges"
 
 [[symbols]]
 name = "Factory sales settlement"
 rva = 0x000f4b30
 kind = "function"
 status = "verified-runtime"
-source = "called at RVA 0x00088710 with CStateBuilding* and 64-bit proceeds; the callsite hook preserves the original call and live inventory chains reconcile across successive daily boundaries"
+source = "caller RVA 0x00088710 passes CStateBuilding* and 64-bit proceeds matching +0x160; narrow finance correlation gives budget delta = sales + investment - spending - paychecks; inventory carryover prevents inferring sales from daily output alone; see mappings/evidence/telemetry.md#finance-inventory-and-merges"
 
 [[symbols]]
 name = "Artisan settlement callsite"
@@ -482,7 +482,7 @@ rva = 0x00086bff
 kind = "callsite"
 status = "verified-runtime"
 signature = "e8 9c ce ff ff"
-source = "EBX is CPop*; country-filtered live hooks reconciled post-consumption stock with both delivery callsites for nine Berlin artisans over two complete boundaries"
+source = "call to RVA 0x00083aa0 holds CPop* in EBX and exposes artisan economy stock at CPop+0x1d4 before deliveries at RVAs 0x00083fca/0x00083fda; consumption requires consecutive complete stock boundaries with unchanged identity and recipe; see mappings/evidence/telemetry.md#artisan-production"
 
 [[symbols]]
 name = "Artisan primary delivery callsite"
@@ -490,7 +490,7 @@ rva = 0x00083fca
 kind = "callsite"
 status = "verified-runtime"
 signature = "e8 51 9c ff ff"
-source = "EDI remains CPop* and ESI is its artisan economy/stockpile object; live flow records captured the stack-passed primary goods pool before the original CGoodsPool add"
+source = "EDI is CPop*, ESI its artisan economy/stockpile object, and the primary delivery goods pool is stack-passed to CGoodsPool add; this is a delivery boundary, not requested-input consumption; kernel/game_state/src/artisan_consumption_hook.cpp; see mappings/evidence/telemetry.md#artisan-production"
 
 [[symbols]]
 name = "Artisan secondary delivery callsite"
@@ -498,7 +498,7 @@ rva = 0x00083fda
 kind = "callsite"
 status = "verified-runtime"
 signature = "e8 41 9c ff ff"
-source = "same register contract as the primary callsite; live traces captured secondary deliveries and complete settlement counts"
+source = "EDI is CPop*, ESI its artisan economy/stockpile object, and the secondary delivery goods pool is stack-passed to CGoodsPool add; kernel/game_state/src/artisan_consumption_hook.cpp; see mappings/evidence/telemetry.md#artisan-production"
 
 [[symbols]]
 name = "Artisan recipe requirement calculation"
@@ -514,7 +514,7 @@ rva = 0x000de350
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 8b 48 2c 8b 50 28"
-source = "static data flow multiplies output efficiency, throughput, CProductionType+0x88 recipe output, and record +0x88 base size with a 15-bit shift after each product; live Berlin and Görlitz operands reproduce displayed 20.648 fruit and 5.713 coal"
+source = "multiplies output efficiency, throughput, CProductionType+0x88 recipe output, and CStateEmploymentRecord+0x88 base size with a 15-bit shift after each product; runtime/UI correlation establishes gross physical output, not RGO income or precious-metal cash creation; see mappings/evidence/telemetry.md#rgo-production"
 
 [[symbols]]
 name = "CCurrentGameState::LoadSave candidate"
@@ -530,7 +530,7 @@ rva = 0x0036a2f0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 6a ff"
-source = "constructor hook captured the same object later held in EDI at LoadSave call RVA 0x36f8b3"
+source = "constructs the Single Player frontend controller later held in EDI at LoadSave call RVA 0x36f8b3; primary vtable RVA 0xa14ed0, GUI registry +0x278; storage lifetime ends at scalar deleting destructor RVA 0x36b030; see mappings/evidence/campaign-automation.md#frontend-lifecycle"
 
 [[symbols]]
 name = "Main-menu controller constructor"
@@ -538,14 +538,14 @@ rva = 0x00354a00
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 6a ff"
-source = "constructor hook captures object whose +0x704 GUI registry resolves mainmenu_panel/single_player_button"
+source = "constructs the main-menu controller whose +0x704 GUI registry resolves mainmenu_panel/single_player_button; primary vtable RVA 0xa13dbc, scalar deleting destructor RVA 0x354df0; see mappings/evidence/campaign-automation.md#frontend-lifecycle"
 
 [[symbols]]
 name = "Single-player frontend controller primary vtable"
 rva = 0x00a14ed0
 kind = "data"
 status = "verified-runtime"
-source = "constructor RVA 0x36a2f0 installs VA 0x00e14ed0 after base construction; the frontend lifecycle fixture passed exact vtable validation through save selection and Play"
+source = "constructor RVA 0x36a2f0 installs VA 0x00e14ed0 after base construction; primary vtable identifies the live Single Player controller during save selection and Play, not a lifetime guarantee after destruction; see mappings/evidence/campaign-automation.md#frontend-lifecycle"
 
 [[symbols]]
 name = "Single-player frontend controller scalar deleting destructor"
@@ -553,14 +553,14 @@ rva = 0x0036b030
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 56 8b f1"
-source = "first entry of primary vtable RVA 0xa14ed0; the frontend lifecycle fixture observed the hook after Play and normal campaign entry/date advancement"
+source = "first entry of Single Player controller primary vtable RVA 0xa14ed0; invalidates the captured controller before native storage release; see mappings/evidence/campaign-automation.md#frontend-lifecycle"
 
 [[symbols]]
 name = "Main-menu controller primary vtable"
 rva = 0x00a13dbc
 kind = "data"
 status = "verified-runtime"
-source = "constructor RVA 0x354a00 installs VA 0x00e13dbc after base construction; the frontend lifecycle fixture passed exact vtable validation before native Single Player dispatch"
+source = "constructor RVA 0x354a00 installs VA 0x00e13dbc after base construction; primary vtable identifies the live main-menu controller before Single Player dispatch, not a lifetime guarantee after destruction; see mappings/evidence/campaign-automation.md#frontend-lifecycle"
 
 [[symbols]]
 name = "Main-menu controller scalar deleting destructor"
@@ -568,7 +568,7 @@ rva = 0x00354df0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 56 8b f1"
-source = "first entry of primary vtable RVA 0xa13dbc; the frontend lifecycle fixture observed the hook after Play and normal campaign entry/date advancement"
+source = "first entry of main-menu controller primary vtable RVA 0xa13dbc; invalidates the captured controller before native storage release; see mappings/evidence/campaign-automation.md#frontend-lifecycle"
 
 [[symbols]]
 name = "Main-menu controller update"
@@ -584,7 +584,7 @@ rva = 0x00372300
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8"
-source = "bound to play_button by frontend constructor; manual Play reached it through signal dispatcher RVA 0x5ee510"
+source = "frontend constructor binds this listener to play_button; native press signal dispatcher RVA 0x5ee510 invokes it; controller registry is +0x278 and campaign entry separately requires CInGameIdler RTTI at CGameState+0xb24; see mappings/evidence/campaign-automation.md#frontend-lifecycle"
 
 [[symbols]]
 name = "GUI press signal dispatcher"
@@ -592,7 +592,7 @@ rva = 0x005ee510
 kind = "function"
 status = "verified-runtime"
 signature = "56 8b 70 04 85 f6 74 10"
-source = "used at runtime to dispatch Single Player and Play press callbacks"
+source = "native GUI press callback dispatch with signal pointer in EAX; checked frontend use is limited to Single Player and Play on the captured controller thread; kernel/game_state/src/runtime.cpp DispatchNativeSignal; see mappings/evidence/campaign-automation.md#frontend-lifecycle"
 
 [[symbols]]
 name = "GUI release signal dispatcher"
@@ -600,7 +600,7 @@ rva = 0x005ee550
 kind = "function"
 status = "verified-runtime"
 signature = "56 8b 70 04 85 f6 74 10"
-source = "used at runtime after press dispatch for Single Player and Play controls"
+source = "native GUI release callback dispatch with signal pointer in EAX after press dispatch; checked frontend use is limited to Single Player and Play on the captured controller thread; kernel/game_state/src/runtime.cpp DispatchNativeSignal; see mappings/evidence/campaign-automation.md#frontend-lifecycle"
 
 [[symbols]]
 name = "Selected event option action executor"
@@ -608,7 +608,7 @@ rva = 0x00507e00
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 6a ff"
-source = "static queued-action path synchronously calls option executor RVA 0x4a61f0; controlled country events 990001 option 0 and 990002 option 1 produced matching resolver event IDs with two records, no invalid layouts, and no drops; broader scopes, source-key semantics, and nested reentrancy are unverified"
+source = "x86 MSVC __thiscall uses ECX action and synchronously calls option executor RVA 0x004a61f0; action +0x64 is selected option, +0x68 embedded event snapshot, and resolver +0x44 has narrow country-event ID correlation; source words +0x70/+0x74 remain opaque; broader scopes, ownership/lifetime, and nested reentrancy are unverified; see mappings/evidence/gfm-workload.md#selected-event-option-boundary"
 
 [[symbols]]
 name = "CRegionScopeEffect executor"
@@ -640,7 +640,7 @@ rva = 0x000b39a0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 53 8b 5d 08 57 8b be c8 00 00 00 85 ff"
-source = "called by CRemoveProvinceModifierEffect with CProvince* in ESI and a stack-passed modifier-definition pointer; checked runtime removal and list postconditions are recorded in mappings/evidence/province-reconciliation.md"
+source = "CRemoveProvinceModifierEffect calls with CProvince* in ESI and stack-passed definition pointer, ret 4 with no success result; compares active-record +0x8, marks node +0xc when province guard +0xd4 is nonzero, otherwise unlinks/frees matching nodes and decrements count; immediate removal has narrow runtime correlation, deferred drain and duplicate removal do not; see mappings/evidence/province-reconciliation.md#modifier-removal"
 
 [[symbols]]
 name = "CHasProvinceModifierTrigger evaluator"
@@ -672,14 +672,14 @@ rva = 0x001661b0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 51 8b 4d 08 53 56 8b f0 8b 41 14 57"
-source = "modifier add, remove, and presence parser paths pass the definition registry in EAX and one MSVC string pointer on the stack; runtime resolution of all four pinned GFM keys is recorded in mappings/evidence/province-reconciliation.md"
+source = "modifier add, remove, and presence parsers pass the definition registry in EAX and one MSVC-string pointer on the stack, returning an opaque definition; distinct-key resolution has active-campaign correlation for four pinned GFM slave-trade keys; duplicate keys and other lifecycle phases are unverified; see mappings/evidence/province-reconciliation.md#modifier-lookup"
 
 [[symbols]]
 name = "Modifier-definition registry pointer"
 rva = 0x00e5a69c
 kind = "data"
 status = "verified-runtime"
-source = "loaded by add/remove province modifier effect and has-province-modifier trigger parser paths before named lookup at RVA 0x001661b0; runtime registry lifetime is recorded in mappings/evidence/province-reconciliation.md"
+source = "add/remove province modifier effect and has-province-modifier trigger parsers load this registry before named lookup RVA 0x001661b0; lookup has active-campaign correlation, not general registry lifetime or cross-transition pointer authority; see mappings/evidence/province-reconciliation.md#modifier-lookup"
 
 [[symbols]]
 name = "Issue-option lookup"
@@ -687,21 +687,21 @@ rva = 0x00575ed0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 51 8b 4d 08 53 56 8b f0 8b 41 14 57"
-source = "CIssueGroupTrigger parser at RVA 0x004c4a70 passes the issue-option registry in EAX and an MSVC string pointer on the stack; runtime no_slavery resolution is recorded in mappings/evidence/province-reconciliation.md"
+source = "CIssueGroupTrigger parser RVA 0x004c4a70 passes the issue-option registry in EAX and an MSVC-string pointer on the stack; accepts the returned option only when option+0x54 equals this+0x20 group; no_slavery has narrow active-GFM correlation; see mappings/evidence/province-reconciliation.md#political-reform-selection"
 
 [[symbols]]
 name = "Issue-option registry pointer"
 rva = 0x00e58a48
 kind = "data"
 status = "verified-runtime"
-source = "loaded by CIssueGroupTrigger parser at RVA 0x004c4ad4 before issue-option lookup at RVA 0x00575ed0; runtime registry lifetime is recorded in mappings/evidence/province-reconciliation.md"
+source = "CIssueGroupTrigger parser RVA 0x004c4ad4 loads this registry before issue-option lookup RVA 0x00575ed0; active-GFM option resolution does not establish general registry lifetime; see mappings/evidence/province-reconciliation.md#political-reform-selection"
 
 [[symbols]]
 name = "Country database pointer"
 rva = 0x00e587e4
 kind = "data"
 status = "verified-runtime"
-source = "CIssueGroupTrigger evaluator resolves the country index from province+0x12c through the pointer array at database+0x4; bounded current-owner runtime validation is recorded in mappings/evidence/province-reconciliation.md"
+source = "CIssueGroupTrigger evaluator resolves current owner from province key/index +0x128/+0x12c through the database pointer array at +0x4; bounded owner/option correlation does not establish a general database layout or cross-transition pointer lifetime; see mappings/evidence/province-reconciliation.md#political-reform-selection"
 
 [[symbols]]
 name = "Pause/unpause controller candidate"
@@ -733,7 +733,7 @@ rva = 0x0024edb0
 kind = "function"
 status = "verified-runtime"
 signature = "c6 81 20 1d 00 00 01 c3"
-source = "accepted QUIT DefaultDialog callback RVA 0x276500 invokes primary CInGameIdler vtable +0x110; x86 __thiscall method sets this+0x1d20; the campaign_runner native-exit fixture read back 1 and exited without external termination"
+source = "accepted QUIT DefaultDialog callback RVA 0x276500 invokes primary CInGameIdler vtable +0x110; x86 __thiscall method sets this+0x1d20=1 to request native exit; request-flag readback is not a checkpoint save or final game-state assertion; see mappings/evidence/campaign-automation.md#native-exit"
 
 [[symbols]]
 name = "CInGameIdler endgame check"
@@ -741,14 +741,14 @@ rva = 0x0025548d
 kind = "instruction"
 status = "verified-runtime"
 signature = "3b 50 0c 7e 1e 8b 83 6c 1d 00 00 80 78 67 00 75 0b"
-source = "native branch compares CGameState+0xb0c with [campaign defines RVA 0xe586dc]+0xc, then checks CInGameIdler+0x1d6c visibility at +0x67; live endgame and ordinary-pause comparison documented in mappings/evidence/campaign-automation.md"
+source = "compares CGameState+0xb0c with [campaign defines RVA 0xe586dc]+0xc, then checks CInGameIdler+0x1d6c dialog visibility +0x67; game over requires date beyond end and visibility 1 with window vtable RVA 0xa3c0d8, not pause or dialog existence alone; see mappings/evidence/campaign-automation.md#game-over-mapping"
 
 [[symbols]]
 name = "Campaign defines pointer"
 rva = 0x00e586dc
 kind = "global"
 status = "verified-runtime"
-source = "dereferenced by the endgame branch at RVA 0x25548d; +0xc correlated with the configured end date in visible endgame state"
+source = "endgame branch RVA 0x25548d dereferences this pointer and compares +0xc end date against CGameState+0xb0c; only the end-date field has runtime correlation, not the surrounding defines layout; see mappings/evidence/campaign-automation.md#game-over-mapping"
 
 [[symbols]]
 name = "CGameState daily pacing update"
@@ -764,7 +764,7 @@ rva = 0x00285620
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 64 a1 00 00 00 00"
-source = "called repeatedly inside the daily simulation routine; speed-5 interval experiments changed application-pump frequency"
+source = "checkpoints inside daily country, POP, unit, and economy loops use the speed-indexed interval table at RVA 0x00b0956c to decide when to call application pump RVA 0x005df2b0; intra-day responsiveness interval, not delay between days; see mappings/evidence/speed-control.md#intra-day-servicing"
 
 [[symbols]]
 name = "Speed-up message handler"
@@ -772,7 +772,7 @@ rva = 0x0032ee90
 kind = "function"
 status = "verified-runtime"
 signature = "8b 0d e8 88 25 01 8b 81 28 0b 00 00 40 83 f8 04"
-source = "campaign_runner invoked this until runtime readback CCurrentGameState+0xb28 reached 4; handler increments and clamps to 4"
+source = "increments CGameState+0xb28 and clamps to speed index 4 (displayed speed 5); consumers use a five-element table, so index 5 is unsafe; kernel/game_state/src/runtime.cpp SetSpeedVerified; see mappings/evidence/speed-control.md#native-speed"
 
 [[symbols]]
 name = "Speed-down message handler"
@@ -780,7 +780,7 @@ rva = 0x0032efe0
 kind = "function"
 status = "verified-runtime"
 signature = "8b 0d e8 88 25 01 8b 81 28 0b 00 00 48 83 f8 04"
-source = "campaign_runner selected profile speed 2 at runtime with exact per-step CCurrentGameState+0xb28 readback"
+source = "decrements CGameState+0xb28 within native speed range 0..4; runtime decrement correlation covers movement from a higher speed to index 1 (displayed speed 2), not every starting state; kernel/game_state/src/runtime.cpp SetSpeedVerified; see mappings/evidence/speed-control.md#native-speed"
 
 [[symbols]]
 name = "Application message/render service pump"
@@ -796,7 +796,7 @@ rva = 0x00a45bb8
 kind = "data"
 status = "verified-runtime"
 signature = "17 b7 d1 38"
-source = "float 0.0001 selected at CGameState daily pacing RVA 0x282c59; changing to 0.000001 had no measurable effect"
+source = "float 0.0001 seconds selected for speed index 4 at daily pacing RVA 0x282c59; threshold before date advancement, distinct from the intra-day application-service interval; see mappings/evidence/speed-control.md#daily-pacing"
 
 [[symbols]]
 name = "Intra-day application service intervals"
@@ -903,7 +903,7 @@ fields = [
 [[layouts]]
 name = "SinglePlayerFrontendController"
 status = "verified-runtime"
-source = "constructor, manual save selection, and unattended autosave entry traces"
+source = "constructor RVA 0x36a2f0 identifies the controller; +0x278 is GUI registry, +0x590 selected-save basename, +0x5bc selection-pending flag, and +0x5bd load-completion flag; normal update calls LoadSave at RVA 0x36f8b3 then clears pending and sets loaded; load completion is distinct from campaign entry; see mappings/evidence/campaign-automation.md#frontend-lifecycle"
 fields = [
   { name = "gui_registry", offset = 0x0278 },
   { name = "selected_save", offset = 0x0590 },
@@ -914,7 +914,7 @@ fields = [
 [[layouts]]
 name = "MainMenuController"
 status = "verified-runtime"
-source = "constructor/destructor hooks and native Single Player dispatch; update RVA 0x354f90 statically confirms the lookup sequence"
+source = "constructor RVA 0x354a00 and destructor RVA 0x354df0 bound controller lifetime; update RVA 0x354f90 reads +0x704 GUI registry, uses registry slot +0x6c for mainmenu_panel and panel slot +0x34 for single_player_button; see mappings/evidence/campaign-automation.md#frontend-lifecycle"
 fields = [
   { name = "gui_registry", offset = 0x0704 },
 ]
@@ -922,7 +922,7 @@ fields = [
 [[layouts]]
 name = "CInGameIdler"
 status = "verified-runtime"
-source = "pause, native quit, and endgame branch/runtime observations"
+source = "TogglePause RVA 0x26a2c0 toggles byte +0x1538; RequestQuit RVA 0x24edb0 sets +0x1d20; endgame branch RVA 0x25548d uses dialog +0x1d6c with visibility +0x67 and configured end date; narrow controller fields, not a complete idler layout; see mappings/evidence/campaign-automation.md#game-over-mapping"
 fields = [
   { name = "pause_state", offset = 0x1538 },
   { name = "quit_requested", offset = 0x1d20 },
@@ -932,7 +932,7 @@ fields = [
 [[layouts]]
 name = "CampaignDefines"
 status = "verified-runtime"
-source = "endgame branch at RVA 0x25548d and live current/end-date comparison"
+source = "endgame branch RVA 0x25548d reads end_date +0xc through global RVA 0x00e586dc and compares current raw date CGameState+0xb0c; only this defines field is correlated, not the full object; see mappings/evidence/campaign-automation.md#game-over-mapping"
 fields = [
   { name = "end_date", offset = 0x000c },
 ]
@@ -961,7 +961,7 @@ fields = [
 [[layouts]]
 name = "CCreditor"
 status = "verified-runtime"
-source = "PayDailyInterest and RepayLoan static data flow plus runtime/save correlation: SWE interest=0.01999 maps to +0x10 raw 655 and debt=14969.11719 maps to +0x18 raw 490508032; the seven-day repayment fixture bracketed 12 exact principal reductions with retained creditor/debtor identity"
+source = "PayDailyInterest and RepayLoan data flow plus save correlation identify destination tag/ordinal +0x08/+0x0c, rate +0x10 and principal +0x18 at /32768, and was_paid byte +0x20; repayment reduces principal by requested raw amount at the correlated boundary, not every branch; see mappings/evidence/interest-payout.md#borrower--named-bank"
 fields = [
   { name = "destination_tag", offset = 0x08 },
   { name = "interest", offset = 0x10 },
@@ -973,7 +973,7 @@ fields = [
 name = "CFlag"
 status = "historical-unverified"
 size = 0x20
-source = "size and key layout from existing flags.hpp; PMIA 1.9.0 independently corroborates value at +0x1c"
+source = "historical flags.hpp supplies size 0x20 and key layout; PMIA 1.9.0 flag-query helper independently reads boolean +0x1c after CTernary lookup; full extent and key layout lack current verification; see mappings/research/ai-static-leads.md"
 fields = [
   { name = "key", offset = 0x00 },
   { name = "value", offset = 0x1c },
@@ -983,13 +983,13 @@ fields = [
 name = "CFlags"
 status = "historical-unverified"
 size = 0x2c
-source = "size from existing flags.hpp; PMIA 1.9.0 calls CTernary<CFlag *>::Get(const char *) on CCountry+0x1b0"
+source = "historical flags.hpp supplies size 0x2c; PMIA 1.9.0 flag-query helper calls CTernary<CFlag *>::Get(const char *) at vtable +0x08 on CCountry+0x1b0; lookup corroboration does not verify full object size; see mappings/research/ai-static-leads.md"
 
 [[layouts]]
 name = "CState"
 status = "provisional"
 size = 0x0290
-source = "constructor RVA 0x000cdc60 and three allocation call sites establish size; benchmark save and runtime correlate persistent ID +0x0c, province indices +0x48, factory list +0x60, embedded CPopProject +0x1c8, and scaled POP savings +0x258; save serialization names +0x260 interest and CBank::DistributeInterest at RVA 0x000f5bf0 writes its savings-weighted state shares there"
+source = "constructor RVA 0x000cdc60 and allocation callers RVAs 0x000fc0cb, 0x00121785, and 0x001218fb establish size 0x290; narrow save/runtime correlations identify persistent ID +0x0c, four-byte province indices +0x48, factory list +0x60, and embedded CPopProject +0x1c8; serialization names +0x258 savings and +0x260 interest, written by CBank::DistributeInterest RVA 0x000f5bf0; these fields do not verify the full layout or establish a native pool consumer; see mappings/evidence/interest-payout.md#verified-traversal-and-mutation-boundaries"
 fields = [
   { name = "persistent_state_id", offset = 0x000c },
   { name = "provinces_candidate", offset = 0x0048 },
@@ -1017,7 +1017,7 @@ fields = [
 name = "CWorldMarket.market_data_prefix"
 status = "verified-runtime"
 size = 0x054c
-source = "live RTTI resolves CWorldMarket; embedded CGoodsPool fields correlate byte-for-byte with benchmark save worldmarket pools and the live world-market fixture"
+source = "CGameState+0xbcc resolves RTTI CWorldMarket; narrow save correlations identify supply_pool +0x008, last_supply_pool +0x060, worldmarket_pool +0x120, demand +0x178, real_demand +0x1d0, price_pool +0x280, last_price_history +0x2d8, actual_sold +0x434, and actual_sold_world +0x4f4; goods use zero-based mod-load ordinals and /32768, with no producer/country sales attribution; see mappings/evidence/telemetry.md#world-market"
 fields = [
   { name = "supply", offset = 0x0008 },
   { name = "last_supply", offset = 0x0060 },
@@ -1034,7 +1034,7 @@ fields = [
 name = "CPopEmployment"
 status = "verified-runtime"
 size = 0x0010
-source = "RTTI and live CStateBuilding employment vectors resolved POP pointers and assigned counts; benchmark save and UI totals match every Brandenburg assignment"
+source = "RTTI and CStateBuilding+0xf0 employment vectors identify 16-byte records with POP pointer +0x8 and assigned count +0xc; type-key splits have narrow save/UI correlation, not a general employment lifecycle contract; see mappings/evidence/telemetry.md#established-fields-and-identity"
 fields = [
   { name = "pop", offset = 0x0008 },
   { name = "assigned_count", offset = 0x000c },
@@ -1044,7 +1044,7 @@ fields = [
 name = "CProductionType"
 status = "verified-runtime"
 size = 0x0160
-source = "constructor RVA 0x000dd0a0 establishes shape; live small-arms definition and vanilla production_types.txt correlate input pools, output CGoods pointer, and base output"
+source = "constructor RVA 0x000dd0a0 establishes shape; vanilla production_types.txt and narrow Small Arms definition correlation identify input/maintenance pools, output CGoods pointer +0x80, and base output +0x88; owner modifier +0xf0 selects a population type for RGO calculation, not general production policy; see mappings/evidence/telemetry.md#rgo-production"
 fields = [
   { name = "key", offset = 0x0008 },
   { name = "input_goods", offset = 0x0024 },
@@ -1058,7 +1058,7 @@ fields = [
 name = "CStateEmploymentRecord"
 status = "verified-runtime"
 size = 0x00b0
-source = "static callsites use province ID times 0xb0; live vector count equals the 3,249-province game-state vector and Berlin/Görlitz records match independent UI and POP observations"
+source = "accessor RVA 0x000c25b0 and callers index records by province ID times 0xb0; narrow UI/runtime correlations identify production/goods/province, efficiency/throughput/base size at /32768, employed count, and income at /32768000; vector length is not a mod-independent bound and income is not precious-metal cash creation; see mappings/evidence/telemetry.md#rgo-production"
 fields = [
   { name = "production_type", offset = 0x0008 },
   { name = "output_good", offset = 0x000c },
@@ -1077,7 +1077,7 @@ fields = [
 name = "CStateBuilding"
 status = "verified-runtime"
 size = 0x0220
-source = "RTTI and constructor RVA 0x000f2bc0 establish object shape; copy stride at VA 0x004c0a97 is 0x220, distinct from the 0x230 list-node allocation; live Prussian and Belgian runs correlated type, level, employees, output, finance, stockpile, and requested inputs; named serialization and live factory rundown establish injected money +0x210 and days +0x218, not project pointer +0x1d0 or subsidy +0x1d8; see mappings/evidence/telemetry.md#injection-fields-and-node-extent; static callsites RVA 0x000dd470 and 0x00084060 write requested recipe inputs remaining after stockpile subtraction, and Belgian partial fulfillment proves the retained pool is demand rather than purchases"
+source = "RTTI, constructor RVA 0x000f2bc0, and value-copy stride VA 0x004c0a97 establish payload 0x220, distinct from list-node 0x230; serialization writer VA 0x004f3ef0 uses subobject +8 to name injected_money at complete +0x210 and injected_days at +0x218, not goods-project pointer +0x1d0 or subsidy amount +0x1d8; RVAs 0x000dd470 and 0x00084060 write requested recipe/maintenance inputs after stock subtraction, not fulfilled purchases; finance and toggles have narrow save/UI correlations, not general funding or close semantics; see mappings/evidence/telemetry.md#injection-fields-and-node-extent"
 fields = [
   { name = "definition", offset = 0x0018 },
   { name = "level", offset = 0x0020 },
@@ -1136,7 +1136,7 @@ fields = [
 [[layouts]]
 name = "CCountryProvinceReconciliationView"
 status = "verified-runtime"
-source = "static issue-group paths plus bounded current-owner and political-option runtime validation recorded in mappings/evidence/province-reconciliation.md"
+source = "CIssueGroupTrigger evaluator RVA 0x004c4da0 reads CCountry+0x860 as a pointer to selected political options, indexed by group +0x50 for category 2; CSetPoliticalReformEffect RVA 0x004950b0 independently writes that array; current-owner selection has narrow correlation, live reform transitions remain unverified; see mappings/evidence/province-reconciliation.md#political-reform-selection"
 fields = [
   { name = "political_reform_options_pointer", offset = 0x0860 },
 ]
@@ -1144,7 +1144,7 @@ fields = [
 [[layouts]]
 name = "CProvinceModifierReconciliationView"
 status = "verified-runtime"
-source = "bounded province, current-owner, modifier-list, and iteration-guard runtime validation recorded in mappings/evidence/province-reconciliation.md"
+source = "presence/add/remove paths identify modifier-list head/tail/count +0xc8/+0xcc/+0xd0 and guard +0xd4; nonzero guard defers physical unlinking; CIssueGroupTrigger evaluator resolves current owner key/index +0x128/+0x12c; list links, tail, and count must agree before removal; broader province lifetime remains unverified; see mappings/evidence/province-reconciliation.md#province-modifier-storage"
 fields = [
   { name = "active_modifier_head", offset = 0x00c8 },
   { name = "active_modifier_tail", offset = 0x00cc },
@@ -1158,7 +1158,7 @@ fields = [
 name = "CProvinceModifierListNode"
 status = "verified-runtime"
 size = 0x0010
-source = "presence, add, and remove province-modifier paths plus bounded before-and-after list validation recorded in mappings/evidence/province-reconciliation.md; forced deferred-drain behavior remains unobserved"
+source = "presence/add/remove paths establish 0x10-byte node with record +0x0, previous +0x4, next +0x8, and deferred-removal marker +0xc; remover RVA 0x000b39a0 repairs links and decrements province count when guard is zero, otherwise marks the node; immediate removal has narrow runtime correlation, deferred drain remains unverified; see mappings/evidence/province-reconciliation.md#modifier-removal"
 fields = [
   { name = "modifier", offset = 0x0000 },
   { name = "previous", offset = 0x0004 },
@@ -1170,7 +1170,7 @@ fields = [
 name = "CActiveProvinceModifier"
 status = "verified-runtime"
 size = 0x0010
-source = "add path allocates 0x10 bytes and stores the resolved definition at +0x8 and computed expiry/date at +0xc; runtime definition correlation and targeted removal are recorded in mappings/evidence/province-reconciliation.md"
+source = "add path allocates 0x10 bytes and stores resolved definition at +0x8 and computed expiry/date at +0xc; presence/removal compare the definition pointer; full type, ownership, expiry encoding, and serialization interaction remain unverified; see mappings/evidence/province-reconciliation.md#province-modifier-storage"
 fields = [
   { name = "definition", offset = 0x0008 },
   { name = "expiry_date", offset = 0x000c },
@@ -1179,7 +1179,7 @@ fields = [
 [[layouts]]
 name = "CIssueGroup"
 status = "verified-runtime"
-source = "CIssueGroupTrigger and political/social/economic/military reform effect paths; runtime political-category and bounded-index validation are recorded in mappings/evidence/province-reconciliation.md"
+source = "CIssueGroupTrigger and reform effect paths identify group index +0x50 and category +0x5c; evaluator RVA 0x004c4da0 uses category 2 to index political options through CCountry+0x860; pinned GFM slavery group has narrow index/category correlation, not general reform-transition verification; see mappings/evidence/province-reconciliation.md#political-reform-selection"
 fields = [
   { name = "index", offset = 0x0050 },
   { name = "category", offset = 0x005c },
@@ -1188,7 +1188,7 @@ fields = [
 [[layouts]]
 name = "CIssueOption"
 status = "verified-runtime"
-source = "CSetPoliticalReformEffect resolves the target option's owning group before indexing the country selection array; current-owner option correlation is recorded in mappings/evidence/province-reconciliation.md"
+source = "CSetPoliticalReformEffect RVA 0x004950b0 follows target option+0x54 to owning group, then group+0x50 to index the selected-option array pointed to by CCountry+0x860; parser also requires option ownership to match its group; current-owner no_slavery correlation does not verify live reform transitions; see mappings/evidence/province-reconciliation.md#political-reform-selection"
 fields = [
   { name = "group", offset = 0x0054 },
 ]
@@ -1232,7 +1232,7 @@ fields = [
 name = "CPopArtisanEconomy"
 status = "verified-runtime"
 size = 0x0100
-source = "typed runtime and save correlation establish the object at CPop+0x1d4; the producer-sales fixture reconciled gross output and consecutive leftover inventory for 498 complete artisan intervals"
+source = "narrow typed/save correlation identifies economy at CPop+0x1d4: stock +0x00, recipe need +0x58, active production type +0xb0, production factor +0xc0, leftover +0xe0, and income +0xf8; quantities/fractions use /32768 and money /32768000; gross output = factor * base output >>15, while sales require consecutive identity/recipe boundaries and domestic/export attribution remains unproven; see mappings/evidence/telemetry.md#artisan-production"
 fields = [
   { name = "stockpile", offset = 0x0000 },
   { name = "recipe_need", offset = 0x0058 },
@@ -1251,7 +1251,7 @@ fields = [
 [[layouts]]
 name = "CBank"
 status = "verified-runtime"
-source = "save/runtime correlation identifies +0x10 as serialized bank money (SWE 75894.56842 -> raw 2486913218) and +0x18 as money_lent (21725.41159 -> raw 711898287); RepayLoan statically reduces lender +0x18 and the seven-day repayment fixture correlated exact creditor-principal reductions, including SWE's self-creditor; +0x08 ownership and +0x20 interest accumulation are separately runtime verified"
+source = "save/runtime correlation identifies owner +0x08, serialized money +0x10 and money_lent +0x18 at /32768, and temporary pending interest +0x20; RepayLoan reduces resolved nonzero-ordinal lender +0x18 with zero clamp, not reserves; pending interest is a separate distribution phase, not bank cash, and slot-zero lent is not a mirror of ordinal-zero principal; see mappings/evidence/fiscal-credit-boundaries.md#bank-and-ui-projection"
 fields = [
   { name = "country", offset = 0x08 },
   { name = "money", offset = 0x10 },

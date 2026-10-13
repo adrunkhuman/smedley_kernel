@@ -19,9 +19,7 @@ The kernel-owned game-state implementation checks the invariant handler bodies a
 ASLR-relocated global pointer before calling either message handler. It reads
 `CGameState+0xb28` after every call and rejects a transition that does not move
 exactly one index toward the requested profile speed. Both directions are
-`verified-runtime`: the launcher fixture selected speed 2 from the
-loaded campaign's higher initial speed, read back each decrement, and then
-verified that the campaign remained paused as requested.
+`verified-runtime`; speed selection and pause state are separate controls.
 
 ## Daily pacing
 
@@ -35,8 +33,8 @@ RVA `0x282bd0` selects these thresholds before advancing the simulation date:
 | 3 | 4 | 0.5 s |
 | 4 | 5 | 0.0001 s |
 
-Speed 5 is therefore already effectively unpaced. A runtime experiment lowering
-its threshold to `0.000001` produced no measurable improvement.
+Speed 5 is already effectively unpaced. A threshold of `0.000001` has no
+measured throughput advantage over the stock value.
 
 ## Intra-day servicing
 
@@ -47,12 +45,12 @@ RVA `0x5df2b0`. That pump services Windows messages and render-facing
 application interfaces. It is an intra-day responsiveness interval, not a
 delay between days.
 
-Manual speed-5 benchmarks found no durable acceleration from changing the
-speed-5 interval. Very low values were harmful because they ran the application
-pump at nearly every checkpoint; `0` reduced a light Jan Mayen test from about
-18 days/s to about 0.5 days/s. Values from `0.02` through `100.0` stayed near
-normal run-to-run variance in light and heavy-mod tests. Keep the stock `0.06`.
+Very low intervals increase application-pump work rather than accelerate daily
+simulation. At interval `0`, a light Jan Mayen campaign slows from about
+18 days/s to about 0.5 days/s because the pump runs at nearly every checkpoint.
+Intervals `0.02` through `100.0` have no established acceleration beyond normal
+variance in light and heavy-mod workloads. Keep the stock `0.06`.
 
-Minimization selects a background-throttled application path and roughly halved
-throughput in the light benchmark. The unattended harness should keep the game
-visible; no background-throttle patch is planned.
+Minimization selects a background-throttled application path. Throughput can
+roughly halve in a light campaign; keep the game visible for unattended runs.
+These figures are workload-specific, not general performance bounds.
