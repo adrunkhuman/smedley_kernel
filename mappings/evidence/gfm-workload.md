@@ -154,7 +154,7 @@ A historical two-day run substituted state capture
 records, `callback_count=0`, no failure reason, source unchanged. The same path
 worked on smaller vanilla state. This run did not verify GFM state capture and
 is not evidence of the current collector's behavior; see
-[current telemetry](../../docs/telemetry.md).
+[current telemetry](../../docs/telemetry/README.md).
 
 ## Region scope iteration boundary
 

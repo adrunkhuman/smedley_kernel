@@ -17,7 +17,7 @@ that needs synchronous callbacks or high-volume capture.
 | `interest_bug_fix` | Optionally pay omitted state interest to depositor POPs. Changes gameplay. |
 
 The kernel owns engine access. Plugins use versioned C services, not raw game
-objects or a C++ DLL ABI. See [architecture](docs/game-state-boundary.md).
+objects or a C++ DLL ABI. See [architecture](docs/architecture.md).
 
 ## Supported game
 
@@ -36,7 +36,7 @@ python tools/validate_mappings.py "C:\Games\Victoria 2\v2game.exe"
 
 ## Start
 
-1. [Build and install](BUILDING.md) with Windows, MSVC x86, and CMake.
+1. [Build and install](docs/development.md) with Windows, MSVC x86, and CMake.
 2. Run `smedley_launcher.exe` from the game directory.
 3. Select the game directory, mods, and trusted plugins. Review preflight
    diagnostics, then launch.
@@ -61,14 +61,14 @@ Run history records launcher activity—not successful injection or game health.
 
 | Task | Read |
 | --- | --- |
-| Build, install, and test | [Building](BUILDING.md) |
+| Build, install, test, and follow C++ style | [Development](docs/development.md) |
 | Launch and automate campaigns | [Launcher](docs/launcher.md) |
-| Capture and analyze game state | [Telemetry](docs/telemetry.md) |
+| Capture and analyze game state | [Telemetry](docs/telemetry/README.md) |
 | Write Lua extensions | [Scripting](docs/scripting.md) |
 | Enable the POP interest fix | [Interest fix](docs/interest-fix.md) |
 | Understand fiscal and credit behavior | [Modder reference](docs/fiscal-credit.md) |
-| Develop native plugins | [Plugin development](docs/plugin-development.md) |
-| Understand engine ownership and safety | [Game-state boundary](docs/game-state-boundary.md) |
+| Develop native plugins | [Plugins](docs/plugins.md) |
+| Understand engine ownership and safety | [Architecture](docs/architecture.md) |
 | Audit reverse-engineered claims | [Mapping catalog](mappings/README.md) |
-| Inspect Clausewitz script workloads | [Workload inventory](docs/workload-analysis.md) |
+| Inspect Clausewitz script workloads | [Workload inventory](docs/workload-inventory.md) |
 | Contribute | [Contributing](CONTRIBUTING.md) |

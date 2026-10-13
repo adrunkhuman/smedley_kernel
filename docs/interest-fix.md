@@ -79,6 +79,6 @@ tag or fabricate a date.
 
 For developer contracts, use the [interest-pool C header](../include/smedley/interest_pool_api.h),
 [event-services header](../include/smedley/event_services_api.h), and
-[plugin-development guide](plugin-development.md). For verified fields,
+[plugin guide](plugins.md). For verified fields,
 counterexamples, historical test scope, and remaining uncertainty, use the
 [claim-led mapping evidence](../mappings/evidence/interest-payout.md).

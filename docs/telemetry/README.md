@@ -48,11 +48,11 @@ narrow filters and inspect family health before relying on exports.
 
 | Need | Reference |
 | --- | --- |
-| Profile fields, CLI options, family/field catalog, cadence and filters | [Configuration](telemetry/configuration.md) |
-| JSONL envelope, event meanings, identities, units and availability | [Events](telemetry/events.md) |
-| Validation, inspection, strict derived CSV exports and GDP recipe | [Trace tool](telemetry/trace.md) |
-| Native observation services, publication ABI and coordinated drain | [Native API](telemetry/native-api.md) |
-| Mapping provenance, runtime results and unresolved claims | [Mapping evidence](../mappings/evidence/telemetry.md) |
+| Profile fields, CLI options, family/field catalog, cadence and filters | [Configuration](configuration.md) |
+| JSONL envelope, event meanings, identities, units and availability | [Events](events.md) |
+| Validation, inspection, strict derived CSV exports and GDP recipe | [Trace tool](trace.md) |
+| Native observation services, publication ABI and coordinated drain | [Native API](native-api.md) |
+| Mapping provenance, runtime results and unresolved claims | [Mapping evidence](../../mappings/evidence/telemetry.md) |
 
 ## Read traces safely
 
@@ -67,14 +67,14 @@ narrow filters and inspect family health before relying on exports.
 - Explicit unload drains accepted records. `campaign_runner` coordinates
   telemetry drain before opt-in native exit; busy, timeout or failure leaves the
   campaign paused and open. Absent/inactive/older telemetry may permit exit
-  without a final-summary or durability guarantee. See [drain semantics](telemetry/native-api.md#coordinated-drain).
+  without a final-summary or durability guarantee. See [drain semantics](native-api.md#coordinated-drain).
 - World holdings are separate observed categories, **not a money-supply
   identity**. POP lifecycle events are observed stock changes, not classified
   migration, birth, death, promotion, split or merge.
 
 Campaign lifecycle and benchmark events require `campaign_runner` and an active
 sink. Interest-fix records are currently rejected by the bundled sink; use its
-[CSV/log diagnostics](interest-fix.md#diagnose-a-run) instead. CSV debug mode
+[CSV/log diagnostics](../interest-fix.md#diagnose-a-run) instead. CSV debug mode
 truncates `<GAME_DIR>/interest_bug_fix.csv`, independently of trace overwrite
 policy.
 

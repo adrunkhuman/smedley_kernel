@@ -1,6 +1,6 @@
 # Telemetry events
 
-[Overview](../telemetry.md) · [Configuration](configuration.md) · [Trace tool](trace.md)
+[Overview](README.md) · [Configuration](configuration.md) · [Trace tool](trace.md)
 
 ## JSONL envelope v1
 

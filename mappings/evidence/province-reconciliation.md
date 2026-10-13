@@ -9,7 +9,7 @@ were retired. Pristine GFM retains its original cleanup block. Historical
 package acceptance does not establish current package behavior.
 
 See the [mapping catalog](../v2game-3.04.toml) for signatures and
-[service boundary](../../docs/game-state-boundary.md) for current API ownership.
+[service boundary](../../docs/architecture.md) for current API ownership.
 
 ## GFM contract
 

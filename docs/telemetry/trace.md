@@ -1,6 +1,6 @@
 # Trace tool
 
-[Overview](../telemetry.md) · [Configuration](configuration.md) · [Events](events.md)
+[Overview](README.md) · [Configuration](configuration.md) · [Events](events.md)
 
 `smedley_trace.exe` is installed beside the launcher/CLI. It streams JSONL
 without external dependencies.

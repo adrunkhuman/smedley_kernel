@@ -4,7 +4,7 @@ Native frontend entry, full-AI observer mode, speed/pause control, bounded-date
 runs, and native exit are `verified-runtime` on the supported executable.
 Automation dispatches Victoria II's own GUI signals, not synthetic input.
 See [launcher controls](../../docs/launcher.md) for usage,
-[service boundaries](../../docs/game-state-boundary.md) for ownership, and the
+[service boundaries](../../docs/architecture.md) for ownership, and the
 [mapping catalog](../v2game-3.04.toml) for signatures.
 
 ## Sequence
@@ -137,7 +137,7 @@ save name/flag writes, load flag `+0x5bd`, RTTI entry, observer postconditions,
 speed and pause readback. `observer.configured` waits for a valid view after
 requested switching. Tags are three normalized uppercase ASCII alphanumeric
 characters, including dynamic tags such as `D01`. See
-[telemetry](../../docs/telemetry.md) for the record contract.
+[telemetry](../../docs/telemetry/README.md) for the record contract.
 
 | Acceptance | Evidence |
 | --- | --- |

@@ -161,7 +161,7 @@ Before any engine read, call, hook, or write:
 ## Verification
 
 - Build the injected runtime with MSVC for x86 Release and run the complete
-  CTest suite. Follow `BUILDING.md` for commands and supported tooling.
+  CTest suite. Follow `docs/development.md` for commands and supported tooling.
 - Run ownership, layering, DLL-boundary, and mapping validation relevant to the
   changed boundary.
 - Host tests do not establish live-game behavior. For engine mappings, hooks,
@@ -184,13 +184,12 @@ domain document before changing that area:
 
 | Area | Source |
 | --- | --- |
-| Build, install, and validation tooling | `BUILDING.md` |
+| Build, install, validation tooling, and C++ style | `docs/development.md` |
 | Contribution workflow and issue reporting | `CONTRIBUTING.md` |
-| Repository C++ style | `STYLING.md` |
-| Plugin ABI, manifests, services, and examples | `docs/plugin-development.md` |
-| Engine ownership and service boundaries | `docs/game-state-boundary.md` |
+| Plugin ABI, manifests, services, and examples | `docs/plugins.md` |
+| Engine ownership and service boundaries | `docs/architecture.md` |
 | Launcher, profiles, and automation options | `docs/launcher.md` |
-| Telemetry schemas, capture, health, and exports | `docs/telemetry.md` |
+| Telemetry schemas, capture, health, and exports | `docs/telemetry/README.md` |
 | Scripting API and limits | `docs/scripting.md` |
 | Interest-fix behavior and configuration | `docs/interest-fix.md` |
 | Mapping catalog and evidence | `mappings/README.md` and `mappings/` |

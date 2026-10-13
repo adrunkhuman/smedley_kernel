@@ -1,4 +1,4 @@
-# Game-state boundary
+# Architecture
 
 The kernel owns all Victoria II engine access. Plugins receive copied records
 and opaque handles through versioned C services; they own feature policy, not
@@ -25,7 +25,7 @@ Tests enforce complementary boundaries:
 These checks enforce source/build policy; they do not prove that arbitrary
 native code is safe. There is no CMake raw-adapter registration escape hatch.
 Retired `smedley/v2`, `smedley/clausewitz`, and `smedley/std` mirrors are not
-compatibility surfaces. See [build checks](../BUILDING.md) and
+compatibility surfaces. See [build checks](development.md#testing) and
 [mirror provenance](../mappings/research/retired-engine-mirrors.md).
 
 ## References and snapshots
@@ -50,7 +50,7 @@ or become numeric zero. A snapshot does not extend the source object's lifetime.
 
 ## Public services
 
-[Plugin development](plugin-development.md) covers discovery, lifecycle, daily
+[Plugins](plugins.md) covers discovery, lifecycle, daily
 events, logging, and examples. The engine tables are:
 
 | Header | Discovery symbol | Capability |

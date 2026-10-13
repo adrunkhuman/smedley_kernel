@@ -1,6 +1,6 @@
 # Telemetry configuration
 
-[Overview](../telemetry.md) · [Events](events.md) · [Trace tool](trace.md)
+[Overview](README.md) · [Events](events.md) · [Trace tool](trace.md)
 
 ## Profile fields
 

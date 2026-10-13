@@ -1,6 +1,6 @@
 # Native telemetry APIs
 
-[Overview](../telemetry.md) · [Events](events.md)
+[Overview](README.md) · [Events](events.md)
 
 The kernel owns engine reads/hooks; the telemetry plugin owns cadence,
 filtering, aggregation, valuation, reconciliation and JSON shaping. Native

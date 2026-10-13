@@ -3,16 +3,19 @@
 Contributions to Smedley are welcome. For project discussion, join the
 [Discord server](https://discord.gg/4SbmmDzNyy).
 
-## Before contributing
+## Workflow
 
-Read the repository guidance in [`AGENTS.md`](AGENTS.md), the build instructions
-in [`BUILDING.md`](BUILDING.md), and the [styling guide](STYLING.md). Work that
-depends on reverse-engineered behavior must also follow the evidence rules in
-[`mappings/`](mappings/).
+Read [repository guidance](AGENTS.md) and the
+[development guide](docs/development.md) for build, install, testing, and C++
+style conventions. Reverse-engineered behavior must follow the
+[mapping evidence rules](mappings/README.md).
 
-## Resources
-
-- [Smedley documentation](https://shenso.github.io/smedley_kernel/)
+Keep pull requests focused. Open an issue first when a proposed change needs
+coordination. State the changed behavior and why it changed; include validation
+evidence and identify compatibility effects, migrations, untested paths, and
+remaining limitations. Run the [complete test suite](docs/development.md#testing)
+and relevant boundary checks. Host tests do not establish live-game behavior;
+follow the [validation limits](docs/development.md#validation-limits).
 
 ## Reporting bugs and issues
 
@@ -21,29 +24,7 @@ the exact command or profile, enabled plugins and mods, reproduction steps,
 expected and observed behavior, and relevant logs or trace IDs. Preserve exact
 paths, values, and error messages where they help reproduce the problem.
 
-## Testing
+## Resources
 
-Smedley uses GoogleTest and CTest. After building, run:
-
-```powershell
-ctest --test-dir build -C Release --output-on-failure
-```
-
-This includes the engine ownership audit and its tool tests. For a focused
-check while changing target boundaries, run:
-
-```powershell
-python tools/check_engine_ownership.py --root .
-python tools/tests/check_engine_ownership_test.py
-```
-
-## Submitting changes
-
-Keep pull requests focused. State the changed behavior and why it changed,
-include targeted validation evidence, and identify compatibility effects,
-migrations, untested paths, and remaining limitations. Follow the project style
-guide. Open an issue first when a proposed change needs coordination.
-
-## Styling
-
-See the [styling guide](STYLING.md).
+- [Project overview and documentation index](README.md)
+- [Smedley documentation](https://shenso.github.io/smedley_kernel/)

@@ -1,6 +1,6 @@
 # Telemetry mapping evidence
 
-Current [user contracts](../../docs/telemetry.md) are separate from this evidence.
+Current [user contracts](../../docs/telemetry/README.md) are separate from this evidence.
 The supported target is the English Windows HoD 3.04 executable specified in
 [AGENTS.md](../../AGENTS.md). All runs below are **historical validation of their
 recorded implementation**, not verification of the current worktree. No runtime

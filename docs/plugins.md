@@ -1,4 +1,4 @@
-# Plugin development
+# Plugins
 
 Native plugins are trusted x86 Windows DLLs loaded into Victoria II. They are
 not sandboxed and have the same filesystem, memory, and process access as the
@@ -6,14 +6,14 @@ user running the game. Prefer the constrained scripting API when its copied
 state and queued operations are sufficient.
 
 Bundled-plugin ownership and the internal typed-reader boundary are documented
-in [`game-state-boundary.md`](game-state-boundary.md).
+in [architecture](architecture.md).
 
 ## Kernel-owned engine services
 
 Plugins dynamically resolve versioned C services for copied state and checked
 operations. They retain lifecycle, publication, and gameplay policy; engine
 traversal, hooks, native calls, and session state belong to the kernel. See the
-[service catalog and lifetime rules](game-state-boundary.md#public-services).
+[service catalog and lifetime rules](architecture.md#public-services).
 Internal C++ declarations are not a plugin ABI.
 
 The current export sets include `SmedleyPluginGetApiV1` for every bundled plugin.
@@ -24,7 +24,7 @@ generation is disabled for the kernel and plugins; the kernel exports only its
 explicit loader entry points and versioned C service providers.
 
 First-party plugins have no raw-adapter exception. Source, ownership, and DLL
-[boundary audits](game-state-boundary.md#ownership) enforce this separation.
+[boundary audits](architecture.md#ownership) enforce this separation.
 
 ## Foreign engine objects
 

@@ -168,7 +168,7 @@ is reported as partial mutation and does not enable payouts. The C ABI exposes c
 opaque callback-scoped handles, never engine pointers. Exact tables/authority
 contracts belong in [interest_pool_api.h](../../include/smedley/interest_pool_api.h),
 [event_services_api.h](../../include/smedley/event_services_api.h), and the
-[plugin guide](../../docs/plugin-development.md), not a duplicated API here.
+[plugin guide](../../docs/plugins.md), not a duplicated API here.
 
 ### Allocation and write constraints
 
