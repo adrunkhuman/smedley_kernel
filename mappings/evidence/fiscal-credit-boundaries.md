@@ -74,7 +74,8 @@ VA `0x00488add`, and records the amount at daily accounting `+0x18` via VA
 | --- | --- | --- |
 | Source family at VAs `0x0053e567`, `0x0053e69f`, `0x0053e781`, `0x0053e7ff` | Located | Economic category unresolved |
 | Accounting `+0x28` source at VA `0x00508c6d` | Located | Economic category unresolved |
-| Other source VAs `0x00508e6b`, `0x0050c262`, `0x005235a4`, `0x00523697`, `0x00523819`, `0x0048893c` | Located | Economic categories unresolved |
+| Loan-proceeds source VAs `0x005235a4`, `0x00523697`, `0x00523819` | `verified-static-callsites` | Origination treasury credits; see loan lifecycle below. |
+| Other source VAs `0x00508e6b`, `0x0050c262`, `0x0048893c` | Located | Economic categories unresolved |
 | Money-mutator sink at VA `0x005257fa` | `verified-static-callsites` | Zero-clamped; budget category unresolved |
 | Treasury write at VA `0x00505ec2` | Located | Writes raw `32768000`; lifecycle unresolved |
 
@@ -84,8 +85,27 @@ VA `0x00488add`, and records the amount at daily accounting `+0x18` via VA
 
 `CCountry::TakeLoan` at RVA `0x00122910` is
 `verified-static-callsites`. It attempts a domestic self-tagged creditor before
-the ordinal-zero Shadowy Financiers fallback. Detailed origination evidence is
-in [interest payout](interest-payout.md#borrower--named-bank).
+the ordinal-zero Shadowy Financiers fallback. Origination helper VA
+`0x00523400` increases creditor principal and debtor treasury; it is not merely
+an interest calculator. Named borrowing also increases lender-bank `money_lent`
+(`+0x18`) without debiting bank `money` (`+0x10`).
+
+Ordinal zero does **not** imply a universally absent bank mutation:
+
+| Path | `verified-static-callsites` contract |
+| --- | --- |
+| Existing ordinal-zero creditor | Successful top-up at VAs `0x00523561`–`0x005235bb` increases principal/treasury without a bank-lent store. |
+| New ordinal-zero creditor | VAs `0x0052348e`–`0x0052349a` resolve the ordinal's country/bank, including slot zero. New-creditor code at VAs `0x00523806`–`0x00523834` tests bank-pointer nullness, not ordinal, and increases a non-null bank's lent field. |
+
+`verified-runtime`: the slot-zero bank is non-null in the native banking fixture;
+its lent field grows by `198313` and `560251` raw between sampled daily passes,
+alongside first-observed ordinal-zero creditor entries. These are not atomic
+origination brackets and cannot be assigned to individual requested amounts.
+Subsequent observed ordinal-zero principal grows by `19996082` raw while the
+slot-zero lent value stays fixed: lent is not a mirror of outstanding zero-
+ordinal principal. Interest still skips zero-ordinal pending credit, and reviewed
+repayment skips zero-ordinal lender-bank reduction. Fixture, scope and capture
+identity are in [native banking observations](interest-payout.md#native-banking-observations).
 
 ### Daily interest
 
@@ -94,7 +114,7 @@ in [interest payout](interest-payout.md#borrower--named-bank).
 
 1. A sufficient payment debits debtor treasury, credits the resolved nonzero-
    ordinal creditor bank at `+0x20`, and sets `CCreditor.was_paid`.
-2. An ordinal-zero creditor receives no destination-bank mutation.
+2. An ordinal-zero creditor receives no bank pending-interest (`+0x20`) credit.
 3. An insufficient payment accumulates a shortfall and leaves `was_paid` clear.
 4. A positive shortfall above the threshold calls RVA `0x001241f0`.
 
@@ -109,8 +129,9 @@ contain unrelated construction refunds.
 `0x0018beec` are `verified-runtime`. The function reduces creditor debt and
 debtor treasury. For a nonzero lender ordinal it also reduces the resolved
 lender's `CBank.money_lent`, clamped at zero; Shadowy Financiers skip the bank
-mutation. It removes creditor entries that reach zero, but that branch is only
-`verified-static-callsites`.
+mutation. It removes creditor entries that reach zero; this is statically
+established and runtime-correlated by the full UI repayment below. The reviewed repayment path
+does not credit bank reserves.
 
 Run `3f63c64b-601f-4828-a85b-9ab234de7f4c` captured 12 calls with D01 -> ENG,
 BRZ -> USA, and SWE -> SWE identities. Every call satisfied:
@@ -121,6 +142,25 @@ requested raw = -delta debtor treasury = -delta creditor debt
 
 One SWE call requested `98304` raw (`3.0` pounds) and reduced treasury, debt,
 and the next sampled `bank.money_lent` by that amount.
+
+### Native UI loan and full repayment
+
+`verified-runtime`: paused native UI actions in an isolated vanilla Prussia
+campaign, no Smedley or mods, move exactly `19628032` raw (£599). The loan adds
+seven named creditors; each principal increase equals its lender-bank lent
+increase, and their sum equals the treasury credit. Full repayment debits the
+same treasury amount, reduces each lender's lent by its principal and removes
+all seven creditors. Both before/after pairs have unchanged dates; bank
+reserves/pending and state savings/pools remain unchanged in each pair.
+This is principal consistency, not reserve-to-treasury conservation; it covers
+sufficient-treasury named repayment, not ordinal-zero repayment or shortfall.
+
+| Snapshot | SHA-256 |
+| --- | --- |
+| Loan before | `5200a4a94694b1511c24b4c42155bf3ff9fde3efaa1655d148458355fa0e37ef` |
+| Loan after | `f238dd6929a45b72a7bc82528d241a8797090f6bbab028b2327c1f9325e4b5cd` |
+| Repayment before | `c4ca99c7e6a78f3fbd2a0011076f965ed3b9419fbd56b9f2a15bc8d396c21345` |
+| Repayment after | `926c3e0f2e12767315337ea8bd1724d07cb3c0df3b833927cc0a822038bc4da5` |
 
 ### Interest shortfall and default
 

@@ -1,9 +1,10 @@
 # Native interest pipeline and POP payout evidence
 
 The supported executable charges borrowers, credits named creditor banks, and
-allocates bank interest to state pools. Static analysis and native cash-flow
-capture find **no state-to-POP consumer**. The opt-in `interest_bug_fix` supplies
-that last stage, consuming native state pools rather than bypassing native bank
+allocates bank interest to state pools. **No state-to-POP consumer was identified
+in the reviewed static paths or sampled native cash-flow phases**; this does not
+exclude later, indirect, or transient payouts. The opt-in `interest_bug_fix`
+supplies that last stage, consuming native state pools rather than bypassing native bank
 policy. See the [user guide](../../docs/interest-fix.md) for current operation.
 
 This document records mapping claims, counterexamples, and historical runtime
@@ -64,9 +65,9 @@ this bank credit for ordinal zero.
 | Claim | Evidence level and basis |
 | --- | --- |
 | Domestic debt is a named self-creditor | `verified-static-callsites`: `TakeLoan` RVA `0x00122910` passes the debtor's own country tag/ordinal (`+0x1c/+0x20`) through `CanTakeLoanFrom` and `TakeLoanFrom`; it uses the same nonzero-ordinal credit path as foreign debt. |
-| Ordinal-zero debt has no lender POPs or destination-bank credit | `verified-runtime` path plus static creation: fallback writes literal `---`, ordinal zero at VA `0x00522c24`–`0x00522c27`, then calls `TakeLoanFrom` at VA `0x00522c6a`. A diagnostic captured 22 entries with key `0x2d2d2d`, ordinal zero, paid byte one. Localisation `SHADOWY_INVESTOR` displays “Private Investors”; vanilla `SHADOWY_FINANCIERS_MAX_LOAN_AMOUNT` is 1500. Leave this flow untouched/unallocated. |
+| Ordinal-zero interest has no depositor destination or bank pending credit | `verified-runtime` path plus static creation: fallback writes literal `---`, ordinal zero at VA `0x00522c24`–`0x00522c27`, then calls `TakeLoanFrom` at VA `0x00522c6a`. A diagnostic captured 22 entries with key `0x2d2d2d`, ordinal zero, paid byte one. Localisation `SHADOWY_INVESTOR` displays “Private Investors”; vanilla `SHADOWY_FINANCIERS_MAX_LOAN_AMOUNT` is 1500. Leave this flow untouched/unallocated. |
 | Creditor rate/principal units | `verified-runtime`: SWE serialized interest `0.01999` → raw `655`, debt `14969.11719` → raw `490508032`. Repayment run `3f63c64b` bracketed 12 exact requested/treasury/principal reductions with retained identities. |
-| Bank money/lent/pending fields are distinct | `verified-runtime`: bank `+0x10` is serialized `money`, `+0x18` is `money_lent`, `+0x20` is temporary interest, not bank cash. Repayment reduces lender `money_lent` only for resolved nonzero ordinals and clamps at zero; ordinal-zero loans have no destination-bank mutation. |
+| Bank money/lent/pending fields are distinct | `verified-runtime`: bank `+0x10` is serialized `money`, `+0x18` is `money_lent`, `+0x20` is temporary interest, not bank cash. Repayment reduces lender `money_lent` only for resolved nonzero ordinals and clamps at zero; reviewed ordinal-zero repayment skips that reduction. New and existing ordinal-zero loan origination differ; see [fiscal evidence](fiscal-credit-boundaries.md#origination). |
 | Immediate named transfer | `verified-runtime`: 12 calls and 40 individual positive destination deltas establish the bank credit; see the read-only run table. Exact debtor/bank conservation held in those fixtures, not universally. |
 
 **Counterexample: treasury delta is not a universal conservation signal.** The
@@ -105,9 +106,10 @@ assume that state increments sum to the cleared bank amount.
 
 **Counterexample: bank clearing is not state-pool conservation.** Five complete
 cross-date brackets cleared 71,785 raw pending-bank units but added only 8,555
-state units. Bank recapitalization explains why the state pool is not all
-charged interest. The superseded direct-creditor fix bypassed this policy; its
-conservation tests do not validate the current state-pool design.
+state units. Recapitalization and discarded remainder are separate native reasons
+why state pools need not receive all charged interest; this bracket alone does not
+identify the contribution of each. The superseded direct-creditor fix bypassed
+this policy; its conservation tests do not validate the current state-pool design.
 
 ### State pool → POP: missing native consumer and verified scale
 
@@ -144,9 +146,17 @@ The catalog's broader state object remains provisional.
 | State size and pool slots | `verified-static-callsites` constructor; `verified-runtime` pool/savings fields | Constructor **RVA `0x000cdc60`**, VA `0x004cdc60`; three callers allocate `0x290`, initialize `+0x258/+0x260` to zero. Earlier notes incorrectly treated the VA as an RVA. |
 | State provinces `+0x48` | `verified-runtime` | Four-byte game-state province indices; 346–661 destination provinces per creditor sample all resolved. |
 | Province POP vectors `+0x194/+0x198` | `verified-runtime` | 16-byte list records, exactly 13 per province in this fixture; list count/tail and linked POP walks agreed. This does not establish 13 as a universal limit. |
-| POP size/next/savings | `verified-runtime` | Allocation `0x288`, next `+0x27c`, savings `+0x250`; 2,635–5,565 linked POPs per creditor sample, no duplicates. |
-| `CPop::GiveMoney` RVA `0x0055a5f0` | `verified-runtime` | Seven direct callers establish EAX=POP, ESI=cash-flow type, stack 64-bit amount, `ret 8`; reversible run below verifies narrow effects. |
+| POP payload/node/next/savings | `verified-static-callsites` extents; `verified-runtime` traversal | Payload/value stride `0x278`, node allocation `0x288`, next `+0x27c`, savings `+0x250`; 2,635–5,565 linked POPs per creditor sample, no duplicates. See extent proof below. |
+| `CPop::GiveMoney` RVA `0x0055a5f0` | `verified-runtime` | Native body and reviewed direct callers establish EAX=POP, ESI=cash-flow type, stack 64-bit amount, `ret 8`; reversible run below verifies narrow effects. The complete direct-call scan has 15 callsites selecting indices 0–6, none 7; indirect/inlined consumers remain outside that scan. |
 | Interest cash-flow index 7 | `verified-static-callsites`, reversible slot effect `verified-runtime` | Presentation RVA `0x00566440` reads `+0x210`, index 7 of `+0x1d8`, formats `POP_DAILY_INTEREST`. Fixture changed/restored slot 7; it did not exercise presentation or snapshot every other slot. |
+
+**POP extent (`verified-static-callsites`).** Value-copy helper VA `0x004c0af0`
+advances source/destination by `0x278` at VAs `0x004c0b38/0x004c0b45`; constructors
+initialize/copy through dword `+0x274`. List creation allocates `0x288` at VAs
+`0x004b8d8e/0x004be161` and passes the unchanged base to copy constructor VA
+`0x00955450`. Previous/next/byte marker are outside the payload at
+`+0x278/+0x27c/+0x280`. This is separately allocated linked storage, not a
+contiguous `0x288` POP stride. Marker lifecycle and trailing padding are unclaimed.
 
 The retired read-only probe checked readable spans before snapshots, capped
 512 states and 1,024 province indices/state, 64 creditor destinations, 4,096
@@ -218,9 +228,31 @@ contracts. The [guide](../../docs/interest-fix.md) explains configuration and di
 
 ## Supporting runtime evidence
 
+### Native banking observations
+
+An isolated vanilla Prussia campaign on the cataloged executable, with no
+Smedley or mods, supplies passive GDB before/after observations at VAs
+`0x00508d3e/0x00508d43` and `0x00685f0f/0x00685f14`. Eight daily passes cover
+2,168 interest pairs and 2,176 bank pairs across 272 native country slots, with
+no capture errors or cap flags. These observations verify native boundaries,
+not the current plugin binary or its performance.
+
+| Observed contract | Result (`verified-runtime`) |
+| --- | --- |
+| Named-only interest | 13 calls: treasury debit = named bank credit, `134808` raw total. |
+| Mixed named/ordinal-zero interest | 27 calls: `203931` raw treasury debit, `108529` named bank credit; the `95402` difference matches ordinal-zero base dues. Shortfall execution is not established. |
+| Bank allocation | 64 positive calls clear `243337` pending raw units and add `25463` to state pools. All recorded state allocations match native arithmetic; the unallocated `217874` is discarded, not a unit-conversion discrepancy. No low-reserve or oversized-share case is exercised. |
+| Pool persistence and POP interest | Pools rise `10768` → `36231` over eight days. Interest flow 7 stays zero across 16,269 within-call and 14,214 adjacent-day common positive-savings POP observations. Later/indirect/transient payout and other POPs are not excluded. |
+
+Why state savings weights do not sum to the bank denominator remains unresolved.
+Ordinal-zero origination observations are qualified in
+[fiscal evidence](fiscal-credit-boundaries.md#origination).
+Capture SHA-256:
+`eaf487929652f166f8118ce6603a2950348ab0af7219b5088418332282c77fc7`.
+
 ### Common fixture and scope
 
-Unless a row says otherwise, the original notes identify the supplied unmodified
+For the historical run tables below, unless a row says otherwise, the notes identify the supplied unmodified
 `benchmark.v2`, no selected mod recorded, exact targets, speed 5, and source-save
 SHA-256 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`
 unchanged. Seven-day intervals were raw date `59883384` → `59883552`.

@@ -94,7 +94,7 @@ rva = 0x001238d0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 6a ff 68 c8 e7 b9 00 64 a1 00 00 00 00"
-source = "static flow walks CCountry+0xe8c creditors, reduces CCreditor+0x18, debits CCountry+0xe78, and removes fully repaid entries; for a nonzero lender ordinal it also reduces resolved CBank+0x18 with a zero clamp, while ordinal-zero Shadowy Financiers skip the bank mutation; run 3f63c64b observed 12 exact requested/treasury/debt reductions through caller RVA 0x0018beec, while no entry reached zero"
+source = "static flow walks CCountry+0xe8c creditors, reduces CCreditor+0x18, debits CCountry+0xe78, and removes fully repaid entries; for a nonzero lender ordinal it also reduces resolved CBank+0x18 with a zero clamp, while ordinal-zero Shadowy Financiers skip the bank mutation; run 3f63c64b observed 12 exact requested/treasury/debt reductions through caller RVA 0x0018beec; isolated native UI full repayment removed seven named creditors with matching treasury/lent reductions and unchanged reserves; see mappings/evidence/fiscal-credit-boundaries.md#native-ui-loan-and-full-repayment"
 
 [[symbols]]
 name = "POP savings bank-deposit co-update"
@@ -406,7 +406,7 @@ rva = 0x0055a5f0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 b8 84 01 00 00 00"
-source = "seven direct callers establish EAX CPop pointer, ESI cash-flow type, stack-passed 64-bit amount, and ret 8; reversible runtime +1000/-1000 calls verified exact money +0x180, indexed cash-flow +0x1d8, and total +0x218 effects and restoration"
+source = "native body and reviewed direct callers establish EAX CPop pointer, ESI cash-flow type, stack-passed 64-bit amount, and ret 8; complete direct-call scan has 15 callsites selecting indices 0-6, none 7, without excluding indirect/inlined consumers; reversible runtime +1000/-1000 calls verified exact money +0x180, indexed cash-flow +0x1d8, and total +0x218 effects and restoration"
 
 [[symbols]]
 name = "POP daily-interest cash-flow presentation"
@@ -1077,7 +1077,7 @@ fields = [
 name = "CStateBuilding"
 status = "verified-runtime"
 size = 0x0220
-source = "RTTI and constructor RVA 0x000f2bc0 establish object shape; live Prussian and Belgian runs correlated type, level, employees, output, finance, stockpile, and requested inputs; static callsites RVA 0x000dd470 and 0x00084060 write requested recipe inputs remaining after stockpile subtraction, and Belgian partial fulfillment proves the retained pool is demand rather than purchases"
+source = "RTTI and constructor RVA 0x000f2bc0 establish object shape; copy stride at VA 0x004c0a97 is 0x220, distinct from the 0x230 list-node allocation; live Prussian and Belgian runs correlated type, level, employees, output, finance, stockpile, and requested inputs; named serialization and live factory rundown establish injected money +0x210 and days +0x218, not project pointer +0x1d0 or subsidy +0x1d8; see mappings/evidence/telemetry.md#injection-fields-and-node-extent; static callsites RVA 0x000dd470 and 0x00084060 write requested recipe inputs remaining after stockpile subtraction, and Belgian partial fulfillment proves the retained pool is demand rather than purchases"
 fields = [
   { name = "definition", offset = 0x0018 },
   { name = "level", offset = 0x0020 },
@@ -1093,9 +1093,23 @@ fields = [
   { name = "investment", offset = 0x0170 },
   { name = "subsidized", offset = 0x0180 },
   { name = "closed", offset = 0x0188 },
-  { name = "injected_money", offset = 0x01d0 },
-  { name = "injected_days", offset = 0x01d8 },
+  { name = "goods_project_pointer", offset = 0x01d0 },
+  { name = "subsidy_amount", offset = 0x01d8 },
   { name = "unsold_output", offset = 0x01f8 },
+  { name = "injected_money", offset = 0x0210 },
+  { name = "injected_days", offset = 0x0218 },
+]
+
+[[layouts]]
+name = "CStateBuildingListNode"
+status = "verified-static-callsites"
+size = 0x0230
+source = "VA 0x004cf426 allocates 0x230 and passes the unadjusted base to the factory copy constructor; links/byte marker are initialized at VAs 0x004cf453, 0x004cf459, and 0x004cf463; payload is CStateBuilding, size 0x220; marker lifecycle and trailing padding are unclaimed"
+fields = [
+  { name = "building", offset = 0x0000 },
+  { name = "previous", offset = 0x0220 },
+  { name = "next", offset = 0x0224 },
+  { name = "marker", offset = 0x0228 },
 ]
 
 [[layouts]]
@@ -1182,8 +1196,8 @@ fields = [
 [[layouts]]
 name = "CPop"
 status = "historical-unverified"
-size = 0x0288
-source = "parent of commit 967a1a4 native/handles/CPop.hpp; current static/runtime evidence verifies size 0x288, ID +0x0c, province +0x64, POP type +0x68, culture +0x6c, religion +0x70, money +0x180, cash flow +0x1d8, total +0x218, savings +0x250, and next +0x27c while other fields remain historical"
+size = 0x0278
+source = "parent of commit 967a1a4 native/handles/CPop.hpp; native value-copy stride at VA 0x004c0b38 establishes payload size 0x278, distinct from CPopListNode allocation 0x288; current static/runtime evidence verifies ID +0x0c, province +0x64, POP type +0x68, culture +0x6c, religion +0x70, money +0x180, cash flow +0x1d8, total +0x218, and savings +0x250 while other fields remain historical; see mappings/evidence/interest-payout.md#verified-traversal-and-mutation-boundaries"
 fields = [
   { name = "id", offset = 0x000c },
   { name = "size", offset = 0x0058 },
@@ -1200,7 +1214,18 @@ fields = [
   { name = "economy", offset = 0x01d4 },
   { name = "cash_flow", offset = 0x01d8 },
   { name = "savings_in_bank", offset = 0x0250 },
+]
+
+[[layouts]]
+name = "CPopListNode"
+status = "verified-static-callsites"
+size = 0x0288
+source = "VAs 0x004b8d8e and 0x004be161 allocate 0x288 and pass the same base to CPop copy constructor VA 0x00955450; links/byte marker are initialized at VAs 0x004b8dc3, 0x004b8dc9, and 0x004b8dd3; payload size is 0x278; live traversal verifies next +0x27c, not a contiguous 0x288 POP stride; marker lifecycle and trailing padding are unclaimed"
+fields = [
+  { name = "pop", offset = 0x0000 },
+  { name = "previous", offset = 0x0278 },
   { name = "next", offset = 0x027c },
+  { name = "marker", offset = 0x0280 },
 ]
 
 [[layouts]]

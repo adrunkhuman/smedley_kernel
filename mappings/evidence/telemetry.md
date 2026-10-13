@@ -138,8 +138,9 @@ country observations use its daily event, not an additional country traversal.
 Unchanged vanilla benchmark/UI: Brandenburg has four factories, Nordrhein one,
 Schlesien two on 1836.1.2. Read-only live probe: Berlin 549 resolves to state
 list `CState+0x60`, lengths 4/1/2. RTTI `CStateBuilding`, constructor RVA
-`0x000f2bc0` initializes through `+0x218`, live links at `+0x220`: object size
-`0x220`.
+`0x000f2bc0` initializes through `+0x218`: payload size `0x220`. The owning
+list node is allocated as `0x230`, with previous/next/byte marker at
+`+0x220/+0x224/+0x228`; these are not factory payload fields.
 
 | Field | Supporting evidence |
 | --- | --- |
@@ -149,8 +150,8 @@ list `CState+0x60`, lengths 4/1/2. RTTI `CStateBuilding`, constructor RVA
 | Stock `+0x28` | Goods pool reproduces Small Arms ammunition/steel/cement/machine-parts save amounts. |
 | Recipe `CBuilding+0x12c` | Production type output good `+0x80`, base output `+0x88` match definitions/live key. |
 | Finance `+0x150/+0x158/+0x160/+0x168/+0x170` | Budget/spending/sales/paychecks/investment correlated twice; nonnegative /32768000 amounts, expense signs only UI. |
-| Injection `+0x1d0/+0x1d8` | Small Arms save `injected_money=122750.09155`, `injected_days=7`; exact budget accounts have no separate injection residual. Deferred capital appears in last investment; funding/tranche rules unclaimed. |
-| Subsidized `+0x180`, closed `+0x188` | Paused UI toggles each 0 → 1 with stable object/list position. Closing also resets `+0x218`; counter semantics unclaimed. |
+| Injection money `+0x210` (int64), days `+0x218` (int32) | Named serialization and live rundown establish these offsets, distinct from project pointer `+0x1d0` and subsidy `+0x1d8`; see below. |
+| Subsidized `+0x180`, closed `+0x188` | Paused UI toggles each 0 → 1 with stable object/list position. Native close clears the remaining injection and days; its broader effects are not inferred from the toggle alone. |
 | State ID `CState+0xc` | Save-correlated Brandenburg 750; `+0x8=47` is object-type discriminator, not region ID. |
 | Region `CState+0x250 -> CRegion` | RTTI/contiguous size `0x108`; key `+0x18=PRU_549`, display `+0x34=Brandenburg`; split-owner portions share key/pointer (ENG/BRE/HAM/HAN Osthannover examples). |
 
@@ -166,6 +167,34 @@ Bounds: 512 states, 64 factories/state, 4096 factories, 1024 employment
 assignments/factory, 16384 input records/country. Checked links/spans/keys,
 assignment totals, goods indices and nonnegative amounts apply only to selected
 groups; malformed selected data suppresses the country poll/increments invalid.
+
+### Injection fields and node extent
+
+All addresses in this subsection are preferred **VAs**, not RVAs, for the
+cataloged executable.
+
+| Claim | Primary static evidence (`verified-static-callsites`) |
+| --- | --- |
+| Injection money `+0x210`, days `+0x218` | Writer VA `0x004f3ef0` receives the serialization subobject at complete object `+8`. Named token `injected_money` (`0x6c4`) reads subobject `+0x208/+0x20c` at VAs `0x004f4346/0x004f434c`; `injected_days` (`0x6c5`) reads subobject `+0x210` at VA `0x004f4394`. |
+| `+0x1d0` is a `CGoodsProject*`, not money | Load path allocates `0xc0`, calls RTTI-identified constructor VA `0x00860390` and stores the pointer at complete object `+0x1d0`. Close VA `0x004f5750` invokes its deleting destructor and nulls the pointer. |
+| `+0x1d8/+0x1dc` is an int64 subsidy amount, not days | Finance VA `0x004f4b30` stores both halves at VAs `0x004f4d0a/0x004f4d10` in the subsidized funding branch. |
+| Payload `0x220`, node allocation `0x230` | Value-copy helper advances by `0x220` at VA `0x004c0a97`. VA `0x004cf426` allocates `0x230`; the unchanged base reaches the factory copy constructor, then links/byte marker are initialized at VAs `0x004cf453/0x004cf459/0x004cf463`. Marker lifecycle and trailing padding remain unclaimed. |
+
+`verified-runtime`: seven vanilla Prussian factories in the states containing
+provinces 549/575/682 have remaining-day sequences `6,5,4,3,2,1,0,0`. Money at
+`+0x210` matches save `injected_money * 32768` within formatting precision and the
+exact native tranche rundown at VA `0x004f56b0`. The Jan1 save contains six
+remaining days, not an observed seven-day starting state. Matching uses province
+sets, factory count/order and unique amounts, not decoded live type IDs.
+The fixture is an isolated Proton campaign, no Smedley or mods, with passive GDB
+callsite capture; it does not establish plugin acceptance.
+Capture SHA-256:
+`d41775c40f824ca1a9c16013be6436bd11b2043d28fc7a203319719668dbac7a`.
+Save SHA-256:
+`a356ab666306f26f999647df5b3735f0b8c8f26718298ffd701a13217b439687`.
+
+The current factory reader does not expose injection fields. These mappings do
+not authorize direct mutation.
 
 ### Input demand versus consumption
 
