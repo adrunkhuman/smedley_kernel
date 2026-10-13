@@ -10,6 +10,10 @@ Read [repository guidance](AGENTS.md) and the
 style conventions. Reverse-engineered behavior must follow the
 [mapping evidence rules](mappings/README.md).
 
+Contributions use the destination component's license; see the
+[license map](LICENSE.md). Preserve inherited and third-party notices. Moving
+code into an MIT-0 directory does not relicense it.
+
 Keep pull requests focused. Open an issue first when a proposed change needs
 coordination. State the changed behavior and why it changed; include validation
 evidence and identify compatibility effects, migrations, untested paths, and

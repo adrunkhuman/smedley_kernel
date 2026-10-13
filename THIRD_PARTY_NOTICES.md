@@ -37,10 +37,12 @@ license is retained at [`third_party/minhook-LICENSE.txt`](third_party/minhook-L
 ## toml++ v3.3.0
 
 The kernel and launcher bundle toml++ v3.3.0 at
-[`third_party/toml/include/toml.hpp`](third_party/toml/include/toml.hpp), which
-includes its MIT license text.
+`third_party/toml/include/toml.hpp`, which includes its MIT license text and
+UTF-8 decoder attribution.
 
 Copyright (c) Mark Gillard <mark.gillard@outlook.com.au>
+
+UTF-8 decoder: Copyright (c) 2008-2009 Bjoern Hoehrmann <bjoern@hoehrmann.de>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
 this software and associated documentation files (the "Software"), to deal in
