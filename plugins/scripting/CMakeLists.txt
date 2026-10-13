@@ -61,5 +61,4 @@ if(EXISTS ${PLUGINS_DIR})
     ${CMAKE_SOURCE_DIR}/examples/scripts/country_log.lua
     ${CMAKE_SOURCE_DIR}/examples/scripts/pause_after_30_days.lua
     DESTINATION ${V2_GAME_DIR}/scripts/examples)
-  install(FILES ${CMAKE_SOURCE_DIR}/THIRD_PARTY_NOTICES.md DESTINATION ${V2_GAME_DIR})
 endif()

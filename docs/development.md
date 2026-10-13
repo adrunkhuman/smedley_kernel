@@ -50,7 +50,9 @@ redirects dependency-owned relative install artifacts to `build\install`; it
 does not relocate Smedley's absolute game destinations.
 
 The installed kernel is unusable without the Smedley launcher and injection
-bootstrap path.
+bootstrap path. License texts and dependency notices install under
+`<GAME_DIR>/smedley-licenses/`; keep them with distributed binaries and follow
+the [licensing requirements](../LICENSE.md#binary-distributions).
 
 ## Testing
 

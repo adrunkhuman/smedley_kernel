@@ -72,3 +72,9 @@ Run history records launcher activity—not successful injection or game health.
 | Audit reverse-engineered claims | [Mapping catalog](mappings/README.md) |
 | Inspect Clausewitz script workloads | [Workload inventory](docs/workload-inventory.md) |
 | Contribute | [Contributing](CONTRIBUTING.md) |
+
+## License
+
+LGPL v3 for the inherited core and other retained components; MIT for the
+independent components listed in the [license map](LICENSE.md). Third-party
+dependencies keep their own licenses.
