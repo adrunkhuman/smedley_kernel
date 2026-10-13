@@ -1,189 +1,74 @@
 # Smedley
 
-Smedley is an instrumentation, automation, and extension framework for
-Victoria II: Heart of Darkness 3.04. It adds a launcher, unattended campaign
-control, observer mode, telemetry, constrained Lua scripting, and optional
-native plugins without replacing the game engine.
+Instrumentation, automation, and extensions for **Victoria II: Heart of Darkness
+3.04**. Smedley runs inside the original game; it is not a replacement engine.
+Use the launcher for normal play, the CLI for unattended runs, and constrained
+Lua for ordinary mod extensions. Native plugins support engine fixes and work
+that needs synchronous callbacks or high-volume capture.
 
-Use the launcher and profiles for normal play. Use the CLI for automation.
-Constrained Lua is the expected surface for ordinary mod extensions. Native
-plugins remain available for synchronous engine fixes, hot paths, high-volume
-capture, and lifecycle-sensitive integration.
-
-## What It Includes
+## Components
 
 | Component | Purpose |
 | --- | --- |
-| `smedley_launcher.exe` | Configure, validate, and launch the game through a native GUI. |
-| `smedley_cli.exe` | Run the same preflight and launch workflow from scripts or a terminal. |
-| `campaign_runner` | Load a save, set speed or pause state, enter observer mode, and run bounded benchmarks. |
-| `telemetry` | Write bounded structured traces for lifecycle and selected game-state families. |
-| `smedley_trace.exe` | Validate, inspect, summarize, compare, and export telemetry offline. |
-| `scripting` | Run selected Lua 5.1 source files against copied state and queued operations. |
-| `interest_bug_fix` | Optionally distribute omitted state interest to eligible depositor POPs. |
+| `smedley_launcher.exe` / `smedley_cli.exe` | Configure, validate, and launch the game through shared profiles. |
+| `campaign_runner` | Load saves, enter observer mode, set speed, and run bounded benchmarks. |
+| `telemetry` / `smedley_trace.exe` | Capture structured observations; validate, compare, and export them offline. |
+| `scripting` | Run Lua 5.1 source files against copied state and queued operations. |
+| `interest_bug_fix` | Optionally pay omitted state interest to depositor POPs. Changes gameplay. |
 
-## Supported Game
+The kernel owns engine access. Plugins use versioned C services, not raw game
+objects or a C++ DLL ABI. See [architecture](docs/architecture.md).
 
-Smedley supports one exact English Windows executable:
+## Supported game
+
+Only the English Windows x86 executable below is supported. The launcher rejects
+other builds before injection.
 
 | Property | Value |
 | --- | --- |
-| Game | Victoria II: Heart of Darkness 3.04 |
+| Version | Heart of Darkness 3.04 |
 | SHA-256 | `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648` |
 | File size | `12294656` bytes |
-| Architecture | x86 |
-
-The launcher rejects other executables before injection. Validate a game
-installation with:
 
 ```powershell
 python tools/validate_mappings.py "C:\Games\Victoria 2\v2game.exe"
 ```
 
-## Build And Install
+## Start
 
-Requirements: Windows, CMake 3.20 or newer, MSVC, Git, Python 3 for the test
-suite, and network access for the initial pinned dependency fetch.
+1. [Build and install](docs/development.md) with Windows, MSVC x86, and CMake.
+2. Run `smedley_launcher.exe` from the game directory.
+3. Select the game directory, mods, and trusted plugins. Review preflight
+   diagnostics, then launch.
 
-```powershell
-New-Item -ItemType Directory -Force "C:\Games\Victoria 2\plugins"
-cmake -S . -B build -A Win32 -DV2_GAME_DIR="C:\Games\Victoria 2"
-cmake --build build --config Release
-ctest --test-dir build -C Release --output-on-failure
-cmake --install build --config Release --prefix "$PWD\build\install"
-```
-
-Smedley binaries, manifests, scripts, and notices install directly to the
-configured `V2_GAME_DIR`. The prefix redirects dependency-owned relative install
-artifacts to `build\install`; it does not relocate Smedley's absolute game
-destinations. The `plugins` directory must exist when CMake configures the
-project so it generates the bundled-plugin install rules.
-
-See [`BUILDING.md`](BUILDING.md) for prerequisites, dependency behavior,
-installation details, and validation limits.
-
-## First Launch
-
-1. Run `smedley_launcher.exe` from the Victoria II directory.
-2. Select the game directory. Smedley discovers mods and plugin manifests under
-   that directory.
-3. Select any mods and trusted plugins.
-4. Review preflight diagnostics, then launch.
-
-Safe mode starts the verified game without injecting Smedley. Ordinary mods
-still load; plugins, scripts, telemetry, save automation, observer, speed, and
-bounded-run controls are ignored with warnings. Use it to recover from a broken
-plugin configuration.
-
-Profiles are schema-v1 TOML files shared by the GUI and CLI. Relative mod and
-plugin paths resolve from `game_dir` under `mod/` and `plugins/`. See
-[`docs/launcher.md`](docs/launcher.md).
-
-## CLI Examples
-
-Discover available mods and plugins:
-
-```powershell
-smedley_cli --game-dir "C:\Games\Victoria 2" --discover
-```
-
-Validate a profile without starting the game:
+For automation, validate a profile without starting the game, then launch it:
 
 ```powershell
 smedley_cli --profile "C:\Profiles\observer.toml" --dry-run
+smedley_cli --profile "C:\Profiles\observer.toml" --detach
 ```
 
-Load a save in observer mode:
+[Launcher documentation](docs/launcher.md) covers profiles, CLI options, save
+loading, observer mode, and bounded runs. Bounded runs do not save the campaign.
+Safe mode launches the verified game with ordinary mods but **without injection**;
+plugin, script, telemetry, and campaign-automation settings are ignored.
 
-```powershell
-smedley_cli --game-dir "C:\Games\Victoria 2" `
-  --plugin plugins\campaign_runner.toml `
-  --save "C:\Users\me\Documents\Paradox Interactive\Victoria II\save games\run.v2" `
-  --observe --speed 5 --detach
-```
-
-Paths may contain spaces and Unicode characters. GUI and CLI launches use the
-same preflight and profile model.
-
-## Optional Features
-
-### Campaign Automation
-
-`campaign_runner` loads a selected save through native game operations. Observer
-mode returns the player country to AI control, enables full-map visibility, and
-verifies the resulting state. Bounded runs can stop after an exact number of
-game days and optionally request native game exit after successful completion.
-They require injection, a selected save, `campaign_runner`, a detached launch,
-and an unpaused start. Failures leave the campaign paused and open; bounded runs
-do not save. See [`docs/launcher.md`](docs/launcher.md).
-
-### Telemetry
-
-`telemetry` records versioned JSON Lines for lifecycle events and configured
-world, country, province, economy, factory, and population families. Capture is
-opt-in, bounded, and explicit about gaps, drops, unavailable fields, and mapping
-quality. Crashes and forced exits can lose queued records and recent buffered
-writes; safe mode and dry runs produce no trace. `smedley_trace` provides strict
-offline validation and exports. See [`docs/telemetry.md`](docs/telemetry.md).
-
-### Scripting
-
-`scripting` runs visible Lua 5.1 source files in independent constrained states.
-Scripts receive copied events and supported queued operations, not Victoria
-II's Lua state or raw game pointers. This is constrained execution, not a
-security sandbox. Prefer scripts for user-authored policy and orchestration;
-add native plugins only when the scripting execution model cannot safely meet
-the feature's engine-thread, performance, capture, or lifecycle requirements.
-See [`docs/scripting.md`](docs/scripting.md).
-
-### Interest Fix
-
-`interest_bug_fix` is an independently selectable gameplay change. It preserves
-the native bank and state pipeline while distributing omitted state interest to
-eligible positive-savings POPs. CSV diagnostics and interest telemetry are
-disabled by default. Debug mode truncates `<GAME_DIR>/interest_bug_fix.csv` on
-launch; interest telemetry also requires the `telemetry` plugin. The manifest
-conflicts with plugin ID `v2up`. Review the retained evidence in
-[`mappings/evidence/interest-payout.md`](mappings/evidence/interest-payout.md)
-before enabling the fix.
-
-## Runs And Recovery
-
-The launcher attempts to write run metadata under
-`%LOCALAPPDATA%\Smedley\runs`. `smedley_cli --history` lists recent records.
-Detached runs remain marked `started`; that status does not prove successful
-injection, campaign entry, or game exit. Persistence failures warn but do not
-block launch.
-
-Telemetry defaults to `%LOCALAPPDATA%\Smedley\traces\<run-id>.jsonl` when no
-explicit output is configured. Safe mode remains available when injected launch
-or plugin initialization is unavailable.
-
-## Trust And Limits
-
-- Native plugins are DLLs with the same process, filesystem, and user authority
-  as Victoria II. Install only trusted plugins.
-- Smedley supports Windows, MSVC x86, and only the executable identified above.
-- Plugins use versioned C lifecycle and capability APIs; no C++ ABI crosses the
-  DLL boundary.
-- Plugin dependencies and conflicts are resolved by stable ID. Version-range
-  dependency resolution is not implemented.
-- Native plugins are x86 PE DLLs, export `SmedleyPluginGetApiV1`, and resolve C
-  services dynamically rather than importing kernel internals. See
-  [`docs/plugin-development.md`](docs/plugin-development.md).
-- Launch metadata records launcher activity, not game health.
-- Unknown engine state remains unavailable rather than being guessed.
+Native plugins have the game's full process and user authority. Lua is
+constrained execution, not a security sandbox. Install only trusted extensions.
+Run history records launcher activity—not successful injection or game health.
 
 ## Documentation
 
-| Topic | Document |
+| Task | Read |
 | --- | --- |
-| Build and install | [`BUILDING.md`](BUILDING.md) |
-| Launcher, profiles, CLI, observer mode, and runs | [`docs/launcher.md`](docs/launcher.md) |
-| Telemetry configuration, schemas, and trace tools | [`docs/telemetry.md`](docs/telemetry.md) |
-| Clausewitz static workload inventory | [`docs/workload-analysis.md`](docs/workload-analysis.md) |
-| Lua configuration and API | [`docs/scripting.md`](docs/scripting.md) |
-| Native plugin development | [`docs/plugin-development.md`](docs/plugin-development.md) |
-| Engine ownership and service boundaries | [`docs/game-state-boundary.md`](docs/game-state-boundary.md) |
-| Reverse-engineering evidence | [`mappings/README.md`](mappings/README.md) |
-| Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| Build, install, test, and follow C++ style | [Development](docs/development.md) |
+| Launch and automate campaigns | [Launcher](docs/launcher.md) |
+| Capture and analyze game state | [Telemetry](docs/telemetry/README.md) |
+| Write Lua extensions | [Scripting](docs/scripting.md) |
+| Enable the POP interest fix | [Interest fix](docs/interest-fix.md) |
+| Understand fiscal and credit behavior | [Modder reference](docs/fiscal-credit.md) |
+| Develop native plugins | [Plugins](docs/plugins.md) |
+| Understand engine ownership and safety | [Architecture](docs/architecture.md) |
+| Audit reverse-engineered claims | [Mapping catalog](mappings/README.md) |
+| Inspect Clausewitz script workloads | [Workload inventory](docs/workload-inventory.md) |
+| Contribute | [Contributing](CONTRIBUTING.md) |

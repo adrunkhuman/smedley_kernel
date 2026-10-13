@@ -95,7 +95,7 @@ namespace
             EXPECT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
             const auto configuration_dir = fs::path(executable).parent_path();
             return fs::path(SMEDLEY_BUILD_DIR)
-                / L"smedley_kernel" / configuration_dir.filename() / L"smedley_plugin_abi_test_plugin.dll";
+                / L"kernel" / configuration_dir.filename() / L"smedley_plugin_abi_test_plugin.dll";
         }
 
         fs::path BuiltLegacyFixture() const
@@ -104,7 +104,7 @@ namespace
             EXPECT_NE(GetModuleFileNameW(nullptr, executable, MAX_PATH), 0u);
             const auto configuration_dir = fs::path(executable).parent_path();
             return fs::path(SMEDLEY_BUILD_DIR)
-                / L"smedley_kernel" / configuration_dir.filename() / L"smedley_legacy_plugin_test_plugin.dll";
+                / L"kernel" / configuration_dir.filename() / L"smedley_legacy_plugin_test_plugin.dll";
         }
     };
 }

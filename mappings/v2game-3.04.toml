@@ -14,7 +14,7 @@ rva = 0x00023a43
 kind = "hook"
 status = "verified-current"
 signature = "5f 5e 5b 8b e5"
-source = "smedley_kernel/include/smedley/events/console.hpp"
+source = "kernel/include/smedley/events/console.hpp"
 
 [[symbols]]
 name = "CCountry::DailyUpdate event hook"
@@ -22,7 +22,7 @@ rva = 0x001085ae
 kind = "hook"
 status = "verified-current"
 signature = "53 8b 5d 08 8a 83 bc 15 00 00"
-source = "smedley_kernel/include/smedley/events/dailyupdate.hpp"
+source = "kernel/include/smedley/events/dailyupdate.hpp"
 
 [[symbols]]
 name = "CCountry::Update interest-fix hook"
@@ -422,7 +422,7 @@ rva = 0x006babee
 kind = "hook"
 status = "verified-current"
 signature = "a3 e8 02 f2 00 8b c1 c3"
-source = "smedley_kernel/src/memory.cpp"
+source = "kernel/src/memory.cpp"
 
 [[symbols]]
 name = "CCurrentGameState singleton pointer"

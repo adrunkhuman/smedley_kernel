@@ -1,38 +1,35 @@
 # GFM v3.0 workload discovery
 
-Issue [#9](https://github.com/adrunkhuman/smedley_kernel/issues/9) uses Greater
-Flavor Mod as a requirements and measurement workload. GFM policy is not a
-kernel compatibility contract.
+GFM is a requirements/measurement workload for
+[issue #9](https://github.com/adrunkhuman/smedley_kernel/issues/9), not a kernel
+compatibility contract. Static inventory identifies reusable capability needs;
+it does not establish cost. The recorded baseline measures the whole campaign.
+No reviewed probe supports generic script-site attribution; exploratory probes
+and fixtures were removed, with no production attribution API retained.
 
 ## Immutable inputs
 
 | Input | Identity |
 | --- | --- |
-| GFM repository | `Historical-Expansion-Mod/Greater-Flavor-Mod` |
-| Release tag | `v3.0` |
+| GFM repository / release | `Historical-Expansion-Mod/Greater-Flavor-Mod`, `v3.0` |
 | Commit | `ee1486e251d3bb4dc5c355f5c2ec34abaea1078d` |
 | Executable SHA-256 | `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648` |
-| Save | `smedley-gfm-v3.v2`, SHA-256 `3c70553984e4d94773483076ee4d83ac351095042f66a9920a3ee4770f7763f4` |
-| Save date and player | `1836.1.1`, `PRU` |
+| Local save | `smedley-gfm-v3.v2`, SHA-256 `3c70553984e4d94773483076ee4d83ac351095042f66a9920a3ee4770f7763f4` |
+| Save date / player / header | `1836.1.1`, `PRU`; `government=9`, `unit=2800`, `state=2207` distinguish it from a same-named vanilla save |
+| Installation acceptance | Detached checkout matched installed GFM; only `mod/GFM.mod` selected, submods disabled; main-menu checksum `ZAEJ` |
 
-The save is a local legal fixture and is not committed. Its GFM-sized state is
-distinguishable from an unrelated same-named vanilla save by the hash above,
-`government=9`, `unit=2800`, and `state=2207` in its header.
-
-The installed `GFM` directory was compared with the detached checkout using:
+The legal local save and generated reports/traces are not committed. Recorded
+measurements are not independently auditable artifacts. Installation comparison:
 
 ```powershell
 robocopy "<gfm-checkout>\GFM" "<game-dir>\mod\GFM" /MIR /L
 ```
 
-The command returned exit code `0`: it reported no files needing copy, no extra
-destination files, and no failures. The shipped submods remained separate and
-disabled. With only `mod\GFM.mod` selected under the supported executable, the
-game reached the main menu and reported checksum `ZAEJ`.
+Exit code 0: no files needing copy, extras, or failures. `/L` made this read-only.
 
 ## Static inventory
 
-The generic inventory command was:
+Generated with Python 3.14.7:
 
 ```powershell
 python tools/clausewitz_workload_inventory.py `
@@ -41,336 +38,223 @@ python tools/clausewitz_workload_inventory.py `
   --output gfm-v3-events-inventory.json
 ```
 
-The report was generated with Python 3.14.7 and is not committed. Its summary
-was:
+| Lead | Count | Lead | Count |
+| --- | ---: | --- | ---: |
+| Event definitions | 7,416 | Explicit scheduling edges | 7,146 |
+| MTTH blocks | 3,883 | Flag reads / writes | 29,228 / 39,155 |
+| Modifier mutations | 4,998 | `random_owned` | 13,447 |
+| `any_country` | 8,999 | `any_pop` | 5,975 |
+| `random_pop` | 839 | `any_land_province` | 681 |
 
-| Lead | Count |
-| --- | ---: |
-| Event definitions | 7,416 |
-| Explicit scheduling edges | 7,146 |
-| MTTH blocks | 3,883 |
-| Flag reads | 29,228 |
-| Flag writes | 39,155 |
-| Modifier mutations | 4,998 |
-| `random_owned` blocks | 13,447 |
-| `any_country` blocks | 8,999 |
-| `any_pop` blocks | 5,975 |
-| `random_pop` blocks | 839 |
-| `any_land_province` blocks | 681 |
-
-These counts are source-discovery leads, not performance measurements. They do
-not account for trigger outcomes, candidate populations, load-order overrides,
-event execution, or engine optimization.
-
-The parser independently recovered the central cleanup chain in
-`events/V2ME Cleanup (GFM).txt`:
+Counts omit runtime trigger outcomes, candidate populations, load-order
+overrides, execution, and engine optimization. The parser independently found
+this cleanup chain in `events/V2ME Cleanup (GFM).txt`:
 
 | Event | Definition line | Recurring edge |
 | --- | ---: | --- |
-| `477877787` | 31 | self after one day at line 384 |
-| `84393532` | 388 | scheduled by `477877790` after one day at line 19021 |
-| `477877790` | 1110 | self after 30 days at line 19020 |
-| `477877791` | 30938 | self after 365 days at line 55552 |
-
-The annual event also fans out to many numbered country events. This confirms
-that the inventory can locate recurring and partitioned script work. It does
-not establish that the chain is expensive or that its effects are generic.
+| `477877787` | 31 | self after one day, line 384 |
+| `84393532` | 388 | scheduled by `477877790` after one day, line 19021 |
+| `477877790` | 1110 | self after 30 days, line 19020 |
+| `477877791` | 30938 | self after 365 days, line 55552; also fans out to numbered country events |
 
 ### Province-modifier reconciliation
 
-The pinned GFM event tree contains 996 event workflows that read or write
-province modifiers and 736 modifier-writing iterator candidates. Nineteen
-candidates participate in explicit scheduling cycles. Thirteen of those have no
-local random-selection, finite-duration, ownership-mutation, or MTTH risk. That
-mechanical filter does not imply that deletion is safe. Source review classifies
-all thirteen as follows:
+Inventory found 996 province-modifier workflows and 736 modifier-writing
+iterator candidates; 19 participate in explicit scheduling cycles. Thirteen
+have no local random-selection, finite-duration, ownership-mutation, or MTTH
+risk. That filter is not deletion authorization. Source review of all thirteen:
 
-Issue #9 treats repetitive or brittle script as product evidence even when it
-has not been measured as a bottleneck. A selected workflow may justify a generic
-kernel capability when an end-to-end replacement materially reduces script,
-centralizes an invariant, or improves correctness. GFM-specific conditions and
-compatibility policy remain in the downstream mod's scripts or, when required
-by a verified native constraint, a feature plugin. Each downstream replacement
-adds its script and removes the equivalent pinned source atomically.
+| Blocks in cleanup file | Contract / route |
+| --- | --- |
+| Monthly casino repair, 19016–19019 | Fixed-province compatibility repair; direct-province smoke candidate, too small to justify an API alone |
+| Annual capital removal, 31346–31357 | Exact copy of monthly 1142–1153; source simplification, not an API driver |
+| Slave-trade removal, 1127–1141 | Stale penalty after abolition; historical native slice verified iteration, owner policy, checked removal; [evidence](province-reconciliation.md) |
+| Monthly capital removal, 1142–1153, annual addition, 31358–31369 | Capital-mobilisation supply-limit invariant; needs mapped capital transitions |
+| Three local industry additions, 18399–18481 | Backfill after one-shot country events; province queries/checked addition candidate |
+| Collectivisation removal, 18484–18493 | Stale bonus after government change; transition observation/removal candidate |
+| Coffee addition, 18730–18752 | Ownership/setup backfill; ownership transitions/addition candidate |
+| Two Indian-lands blocks, 18995–19015 | Gameplay normalisation; keep policy in downstream script |
+| Annual `drang_nach_osten` addition, 31672–31702 | Acquisition backfill; reuse after generic province capability is proven |
 
-| Blocks | Role | Route |
-| --- | --- | --- |
-| Monthly casino repair, lines 19016–19019 | Compatibility repair for one fixed province | Possible direct-province smoke test after modifier operations exist; too small to justify them alone |
-| Annual capital-mobilisation removal, lines 31346–31357 | Exact copy of the monthly removal at lines 1142–1153 | Source simplification candidate; not an API driver by itself |
-| Slave-trade removal, lines 1127–1141 | Stale-penalty safeguard after abolition | Historical native slice validated province iteration, owner-policy reads, and checked modifier removal; its generated derivative was later retired while pristine GFM always retained the original block |
-| Monthly capital removal, lines 1142–1153, and annual addition, lines 31358–31369 | Capital-mobilisation supply-limit invariant | Adoption candidate after capital-transition behavior is mapped |
-| Three local industry additions, lines 18399–18481 | Backfill after one-shot country events | Reuse candidate for province queries and checked modifier addition |
-| Collectivisation removal, lines 18484–18493 | Stale-bonus cleanup after government change | Reuse candidate for government-transition observation and modifier removal |
-| Coffee addition, lines 18730–18752 | Ownership and setup backfill | Reuse candidate for ownership transitions and modifier addition |
-| Two Indian-lands blocks, lines 18995–19015 | Gameplay-policy normalisation | Keep policy in downstream GFM scripting if adopted through generic operations |
-| Annual `drang_nach_osten` addition, lines 31672–31702 | Acquisition backfill | Reuse candidate after the generic province capability is proven |
+Casino repair scans every land province for province `3251` producing precious
+goods without permanent `casino`. `monte_carlo_casino` sets both in
+`decisions/monacoflavor.txt:18-26`; no other active writer/remover exists.
+Deleting repair abandons old/externally modified saves. A direct-province
+operation could preserve it, but four lines do not justify that API alone.
 
-The casino block scans every land province to repair one state: province `3251`
-produces precious goods but lacks the permanent `casino` modifier. The
-`monte_carlo_casino` decision establishes both values in the same effect block
-at `decisions/monacoflavor.txt:18-26`, and no other active writer or remover
-exists. Deleting the block would abandon recovery for old or externally modified
-saves. A generic direct-province modifier operation could preserve that repair,
-but this four-line case does not justify the API by itself.
-
-The slave-trade safeguard was selected as the first vertical slice. Its invariant is
-explicit, it exercises reusable province and owner queries plus checked modifier
-removal, and the same capability family can serve several retained backfills and
-normalizers. Runtime cost remains useful for prioritization, not a prerequisite
-for addressing the script limitation. Issue
-[#91](https://github.com/adrunkhuman/smedley_kernel/issues/91) defines the
-focused behavior contract; PR #92 shipped and validated the replacement before
-the generated derivative and native consumer were retired.
+Slave-trade cleanup was the first slice because its explicit invariant exercises
+reusable queries/removal also needed by other backfills.
+[Issue #91](https://github.com/adrunkhuman/smedley_kernel/issues/91) / PR #92
+validated the historical replacement; its derivative/native consumer were
+retired, and pristine GFM retained the block. Script reduction/correctness can
+justify capability independently of measured cost; downstream replacements must
+add behavior and remove equivalent pinned source atomically.
 
 ### Derived state flags
 
-Review of recurring flag maintenance found several distinct script contracts,
-not one cache-removal family. Some should stay as script state; others are
-useful cases for country-fact, transition, culture, and relationship APIs:
+Recurring flags have distinct contracts, not one removable-cache family:
 
-| Flags | Role | Route |
-| --- | --- | --- |
-| `medicine_invented`, `germs_invented`, `gaslights_invented`, `electricity_invented`, and `modern_central_bank_system_invented` | Technology or invention mirrors read from POP modifiers and country policy | Candidate for generic country-fact and transition APIs; retain script until all consumer scopes are covered |
-| `biologism_invented` | Technology mirror with one country-scope reader | Source-simplification baseline; too small to justify a native API alone |
-| `monarchy_government` and `theocratic_government` | Reusable government classifications with broad gameplay-policy readers | Possible country-fact API consumers; classifications remain downstream GFM policy |
-| `new_world_nation_fr` | Government-derived emigration policy for New World nations | Possible country-fact API consumer; emigration policy remains in GFM |
-| `can_use_monthly` | Deliberate decision-execution pulse | Retain unless the underlying decision scheduler is adopted end to end |
-| Accepted-culture flags | Provenance for cultures granted through colonial relationships | High-value country catalog, culture, relationship, and checked-mutation candidate |
-| `revolution_n_counter_researched` and `colonial_cores_africa_active` | Irreversible global phase and scheduler latches | Low priority; existing script is concise and save-visible |
-
-The one-reader `biologism_invented` cache demonstrates that some cases need only
-a source simplification. The accepted-culture system is the opposite: its
-provenance rules and explicit tag/capital expansion are a substantial adoption
-case, but require a much broader verified country-state boundary. The review
-therefore supplies API candidates without implying that every mirrored flag
-should move out of script.
+| Flags | Contract / route |
+| --- | --- |
+| `medicine_invented`, `germs_invented`, `gaslights_invented`, `electricity_invented`, `modern_central_bank_system_invented` | Technology/invention mirrors read by POP modifiers/country policy; country-fact/transition candidates, retain script until all scopes covered |
+| `biologism_invented` | One country-scope technology reader; source simplification, too small for a native API alone |
+| `monarchy_government`, `theocratic_government` | Broad reusable classifications; country-fact consumers, classifications remain GFM policy |
+| `new_world_nation_fr` | Government-derived New World emigration policy; country-fact consumer, policy remains GFM |
+| `can_use_monthly` | Deliberate decision pulse; retain unless decision scheduling is adopted end to end |
+| Accepted-culture flags | Provenance for colonial culture grants; substantial country catalog/culture/relationship/checked-mutation case, requiring broader verified state |
+| `revolution_n_counter_researched`, `colonial_cores_africa_active` | Irreversible global phase/scheduler latches; concise save-visible script, low priority |
 
 ## Candidate classification
 
-| Candidate | Classification | Static evidence | Evidence gate |
-| --- | --- | --- | --- |
-| Script-site attribution | Reviewed leads rejected; capability remains missing | The selected-option executor is too narrow, and the automatic-event leads below are not effect execution boundaries | A different boundary with controlled identity correlation and measured hook overhead |
-| Province-modifier reconciliation | Generic API family with a retired native adoption slice | Thirteen reviewed workflows reuse province iteration, owner conditions, and modifier add/remove operations | PR #92 verifies the historical slave-trade replacement; new consumers require independent value and evidence |
-| Derived state flags | Split adoption backlog | Simple mirrors may stay in source; technology transitions and colonial-culture provenance expose broader reusable capability needs | Rank by script reduction and API reuse; preserve policy and save-visible state in the GFM layer |
-| Ghost unit and relationship repair | Engine-bug-workaround hypothesis | Cleanup explicitly repairs residual entities and relationships | Reproduction without repair and verified native entity identity |
-| Dismantlement slot variables and scope bridges | Engine-limitation/workaround hypothesis | Numbered variables and repeated scope traversal emulate collections and transactions | Executed paths and behavior-preserving operation contract |
-| `Naval Fix.txt` redistribution | Ordinary GFM-specific gameplay policy | Treasury debit plus repeated random POP transfers | Three-way economic matrix before any overlap claim |
-| Historical RGO, capital, government, and annexation work | Ordinary GFM-specific gameplay policy | Eligibility and outcomes are defined by GFM | Not a kernel replacement target |
+| Candidate | Conclusion | Evidence gate |
+| --- | --- | --- |
+| Script-site attribution | Missing: selected-option executor too narrow; automatic-event leads are not effect execution | Controlled identity correlation at another boundary, measured overhead |
+| Province modifiers | Reusable API family; thirteen workflows share iteration/owner/add-remove operations | Historical slave-trade validation is not blanket acceptance for new consumers |
+| Derived flags | Split backlog: simple mirrors may stay in source; technology/colonial provenance need broader capabilities | Rank script reduction/reuse; preserve GFM policy and save-visible state |
+| Ghost units/relationships | Engine-bug-workaround hypothesis: scripts repair residual entities/relationships | Reproduce without repair; verify native identity |
+| Dismantlement variables/scope bridges | Engine-limitation hypothesis: numbered variables and repeated traversal emulate collections/transactions | Executed paths, behavior-preserving contract |
+| `Naval Fix.txt` redistribution | GFM gameplay policy: treasury debit plus random POP transfers | Three-way economic matrix before overlap claims |
+| Historical RGO/capital/government/annexation work | GFM gameplay policy | Not kernel replacement targets |
 
 ## Runtime baseline
 
-The baseline uses pure GFM v3.0, the pinned PRU save, speed 5, normal player
-control, `campaign_runner`, and lifecycle-only telemetry. Each run advances
-exactly 30 game days and exits natively. The source-save hash remained unchanged.
-
-| Runtime input | Identity |
-| --- | --- |
-| Build | MSVC x86 Release |
-| `smedley_cli.exe` | SHA-256 `7d46547b3f7ecb4e93ca1d601538c6c01a9dfbf5a81587b54ead56e63afdc055` |
-| `smedley_kernel.dll` | SHA-256 `7fb8f2bfe512d574c11b19c6020a61a694abd41b8914394be2da9a2fdf8e9a5f` |
-| `campaign_runner.dll` | SHA-256 `21a55be5db0a69b716b0ba000a53aead3c5051f57296698466bdffe016609f3d` |
-| `telemetry.dll` | SHA-256 `076d3c234700404a6e0a6c9bc9562eee977f5e489a6d462249b0365a9d5ab363` |
+Historical MSVC x86 Release build; pure pinned GFM/PRU save, normal player
+control, speed 5, runner plus lifecycle-only telemetry, exact 30 days and native
+exit. Source hash unchanged. Reproduction controls and profiles are in
+[launcher](../../docs/launcher.md); the measurement invocation was:
 
 ```powershell
 & "<game-dir>\smedley_cli.exe" `
   --game-dir "<game-dir>" --mod "mod\GFM.mod" `
   --plugin "plugins\campaign_runner.toml" --plugin "plugins\telemetry.toml" `
-  --telemetry --telemetry-category lifecycle `
-  --save "<gfm-save>" `
+  --telemetry --telemetry-category lifecycle --save "<gfm-save>" `
   --speed 5 --run-days 30 --quit-after-run --run-timeout-seconds 600 --detach
 ```
+
+| Binary | SHA-256 |
+| --- | --- |
+| `smedley_cli.exe` | `7d46547b3f7ecb4e93ca1d601538c6c01a9dfbf5a81587b54ead56e63afdc055` |
+| `smedley_kernel.dll` | `7fb8f2bfe512d574c11b19c6020a61a694abd41b8914394be2da9a2fdf8e9a5f` |
+| `campaign_runner.dll` | `21a55be5db0a69b716b0ba000a53aead3c5051f57296698466bdffe016609f3d` |
+| `telemetry.dll` | `076d3c234700404a6e0a6c9bc9562eee977f5e489a6d462249b0365a9d5ab363` |
 
 | Sample | Elapsed | Process CPU | Peak working set | Peak private bytes | Peak virtual bytes |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | 1 | 5.340159 s | 6.453125 s | 2,898,456,576 | 3,300,118,528 | 3,773,878,272 |
 | 2 | 5.410516 s | 7.484375 s | 2,851,201,024 | 3,298,156,544 | 3,801,116,672 |
 
-Mean elapsed time is 5.375338 seconds, or 5.581 game days per second. Both
-traces contain `benchmark.completed` and `telemetry.summary` with zero drops.
-This is a workload baseline, not evidence that any static candidate is costly.
-The generated report and traces are not committed, so the measurements are
-recorded observations rather than independently auditable artifacts.
+Mean 5.375338 s / 5.581 days/s; both traces had `benchmark.completed`,
+`telemetry.summary`, zero drops. This measures workload, not individual scripts.
+The measured telemetry build configured no state collector and used lazy
+collector/POP scratch allocation; PE `SizeOfImage=0x50000`, not the earlier
+approximately 16 MiB TLS template. Those are build-specific memory conditions.
 
-Lifecycle-only telemetry configures no state collector. The telemetry DLL uses
-lazy collector construction and lazy population scratch buffers; its PE
-`SizeOfImage` is `0x50000` instead of carrying an approximately 16 MiB TLS
-template.
-
-A two-day GFM run with daily PRU-scoped `pop.aggregate` capture completed the
-campaign benchmark, but its trace contained no state records and reported
-`callback_count=0`; no failure reason was recorded. It used the baseline command
-with `--telemetry-category state`,
-`--telemetry-capture "pop.aggregate|daily|pop_count|PRU|||"`, and
-`--run-days 2`. The source save remained unchanged. The same capture path
-emitted valid state records from the smaller vanilla fixture. GFM state capture
-is therefore unverified and is not part of this baseline.
+A historical two-day run substituted state capture
+`pop.aggregate|daily|pop_count|PRU|||`: benchmark completed, but no state
+records, `callback_count=0`, no failure reason, source unchanged. The same path
+worked on smaller vanilla state. This run did not verify GFM state capture and
+is not evidence of the current collector's behavior; see
+[current telemetry](../../docs/telemetry/README.md).
 
 ## Region scope iteration boundary
 
-GFM defines `any_land_province` as a custom region in `map/region.txt`, not as
-a native operator class. The pinned definition contains 3,385 unique province
-IDs ranging from 1 through 3,986. Script uses of that region compile to the
-engine's generic `CRegionScopeEffect` and `CRegionScopeTrigger` objects.
+GFM's `any_land_province` is a custom region in `map/region.txt`, not a native
+operator: 3,385 unique IDs, range 1–3,986. Uses compile to generic
+`CRegionScopeEffect` / `CRegionScopeTrigger` objects.
 
-Static review establishes two generic execution boundaries:
+| Boundary | `verified-static-callsites` contract |
+| --- | --- |
+| Effect RVA `0x00488ba0` | x86 `__thiscall`, two stack arguments, `ret 8`; `this+0x3c` region. Traverse `CRegion+0x8`, construct province scope, evaluate `this+0x20` filter, run `this+0x8` child effect chain for matches. Timing includes traversal/filter/effects. |
+| Trigger RVA `0x004c5da0` | x86 `__thiscall`, one stack argument, `ret 4`; `this+0x1c` region. Nested triggers per province; first match returns true, exhaustion false. Cardinality is not the short-circuited visit count. |
 
-| Boundary | Contract | Evidence |
-| --- | --- | --- |
-| Effect executor, RVA `0x00488ba0` | x86 `__thiscall`, two stack arguments, `ret 8`; `this+0x3c` is `CRegion*` | Traverses every entry in `CRegion+0x8`, constructs a province scope, evaluates the `this+0x20` filter, then runs the `this+0x8` child effect chain for matches. |
-| Trigger evaluator, RVA `0x004c5da0` | x86 `__thiscall`, one stack argument, `ret 4`; `this+0x1c` is `CRegion*` | Tests nested triggers for each region province, returns true on the first matching province, and returns false after exhausting the region. |
-
-Both retained entry signatures end before ASLR-relocated exception-handler
-operands. Effect timing includes region traversal, nested trigger evaluation,
-and child effects. Trigger entry timing would include only the provinces tested
-before its first match, so region cardinality is not an exact trigger-visit
-count.
-
-A temporary bounded probe filtered both boundaries by the verified region key.
-A normal 30-day GFM run produced no target-region calls. A controlled event
-overlay then exercised the effect boundary, but 622 process-local node tokens
-appeared in the same burst and could not be mapped back to script source sites.
-The probe observed no trigger calls, recursion, invalid layouts, or drops.
-
-The probe did not count linked-list visits directly, establish stable node
-identity, or measure instrumentation cost. Its build also lacked committed-tree
-provenance. The runtime observations therefore do not promote either symbol
-beyond `verified-static-callsites` or support a source-site performance claim.
-The probe and disposable overlay were removed; no production API was retained.
+Both entry signatures stop before ASLR-relocated exception-handler operands.
+A bounded region-key-filtered probe found no target calls in normal 30-day GFM.
+Controlled overlay exercised effects with 622 process-local node tokens in one
+burst, without source-site correlation. No trigger calls, recursion, invalid
+layouts, or drops. Visits, stable identity, overhead, and committed-tree build
+provenance were not established; neither symbol is promoted to runtime-verified.
 
 ## Script application boundary
 
-RVA `0x00507e00` is a verified runtime selected-event-option action executor.
-Static review identifies a normal MSVC x86 `__thiscall` entry with the action
-object in `ECX`; it synchronously calls the narrower option executor at RVA
-`0x004a61f0`. The action object carries the selected option index at `+0x64`,
-an embedded event snapshot at `+0x68`, opaque source-key words at `+0x70` and
-`+0x74`, and resolver-key words at `+0x40` and `+0x44`. The eight-byte entry
-signature is relocation-free; the later exception-handler operand is relocated
-under ASLR and must not be matched as a literal runtime byte sequence.
+RVA `0x00507e00` is `verified-runtime` only as the selected-event-option action
+executor, not generic event/trigger/effect attribution. Static x86 MSVC
+`__thiscall` uses `ECX` action and synchronously calls option executor
+`0x004a61f0`. Its eight-byte signature is relocation-free; the later exception
+handler operand is not safe to match literally under ASLR.
 
-A bounded, opt-in observation probe correlated two disposable no-op country
-events after a verified daily subscription boundary. Event `990001` option 0
-produced resolver words `(39, 990001)`. Event `990002` option 1 produced
-resolver words `(39, 990002)`. Both produced source words `(5128522, 221)`,
-ran on the same observed game thread at depth 0, and completed with two calls,
-two copied records, no invalid layouts, and no drops. This verifies that
-resolver word 1 is the event ID for these controlled country events and that
-`+0x64` identifies the selected option. Source-key semantics remain opaque.
-The disposable source save remained unchanged at SHA-256
+| Action field | Meaning / controlled correlation |
+| --- | --- |
+| `+0x64` | Selected option: event `990001` option 0; `990002` option 1 |
+| `+0x68` | Embedded event snapshot |
+| `+0x70` / `+0x74` | Opaque source words `(5128522, 221)` for both |
+| `+0x40` / `+0x44` | Resolver words `(39, 990001)` / `(39, 990002)`; second word is event ID for these country fixtures |
+
+Two disposable no-op country events after a verified daily subscription yielded
+two calls/copied records, same observed thread, depth 0, no invalid layouts or
+drops. Vanilla source SHA-256 remained
 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+Exact executable/signature gates and a 1,024-record atomic reservation buffer
+copied eight scalars without allocation, waits, formatting, I/O, exported
+pointers, or pointers retained beyond the synchronous call. Repeated enabled
+runs installed/removed the hook and exited natively without error.
 
-The probe accepted only the exact supported executable and the relocation-free
-entry signature. Its callback used fixed-capacity atomic reservation for 1,024
-records, copied eight scalar values, reported invalid layouts and drops, and
-performed no allocation, waiting, formatting, or filesystem work. No pointer
-crossed the C ABI or survived the synchronous call. Both controlled calls ran
-on the same thread at observed recursion depth 0. That establishes the
-exercised object lifetime and thread but does not prove broader thread ownership
-or nested reentrancy behavior. Repeated enabled runs installed and removed the
-hook and exited through the verified native lifecycle without error.
+Paired speed-5, 30-day, lifecycle-only runs used identical executable/plugins/save
+within each pair and reached exact targets without telemetry drops:
 
-Paired fixed-interval runs used the same executable, plugins, saves, speed 5,
-30-day target, and lifecycle-only telemetry. Three vanilla pairs had no probe
-calls; disabled mean elapsed and process CPU were 2.007435 s and 2.833333 s,
-while enabled means were 1.903971 s and 2.479167 s. One GFM pair also had no
-probe calls: disabled elapsed and CPU were 7.221915 s and 9.109375 s; enabled
-elapsed and CPU were 6.769081 s and 9.156250 s. The GFM enabled-minus-disabled
-deltas were -6.3 percent elapsed and +0.5 percent CPU. This single GFM pair
-detected no fixed-interval regression. Because none of these runs invoked the
-probe, they measure only the installed idle path during the campaign interval,
-not installation time or active callback overhead. All runs reached the exact
-target with no telemetry drops. The GFM source save remained unchanged at SHA-256
-`3c70553984e4d94773483076ee4d83ac351095042f66a9920a3ee4770f7763f4`.
+| Fixture | Pairs | Disabled elapsed / CPU | Enabled elapsed / CPU | Probe calls |
+| --- | ---: | --- | --- | ---: |
+| Vanilla | 3 | Means 2.007435 / 2.833333 s | Means 1.903971 / 2.479167 s | 0 |
+| GFM | 1 | 7.221915 / 9.109375 s | 6.769081 / 9.156250 s | 0 |
 
-Static review suggested RVA `0x004a8120` was accepted-event delivery, but a
-30-day GFM run, direct event 18540, and nested event edge 32509 to 32510 all
-produced zero calls. Runtime evidence therefore rejects it as the selected-option
-boundary; the delivery interpretation remains only a static search lead.
+GFM deltas −6.3% elapsed / +0.5% CPU detected no regression in that pair;
+source unchanged. Zero calls measure only the installed idle campaign path,
+not installation or active-callback cost. Country-only identity correlation,
+opaque source words, and untested nested reentrancy prevent a reusable API;
+observed thread/lifetime are not general ownership guarantees.
 
-RVA `0x00507e00` is therefore verified for the narrow selected-event-option
-executor claim, not as a generic event, trigger, or effect attribution service.
-Only controlled country events were correlated, source-key semantics remain
-opaque, and nested reentrancy was not established. Those limits do not support
-a reusable production API. The exploratory selected-option hook, mod fixture,
-probe-specific telemetry API, and runtime emission path were removed after
-correlation.
+RVA `0x004a8120`, a static accepted-event-delivery lead, had zero calls during
+30-day GFM, direct event `18540`, and nested `32509` → `32510`. This rejects it
+as the selected-option boundary, not all possible delivery semantics.
 
 ## Automatic event dispatch leads
 
-Issue [#86](https://github.com/adrunkhuman/smedley_kernel/issues/86)
-reviewed preferred RVAs `0x0048d370` and `0x0048d6b0` as possible automatic
-country- and province-event effect attribution boundaries.
+[Issue #86](https://github.com/adrunkhuman/smedley_kernel/issues/86) rejected
+RVA `0x0048d370` / `0x0048d6b0` as effect-attribution contracts: they include
+dispatch/setup, and the province path can defer delivery. Object/context fields
+did not establish stable event identity or country/province scope.
 
-| Claim | Evidence level | Evidence |
+| Lead | Entry signature | Evidence |
 | --- | --- | --- |
-| Entry bytes | `verified-current` | Both relocation-free signatures match the exact supported executable. |
-| x86 ABI | `verified-static-callsites` | Both are `__thiscall` entries with two stack arguments and `ret 8`. |
-| Not an effect boundary | `verified-static-callsites` | Both are dispatch/setup leads rather than the narrower option-effect executor; the province path can defer delivery. |
-| Runtime country/province role | `provisional` | The probe recorded zero calls, but controlled fixture execution was not independently proved. |
+| Country `0x0048d370` | `55 8b ec 83 e4 f8 83 ec 5c 53 56 57 8b 7d 08 8b` | Relocation-free byte match recorded as `verified-current`; ABI/dispatch interpretation `verified-static-callsites` |
+| Province `0x0048d6b0` | `55 8b ec 83 e4 f8 83 ec 50 56 8b 75 08 8b 46 40` | Same levels; both `__thiscall`, two stack arguments, `ret 8` |
 
-| Lead | Entry signature |
+Runtime roles remain `provisional`. Temporary `SMEDLEY_HIDDEN_EVENT_PROBE=1`
+probe gated exact executable/signatures, copied ten scalars to a fixed 4,096
+record buffer, tracked thread/depth/invalid layouts/drops, allocated no callback
+memory and exported no pointer. Build base `f73e7ad` plus uncommitted probe;
+no exact DLL hash retained. This fails exact-built-commit provenance.
+
+Common settings: `v2game-3.04`, runner/telemetry, speed 5, queue 1,024,
+lifecycle/state categories, daily AUS `treasury_raw`; probe variable only for
+fixtures. Vanilla source hash was `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`;
+GFM hash is above. Sources stayed unchanged; game error log was empty after
+fixture inspection.
+
+| Attempt | Negative result / interpretation |
 | --- | --- |
-| Country, `0x0048d370` | `55 8b ec 83 e4 f8 83 ec 5c 53 56 57 8b 7d 08 8b` |
-| Province, `0x0048d6b0` | `55 8b ec 83 e4 f8 83 ec 50 56 8b 75 08 8b 46 40` |
+| Country, 10 days | Automatic AUS `990100` was configured to invoke triggered-only `990101` with `treasury = 123`. Fixture raw `479189538` → `356444112`; no-mod control → `356415061`. Difference 29,051, not expected 4,030,464 at 15-bit scale: base simulation explains the large decrease, fixture execution unproved. Fixture/control callbacks 2,548 / 2,539, no drops, zero country-candidate records; cannot reject the candidate at runtime. |
+| Province, 60 days | Province-619 MTTH root lacked independent treasury marker. Shipped scripts supplied no direct `province_event` invocation example; automated console input did not prove manual acceptance. No real delivery correlation. |
+| GFM, 10 days | `callback_count=0`, no attributable hook evidence. |
 
-Entry timing at either lead would include scheduling or delivery work without
-proving that an option's effects ran. The reviewed object words and context
-fields did not establish stable event identity or country/province scope
-semantics. This rejects the proposed effect-attribution contract statically; it
-does not establish what complete runtime paths use either entry.
-
-A temporary probe accepted only the exact supported executable and both entry
-signatures. Each entry detour copied ten scalar observations into a fixed 4,096
-record buffer, tracked thread and recursion depth, and reported invalid layouts
-and drops. The callback allocated no memory and exported no pointer. It was
-enabled only by `SMEDLEY_HIDDEN_EVENT_PROBE=1`.
-
-The exploratory build was based on commit `f73e7ad` plus uncommitted probe
-source. No hash of that exact probe DLL was retained. This fails the project's
-exact-built-commit provenance requirement, so the runtime observations below
-cannot promote either candidate to a supported runtime claim.
-
-All runs used executable mapping `v2game-3.04`, `campaign_runner`, `telemetry`,
-speed 5, a queue capacity of 1,024, lifecycle and state categories, and daily
-AUS `treasury_raw` capture. Fixture runs additionally set
-`SMEDLEY_HIDDEN_EVENT_PROBE=1`. The source saves remained unchanged, and the
-Victoria II error log was empty when inspected after the fixture runs.
-The vanilla source-save SHA-256 was
-`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`;
-the GFM source-save identity is recorded in the immutable-input table above.
-
-The country fixture configured automatic event `990100` for AUS to invoke
-triggered-only country event `990101`, whose option contained
-`treasury = 123`. The fixture trace changed from raw `479189538` to
-`356444112` across the expected date. The no-mod control changed from the same
-`479189538` to `356415061`. The traces differ by only `29051` raw at that date,
-not the `4030464` raw corresponding to 123 at the verified 15-bit treasury
-scale. The large decrease therefore came from the base simulation and does not
-prove that the fixture event executed. The ten-day fixture completed 2,548
-callbacks with no drops and zero country-candidate records; the no-mod control
-completed 2,539 callbacks with no drops. The zero-call result cannot reject
-`0x0048d370` at runtime.
-
-Province runtime correlation was also not established. A province-619 MTTH
-root did not produce its independent treasury marker during the 60-day run.
-Shipped vanilla scripts provided no example of one event directly invoking a
-`province_event` effect, and automated console input did not establish that a
-manual command was accepted. These negative controls do not prove that
-`0x0048d6b0` is absent from a real province delivery path.
-
-A ten-day GFM run completed with `callback_count=0`, so it supplied no
-attributable hook evidence. No active-callback overhead measurement was possible
-because neither candidate recorded a call. Stable identity, scope, recursion,
-and active-cost contracts remain unproven. The automatic-event probe, its public
-hook bit and telemetry integration, and the disposable mod fixtures were
-removed. The post-removal x86 Release build passed all 257 CTest tests, and no
-production API or executable mapping for either automatic-event candidate was
-retained.
+Neither active cost nor stable identity/scope/recursion was established. Probe,
+public hook bit, telemetry integration, and fixtures were removed; post-removal
+x86 Release passed 257 CTest tests. No production mapping/API for these leads
+remains. Host success does not promote their runtime claims.
 
 ## Ownership conclusion
 
-If attribution is verified, the kernel may own the hook, copied opaque IDs,
-timing, bounds, lifecycle, and loss reporting. A generic profiler may own
-allowlists and aggregation. GFM event identities, classifications, eligibility,
-thresholds, and replacement decisions remain mod scripting or native feature
-plugin policy.
+A future verified boundary may put hooks, copied opaque IDs, timing, bounds,
+lifecycle, and loss reporting in the kernel; generic aggregation/allowlists in
+a profiler. GFM classifications, eligibility, thresholds, and replacement policy
+stay in mod scripts or a justified native feature plugin. All probe results here
+are bounded historical evidence, not current instrumentation behavior.

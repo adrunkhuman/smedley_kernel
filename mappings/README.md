@@ -1,61 +1,78 @@
 # Mapping catalog
 
-The catalog separates executable evidence from reverse-engineering hypotheses.
-Evidence notes are intentionally chronological and less polished than user
-documentation. They preserve commands, failed probes, hashes, conflicting
-observations, and unresolved uncertainty needed to reproduce or audit mapping
-claims.
+Reverse-engineered facts about the supported English Heart of Darkness 3.04
+executable. [User and developer guides](../README.md#documentation) describe
+current Smedley behavior; this catalog records why engine claims are trusted
+and where they remain uncertain.
 
-- `verified-runtime`: observed in the supported live game and independently correlated.
-- `verified-current`: byte-matched to the cataloged executable and used successfully by current source.
-- `verified-static-callsites`: reviewed callers support the proposed semantics without complete runtime coverage.
-- `provisional`: useful hypothesis that must not drive default mutation.
-- `historical-unverified`: recovered from history and requires runtime verification.
-- `historical-skeleton`: only enough structure is known to guide further investigation.
+## Catalogs
 
-The GUI catalog additionally uses `definition-verified` for names present in
-shipped `.gui` files and `verified-static-xref` for names linked to executable
-code by reviewed static references.
+| File | Contents |
+| --- | --- |
+| [v2game-3.04.toml](v2game-3.04.toml) | Executable identity, native symbols, signatures, layouts, and provenance. |
+| [gui-controls-3.04.toml](gui-controls-3.04.toml) | Names from shipped `.gui` definitions and reviewed executable references. Names alone do not identify native handlers. |
 
-Validate the executable and known instruction signatures before using an address:
+Validate the executable and instruction signatures before using an address:
 
 ```powershell
 python tools/validate_mappings.py "C:\path\to\Victoria 2\v2game.exe"
 ```
 
-An exact byte match proves that the expected code is present at an address. It
-does not prove a proposed name, field type, calling convention, or safe hook
-boundary. Those require decompiler analysis and runtime observation.
+A byte match proves code is present—not its name, type, calling convention,
+object lifetime, thread requirements, or safe mutation boundary. RVA addresses
+are module-relative; VAs use preferred base `0x00400000`. Runtime code must
+account for ASLR.
 
-`gui-controls-3.04.toml` records stable names from the game's `.gui`
-definitions. These names are useful anchors for finding runtime GUI objects,
-but they do not yet identify the engine handlers behind each control.
+## Evidence levels
 
-## Evidence
+| Level | Meaning |
+| --- | --- |
+| `verified-runtime` | Observed in the supported live game and independently correlated. |
+| `verified-current` | Byte-matched to the cataloged executable and used successfully by current source. |
+| `verified-static-callsites` | Reviewed callers support the semantics; runtime coverage is incomplete. |
+| `provisional` | Hypothesis; must not drive default mutation. |
+| `historical-unverified` | Recovered from history; requires current validation. |
+| `historical-skeleton` | Search lead, not a usable layout contract. |
+| `definition-verified` | GUI name exists in shipped definitions. |
+| `verified-static-xref` | GUI name has reviewed executable references. |
 
-- [`evidence/campaign-automation.md`](evidence/campaign-automation.md)
-  documents the verified native frontend sequence used by `--save`.
-- [`evidence/gfm-workload.md`](evidence/gfm-workload.md) records the pinned GFM
-  workload fixture, static inventory, runtime baseline, and attribution limits.
-- [`evidence/province-reconciliation.md`](evidence/province-reconciliation.md)
-  records the checked province-modifier removal boundary and its historical GFM
-  adoption validation.
-- [`evidence/interest-payout.md`](evidence/interest-payout.md) records the
-  interest-payout investigation and runtime results.
-- [`evidence/scripting.md`](evidence/scripting.md) records the scripting
-  boundary and acceptance evidence.
-- [`evidence/speed-control.md`](evidence/speed-control.md) records native speed
-  control, pacing thresholds, and rejected tuning experiments.
-- [`evidence/telemetry.md`](evidence/telemetry.md) records telemetry mappings
-  and runtime observations.
+Evidence levels apply to specific claims, not entire objects or features.
+Historical runs establish only their recorded implementation, fixture, and
+scope; moving code or passing host tests does not extend those claims.
+
+## Evidence by boundary
+
+| Boundary | Record |
+| --- | --- |
+| Save loading, observer, bounded runs, native exit | [Campaign automation](evidence/campaign-automation.md) |
+| Native speed and daily pacing | [Speed control](evidence/speed-control.md) |
+| Observation fields, hooks, units, capture validation | [Telemetry](evidence/telemetry.md) |
+| Bank/state interest pipeline and POP payout | [Interest payout](evidence/interest-payout.md) |
+| Taxes, loans, repayment, default, conservation | [Fiscal and credit](evidence/fiscal-credit-boundaries.md) |
+| Province modifiers and checked removal | [Province reconciliation](evidence/province-reconciliation.md) |
+| GFM static workload and runtime attribution limits | [GFM workload](evidence/gfm-workload.md) |
+| Copied Lua events and queued pause | [Scripting](evidence/scripting.md) |
 
 ## Research
 
-- [`research/ai-static-leads.md`](research/ai-static-leads.md) preserves static
-  leads recovered from the untrusted Player Military AI package.
+| Lead | Scope |
+| --- | --- |
+| [AI static leads](research/ai-static-leads.md) | Unverified findings recovered from the Player Military AI package. |
+| [Retired engine mirrors](research/retired-engine-mirrors.md) | Historical model provenance; not supported C++ bindings. |
 
-`tools/research/find_xrefs.py` finds direct x86 references to ASCII strings,
-while `tools/research/find_calls.py` finds direct relative calls to a candidate
-RVA. Both are
-lightweight triage tools; their nearest-prologue guesses still require manual
-disassembly review.
+`tools/research/find_xrefs.py` finds direct x86 references to ASCII strings;
+`tools/research/find_calls.py` finds direct relative calls to an RVA. Their
+nearest-prologue guesses require manual disassembly review.
+
+## Maintaining evidence
+
+Organize records as **established claims → supporting evidence → limits**.
+Keep identities, addresses, units, commands, counterexamples, and uncertainty
+needed to reproduce or audit a claim. For runtime evidence, record revision,
+fixture, configuration, result, and artifact identity where known; mark missing
+provenance rather than guessing. Keep comparable runs in a table, not a sequence
+of progress reports. Link shared evidence instead of copying it.
+
+Update conclusions when evidence changes. Remove superseded implementation
+narration; Git retains it. Keep unresolved facts beside the relevant claim and
+track proposed work in issues, not a parallel priority queue here.

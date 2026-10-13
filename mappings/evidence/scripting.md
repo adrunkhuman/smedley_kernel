@@ -8,7 +8,7 @@ dynamically resolves the event, campaign-control, and logging C services.
 The wrapper, its generated model, and the regeneration path were not
 compatibility surfaces and were intentionally removed. Private Lua 5.1 states
 remain the only supported scripting runtime. Future engine access must use the
-versioned C services documented in `docs/plugin-development.md`.
+versioned C services documented in `docs/plugins.md`.
 
 ## Data path
 
