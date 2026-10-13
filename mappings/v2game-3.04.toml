@@ -54,7 +54,7 @@ rva = 0x00108ca4
 kind = "label"
 status = "verified-runtime"
 signature = "01 8b 78 0e 00 00 8b 54 24 34 11 93 7c 0e 00 00"
-source = "CCountry::DailyUpdate adds tax_settings[0] to treasury and daily accounting +0x00; one-day benchmark run 767d2c76 measured SWE +778031 raw, exactly floor(sum(poor_tax.tax_income) * 32768 / 1000), with zero flags/drops"
+source = "CCountry::DailyUpdate adds tax_settings[0] to treasury and daily accounting +0x00; one-day class-tax fixture measured SWE +778031 raw, exactly floor(sum(poor_tax.tax_income) * 32768 / 1000), with zero flags/drops"
 
 [[symbols]]
 name = "CCountry middle-tax treasury receipt"
@@ -62,7 +62,7 @@ rva = 0x00108cde
 kind = "label"
 status = "verified-runtime"
 signature = "01 b3 78 0e 00 00 8b 7c 24 2c 8d 54 24 28 11 bb"
-source = "CCountry::DailyUpdate adds tax_settings[1] to treasury and daily accounting +0x08; one-day benchmark run 767d2c76 measured SWE +424367 raw, exactly floor(sum(middle_tax.tax_income) * 32768 / 1000), with zero flags/drops"
+source = "CCountry::DailyUpdate adds tax_settings[1] to treasury and daily accounting +0x08; one-day class-tax fixture measured SWE +424367 raw, exactly floor(sum(middle_tax.tax_income) * 32768 / 1000), with zero flags/drops"
 
 [[symbols]]
 name = "CCountry rich-tax treasury receipt"
@@ -70,7 +70,7 @@ rva = 0x00108d1a
 kind = "label"
 status = "verified-runtime"
 signature = "01 8b 78 0e 00 00 8b 54 24 2c 53 11 93 7c 0e 00"
-source = "CCountry::DailyUpdate adds tax_settings[2] to treasury and daily accounting +0x10; one-day benchmark run 767d2c76 measured SWE +62756 raw, exactly floor(sum(rich_tax.tax_income) * 32768 / 1000), with zero flags/drops"
+source = "CCountry::DailyUpdate adds tax_settings[2] to treasury and daily accounting +0x10; one-day class-tax fixture measured SWE +62756 raw, exactly floor(sum(rich_tax.tax_income) * 32768 / 1000), with zero flags/drops"
 
 [[symbols]]
 name = "CCountry tariff treasury receipt"
@@ -86,7 +86,7 @@ rva = 0x0018beec
 kind = "hook"
 status = "verified-runtime"
 signature = "e8 df 79 f9 ff"
-source = "seven-day run 3f63c64b bracketed 12 calls from the order path to CCountry::RepayLoan with creditor/debtor identity; every requested amount exactly equaled both the debtor treasury debit and CCreditor debt reduction, with zero flags/drops"
+source = "seven-day repayment fixture bracketed 12 calls from the order path to CCountry::RepayLoan with creditor/debtor identity; every requested amount exactly equaled both the debtor treasury debit and CCreditor debt reduction, with zero flags/drops"
 
 [[symbols]]
 name = "CCountry::RepayLoan"
@@ -94,7 +94,7 @@ rva = 0x001238d0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 6a ff 68 c8 e7 b9 00 64 a1 00 00 00 00"
-source = "static flow walks CCountry+0xe8c creditors, reduces CCreditor+0x18, debits CCountry+0xe78, and removes fully repaid entries; for a nonzero lender ordinal it also reduces resolved CBank+0x18 with a zero clamp, while ordinal-zero Shadowy Financiers skip the bank mutation; run 3f63c64b observed 12 exact requested/treasury/debt reductions through caller RVA 0x0018beec; isolated native UI full repayment removed seven named creditors with matching treasury/lent reductions and unchanged reserves; see mappings/evidence/fiscal-credit-boundaries.md#native-ui-loan-and-full-repayment"
+source = "static flow walks CCountry+0xe8c creditors, reduces CCreditor+0x18, debits CCountry+0xe78, and removes fully repaid entries; for a nonzero lender ordinal it also reduces resolved CBank+0x18 with a zero clamp, while ordinal-zero Shadowy Financiers skip the bank mutation; the seven-day repayment fixture observed 12 exact requested/treasury/debt reductions through caller RVA 0x0018beec; isolated native UI full repayment removed seven named creditors with matching treasury/lent reductions and unchanged reserves; see mappings/evidence/fiscal-credit-boundaries.md#native-ui-loan-and-full-repayment"
 
 [[symbols]]
 name = "POP savings bank-deposit co-update"
@@ -126,7 +126,7 @@ rva = 0x000f5bf0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 83 e4 f8 83 ec 10 53 8b 5f 20"
-source = "the post-country caller at RVA 0x00285f0f passes every CCountry+0xe88 bank; static flow either recapitalizes CBank+0x10 when it is at most 33 or allocates CBank+0x20 across CCountry+0xe44 states using CState+0x258 weights, adds shares to CState+0x260, and clears CBank+0x20; run 96be486d-b7b3-4943-b423-49929ff8ee77 observed the state pool rise on each subsequent day while native POP cash-flow index 7 remained absent"
+source = "the post-country caller at RVA 0x00285f0f passes every CCountry+0xe88 bank; static flow either recapitalizes CBank+0x10 when it is at most 33 or allocates CBank+0x20 across CCountry+0xe44 states using CState+0x258 weights, adds shares to CState+0x260, and clears CBank+0x20; the seven-day native cash-flow fixture observed the state pool rise on each subsequent day while native POP cash-flow index 7 remained absent"
 
 [[symbols]]
 name = "CCountry::PayDailyInterest creditor shortfall handler"
@@ -467,7 +467,7 @@ rva = 0x00088710
 kind = "callsite"
 status = "verified-runtime"
 signature = "e8 1b c4 06 00"
-source = "the first stack argument is CStateBuilding* and the first 64-bit value argument exactly matches sales_income +0x160; live run 662343cc-fc1a-4ad9-a95a-4215541612c6 reconciled opening inventory, output +0xd8, closing inventory +0x1f8, and proceeds for all 21 captured factory settlements"
+source = "the first stack argument is CStateBuilding* and the first 64-bit value argument exactly matches sales_income +0x160; the factory-sales fixture reconciled opening inventory, output +0xd8, closing inventory +0x1f8, and proceeds for all 21 captured factory settlements"
 
 [[symbols]]
 name = "Factory sales settlement"
@@ -545,7 +545,7 @@ name = "Single-player frontend controller primary vtable"
 rva = 0x00a14ed0
 kind = "data"
 status = "verified-runtime"
-source = "constructor RVA 0x36a2f0 installs VA 0x00e14ed0 after base construction; runtime run bab8f3b3-e9dd-4eca-8c63-ac391a738637 passed exact vtable validation through save selection and Play"
+source = "constructor RVA 0x36a2f0 installs VA 0x00e14ed0 after base construction; the frontend lifecycle fixture passed exact vtable validation through save selection and Play"
 
 [[symbols]]
 name = "Single-player frontend controller scalar deleting destructor"
@@ -553,14 +553,14 @@ rva = 0x0036b030
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 56 8b f1"
-source = "first entry of primary vtable RVA 0xa14ed0; run bab8f3b3-e9dd-4eca-8c63-ac391a738637 observed the hook after Play, then entered and advanced the campaign normally"
+source = "first entry of primary vtable RVA 0xa14ed0; the frontend lifecycle fixture observed the hook after Play and normal campaign entry/date advancement"
 
 [[symbols]]
 name = "Main-menu controller primary vtable"
 rva = 0x00a13dbc
 kind = "data"
 status = "verified-runtime"
-source = "constructor RVA 0x354a00 installs VA 0x00e13dbc after base construction; runtime run bab8f3b3-e9dd-4eca-8c63-ac391a738637 passed exact vtable validation before native Single Player dispatch"
+source = "constructor RVA 0x354a00 installs VA 0x00e13dbc after base construction; the frontend lifecycle fixture passed exact vtable validation before native Single Player dispatch"
 
 [[symbols]]
 name = "Main-menu controller scalar deleting destructor"
@@ -568,7 +568,7 @@ rva = 0x00354df0
 kind = "function"
 status = "verified-runtime"
 signature = "55 8b ec 56 8b f1"
-source = "first entry of primary vtable RVA 0xa13dbc; run bab8f3b3-e9dd-4eca-8c63-ac391a738637 observed the hook after Play, then entered and advanced the campaign normally"
+source = "first entry of primary vtable RVA 0xa13dbc; the frontend lifecycle fixture observed the hook after Play and normal campaign entry/date advancement"
 
 [[symbols]]
 name = "Main-menu controller update"
@@ -733,7 +733,7 @@ rva = 0x0024edb0
 kind = "function"
 status = "verified-runtime"
 signature = "c6 81 20 1d 00 00 01 c3"
-source = "accepted QUIT DefaultDialog callback RVA 0x276500 invokes primary CInGameIdler vtable +0x110; x86 __thiscall method sets this+0x1d20; campaign_runner run 21b024dd-ec69-4d46-a22e-1d309ab83b21 read back 1 and exited without external termination"
+source = "accepted QUIT DefaultDialog callback RVA 0x276500 invokes primary CInGameIdler vtable +0x110; x86 __thiscall method sets this+0x1d20; the campaign_runner native-exit fixture read back 1 and exited without external termination"
 
 [[symbols]]
 name = "CInGameIdler endgame check"
@@ -961,7 +961,7 @@ fields = [
 [[layouts]]
 name = "CCreditor"
 status = "verified-runtime"
-source = "PayDailyInterest and RepayLoan static data flow plus runtime/save correlation: SWE interest=0.01999 maps to +0x10 raw 655 and debt=14969.11719 maps to +0x18 raw 490508032; run 3f63c64b bracketed 12 exact principal reductions with retained creditor/debtor identity"
+source = "PayDailyInterest and RepayLoan static data flow plus runtime/save correlation: SWE interest=0.01999 maps to +0x10 raw 655 and debt=14969.11719 maps to +0x18 raw 490508032; the seven-day repayment fixture bracketed 12 exact principal reductions with retained creditor/debtor identity"
 fields = [
   { name = "destination_tag", offset = 0x08 },
   { name = "interest", offset = 0x10 },
@@ -1017,7 +1017,7 @@ fields = [
 name = "CWorldMarket.market_data_prefix"
 status = "verified-runtime"
 size = 0x054c
-source = "live RTTI resolves CWorldMarket; embedded CGoodsPool fields correlate byte-for-byte with benchmark save worldmarket pools and run 51693f9a-19fb-4900-bfb8-3254022e79ae"
+source = "live RTTI resolves CWorldMarket; embedded CGoodsPool fields correlate byte-for-byte with benchmark save worldmarket pools and the live world-market fixture"
 fields = [
   { name = "supply", offset = 0x0008 },
   { name = "last_supply", offset = 0x0060 },
@@ -1232,7 +1232,7 @@ fields = [
 name = "CPopArtisanEconomy"
 status = "verified-runtime"
 size = 0x0100
-source = "typed runtime and save correlation establish the object at CPop+0x1d4; live producer-sales run 662343cc-fc1a-4ad9-a95a-4215541612c6 reconciled gross output and consecutive leftover inventory for 498 complete artisan intervals"
+source = "typed runtime and save correlation establish the object at CPop+0x1d4; the producer-sales fixture reconciled gross output and consecutive leftover inventory for 498 complete artisan intervals"
 fields = [
   { name = "stockpile", offset = 0x0000 },
   { name = "recipe_need", offset = 0x0058 },
@@ -1251,7 +1251,7 @@ fields = [
 [[layouts]]
 name = "CBank"
 status = "verified-runtime"
-source = "save/runtime correlation identifies +0x10 as serialized bank money (SWE 75894.56842 -> raw 2486913218) and +0x18 as money_lent (21725.41159 -> raw 711898287); RepayLoan statically reduces lender +0x18 and run 3f63c64b correlated exact creditor-principal reductions, including SWE's self-creditor; +0x08 ownership and +0x20 interest accumulation are separately runtime verified"
+source = "save/runtime correlation identifies +0x10 as serialized bank money (SWE 75894.56842 -> raw 2486913218) and +0x18 as money_lent (21725.41159 -> raw 711898287); RepayLoan statically reduces lender +0x18 and the seven-day repayment fixture correlated exact creditor-principal reductions, including SWE's self-creditor; +0x08 ownership and +0x20 interest accumulation are separately runtime verified"
 fields = [
   { name = "country", offset = 0x08 },
   { name = "money", offset = 0x10 },

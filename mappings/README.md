@@ -68,10 +68,12 @@ nearest-prologue guesses require manual disassembly review.
 
 Organize records as **established claims → supporting evidence → limits**.
 Keep identities, addresses, units, commands, counterexamples, and uncertainty
-needed to reproduce or audit a claim. For runtime evidence, record revision,
-fixture, configuration, result, and artifact identity where known; mark missing
-provenance rather than guessing. Keep comparable runs in a table, not a sequence
-of progress reports. Link shared evidence instead of copying it.
+needed to reproduce or assess a claim. For runtime evidence, record the source
+revision, fixture, configuration, result, and limitations; mark missing
+provenance rather than guessing. Keep executable identity and reproducible code
+references. Omit opaque run IDs, private-artifact hashes, and investigation
+chronology. Keep comparable observations in a table and link shared evidence
+instead of copying it.
 
 Update conclusions when evidence changes. Remove superseded implementation
 narration; Git retains it. Keep unresolved facts beside the relevant claim and

@@ -1,14 +1,12 @@
 # Scripting boundary
 
 The built-in `scripting` plugin executes user-selected Lua 5.1 source in private
-states compiled into `scripting.dll`. The retired Victoria II Lua-state wrapper
-had no production consumer; the plugin does not resolve either Victoria II Lua
-DLL or export its Lua symbols. The final x86 Release DLL exports only `SmedleyPluginGetApiV1` and
-dynamically resolves the event, campaign-control, and logging C services.
-The wrapper, its generated model, and the regeneration path were not
-compatibility surfaces and were intentionally removed. Private Lua 5.1 states
-remain the only supported scripting runtime. Future engine access must use the
-versioned C services documented in `docs/plugins.md`.
+states compiled into `scripting.dll`. It does not resolve either Victoria II Lua
+DLL or export its Lua symbols. The x86 Release DLL exports only
+`SmedleyPluginGetApiV1` and dynamically resolves the event, campaign-control,
+and logging C services. Private Lua 5.1 states are the only supported scripting
+runtime; engine access uses the versioned C services documented in
+[plugins](../../docs/plugins.md).
 
 ## Data path
 
@@ -66,18 +64,17 @@ a separate mutation capability.
 
 ## Runtime acceptance
 
-Run `b076f162-9700-40c3-9c9b-7f56c53991b3` used the exact supported executable,
-no mods, source save `benchmark.v2`, native speed 5, `campaign_runner`, and
+The private-Lua coexistence fixture used the exact supported executable, no
+mods, source save `benchmark.v2`, native speed 5, `campaign_runner`, and
 `scripting` with `scripts/examples/pause_after_30_days.lua`. The source save
-started with and retained SHA-256
-`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+remained unchanged.
 
 The plugin initialized while Victoria II's `lua51.dll` and `lua5.1.dll` were
-both loaded. Campaign automation reached `CInGameIdler` and unpaused at
-16:49:11. The script scheduler queued its callback at raw date `59884128`; at
-16:49:12 the plugin invoked the transaction and logged paused readback. The
-process remained responsive after the pause. It was then terminated as test
-cleanup because a verified native clean-exit path does not exist.
+both loaded. Campaign automation reached `CInGameIdler` and unpaused. The
+script scheduler queued its callback at raw date `59884128`; the plugin then
+invoked the transaction and logged paused readback. The process remained
+responsive after the pause. It was terminated as test cleanup; no verified
+native clean-exit path was available to that test.
 
 This verifies private-runtime coexistence, daily copied-event delivery,
 in-memory day scheduling, and pause transaction completion on the supported
@@ -85,10 +82,13 @@ runtime. It does not establish safe arbitrary mutation, save-persistent script
 state, crash-time teardown, deterministic multiplayer behavior, or support for
 another executable or mod.
 
-Post-reader-migration run `d0cfef6e-ae3c-42ab-ada2-c3db7601ca13` repeated the same
-save, plugins, script, and speed with checked snapshot and pause boundaries. It
-predates the later C service-table migration and therefore validates the
-underlying engine adapters, not the new binary interface. At raw date `59884128` the worker logged the queued
-request, the next game-thread transaction logged paused readback, and the
-process remained responsive. Test cleanup then terminated the paused process;
-the source save retained the same SHA-256.
+The checked-reader fixture repeated the same save, plugins, script, and speed
+with checked snapshot and pause boundaries. It predates the C service-table
+migration and therefore validates the underlying engine adapters, not that
+binary interface. At raw date `59884128` the worker logged the queued request,
+the next game-thread transaction logged paused readback, and the process
+remained responsive. Test cleanup terminated the paused process; the source
+save remained unchanged.
+
+Neither fixture records exact-built-commit provenance; these results do not
+establish acceptance of the current C service-table implementation.

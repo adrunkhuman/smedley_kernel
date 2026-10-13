@@ -14,7 +14,7 @@ and fixtures were removed, with no production attribution API retained.
 | GFM repository / release | `Historical-Expansion-Mod/Greater-Flavor-Mod`, `v3.0` |
 | Commit | `ee1486e251d3bb4dc5c355f5c2ec34abaea1078d` |
 | Executable SHA-256 | `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648` |
-| Local save | `smedley-gfm-v3.v2`, SHA-256 `3c70553984e4d94773483076ee4d83ac351095042f66a9920a3ee4770f7763f4` |
+| Local save | `smedley-gfm-v3.v2` |
 | Save date / player / header | `1836.1.1`, `PRU`; `government=9`, `unit=2800`, `state=2207` distinguish it from a same-named vanilla save |
 | Installation acceptance | Detached checkout matched installed GFM; only `mod/GFM.mod` selected, submods disabled; main-menu checksum `ZAEJ` |
 
@@ -120,7 +120,7 @@ Recurring flags have distinct contracts, not one removable-cache family:
 
 Historical MSVC x86 Release build; pure pinned GFM/PRU save, normal player
 control, speed 5, runner plus lifecycle-only telemetry, exact 30 days and native
-exit. Source hash unchanged. Reproduction controls and profiles are in
+exit. Source save unchanged. Reproduction controls and profiles are in
 [launcher](../../docs/launcher.md); the measurement invocation was:
 
 ```powershell
@@ -131,12 +131,7 @@ exit. Source hash unchanged. Reproduction controls and profiles are in
   --speed 5 --run-days 30 --quit-after-run --run-timeout-seconds 600 --detach
 ```
 
-| Binary | SHA-256 |
-| --- | --- |
-| `smedley_cli.exe` | `7d46547b3f7ecb4e93ca1d601538c6c01a9dfbf5a81587b54ead56e63afdc055` |
-| `smedley_kernel.dll` | `7fb8f2bfe512d574c11b19c6020a61a694abd41b8914394be2da9a2fdf8e9a5f` |
-| `campaign_runner.dll` | `21a55be5db0a69b716b0ba000a53aead3c5051f57296698466bdffe016609f3d` |
-| `telemetry.dll` | `076d3c234700404a6e0a6c9bc9562eee977f5e489a6d462249b0365a9d5ab363` |
+No exact-built-commit provenance is recorded for these baseline samples.
 
 | Sample | Elapsed | Process CPU | Peak working set | Peak private bytes | Peak virtual bytes |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -191,8 +186,7 @@ handler operand is not safe to match literally under ASLR.
 
 Two disposable no-op country events after a verified daily subscription yielded
 two calls/copied records, same observed thread, depth 0, no invalid layouts or
-drops. Vanilla source SHA-256 remained
-`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
+drops. The vanilla `benchmark.v2` source save remained unchanged.
 Exact executable/signature gates and a 1,024-record atomic reservation buffer
 copied eight scalars without allocation, waits, formatting, I/O, exported
 pointers, or pointers retained beyond the synchronous call. Repeated enabled
@@ -231,14 +225,13 @@ did not establish stable event identity or country/province scope.
 Runtime roles remain `provisional`. Temporary `SMEDLEY_HIDDEN_EVENT_PROBE=1`
 probe gated exact executable/signatures, copied ten scalars to a fixed 4,096
 record buffer, tracked thread/depth/invalid layouts/drops, allocated no callback
-memory and exported no pointer. Build base `f73e7ad` plus uncommitted probe;
-no exact DLL hash retained. This fails exact-built-commit provenance.
+memory and exported no pointer. Build base `f73e7ad` plus uncommitted probe
+does not establish exact-built-commit provenance.
 
 Common settings: `v2game-3.04`, runner/telemetry, speed 5, queue 1,024,
 lifecycle/state categories, daily AUS `treasury_raw`; probe variable only for
-fixtures. Vanilla source hash was `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`;
-GFM hash is above. Sources stayed unchanged; game error log was empty after
-fixture inspection.
+fixtures. Sources were vanilla `benchmark.v2` and the pinned GFM/PRU save
+above. Both stayed unchanged; game error log was empty after fixture inspection.
 
 | Attempt | Negative result / interpretation |
 | --- | --- |
@@ -247,9 +240,9 @@ fixture inspection.
 | GFM, 10 days | `callback_count=0`, no attributable hook evidence. |
 
 Neither active cost nor stable identity/scope/recursion was established. Probe,
-public hook bit, telemetry integration, and fixtures were removed; post-removal
-x86 Release passed 257 CTest tests. No production mapping/API for these leads
-remains. Host success does not promote their runtime claims.
+public hook bit, telemetry integration, and fixtures were removed; no production
+mapping/API for these leads remains. Host success does not promote their runtime
+claims.
 
 ## Ownership conclusion
 

@@ -3,9 +3,9 @@
 Current [user contracts](../../docs/telemetry/README.md) are separate from this evidence.
 The supported target is the English Windows HoD 3.04 executable specified in
 [AGENTS.md](../../AGENTS.md). All runs below are **historical validation of their
-recorded implementation**, not verification of the current worktree. No runtime
-run was performed for this documentation cleanup. Where a run has no commit,
-mod set or reproduction command recorded, that provenance remains unavailable.
+recorded implementation**, not verification of the current worktree. Where a
+run has no commit, mod set or reproduction command recorded, that provenance
+remains unavailable.
 
 ## Established claims and limits
 
@@ -24,19 +24,16 @@ mod set or reproduction command recorded, that provenance remains unavailable.
 | Coordinated drain | Historical bundled completed path accepted | Runtime timeout retry not exercised. |
 
 Kernel-owned `kernel/game_state/` services perform foreign reads and hooks; plugins use
-versioned C tables, copied records and opaque session identities. The old
-`PopRef`/`FactoryRef` adapter description is superseded. Guarded spans and
+versioned C tables, copied records and opaque session identities. Guarded spans and
 bounded metadata checks reject unavailable groups, not infer zero or promote
 layout quality. Ownership migration smoke preserves earlier evidence levels.
 
 ## Validation fixture and reproduction
 
-Many vanilla runs used unchanged `benchmark.v2`. Where explicitly recorded,
-its preserved source SHA-256 was
-`f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`.
-Do not infer that hash verification for runs whose notes did not report it.
-Historical `interest_fix` labels below identify artifacts predating the rename
-to `interest_bug_fix`.
+Many vanilla runs used unchanged `benchmark.v2`. Source-save preservation is
+reported only where recorded, not inferred for other runs. Historical
+`interest_fix` labels below refer to the plugin before its rename to
+`interest_bug_fix`.
 
 The retained verification/export commands are:
 
@@ -56,7 +53,7 @@ smedley_trace country-gdp run.jsonl gdp.csv --country FRA --gold-to-cash-rate 0.
 The [current capture recipe](../../docs/telemetry/trace.md#country-gdp) reproduces
 the required data shape, not the exact historical run. Runtime reproduction
 requires executable/signature validation, recorded plugins/mods/settings,
-exact built revision, disposable or hash-preserved source save, and log/trace
+exact built revision, disposable or verified-unchanged source save, and log/trace
 inspection. Generated traces, saves and process data are not repository inputs.
 
 ## Delivery and lifecycle
@@ -69,15 +66,15 @@ one phase. Final observer configuration waits for AI/view postconditions.
 
 | Historical probe | Supporting evidence | Limit/counterexample |
 | --- | --- | --- |
-| July 31, 2026 observer `f2d403e1-82f8-46b8-8832-a136c822d38a` | Save selection → load → entry → speed/pause → delayed ENG-view observer configuration; 515 days, 1039 ordered records, no gaps/drops/write failure; responsive; mean enqueue/format 0.217 us. | One observer scenario, not current performance acceptance. |
-| Initial non-observer probe (ID unrecorded) | 272 slots, 271 scheduler entries, human control true. | Back-to-back lifecycle drops and missing terminal event isolated nonblocking ingress contention. |
-| Reliable-ingress repeat `154d1e12-79bf-494c-bb32-0332bbdf0f25` | Same world values; exact one day, all 12 expected records, no gaps/drops/write failure; source hash preserved. | Supports separate reliable lifecycle ingress, not losslessness on full queues. |
-| Drain/native quit `4d3d4e44-b4e5-4d7f-b10a-b50bd5b96cfb` | Valid trace ended `benchmark.completed` sequence 10, summary 11; accepted/written 10/10, dropped 0, write failure false; process exited, source unchanged. | Completed bundled drain only; no runtime timeout-retry test. |
-| Ownership migration `01edd2fb-4c64-468b-8db9-efeefecc7b05` | Exact supported executable, unchanged benchmark, observer automation, three FRA/all-country daily rules; factory consumption/sales, artisan consumption and POP cash flow together. 3 exact days, target 59883456; 13308 ordered records, no gaps/drops/write/family-invalid failures; factory 61, artisan 2083, aggregate cash flow 11132 accepted. Paused, drained, native exit, source hash preserved. | Smoke of moved boundaries; no mapping promotion or current-worktree acceptance. |
+| ENG-view observer, 515 days | Save selection → load → entry → speed/pause → delayed ENG-view observer configuration; 515 days, 1039 ordered records, no gaps/drops/write failure; responsive; mean enqueue/format 0.217 us. | One observer scenario, not current performance acceptance. |
+| Initial non-observer probe | 272 slots, 271 scheduler entries, human control true. | Back-to-back lifecycle drops and missing terminal event isolated nonblocking ingress contention. |
+| Reliable-ingress repeat, one day | Same world values; exact one day, all 12 expected records, no gaps/drops/write failure; source save unchanged. | Supports separate reliable lifecycle ingress, not losslessness on full queues. |
+| Drain/native quit | Valid trace ended `benchmark.completed` sequence 10, summary 11; accepted/written 10/10, dropped 0, write failure false; process exited, source unchanged. | Completed bundled drain only; no runtime timeout-retry test. |
+| Kernel-ownership smoke, FRA/all-country | Exact supported executable, unchanged benchmark, observer automation, three FRA/all-country daily rules; factory consumption/sales, artisan consumption and POP cash flow together. 3 exact days, target 59883456; 13308 ordered records, no gaps/drops/write/family-invalid failures; factory 61, artisan 2083, aggregate cash flow 11132 accepted. Paused, drained, native exit, source save unchanged. | Smoke of moved boundaries; no mapping promotion or current-worktree acceptance. |
 
 ## Dates and world snapshots
 
-`CGameState+0xb0c` supplies provisional raw date. July 31, 2026 GFM lifecycle
+`CGameState+0xb0c` supplies provisional raw date. A GFM lifecycle
 probe: 153 dated progress records, 152 transitions, delta 3648 = 152 × 24.
 Calendar encoding is
 `raw = 24 * (365 * (year + 5000) + zero_based_day_of_year)`; benchmark date
@@ -87,7 +84,7 @@ upgrade surrounding game-state semantics.
 
 `world.daily` reads country slots `CGameState+0xadc`, AI scheduler `+0xa4` and
 player control `+0xaec`. Observer automation independently uses these containers.
-Ten-day vanilla observer run `c1a299d3-9172-40fd-bceb-b5547048d481` emitted ten
+Ten-day vanilla observer run emitted ten
 world and ten JAN treasury records: 272 slots, 272 scheduler entries, no human
 control, matching logged scheduler growth 271 → 272. All 40 records were
 healthy and exact-target. Non-observer counterexamples are in the delivery
@@ -115,8 +112,8 @@ money-supply identity, bankruptcy or comprehensive world-money claim is made.
 
 | Historical run | Supporting result |
 | --- | --- |
-| `adfe8a43-413c-448a-b68b-3fd58f001723` | 2 exact observer days, 2 complete scans: 271 countries/597 states/2311 provinces; 19996 then 20030 POPs; 92611/90725 us; 8 accepted economic records, no gaps/drops/write failure; source unchanged. |
-| `28dc5e32-ec54-4682-b383-11bbee695803` | 7 exact days from integrated single handler: seven each health/capacity/holdings/credit; complete, all snapshot/collection/credit flags clear; no duplicates/gaps/drops/write failure. |
+| Two-day observer inventory | 2 exact observer days, 2 complete scans: 271 countries/597 states/2311 provinces; 19996 then 20030 POPs; 92611/90725 us; 8 accepted economic records, no gaps/drops/write failure; source unchanged. |
+| Seven-day integrated inventory | 7 exact days from integrated single handler: seven each health/capacity/holdings/credit; complete, all snapshot/collection/credit flags clear; no duplicates/gaps/drops/write failure. |
 
 ## Country and province candidates
 
@@ -125,11 +122,11 @@ country observations use its daily event, not an additional country traversal.
 
 | Family | Sources / bounds | Historical supporting evidence | Limits |
 | --- | --- | --- | --- |
-| Metrics | `CCountry`: plurality `+0x1a8`, diplomatic points `+0x65c`, exhaustion `+0x680`, leadership `+0x7d0`, research `+0xe3c`, prestige `+0xea0`, ranks `+0x1404..+0x1410`, infamy `+0x1430`. Scalars /1000 except leadership /32768. | PRU one-day `f1e91e80-a3fc-41f6-9dc4-45fc2577f068`: save-matched raw prestige 50055, plurality 25059, diplomatic 5000, research 32603, leadership 270728; zero infamy/exhaustion; ranks overall/military/industrial 4, prestige 5. | Zero keys omitted in save; rankings lack serialized counterpart. |
-| Military | Unit list `+0x7b4`, leadership `+0x7d0`, mobilized `+0x120`, rank `+0x1408`, scheduled vector `+0x15dc`; world wars `CGameState+0xb3c`. Units/scheduled ≤100000; wars ≤4096. | Vanilla `970c3cf3-f56f-4f10-aed8-5f153534150a`: PRU 12 units, no active/scheduled mobilization, leadership 270728, rank 4, world wars 3. | Unit/war/combat storage and durable identities unmapped; no composition, participants, battle, casualties or movement. |
-| Diplomacy | Flags `+0xcf4/+0xcf5`, overlord `+0xcf8`, vassals `+0xd38`, allies `+0xd58`, guarantees `+0xd78`, neighbors `+0xd88`, spherelings `+0x1418`, leader `+0x1428`. Each vector ≤512; three normalized tag bytes + terminator. | Vanilla `70db3477-0e35-4fa6-8ea4-415bc96e7483`: PRU no overlord/leader, 15 spherelings, 5 allies, 0 vassals/guarantees, 21 neighbors. | Change-over-time/symmetry untested; no relation objects/influence. Invalid metadata suppresses affected status/relations and increments invalid. |
-| Province daily | `CProvince`: ID `+0x58`, owner `+0x128`, controller `+0x130`, colonial `+0x190`, life rating `+0x1a4`, infrastructure `+0x2b8`. | Unchanged vanilla benchmark `dd4c7396-4fa0-4598-9b76-e1d43874d690`: province 1 RUS/RUS, colonial 2, life 20; 425 FRA/FRA, life 40; 549 PRU/PRU, infrastructure 160 versus save railroad 1. Summary 4 attempts/3 accepted/1 contended drop. | Correlation and drop accounting, not infrastructure-to-building conversion. |
-| Province production | Construction list `+0xd8` ≤4096; building vector `+0x118` ≤64. | Berlin `efc1f359-f33a-4105-a2f1-1fba825fe34d`: 3 slots/0 constructions; save fort/railroad, omitted naval base. | Definition slots, not active-building/factory count; factories state-level. |
+| Metrics | `CCountry`: plurality `+0x1a8`, diplomatic points `+0x65c`, exhaustion `+0x680`, leadership `+0x7d0`, research `+0xe3c`, prestige `+0xea0`, ranks `+0x1404..+0x1410`, infamy `+0x1430`. Scalars /1000 except leadership /32768. | PRU one-day metrics: save-matched raw prestige 50055, plurality 25059, diplomatic 5000, research 32603, leadership 270728; zero infamy/exhaustion; ranks overall/military/industrial 4, prestige 5. | Zero keys omitted in save; rankings lack serialized counterpart. |
+| Military | Unit list `+0x7b4`, leadership `+0x7d0`, mobilized `+0x120`, rank `+0x1408`, scheduled vector `+0x15dc`; world wars `CGameState+0xb3c`. Units/scheduled ≤100000; wars ≤4096. | Vanilla PRU military: PRU 12 units, no active/scheduled mobilization, leadership 270728, rank 4, world wars 3. | Unit/war/combat storage and durable identities unmapped; no composition, participants, battle, casualties or movement. |
+| Diplomacy | Flags `+0xcf4/+0xcf5`, overlord `+0xcf8`, vassals `+0xd38`, allies `+0xd58`, guarantees `+0xd78`, neighbors `+0xd88`, spherelings `+0x1418`, leader `+0x1428`. Each vector ≤512; three normalized tag bytes + terminator. | Vanilla PRU diplomacy: PRU no overlord/leader, 15 spherelings, 5 allies, 0 vassals/guarantees, 21 neighbors. | Change-over-time/symmetry untested; no relation objects/influence. Invalid metadata suppresses affected status/relations and increments invalid. |
+| Province daily | `CProvince`: ID `+0x58`, owner `+0x128`, controller `+0x130`, colonial `+0x190`, life rating `+0x1a4`, infrastructure `+0x2b8`. | Unchanged vanilla benchmark: province 1 RUS/RUS, colonial 2, life 20; 425 FRA/FRA, life 40; 549 PRU/PRU, infrastructure 160 versus save railroad 1. Summary 4 attempts/3 accepted/1 contended drop. | Correlation and drop accounting, not infrastructure-to-building conversion. |
+| Province production | Construction list `+0xd8` ≤4096; building vector `+0x118` ≤64. | Berlin building slots: 3 slots/0 constructions; save fort/railroad, omitted naval base. | Definition slots, not active-building/factory count; factories state-level. |
 
 ## State factories
 
@@ -183,15 +180,11 @@ cataloged executable.
 `verified-runtime`: seven vanilla Prussian factories in the states containing
 provinces 549/575/682 have remaining-day sequences `6,5,4,3,2,1,0,0`. Money at
 `+0x210` matches save `injected_money * 32768` within formatting precision and the
-exact native tranche rundown at VA `0x004f56b0`. The Jan1 save contains six
-remaining days, not an observed seven-day starting state. Matching uses province
-sets, factory count/order and unique amounts, not decoded live type IDs.
+exact native tranche rundown at VA `0x004f56b0`. The January 1 game-date save
+contains six remaining days, not an observed seven-day starting state. Matching
+uses province sets, factory count/order and unique amounts, not decoded live type IDs.
 The fixture is an isolated Proton campaign, no Smedley or mods, with passive GDB
 callsite capture; it does not establish plugin acceptance.
-Capture SHA-256:
-`d41775c40f824ca1a9c16013be6436bd11b2043d28fc7a203319719668dbac7a`.
-Save SHA-256:
-`a356ab666306f26f999647df5b3735f0b8c8f26718298ffd701a13217b439687`.
 
 The current factory reader does not expose injection fields. These mappings do
 not authorize direct mutation.
@@ -216,13 +209,13 @@ as opening. Daily bound 2048 records/512 factories; overflow explicit invalid.
 
 | Historical run | Supporting evidence / counterexample |
 | --- | --- |
-| PRU `8b355d27-c585-4fb7-8c8f-f79caf33c025` | 2 dates, 50 input/92 factory records, no invalid/drops. Second-day requested × same-date price matches all 7 spending amounts within 0.000081 currency (Glass 0.000056). Fully supplied case cannot prove fulfillment. |
-| BEL `a859d772-6846-4749-9fb6-d12467774133` | 6 factories/3 dates/123 accepted, no invalid/drops. Cement request value exceeds spending 0.09938/0.41326; Canned Food 0.23857; fully supplied within 0.00009. Disproves request-as-purchase inventory equations. |
+| PRU fully supplied, two dates | 2 dates, 50 input/92 factory records, no invalid/drops. Second-day requested × same-date price matches all 7 spending amounts within 0.000081 currency (Glass 0.000056). Fully supplied case cannot prove fulfillment. |
+| BEL shortages, three dates | 6 factories/3 dates/123 accepted, no invalid/drops. Cement request value exceeds spending 0.09938/0.41326; Canned Food 0.23857; fully supplied within 0.00009. Disproves request-as-purchase inventory equations. |
 | Same BEL shortage case, provisional monetary estimate | Spending + opening stock value − closing stock value gives intermediate consumption. Current-price endpoints avoid inventory revaluation but transaction spending has a different price basis. Two dates: gross/intermediate/VA 110.4296/94.1747/16.2549 and 116.1762/98.4568/17.7194; all six factory results positive. Assumes interval alignment/no other transfers. Superseded by physical boundaries. |
-| BEL 30-day `3aacdf40-e989-4d52-92c8-f052fa2a78d8` | 1230 accepted, no invalid/drops; 29 intervals/174 positive factory results despite Canned Food/Cement/Steel/Fabric/Small Arms shortages. Average gross/intermediate/VA 119.3726/99.8497/19.5229; VA range 16.2549–20.7850. Supports alignment, not common price basis. |
-| Direct BEL 30-day `0cff14dc-70fa-4d36-b820-f819e13dcb3e` | 174 intervals, no incomplete boundaries/negative consumption/reconciliation failures. Max difference from old monetary estimate 0.000811603; average VA 19.522634493, range 16.255384248–20.784684079. |
-| Renamed events `608c1a54-b2f5-41b8-8fcd-83c0382c51d1` | Complete flow summary/detail; first intervals VA 16.255384248/17.719507277. Establishes narrow callsite/phase/physical consumption as verified-runtime. |
-| Flows-only `b7c6d433-2404-49f7-a12f-738810579949` | 4 dates, no ordinary inputs/finance; 24 production, 24 complete summaries, 69 flows; no gaps/drops/invalid/write failure. First hook warm-up; 2 exported intervals VA 17.719507277/19.813987492, verified-runtime. |
+| BEL 30-day monetary estimate | 1230 accepted, no invalid/drops; 29 intervals/174 positive factory results despite Canned Food/Cement/Steel/Fabric/Small Arms shortages. Average gross/intermediate/VA 119.3726/99.8497/19.5229; VA range 16.2549–20.7850. Supports alignment, not common price basis. |
+| BEL 30-day physical boundaries | 174 intervals, no incomplete boundaries/negative consumption/reconciliation failures. Max difference from old monetary estimate 0.000811603; average VA 19.522634493, range 16.255384248–20.784684079. |
+| Physical-flow summary/detail | Complete flow summary/detail; first intervals VA 16.255384248/17.719507277. Establishes narrow callsite/phase/physical consumption as verified-runtime. |
+| Flows-only, four dates | 4 dates, no ordinary inputs/finance; 24 production, 24 complete summaries, 69 flows; no gaps/drops/invalid/write failure. First hook warm-up; 2 exported intervals VA 17.719507277/19.813987492, verified-runtime. |
 
 ### Finance, inventory and merges
 
@@ -233,13 +226,13 @@ opening + produced − closing; proceeds = call amount.
 
 | Historical probe | Supporting result / limit |
 | --- | --- |
-| Four-day `a4edf016-5d61-40e0-83e7-37b9df278e2a` | Every factory budget delta exactly sales + investment − spending − paychecks. Output/income/price inferred sold-output ratios 0.14–2.16: disproves sales inference without inventory. Later direct boundary supersedes that limitation. |
-| Five-day `662343cc-fc1a-4ad9-a95a-4215541612c6` | 21 factory accounts, no invalid; closing chains to opening, including raw 0/10479/27007/42396/52866. |
-| Vanilla `40d36695-696f-408e-af64-df266a1cfcc8` | 1836.1.3 seven PRU factories: four anchored Berlin 549, one 575, two 682; 28 identity/employment/production/finance accepted, no filtered/dropped/invalid; independent Brandenburg UI/process values exact. |
-| Depth `734efd9b-7873-4c26-b9aa-660422b3d4ad` | 53 accepted (7 each four groups +25 inputs), no gaps/filters/drops/invalid; IDs 750/753/756, worker splits and Small Arms stocks match save. |
-| Region `421a1be4-c4c4-4e03-bcec-01d380742c7e` | Same 53 records with region keys; no gaps/filters/drops/invalid. |
+| Four-day factory finance | Every factory budget delta exactly sales + investment − spending − paychecks. Output/income/price inferred sold-output ratios 0.14–2.16: disproves sales inference without inventory. Later direct boundary supersedes that limitation. |
+| Five-day producer inventory | 21 factory accounts, no invalid; closing chains to opening, including raw 0/10479/27007/42396/52866. |
+| Vanilla PRU factory/UI correlation | 1836.1.3 seven PRU factories: four anchored Berlin 549, one 575, two 682; 28 identity/employment/production/finance accepted, no filtered/dropped/invalid; independent Brandenburg UI/process values exact. |
+| Factory employment/input detail | 53 accepted (7 each four groups +25 inputs), no gaps/filters/drops/invalid; IDs 750/753/756, worker splits and Small Arms stocks match save. |
+| Factory region keys | Same 53 records with region keys; no gaps/filters/drops/invalid. |
 | Paused non-duplicate `changeowner` fixture | SAX provinces 558/559/560 → PRU. PRU state 757/pointer survives; SAX 907 disappears; unchanged level-1 fabric node moves into PRU immediately, no tick; `SAX_558` unchanged, PRU provinces 687/558/559/560. |
-| Equal-level duplicate fixture | Subsidized PRU fabric node `0x3d3e96c0`, budget 1000.00 versus unsubsidized SAX `0x44615010`, 931.91. Transfer 558/559/560 leaves original PRU node/subsidy/budget, removes SAX node. Recipient wins equal-level duplicates. |
+| Equal-level duplicate fixture | Subsidized recipient PRU fabric node, budget 1000.00 versus unsubsidized source SAX node, 931.91. Transfer 558/559/560 leaves original PRU node/subsidy/budget, removes SAX node. Recipient wins equal-level duplicates. |
 
 Public OpenVic testing reported duplicate reconciliation but disputed the winner;
 the controlled supported-game fixtures establish only the two cases above.
@@ -258,7 +251,7 @@ and /32768 values, matching benchmark save byte-for-byte.
 | `+0x280` / `+0x2d8` | `price_pool` / `last_price_history` |
 | `+0x434` / `+0x4f4` | `actual_sold` / `actual_sold_world` |
 
-Run `51693f9a-19fb-4900-bfb8-3254022e79ae`: 192 records/48 goods, no
+World-market snapshot: 192 records/48 goods, no
 gaps/filters/drops/invalid. Small Arms ordinal 1 save values: price 37.01001,
 previous 37.00000, supply 40.24960, demand 320.48798, real demand 25.16080,
 sold 20.36069, world sold 4.80011. These global totals cannot establish producer
@@ -291,7 +284,7 @@ input continuity when recipes switch.
 
 Settlement caller `0x00086bff -> 0x00083aa0` holds POP in EBX; primary/secondary
 additions `0x00083fca/0x00083fda` hold POP in EDI/economy in ESI. Three-day
-country-filtered run (ID unrecorded) captured all four boundaries after warm-up
+country-filtered run captured all four boundaries after warm-up
 for nine Berlin artisans: 40 per-good records, no gaps/drops/invalid. Bound:
 8192 records/date for at most 16 country tags.
 
@@ -332,10 +325,10 @@ Görlitz 848/60000 → 463 (0.0141), exact UI contributions.
 
 | Historical run | Supporting result |
 | --- | --- |
-| `ea77637b-f661-47f5-b85f-18d48de2a5a0` | Exact one day; both provinces' four groups, 2 attempts/8 accepted, no filtered/dropped/invalid. |
-| `b08cf98f-3ece-4467-9aec-6afe3284ab14` | Exact gross raws 676588/187206, exact date, 8 accepted, no invalid/drops. |
-| `e5f0655c-7a87-4342-a77a-96c2b2d47492` | Separate modifier records with 305/463; 10 accepted, no filtered/dropped/invalid. |
-| Metz `962c2f5b-afb6-4ef2-b29d-eb579c480561` | Province 412 `precious_metal_mine`/ordinal 17; gross 262128 (7.9995), income 7385056000, no gaps/drops/invalid. Income matches save `last_income=225374.02344` at save /32768, not gross × vanilla cash rate 0.5. |
+| Berlin/Görlitz one-day accounts | Exact one day; both provinces' four groups, 2 attempts/8 accepted, no filtered/dropped/invalid. |
+| Berlin/Görlitz gross output | Exact gross raws 676588/187206, exact date, 8 accepted, no invalid/drops. |
+| Berlin/Görlitz owner modifiers | Separate modifier records with 305/463; 10 accepted, no filtered/dropped/invalid. |
+| Metz precious-metal income | Province 412 `precious_metal_mine`/ordinal 17; gross 262128 (7.9995), income 7385056000, no gaps/drops/invalid. Income matches save `last_income=225374.02344` at save /32768, not gross × vanilla cash rate 0.5. |
 
 Thus precious-metal RGO income is not cash creation. GDP uses explicit active-mod
 rate (vanilla 0.5, GFM 1.0), never non-tradeable market price or income.
@@ -349,13 +342,13 @@ but not bounded to 32768; the old upper-bound validation was false.
 
 | Historical run | Supporting evidence / counterexample |
 | --- | --- |
-| Five-day `662343cc-fc1a-4ad9-a95a-4215541612c6` | Factory/RGO/artisan pairs 21/184/498; RGO/artisan summaries 230/630; zero producer invalid/drops, all complete quantity chains reconcile. Missing first-day pairs explicit warm-up. |
-| 30-day `dc58f6ce-369a-48c3-a1ad-fdae369b0193` | Strict 5152 rows: 196 factory/1334 RGO/3622 artisan; no gaps/drops/write failures/invalid/reconciliation failures. |
-| Annual `7212971a-f622-488a-9283-e02056e5c001` (superseded) | 387773 records; factory/RGO healthy, Machine Parts 199 post-warm-up no-settlement days exercise incomplete/shutdown. All 44881 artisan pairs reconcile but 213 other invalid attempts cause correct strict rejection. |
-| Annual diagnostic `2301bee7-364f-49b7-ba53-dd74dc5fcab0` | All 349 rejected artisan reads have nonnegative export values 32931–118028, disproving the /32768 upper bound. Different diagnostic run/count, not a reclassification of the 213 count above. |
-| Repaired annual `e2ae9961-4698-473e-840b-2dace5271dc0` | Exact 365 days, 385929 records, no gaps/drops/write failures/family-invalid; strict 63952 producer accounts. Supersedes false-bound rejection, not producer mapping uncertainty. |
-| Three-day PRU GDP `001c25f0-f5a4-429d-89b7-fafd126a3487` | Capture contracts, 2859 records; no gaps/drops/write/family-invalid; nominal 1422.356650989, real 1415.854841757, population 3564450. |
-| FRA GDP `64dc24a5-e811-4ed5-b3e9-90fa1943fe79` | Contracts/healthy daily 87 RGOs, 164 active artisans, POP/market/flows; vanilla rate 0.5: nominal 3997.530945404, real 3985.369406416, population 8784157, precious-metal VA 4.024536133. |
+| Five-day producer inventory | Factory/RGO/artisan pairs 21/184/498; RGO/artisan summaries 230/630; zero producer invalid/drops, all complete quantity chains reconcile. Missing first-day pairs explicit warm-up. |
+| 30-day strict producer sales | Strict 5152 rows: 196 factory/1334 RGO/3622 artisan; no gaps/drops/write failures/invalid/reconciliation failures. |
+| Annual false-bound rejection | 387773 records; factory/RGO healthy, Machine Parts 199 post-warm-up no-settlement days exercise incomplete/shutdown. All 44881 artisan pairs reconcile but 213 other invalid attempts cause correct strict rejection. |
+| Annual export-bound diagnostic | All 349 rejected artisan reads have nonnegative export values 32931–118028, disproving the /32768 upper bound. Different diagnostic run/count, not a reclassification of the 213 count above. |
+| Annual corrected-bound export | Exact 365 days, 385929 records, no gaps/drops/write failures/family-invalid; strict 63952 producer accounts. Supersedes false-bound rejection, not producer mapping uncertainty. |
+| Three-day PRU GDP | Capture contracts, 2859 records; no gaps/drops/write/family-invalid; nominal 1422.356650989, real 1415.854841757, population 3564450. |
+| FRA GDP, vanilla cash rate | Contracts/healthy daily 87 RGOs, 164 active artisans, POP/market/flows; vanilla rate 0.5: nominal 3997.530945404, real 3985.369406416, population 8784157, precious-metal VA 4.024536133. |
 
 These validate historical strict offline exports, not current in-game
 `country.economy` interval completeness. No distinct runtime validation of that
@@ -373,18 +366,18 @@ newer interval account was recorded in the source material.
 
 | Historical probe | Supporting evidence / limit |
 | --- | --- |
-| Save scan `952f4ca8-fbfc-4859-8ce6-b18995f30431` | POP 18563: satisfaction raws 32768/24672/30; save everyday 0.75293/luxury 0.00092, omitted/default life. Ratios 0.7529296875/0.0009155273; full life correlation. Broad exploratory layout event removed. |
-| Identity `a54302ac-af7a-470d-8c6f-f457b8e14d2b` | POP 18563 clergymen/polish/catholic matches unchanged save; 449 PRU records, no invalid/gaps/drops/write failure. |
+| POP satisfaction/save correlation | POP 18563: satisfaction raws 32768/24672/30; save everyday 0.75293/luxury 0.00092, omitted/default life. Ratios 0.7529296875/0.0009155273; full life correlation. Narrow field evidence only, not a broad layout claim. |
+| PRU POP identity/save correlation | POP 18563 clergymen/polish/catholic matches unchanged save; 449 PRU records, no invalid/gaps/drops/write failure. |
 | Complete line-oriented save audit | 23429 POPs/unique IDs; province+type+culture+religion yields 22610 keys, 329 duplicate keys, all artisans; adding recipe still 126 duplicates. Descriptive tuple cannot replace individual ID. |
-| Berlin `4f40b617-b56a-4478-81b1-9e35b1d90b4e` | Province 549: 23 economy +23 demographic records, no filtered/dropped/invalid. First POP size 4275, consciousness 98337, literacy 22938, militancy 0 match save 4275/3.00101/0.70001/0; type candidates 1/2 correlate aristocrat/artisan. |
-| Shared copy `3ac4d510-7dbe-45af-9701-1902379785df` | 23 economy/23 demographic/10 aggregate accepted, no drops/invalid; first copy 90224 us, other rules 0 extra. Type 2 nine POPs/size 60020; types 7/8 four/three POPs. Aggregates intentionally cross culture/religion. |
-| PRU three-day `081308fc-fdd5-4bf4-ba62-913b60da54f8` | 1348 economy/1348 demographic/709 aggregate records, healthy; date/ID keys match; unique IDs 449/449/450, original 449 persist. Consecutive stability only, new-ID cause unknown. |
-| Lifecycle `39d37341-e686-4094-bb8a-e24ba5f104d7` | Complete 19996-POP world opening stock, PRU detail; after warm-up +40/−6 then +43/−6, PRU appeared 27654. All 3453 records valid, no gaps/drops/write/lifecycle-invalid. Observed changes, not demographic causes. |
-| Needs `dc0c5f46-abab-4c00-8143-7cdc32712c99` | 449 PRU needs +lifecycle warm-up, 1632 total, no gaps/drops/write/family-invalid; all satisfaction values 0–32768, no broad layout event. Separate reader rejection does not invalidate established shared POP copy. |
+| Berlin economy/demographics | Province 549: 23 economy +23 demographic records, no filtered/dropped/invalid. First POP size 4275, consciousness 98337, literacy 22938, militancy 0 match save 4275/3.00101/0.70001/0; type candidates 1/2 correlate aristocrat/artisan. |
+| Shared Berlin POP copy | 23 economy/23 demographic/10 aggregate accepted, no drops/invalid; first copy 90224 us, other rules 0 extra. Type 2 nine POPs/size 60020; types 7/8 four/three POPs. Aggregates intentionally cross culture/religion. |
+| PRU three-day ID continuity | 1348 economy/1348 demographic/709 aggregate records, healthy; date/ID keys match; unique IDs 449/449/450, original 449 persist. Consecutive stability only, new-ID cause unknown. |
+| World lifecycle with PRU detail | Complete 19996-POP world opening stock, PRU detail; after warm-up +40/−6 then +43/−6, PRU appeared 27654. All 3453 records valid, no gaps/drops/write/lifecycle-invalid. Observed changes, not demographic causes. |
+| PRU needs/lifecycle warm-up | 449 PRU needs +lifecycle warm-up, 1632 total, no gaps/drops/write/family-invalid; all satisfaction values 0–32768, no broad layout event. Separate reader rejection does not invalidate established shared POP copy. |
 
 ### Migration-like counterexample to durable ID
 
-17-day FRA run `719679d6-4d1a-439d-937b-b8104c3164e3` followed French/Catholic
+17-day FRA cohort fixture followed French/Catholic
 craftsmen, type candidate 7, size 65:
 
 | Raw date | Province / ID | Observation |
@@ -397,7 +390,7 @@ Both moves conserve all 65 observed people but replace ID, so they emit
 appearance/disappearance, not `scope_changed`. Native migration boundary was
 not instrumented: matched pairs are not universal proof of migration.
 Exact target, 200010 records, no gaps/drops/family-invalid/write failure; strict
-export accepted all 17 stocks/reconciliations; source hash preserved.
+export accepted all 17 stocks/reconciliations; source save unchanged.
 Promotion/demotion/split/merge/deletion/save-reload/ID reuse semantics remain
 unestablished. Only surviving IDs can have scope changes.
 
@@ -412,8 +405,8 @@ actual pre/post delta, preserving engine clamping.
 
 | Historical run | Supporting evidence / limit |
 | --- | --- |
-| `eade1c13-e28f-4113-97b3-07410ece7f74` | 1765/1799 opening-seen individual accounts reconcile; 34 residuals equal/opposite, type residuals cancel at country scope. Evidence for redistribution outside observed calls, not incomplete capture by itself. |
-| `f442f9c0-b2fc-47f6-9ad7-05ddfba38243` | 5-day hook/strict export, 7598 records; no gaps/drops/write/family-invalid. |
+| Individual/country residual accounting | 1765/1799 opening-seen individual accounts reconcile; 34 residuals equal/opposite, type residuals cancel at country scope. Evidence for redistribution outside observed calls, not incomplete capture by itself. |
+| Five-day GiveMoney/strict export | 5-day hook/strict export, 7598 records; no gaps/drops/write/family-invalid. |
 
 Promotion/demotion/split/merge/direct redistribution are not proven to pass
 through GiveMoney. Individual/type residuals stay explicit. Taxes/tariffs lack
@@ -424,19 +417,19 @@ independent field/call attribution and cannot be inferred from needs/expenses.
 
 ## Historical paired ten-year benchmarks
 
-Both pairs ran consecutively on 2026-08-01, unchanged benchmark, observer mode,
+Each pair ran consecutively on unchanged `benchmark.v2`, observer mode,
 speed 5, 3650 days, 30-day economic sampling, queue 8192, country filter `ZZZ`
 (suppresses country detail, not global records). Start/target
-59883384/59970984 exact; paused/responsive after completion; source hash
-preserved. Each trace has 122 health/capacity/holdings/credit snapshots; all 244
+59883384/59970984 exact; paused/responsive after completion; source save
+unchanged. Each trace has 122 health/capacity/holdings/credit snapshots; all 244
 health records per pair complete with snapshot/probe/credit flags zero.
 
-| Implementation | Variant | Run ID | Trace SHA-256 | Records |
-| --- | --- | --- | --- | --- |
-| Pre-batching `f057bf5`, timeout 7200 s | Baseline | `a267ac0b-5fd9-4efa-973e-ac3129155474` | `7686a63561de070660356fefcda2c496c97e0971fc823f80fa207bf40bdb2054` | 4270 |
-| Pre-batching | `interest_fix` | `c6193149-f6b2-4a88-9366-32484389d40a` | `43098eae4a75efdd48eab0c4cf74b887968d69b57684ff1bb93377695d7499d1` | 235918 |
-| Batched `d8458bd`, timeout 1800 s | Baseline | `3cca7928-811d-4819-a431-7a4baf960ab4` | `a8369aee355d6d61e63346486b9de85d9359cfa13733781ed110f3849816621c` | 4270 |
-| Batched | `interest_fix` | `c99a16f5-41e3-40ef-8f75-f6cc835f3aee` | `0acbe58e187c5d4950ec03908294d8b653c678b6faf0e373762c6588f7e7b7fc` | 11571 |
+| Implementation | Variant | Records |
+| --- | --- | ---: |
+| Pre-batching `f057bf5`, timeout 7200 s | Baseline | 4270 |
+| Pre-batching `f057bf5`, timeout 7200 s | `interest_fix` | 235918 |
+| Batched `d8458bd`, timeout 1800 s | Baseline | 4270 |
+| Batched `d8458bd`, timeout 1800 s | `interest_fix` | 11571 |
 
 Every trace: gaps/drops/write failure `0/0/false`. All peaks below bounds:
 

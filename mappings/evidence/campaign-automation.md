@@ -50,11 +50,11 @@ campaign paused; observer mode cannot start paused.
 
 | Runtime evidence | Result |
 | --- | --- |
-| `bac0c2f2-94a5-403d-a836-47a5689a5bcc`, deterministic `ENG = { inherit = THIS }` fixture | JAN observer verified; view moved to ENG inside Annex entry, no game over, `CInGameIdler` continued beyond April 1837. Earlier native `tag` attempt proved asynchronous and unsuitable at that boundary. |
-| Initial `--view-tag ENG` acceptance | JAN → ENG; AI and exact scheduler restored one second later; simulation resumed; subsequent `tag FRA` rejected. |
-| `b14dc611-cfd0-4b15-ae47-bfd3473cbf5e` | Runtime-owned console callback completed ENG switch/AI restoration and suppressed 15 generic popups; responsive process, unchanged vanilla source hash below. |
+| Deterministic annex fixture, `ENG = { inherit = THIS }` | JAN observer verified; view moved to ENG inside Annex entry, no game over, `CInGameIdler` continued beyond April 1837. Native `tag` proved asynchronous and unsuitable at that boundary. |
+| `--view-tag ENG` fixture | JAN → ENG; AI and exact scheduler restored one second later; simulation resumed; subsequent `tag FRA` rejected. |
+| Runtime-owned console callback | Completed ENG switch/AI restoration and suppressed 15 generic popups; responsive process, unchanged vanilla source save. |
 | Message-coverage probes | Six dispatches bypassed over about 3,085 advancing days without watchdog pause; after all-nine coverage, six policy-marked popups suppressed while 385,895 country rows advanced without pause. |
-| `01edd2fb-4c64-468b-8db9-efeefecc7b05` | Checked frontend/console/observer/annex/message/pause/speed/quit integration: JAN AI, full map, exact three-day target `59883456`, telemetry drain and native exit; zero gaps, drops, or writer failure. |
+| Checked integration fixture | Checked frontend/console/observer/annex/message/pause/speed/quit integration: JAN AI, full map, exact three-day target `59883456`, telemetry drain and native exit; zero gaps, drops, or writer failure. |
 
 These runs validate exercised mappings and integration, not a broader UI-thread
 contract. Extraction into kernel services and synthetic fail-closed tests do not
@@ -86,8 +86,8 @@ Require supported bytes at `0x25548d`, current `CInGameIdler`, dialog pointer
 and `CGameState+0xb0c > [RVA 0xe586dc]+0xc`. Missing or mismatched state makes
 the entire observation unavailable, not an ordinary pause.
 
-The August 21, 2026 comparison used the supported executable and unmodified
-`benchmark_1936_interest_probe.v2`: visible game over had date `60759360`,
+The game-over/ordinary-pause comparison used the supported executable and
+unmodified `benchmark_1936_interest_probe.v2`: visible game over had date `60759360`,
 configured end `60759336`, pause one, dialog visible. Ordinary pause had date
 `59883384`, the same end/vtable, pause one, and dialog visibility zero.
 
@@ -96,23 +96,23 @@ configured end `60759336`, pause one, dialog visible. Ordinary pause had date
 | Input | Identity / reproduction settings |
 | --- | --- |
 | Executable / mapping | SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648`; `v2game-3.04` |
-| Vanilla `benchmark.v2` | SHA-256 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`; unchanged across recorded runs |
-| End-date fixture | SHA-256 `592c41f7258c1b383e796a2cbe9829d0159f1eb898fd79dedf960fab5b66a1d9`; unchanged |
+| Vanilla `benchmark.v2` | Source save unchanged across recorded runs |
+| End-date fixture | `benchmark_1936_interest_probe.v2`; source save unchanged |
 | Common settings | No mods, native speed 5, `campaign_runner` and `telemetry` unless noted; observer specified per row. Launcher flags/profiles: [launcher](../../docs/launcher.md). |
 
 ### Bounded-run evidence
 
-| Date / run ID | Settings and result |
+| Fixture / configuration | Settings and result |
 | --- | --- |
-| July 31, 2026: `a53ae91b-5e1b-4a52-9422-c63c65d52643`, `5a0134ce-2125-4da6-a59e-9b0dc7e8f551` | Vanilla observer, 365 days: `59883384` → target/actual `59892144`, one start/completed record each, paused and responsive/open. Each trace: 374 ordered records, no gaps/drops/write failure; 98,644 daily callbacks. Wall 21,124,677 / 21,230,817 us; 17.28 / 17.19 days/s, 0.50% repeat difference. Establishes pause harness, not final flush/save/replay equivalence. |
-| August 1, 2026: `21b024dd-ec69-4d46-a22e-1d309ab83b21` | Detached one-day target, native request readback and exit without `ExitProcess`, `TerminateProcess`, `WM_CLOSE`, or synthetic input. Predates drain; process exit only. |
-| August 1, 2026: `4d3d4e44-b4e5-4d7f-b10a-b50bd5b96cfb` | Detached one-day target, bundled lifecycle telemetry: drain logged before native exit. Valid 11-record trace: completed sequence 10, final newline-terminated summary 11; accepted/written 10, dropped 0, no writer failure. Covers completed drain, not timeout retry/legacy compatibility. |
-| Final-DLL: `31a41204-121e-4e11-be5d-6ae3fb47f771` | Non-observer absolute target, exact 10 days to `59883624`, paused readback. |
-| Final-DLL: `e1c015df-5b89-4f08-9925-90c49214f924` | One-second timeout, failed at 1,013,936 us/date `59883864`, reason `timeout`, paused readback. |
-| Final-DLL: `866c652a-fbef-49f5-91e1-b76bcadc0e81` | Nonadvancing start-date target: standalone `invalid_target`, remained paused, no fabricated progress counters. All three final-DLL traces: zero gaps; available counters zero drops/write failure; unchanged source. |
-| August 21, 2026: `e17a2ecb-64b7-4177-b16f-1de9c36d5315` | End-date fixture, one day `60759336` → `60759360`: one `benchmark.failed`, `game_over`, paused true; no gaps. Process left open, end-date screen manually responsive. |
-| August 21, 2026: `d7ebea5f-ea81-4b59-883d-fb5b839cdf3d` | Same typed terminal result with `quit_after_run`: drain through final sequence 10, dropped 0, no write failure, native exit without external termination. |
-| August 21, 2026: `5cc040f5-11a4-4d3b-999b-e38546c1e9d6` | Ordinary vanilla one-day regression target `59883408`, paused true, responsive map left open; no false game over or lingering observer/configuration recovery. |
+| Paused-open observer repeats | Vanilla observer, 365 days: `59883384` → target/actual `59892144`, one start/completed record each, paused and responsive/open. Each trace: 374 ordered records, no gaps/drops/write failure; 98,644 daily callbacks. Wall 21,124,677 / 21,230,817 us; 17.28 / 17.19 days/s, 0.50% repeat difference. Establishes pause harness, not final flush/save/replay equivalence. |
+| Native exit before drain implementation | Detached one-day target, native request readback and exit without `ExitProcess`, `TerminateProcess`, `WM_CLOSE`, or synthetic input. Predates drain; process exit only. |
+| Native exit with completed drain | Detached one-day target, bundled lifecycle telemetry: drain logged before native exit. Valid 11-record trace: completed sequence 10, final newline-terminated summary 11; accepted/written 10, dropped 0, no writer failure. Covers completed drain, not timeout retry/legacy compatibility. |
+| Absolute-target validation | Non-observer absolute target, exact 10 days to `59883624`, paused readback. |
+| Timeout validation | One-second timeout, failed at 1,013,936 us/date `59883864`, reason `timeout`, paused readback. |
+| Invalid-target validation | Nonadvancing start-date target: standalone `invalid_target`, remained paused, no fabricated progress counters. All three target/error validation traces used the same final-DLL build: zero gaps; available counters zero drops/write failure; unchanged source. |
+| Game over, paused/open | End-date fixture, one day `60759336` → `60759360`: one `benchmark.failed`, `game_over`, paused true; no gaps. Process left open, end-date screen manually responsive. |
+| Game over, native exit | Same typed terminal result with `quit_after_run`: drain through final sequence 10, dropped 0, no write failure, native exit without external termination. |
+| Ordinary-pause regression control | Ordinary vanilla one-day regression target `59883408`, paused true, responsive map left open; no false game over or lingering observer/configuration recovery. |
 
 ### Resource measurements
 
@@ -123,8 +123,8 @@ and unchanged source save.
 
 | Run | Wall us | Process CPU us | CPU / wall | Working set start → end | Private bytes start → end | Peak working set |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| `c835ced2-9140-4acb-a656-648795a77de3` | 20,874,288 | 27,500,000 | 131.741% | 1,338,437,632 → 1,360,338,944 | 1,540,493,312 → 1,564,241,920 | 1,372,725,248 |
-| `8b259c50-5cf7-476a-a634-95b87b152c9a` | 21,133,183 | 31,734,375 | 150.164% | 1,362,038,784 → 1,361,985,536 | 1,565,822,976 → 1,568,247,808 | 1,373,532,160 |
+| Observer sample 1 | 20,874,288 | 27,500,000 | 131.741% | 1,338,437,632 → 1,360,338,944 | 1,540,493,312 → 1,564,241,920 | 1,372,725,248 |
+| Observer sample 2 | 21,133,183 | 31,734,375 | 150.164% | 1,362,038,784 → 1,361,985,536 | 1,565,822,976 → 1,568,247,808 | 1,373,532,160 |
 
 Throughput was 17.49 / 17.27 days/s (1.23% repeat difference); CPU differed
 14.30%. Two samples do not bound CPU variance for optimization claims.
@@ -141,22 +141,21 @@ characters, including dynamic tags such as `D01`. See
 
 | Acceptance | Evidence |
 | --- | --- |
-| July 31, 2026: `f2d403e1-82f8-46b8-8832-a136c822d38a` | Vanilla, observer ENG, speed 5, lifecycle/state capture. Ordered save selection → load complete → `CInGameIdler` → speed 5 → unpaused → ENG observer postconditions. Advanced 515 days; 1,039 ordered records, no gaps/drops/write failure or runner telemetry warning. Verifies emission points, not general timer-thread ownership. |
-| August 3, 2026: `bab8f3b3-e9dd-4eca-8c63-ac391a738637` | Vanilla, runner only, speed 5, one day. Exact controller vtables; Play followed by frontend `0x36b030` and main-menu `0x354df0` destructor phase-release observations before console initialization; unpause and bounded native exit. Source unchanged. |
-| August 3, 2026: `a2221287-f1f7-4dbb-95c2-d53aa50aa92d` | Unmodded compatibility: 293 valid records. |
-| August 3, 2026: `0a1415cd-acd8-4962-867d-f2479028b753` | Observer compatibility: 294 valid records including `observer.configured`. |
-| August 3, 2026: `df59cb6d-e112-43c3-8134-916519d26fea` | GFM compatibility: 672 valid records; descriptor `mod/GFM.mod`, name `Greater Flavor Mod`, no declared version; native GFM save SHA-256 `276a53c07afc713bb685ded48c64f6a8c5fa13c4539cc70a380fd4347c4f0dad`. |
+| Observer lifecycle ordering | Vanilla, observer ENG, speed 5, lifecycle/state capture. Ordered save selection → load complete → `CInGameIdler` → speed 5 → unpaused → ENG observer postconditions. Advanced 515 days; 1,039 ordered records, no gaps/drops/write failure or runner telemetry warning. Verifies emission points, not general timer-thread ownership. |
+| Runner-only frontend lifecycle | Vanilla, runner only, speed 5, one day. Exact controller vtables; Play followed by frontend `0x36b030` and main-menu `0x354df0` destructor phase-release observations before console initialization; unpause and bounded native exit. Source unchanged. |
+| Unmodded compatibility | 293 valid records. |
+| Observer compatibility | 294 valid records including `observer.configured`. |
+| Native GFM save compatibility | 672 valid records; descriptor `mod/GFM.mod`, name `Greater Flavor Mod`, no declared version. |
 
 The three compatibility runs used the common executable/mapping, both plugins,
 speed 5, one day, and quit after success. Each exercised controller-vtable and
 bounded string checks, save-flag pre/postconditions, destructor invalidation,
 and GUI dispatch; each advanced exactly one day and exited natively with zero
-gaps/drops/write failure. Vanilla and GFM source hashes stayed unchanged.
+gaps/drops/write failure. Vanilla and GFM source saves stayed unchanged.
 Destructor logging was removed after correlation; callbacks only invalidate.
 
-Earlier GFM probes `2ee97720-b85b-4616-9749-b59ad9e04e90` and
-`26e16827-a6a2-45e1-84f9-963ce6f80460` used a copied vanilla save and never
-reached `CInGameIdler`. They prove only descriptor preflight resolved
+Two GFM preflight probes used a copied vanilla save and never reached
+`CInGameIdler`. They prove only descriptor preflight resolved
 `user_dir = "GFM"`, not campaign compatibility.
 
 ## Limits
@@ -164,6 +163,5 @@ reached `CInGameIdler`. They prove only descriptor preflight resolved
 No native return-to-menu operation is mapped; repeated loads in one process are
 outside acceptance. Native exit has no generic pre-exit plugin notification,
 checkpoint save, or final game-state assertion. Drain guarantees apply only to
-the exercised bundled path. Run IDs and source hashes identify historical
-acceptance, but exact binary hashes were not recorded here; they are not proof
-that every later build repeats those results.
+the exercised bundled path. These historical runs do not establish
+exact-built-commit acceptance or prove that later builds repeat the results.

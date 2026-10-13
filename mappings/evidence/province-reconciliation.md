@@ -87,9 +87,9 @@ live reform transitions are not.
 
 One-day run on base `e4befd2040961ff18968cceb74aca644ede27f57`, supported
 executable SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648`,
-and unchanged source save SHA-256
-`3c70553984e4d94773483076ee4d83ac351095042f66a9920a3ee4770f7763f4`:
-both lookup signatures accepted, foreign vectors/lists bounded, no engine writes.
+and unchanged pinned-GFM/PRU source save `smedley-gfm-v3.v2` described in
+[GFM workload inputs](gfm-workload.md#immutable-inputs): both lookup signatures
+accepted, foreign vectors/lists bounded, no engine writes.
 
 | Observation | Result / limit |
 | --- | --- |
@@ -106,8 +106,7 @@ traversal, not mutation authorization by itself.
 
 The retired standalone fixture selected only `mod/GFMSmedley.mod` and the
 required `gfm-smedley` consumer (`gfm_adoption` before rename). It reached
-checksum `BBSV` and accepted simplified event SHA-256
-`34709cb3ae8c40cba441a05c6cba57952e84d5c6a234464879e14254dc1546c0`.
+checksum `BBSV` with only the 15-line slave-trade cleanup block disabled.
 These package names identify historical test inputs, not installation advice;
 current launch/preflight behavior is in [launcher](../../docs/launcher.md).
 
@@ -115,24 +114,14 @@ A disposable fixture from a fresh GFM-smedley Prussia campaign added stage 1 to 
 (owner selected `no_slavery`) and stage 2 to Washington `2146` (USA owner had
 not). `campaign_runner` advanced at speed 5 from `1836.1.1` to `1836.1.4` and
 saved. Berlin had no managed stage in the result; Washington retained only
-`slave_trade_decadence_2`. No reconciliation failure was logged. Post-review
-final-kernel and rename replays reached the same target and requested native
-exit; the rename replay left input unchanged.
+`slave_trade_decadence_2`. No reconciliation failure was logged. Final-kernel
+and consumer-rename replays reached the same target and requested native exit;
+the rename replay left input unchanged.
 
-| Runtime input | Identity |
+| Implementation | Code provenance |
 | --- | --- |
-| Repository base plus issue work | `e4befd2040961ff18968cceb74aca644ede27f57` |
-| Rename replay source | Merged base `479aef63fe3f9f3e982559d3586d6e958a3c639b` plus rename work |
-| `v2game.exe` | SHA-256 `62d48c204364dd706584777c2e2b3c7ab3c5f1dd0170872554943575d53d6648` |
-| Rename replay kernel | SHA-256 `ffee3cccf2837a53f59e57ce27e3c2a2ed5b7c50ec3cfea84737e9cf61f7f70e` |
-| Pre-rename replay kernel | SHA-256 `d88cec1f13bbd1d89b4903d90aa1ac21b572fb991f0338d0669824e20ccbb770` |
-| Saved-result kernel | SHA-256 `11df3cb1afc188d289a2915e7dd506c862c978d3b43a41b604568772a29fdaf4` |
-| `gfm-smedley.dll` | SHA-256 `1ff4b2a8105aa95a6d430090cc1d9851488b85a13746fa3897d2668420aeddf1` |
-| Pre-rename `gfm_adoption.dll` | SHA-256 `96083bcd46bfc3c0e31c73d477d73e497af11b6ae17077dc58edfb7c9eb815ab` |
-| `campaign_runner.dll` | SHA-256 `a86058e05c043dd6502e68d2bd2da1922a3949c0ad44f258377ee09b30eb88fe` |
-| Fresh source before/after | SHA-256 `b32dc06746be5a77512081d778a6cc7b4d060c9f28e77cd6f0939153c33de1ac` |
-| Disposable input | SHA-256 `0d1c453c7835ecadde6d7b6acea08207c8eaa7bfea54f519bb7269b6b2e6e165` |
-| Saved result | SHA-256 `1d9ed0c7f0346191a3ed88ac906894564bdb10f95d927aa85440102d3c0f27d0` |
+| Standalone reconciliation | Base `e4befd2040961ff18968cceb74aca644ede27f57` plus issue work |
+| Consumer-rename replay | Merged base `479aef63fe3f9f3e982559d3586d6e958a3c639b` plus rename work |
 
 This verifies current-owner policy removal/preservation and native removal in
 that implementation. The immutable fresh source shows fixture/runtime work did
@@ -150,7 +139,7 @@ recoverable from the standalone saved result:
 | Berlin / Washington stage masks | `0` / `2` |
 | Remaining managed-stage provinces | 1 |
 | Active guards / invalid list or policy records | 0 / 0 |
-| Immutable source SHA-256 | `b032fbd3fa00c62994e7450c44699ca9fb56c50fe2fc67392df3d7ee8127d2ce` |
+| Source save safety | Baseline save unchanged |
 
 The one-node decrease, Berlin absence, Washington preservation, and list
 integrity corroborate modifier identity, current-owner resolution, political

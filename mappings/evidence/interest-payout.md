@@ -9,10 +9,9 @@ policy. See the [user guide](../../docs/interest-fix.md) for current operation.
 
 This document records mapping claims, counterexamples, and historical runtime
 support. It is not acceptance evidence for the current binary: the century and
-performance runs below predate the C-service port (`2f38c6b`). Current behavior
-was checked against source during this documentation cleanup; no new live-game
-run was performed. Revisions not recorded by the original evidence are marked
-unrecorded, not inferred from later commits.
+performance runs below predate the C-service port (`2f38c6b`). Revisions not
+recorded by the original evidence are marked unrecorded, not inferred from
+later commits.
 
 ## Target and provenance
 
@@ -42,7 +41,7 @@ Historical `794c98e` was only an investigation lead: its generated 469,301-line
 layout, provisional writes, and floating-point allocation without conservation
 tests do not establish a supported fix. Retired `interest_probe` and
 `pop_money_fixture` sources/manifests are no longer available in the worktree;
-run IDs and hashes identify their evidence, not currently runnable plugins.
+their historical results do not provide currently runnable probes.
 
 The community [Loans wiki, permanent revision 22984](https://vic2.paradoxwikis.com/index.php?title=Loans&oldid=22984)
 describes POP deposits, domestic-before-foreign borrowing, domestic-last
@@ -66,7 +65,7 @@ this bank credit for ordinal zero.
 | --- | --- |
 | Domestic debt is a named self-creditor | `verified-static-callsites`: `TakeLoan` RVA `0x00122910` passes the debtor's own country tag/ordinal (`+0x1c/+0x20`) through `CanTakeLoanFrom` and `TakeLoanFrom`; it uses the same nonzero-ordinal credit path as foreign debt. |
 | Ordinal-zero interest has no depositor destination or bank pending credit | `verified-runtime` path plus static creation: fallback writes literal `---`, ordinal zero at VA `0x00522c24`–`0x00522c27`, then calls `TakeLoanFrom` at VA `0x00522c6a`. A diagnostic captured 22 entries with key `0x2d2d2d`, ordinal zero, paid byte one. Localisation `SHADOWY_INVESTOR` displays “Private Investors”; vanilla `SHADOWY_FINANCIERS_MAX_LOAN_AMOUNT` is 1500. Leave this flow untouched/unallocated. |
-| Creditor rate/principal units | `verified-runtime`: SWE serialized interest `0.01999` → raw `655`, debt `14969.11719` → raw `490508032`. Repayment run `3f63c64b` bracketed 12 exact requested/treasury/principal reductions with retained identities. |
+| Creditor rate/principal units | `verified-runtime`: SWE serialized interest `0.01999` → raw `655`, debt `14969.11719` → raw `490508032`. The repayment fixture bracketed 12 exact requested/treasury/principal reductions with retained identities. |
 | Bank money/lent/pending fields are distinct | `verified-runtime`: bank `+0x10` is serialized `money`, `+0x18` is `money_lent`, `+0x20` is temporary interest, not bank cash. Repayment reduces lender `money_lent` only for resolved nonzero ordinals and clamps at zero; reviewed ordinal-zero repayment skips that reduction. New and existing ordinal-zero loan origination differ; see [fiscal evidence](fiscal-credit-boundaries.md#origination). |
 | Immediate named transfer | `verified-runtime`: 12 calls and 40 individual positive destination deltas establish the bank credit; see the read-only run table. Exact debtor/bank conservation held in those fixtures, not universally. |
 
@@ -117,8 +116,8 @@ Save parsing/formatting names adjacent state fields `savings` (`+0x258`) and
 `interest` (`+0x260`). A complete direct-displacement scan found construction,
 copying, parsing, formatting, and the bank writer, but no gameplay subtraction,
 clear, or POP payout consumer. An aliased indirect access cannot be ruled out
-by that negative scan alone. Native cash-flow run `96be486d` corroborated the
-missing consumer: accumulating state interest, 12,805 component records
+by that negative scan alone. The seven-day no-fix cash-flow capture corroborated
+the missing consumer: accumulating state interest, 12,805 component records
 (including 1,135 bank records), and **zero interest-index-7 records**.
 
 POP savings `+0x250` are signed 64-bit values at 1,000 times state money scale.
@@ -247,38 +246,34 @@ not the current plugin binary or its performance.
 Why state savings weights do not sum to the bank denominator remains unresolved.
 Ordinal-zero origination observations are qualified in
 [fiscal evidence](fiscal-credit-boundaries.md#origination).
-Capture SHA-256:
-`eaf487929652f166f8118ce6603a2950348ab0af7219b5088418332282c77fc7`.
 
 ### Common fixture and scope
 
-For the historical run tables below, unless a row says otherwise, the notes identify the supplied unmodified
-`benchmark.v2`, no selected mod recorded, exact targets, speed 5, and source-save
-SHA-256 `f24f40665745b5ff01ac3ed84b138efb54c634fb1c9a69ef3c06a75617295d3e`
-unchanged. Seven-day intervals were raw date `59883384` → `59883552`.
+The historical tables below use the supplied unmodified `benchmark.v2` unless
+a row says otherwise: no selected mod recorded, exact targets, speed 5, and
+source save unchanged. Seven-day intervals were raw date `59883384` → `59883552`.
 “Unrecorded” means the revision/configuration was not retained; it does not mean
 the run tested today's code. Short probe runs ended paused/responsive; later
-bounded-exit rows explicitly tested native exit. Hashes below are closed artifact
-SHA-256 values. Zero flags/drops/gaps apply only to the reported collection and
-fixture, not arbitrary campaigns or mods.
+bounded-exit rows explicitly tested native exit. Zero flags/drops/gaps apply
+only to the reported collection and fixture, not arbitrary campaigns or mods.
 
 ### Read-only and reversible mapping runs
 
 Revision is unrecorded for these runs. Configurations use `campaign_runner`
 plus the named retired probe or telemetry, **not the production fix**.
 
-| Run / configuration | Unique result | Artifact SHA-256 |
-| --- | --- | --- |
-| Initial structure, 2026-07-31, seven days, `interest_probe` (run ID unrecorded) | 1,897 samples = 271 slots × 7 dates; 597 states, 2,311 province candidates per pass; zero flags/count mismatch/drops. Creditors appeared day 2; state-interest candidate reached 8,568, same-country bank always zero. Collection 22,241 µs total, 11.72 µs mean, 224 µs max, 3,141–3,250 µs/day; queue publication excluded. | CSV `a40ebce331f54bc3598f829b7112cca8e93efd05e5044923ba51e30ae19bf213` |
-| Exact boundary, seven days, paired `interest_probe` (ID unrecorded); separate empty-registry one-day run | 3,794 rows / 1,897 ordered pairs; zero flags/drops/unavailable dates; unchanged state/vector counts. 12 SWE/SAR creditor calls, treasury −87,242, own bank/state unchanged: **same-country correlation was the wrong target**. Collection 47,010 µs, mean 12.39, max 352, publication excluded. Hardened subscribed one-day repeat: 271 complete clean pairs. | CSV `eb8f16afb8cd528b87f591bf562e2c03d9606f3c1750a3faadb911af0df064bb` |
-| `fb9aff46-9194-4cb3-9e4f-c8ab8ffa0bec`, seven days, destination probe | All 1,897 pairs; 12 creditor calls resolved every entry, paid bytes one, zero flags/drops. Treasury −87,242 = banks +87,242; aggregate call transfers 4,947–10,365. Rate/debt and destination state fields unchanged in-call. Collection 55,704 µs, mean 14.68, max 619. | CSV `1686e0c5ee9a5dabc8fcd1737fcecc51b9da70cff9f18c21bdd36c9aa8b9b1a8` |
-| `3225cbfe-9174-4d15-972c-e109009e5d37`, seven days, destination POP probe | All 1,897 pairs clean; 12 creditor samples covered 346–661 provinces, 4,498–8,593 list records, 2,635–5,565 POPs/phase, exact attempt/success counts, no duplicates. Savings drift 19–108; savings unchanged in-call. Collection 345,637 µs, mean 91.10, max 13,821: too expensive for default telemetry. | CSV `f3e076fb836de2cc2cba67e0a330987bbbe0aeb4e6d4f305c9fd4c0f381847bc` |
-| `5ee018ab-f95f-4bc5-962e-d5cf5c968260`, seven days, only runner + `pop_money_fixture` | At date `59883432`, SWE destination POP: +1000/−1000 exactly added/restored money 23,890,866, slot 7 zero, total zero; savings 27 unchanged. `sample_flags=0`, addition/restoration verified. ABI/field proof only, not allocation acceptance. | CSV `d473db637f2b3c4cacfe865b295fa650ca2bee97523851342a6d970497cadb29` |
-| `6e69ee23-75a0-4441-8cf4-7129e19a749b`, seven days, daily-entry/boundary correlation | All 1,897 pairs/start snapshots clean; bank/state unchanged from daily entry to interest boundary, bank already zero at entry. | CSV `1a98cad7ee6b246c464ce5b50a69a0c6f6d56f40b6f692b2aef5ca29d9e9626b` |
-| `472db1b0-c70d-4979-91ad-aec05858d3e2`, seven days, global bracket probe | Seven final (`D50`, ordinal 271) / first (`REB`, ordinal 1) snapshots, 1,897 clean pairs. Five transitions clear banks 71,785, add states 8,555. | CSV `aad060bd69d2c9ecc56afc4afd618fd621b40a819daa643d95a0b29b27726367` |
-| `f3416e70-4f81-46be-b389-6c3231ba60e9`, one day, capped global probe | 271 clean pairs; after 512-country cap/timing correction, global scans were included at 3,376/3,370 µs rather than omitted from callback cost. | Unrecorded |
-| `c8519eb7-8a9d-4826-ae40-9d11e5313232`, seven days, individual destination probe | 1,897 clean pairs, 12 calls, 40 transfers of 145–3,268 raw units; per-call individual sum = aggregate bank delta = −treasury delta. Total 87,301; destination ordinals 2/3/4/5 received 12/11/12/5 transfers. | CSV `2fe7355f2f05b9a070dd1fe30c06a271b48b3e9018ab839a31fe9ae1247b152a`; transfers `1cec436c646ffbc3fde5c2dff82c881f2a789a0385564afc176e01d3ebc24b1c` |
-| `96be486d-b7b3-4943-b423-49929ff8ee77`, seven days, telemetry `world.economy.credit` + `pop.cashflow.aggregate`, no fix | 30,275 records, zero gaps/drops. State interest 0, 0, 1,268, 2,817, 4,560, 6,481, 8,586; no index-7 native cash flow despite 12,805 component records. | Trace `cc5de77502f92fa4c9faf7a863c12ca9cc469c687b8f3ed7580b1cf73d6b6b57` |
+| Configuration | Result |
+| --- | --- |
+| Initial structure, seven days, `interest_probe` | 1,897 samples = 271 slots × 7 dates; 597 states, 2,311 province candidates per pass; zero flags/count mismatch/drops. Creditors appeared day 2; state-interest candidate reached 8,568, same-country bank always zero. Collection 22,241 µs total, 11.72 µs mean, 224 µs max, 3,141–3,250 µs/day; queue publication excluded. |
+| Exact boundary, seven days, paired `interest_probe`; separate empty-registry one-day run | 3,794 rows / 1,897 ordered pairs; zero flags/drops/unavailable dates; unchanged state/vector counts. 12 SWE/SAR creditor calls, treasury −87,242, own bank/state unchanged: **same-country correlation was the wrong target**. Collection 47,010 µs, mean 12.39, max 352, publication excluded. Hardened subscribed one-day repeat: 271 complete clean pairs. |
+| Seven days, destination probe | All 1,897 pairs; 12 creditor calls resolved every entry, paid bytes one, zero flags/drops. Treasury −87,242 = banks +87,242; aggregate call transfers 4,947–10,365. Rate/debt and destination state fields unchanged in-call. Collection 55,704 µs, mean 14.68, max 619. |
+| Seven days, destination POP probe | All 1,897 pairs clean; 12 creditor samples covered 346–661 provinces, 4,498–8,593 list records, 2,635–5,565 POPs/phase, exact attempt/success counts, no duplicates. Savings drift 19–108; savings unchanged in-call. Collection 345,637 µs, mean 91.10, max 13,821: too expensive for default telemetry. |
+| Seven days, only runner + `pop_money_fixture` | At date `59883432`, SWE destination POP: +1000/−1000 exactly added/restored money 23,890,866, slot 7 zero, total zero; savings 27 unchanged. `sample_flags=0`, addition/restoration verified. ABI/field proof only, not allocation acceptance. |
+| Seven days, daily-entry/boundary correlation | All 1,897 pairs/start snapshots clean; bank/state unchanged from daily entry to interest boundary, bank already zero at entry. |
+| Seven days, global bracket probe | Seven final (`D50`, ordinal 271) / first (`REB`, ordinal 1) snapshots, 1,897 clean pairs. Five transitions clear banks 71,785, add states 8,555. |
+| One day, capped global probe | 271 clean pairs; after 512-country cap/timing correction, global scans were included at 3,376/3,370 µs rather than omitted from callback cost. |
+| Seven days, individual destination probe | 1,897 clean pairs, 12 calls, 40 transfers of 145–3,268 raw units; per-call individual sum = aggregate bank delta = −treasury delta. Total 87,301; destination ordinals 2/3/4/5 received 12/11/12/5 transfers. |
+| Seven days, telemetry `world.economy.credit` + `pop.cashflow.aggregate`, no fix | 30,275 records, zero gaps/drops. State interest 0, 0, 1,268, 2,817, 4,560, 6,481, 8,586; no index-7 native cash flow despite 12,805 component records. |
 
 The five global transitions preserve the nonconservation observation, not just
 its total:
@@ -294,26 +289,24 @@ its total:
 ### Superseded direct-creditor payout tests
 
 These tests establish mapping/native-write provenance, **not state-pool
-acceptance**. Early results through `34b750f` used the direct destination-bank
-implementation; subsequent checked/renamed/extracted variants below still
-precede the state-pool design. Historical `interest_fix.csv` is not today's
-`interest_bug_fix.csv`. All use the common fixture; revision is unrecorded unless
-listed. Repetitive smoke outcomes are consolidated while retaining distinct
-guards, measurements, and artifact identities.
+acceptance**. All variants below used direct destination-bank payouts, including
+the early implementation through `34b750f`; they predate the state-pool design.
+Historical `interest_fix.csv` is not today's `interest_bug_fix.csv`. All use the
+common fixture; revision is unrecorded unless listed.
 
-| Run / revision / configuration | Result and scope |
+| Revision / configuration | Result and scope |
 | --- | --- |
-| `fb8fb767-d7ab-4fea-be87-7598d6f9c880`; two days, diagnostic fix | SWE 4,947 → 4,947,000 across 261 POPs; SAR 6,406 → 6,406,000 across 492; all postconditions, zero flags/drops. CSV `fef04c5aade3e158f2600a388a1cc1de5bc1c0b036822a9fbe8122d3b9cbc697`. `61b3d205-1ff1-4df5-a036-5a1e21ec1606` repeated those rows/hash with immediate per-POP checks and all-candidate duplicate rejection. |
-| `1b9b194b-06b2-4bff-9c36-145875a95a88`; seven days, fix + read-only probe | 12 paid rows, bank 87,242 → POP 87,242,000; 60,936 traversed records, 7,514 paid/verified POPs, no flags/drops. Independent 1,897 probe pairs reconciled treasury/banks. Fix CSV `849735871fb3f59bdd2b24d86b754f4988c257c9e9b8f96a38f75408cbf6c4b7`; probe `6cae03ed4636c80c26766e7c805d401f755c9a6ec25effed51e463aac8261cac`. |
-| `5095e066-93e8-4faf-9060-dfa0199becd8`; two-day observer smoke | SWE 346 provinces/2,635 POPs in 9,000 µs; SAR 615/5,077 in 17,624 µs. All 753 paid POPs verified; health/value accepted, zero flags/gaps/drops/writer failures. |
-| `b88ce485-ed56-4634-9bb0-0927b0a83117`; 60-day ordinal-zero regression after diagnostic correction | 181 paid + 322 no-transfer health records, zero flags/gaps/drops/writer failures; each paid paired with value, two complete monthly snapshots. |
-| `c6193149-f6b2-4a88-9366-32484389d40a`; `f057bf5`, 3,650 days, pre-batching observer | 235,918 trace records; CSV 136,852 rows, hash `74bbde807d8dc60763a446429d442497d9378e2ba37b636f72cbe3e6bc8aaf5e`. Paid 94,796; no-transfer 34,243; allocation rejected 2,921; invalid pairs 4,892 (`0x01000000`, topology/delta changed before mutation). Paid total 801,282,450 → 801,282,450,000; 33,246,154 verified writes. No other failure, gaps/drops/writer failures; all publications accepted, paid-only value records. Callback total 1,629,137,122 µs; paid median/max 13,817/67,653, allocation median 9,166, invalid 1,492, no-transfer 21. |
-| `1759f606-f8b6-4588-aad0-31025e74fd60`; two-day opt-out | No `interest_fix` selection; existing fix CSV hash, timestamp, length unchanged. This proves opt-out for that artifact, not current throughput. |
-| `c99a16f5-41e3-40ef-8f75-f6cc835f3aee`; `d8458bd`, 3,650 days, batched observer, speed 5 | 3,650 summaries, no partial days/rejected debtors/recipient failures; 132,351 recipient payouts, 8,635,406 verified POP writes. Named bank total 2,003,503,700 = domestic 343,963,354 + foreign 1,659,540,346; POP total 2,003,503,700,000. Every daily CSV total matched value telemetry, all publications accepted, zero flags/gaps/drops/writer failures. 11,571-record trace `0acbe58e187c5d4950ec03908294d8b653c678b6faf0e373762c6588f7e7b7fc`; CSV `a077b00228dbd26c15961b08a869e8a89ba87a60e62b13dffc920c5161027b0e`. No no-savings outcome here; a prior deterministic path did correctly reject POP-bearing countries with no positive savings. |
-| `c94800f7-74a8-4013-bfcc-c12e96776d52`; seven-day checked-boundary smoke, runner/fix/telemetry `GiveMoney` hook | Kernel-retained identity and `CurrentGameSession`; all three plugins loaded after in-process check; 3,684 clean ordered records, 24 paid recipients, 92,860 → 92,860,000, 4,911 verified POPs; exact pause, telemetry drain, native exit. |
-| `b4673a6f-11b5-4714-bf00-5fbcfc7e449b`; renamed-plugin seven-day observer | Matched 58 then-active signatures (later removal left 55, **not today's catalog count**); 45 clean records, seven health summaries, zero rejected debtors/flags/dropped results; final day 20,468 → 20,468,000, 1,034 verified POPs. |
-| `e28f1cc5-e357-433e-a386-0a1d3d8f2ee7`; post-reader-extraction seven days, telemetry/runner/fix | 64 then-active signatures; 1,970 clean records, no Victoria error-log entries; seven clean summaries, six nonzero days; final day 20,472 → 20,472,000, 1,115 verified POPs. |
-| `c6e8e7f2-2637-42df-963e-18496bda36b0`; checked batch, 3,650 days, runner/fix, CSV/telemetry off | Native bounded exit, 366.829 s / 9.95 days/s; repeats 9.93–10.09, not a guaranteed 10 floor. Previous same-fixture implementation 496.4 s / 7.35 days/s. Source save and pre-existing CSV unchanged. |
+| Two days, diagnostic fix | SWE 4,947 → 4,947,000 across 261 POPs; SAR 6,406 → 6,406,000 across 492; all postconditions, zero flags/drops. A repeat reproduced those results with immediate per-POP checks and all-candidate duplicate rejection. |
+| Seven days, fix + read-only probe | 12 paid rows, bank 87,242 → POP 87,242,000; 60,936 traversed records, 7,514 paid/verified POPs, no flags/drops. Independent 1,897 probe pairs reconciled treasury/banks. |
+| Two-day observer smoke | SWE 346 provinces/2,635 POPs in 9,000 µs; SAR 615/5,077 in 17,624 µs. All 753 paid POPs verified; health/value accepted, zero flags/gaps/drops/writer failures. |
+| 60-day ordinal-zero regression after diagnostic correction | 181 paid + 322 no-transfer health records, zero flags/gaps/drops/writer failures; each paid paired with value, two complete monthly snapshots. |
+| `f057bf5`, 3,650 days, pre-batching observer | 235,918 trace records; CSV 136,852 rows. Paid 94,796; no-transfer 34,243; allocation rejected 2,921; invalid pairs 4,892 (`0x01000000`, topology/delta changed before mutation). Paid total 801,282,450 → 801,282,450,000; 33,246,154 verified writes. No other failure, gaps/drops/writer failures; all publications accepted, paid-only value records. Callback total 1,629,137,122 µs; paid median/max 13,817/67,653, allocation median 9,166, invalid 1,492, no-transfer 21. |
+| Two-day opt-out | No `interest_fix` selection; existing fix CSV unchanged. This proves opt-out for that artifact, not current throughput. |
+| `d8458bd`, 3,650 days, batched observer, speed 5 | 3,650 summaries, no partial days/rejected debtors/recipient failures; 132,351 recipient payouts, 8,635,406 verified POP writes. Named bank total 2,003,503,700 = domestic 343,963,354 + foreign 1,659,540,346; POP total 2,003,503,700,000. Every daily CSV total matched value telemetry, all publications accepted, zero flags/gaps/drops/writer failures. 11,571 trace records. No no-savings outcome here; a prior deterministic path did correctly reject POP-bearing countries with no positive savings. |
+| Seven-day checked-boundary smoke, runner/fix/telemetry `GiveMoney` hook | Kernel-retained identity and `CurrentGameSession`; all three plugins loaded after in-process check; 3,684 clean ordered records, 24 paid recipients, 92,860 → 92,860,000, 4,911 verified POPs; exact pause, telemetry drain, native exit. |
+| Seven-day observer, 58-signature catalog | Matched 58 then-active signatures (**not today's catalog count**); 45 clean records, seven health summaries, zero rejected debtors/flags/dropped results; final day 20,468 → 20,468,000, 1,034 verified POPs. |
+| Seven-day integration, 64-signature catalog, telemetry/runner/fix | 64 then-active signatures; 1,970 clean records, no Victoria error-log entries; seven clean summaries, six nonzero days; final day 20,472 → 20,472,000, 1,115 verified POPs. |
+| Checked batch, 3,650 days, runner/fix, CSV/telemetry off | Native bounded exit, 366.829 s / 9.95 days/s; repeats 9.93–10.09, not a guaranteed 10 floor. Previous same-fixture implementation 496.4 s / 7.35 days/s. Source save and pre-existing CSV unchanged. |
 
 Matched no-fix baselines, exact older observer configurations, and economic
 outcome comparisons are in [telemetry evidence](telemetry.md#historical-pre-batching-paired-ten-year-observer-benchmark)
@@ -323,13 +316,13 @@ behavior.
 
 ### State-pool tests before the C-service port
 
-| Run / revision / configuration | Result and scope |
+| Revision / configuration | Result and scope |
 | --- | --- |
-| `824f4a15-9f09-44a3-9c3f-908f5c8af6a4`; revision unrecorded, seven-day diagnostic state-pool fix | Seven cleanup passes covered 597 states each; 48 complete pools, 244 verified writes, exact `pool * 1000`, no flags/drops/mutation failure/retained successful pool. |
-| `8cba1f79-f685-4827-91e9-5c27ba4f29c0` baseline vs `20053891-efd7-49e5-bc85-4c9544d46525` fix; revisions unrecorded, 3,650-day lifecycle-only pair | 369.927 s / 9.86682 days/s vs 561.080 s / 6.50531; throughput −34.1%, elapsed +51.7%. Exact targets, zero gaps/drops/writer failures. Traces `6f9b00de663e4c995c67c2337036a4d56f055d2160a5a57522a28dae7f5486cd` / `e971f0bb23984dcaf41ff21e32213060a73c829d4d3449e2b7673d251350eec7`. |
-| `ecbd9f74-c371-4995-b14c-3b7d0ad7ecf0`; revision unrecorded, seven-day optimized diagnostic fix | One session cleanup instead of seven daily scans, 47 pools/180 verified writes, no failure/conservation error/drop. Positive-pool callback total 12,898 µs vs 29,829 before selective POP traversal on the same fixture shape. **Current port again cleans daily.** |
-| `1c0e4bc4-227e-41d6-861b-e308077c34ae` fix vs `1584444b-7c3f-4b3f-ad3e-70db4bf4d893` baseline; revisions unrecorded, 3,650 days, diagnostics/telemetry off | Full launch-to-exit 339.478 s / 10.7518 days/s vs 302.085 s / 12.0827; retained 89.0% throughput. Includes loading/entry/shutdown. Then-path used once-per-session/after-failure cleanup, ignored recapitalization, selective POP walks, once-per-callback membership and amortized signature/session checks. Not a benchmark of the current daily-cleanup port. |
-| `73859a8f-c876-45ea-9622-4b9a5f61e319`; after `c357fd9` guard correction, 36,500 days, runner/fix/diagnostics | Exact target/native exit, 5,104.095 s / 7.1511 days/s **including CSV I/O**, not production throughput. CSV 938,029,562 bytes / 12,945,293 rows, SHA-256 `e1f26d99fabc3e5413f8a9ac84e7a496cb2fcd3c186d183698731b9ab8db322d`. Covered 36,499 completed bank dates: runner pauses before final target's bank pass. |
+| Revision unrecorded, seven-day diagnostic state-pool fix | Seven cleanup passes covered 597 states each; 48 complete pools, 244 verified writes, exact `pool * 1000`, no flags/drops/mutation failure/retained successful pool. |
+| Baseline vs fix; revisions unrecorded, 3,650-day lifecycle-only pair | 369.927 s / 9.86682 days/s vs 561.080 s / 6.50531; throughput −34.1%, elapsed +51.7%. Exact targets, zero gaps/drops/writer failures. |
+| Revision unrecorded, seven-day optimized diagnostic fix | One session cleanup instead of seven daily scans, 47 pools/180 verified writes, no failure/conservation error/drop. Positive-pool callback total 12,898 µs vs 29,829 before selective POP traversal on the same fixture shape. **Current port again cleans daily.** |
+| Fix vs baseline; revisions unrecorded, 3,650 days, diagnostics/telemetry off | Full launch-to-exit 339.478 s / 10.7518 days/s vs 302.085 s / 12.0827; retained 89.0% throughput. Includes loading/entry/shutdown. Then-path used once-per-session/after-failure cleanup, ignored recapitalization, selective POP walks, once-per-callback membership and amortized signature/session checks. Not a benchmark of the current daily-cleanup port. |
+| After `c357fd9` guard correction, 36,500 days, runner/fix/diagnostics | Exact target/native exit, 5,104.095 s / 7.1511 days/s **including CSV I/O**, not production throughput. CSV 938,029,562 bytes / 12,945,293 rows. Covered 36,499 completed bank dates: runner pauses before final target's bank pass. |
 
 Century run outcomes after the duplicate-scope correction:
 
@@ -349,7 +342,7 @@ successful allocation. Zero quality flags, result drops, collection/duplicate/
 overflow/unavailable/precondition/partial/postcondition/conservation failures
 were reported. Only no-eligible-savings outcomes failed to pay; retained pools
 were discarded before a later pass. The retained/discarded difference is pools
-created near the final target without a later cleanup. Source-save hash remained
+created near the final target without a later cleanup. The source save remained
 unchanged. This demonstrates the historical implementation's checked payouts
 and guards on one fixture, not arbitrary-mod correctness or current-port
 century acceptance.

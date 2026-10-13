@@ -19,7 +19,7 @@ The kernel-owned game-state implementation checks the invariant handler bodies a
 ASLR-relocated global pointer before calling either message handler. It reads
 `CGameState+0xb28` after every call and rejects a transition that does not move
 exactly one index toward the requested profile speed. Both directions are
-`verified-runtime`: a launcher run on 2026-07-31 selected speed 2 from the
+`verified-runtime`: the launcher fixture selected speed 2 from the
 loaded campaign's higher initial speed, read back each decrement, and then
 verified that the campaign remained paused as requested.
 

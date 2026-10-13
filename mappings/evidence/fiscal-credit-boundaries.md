@@ -17,9 +17,8 @@ for follow-up work.
 
 Evidence levels follow the repository mapping conventions. Runtime observations
 identify the supported executable only; they do not establish compatibility
-with other builds. Runs below do not all record a source revision, and two CSV
-hashes are abbreviated; those identities cannot establish exact-build acceptance
-or independently verify the artifacts.
+with other builds. Some historical observations lack a source revision and do
+not establish acceptance of the current binary.
 
 ## Core layouts
 
@@ -50,8 +49,8 @@ assigned to it.
 | Middle | `0x00508cde` | `+0x08` | `424367` | `12950.67673` |
 | Rich | `0x00508d1a` | `+0x10` | `62756` | `1915.18658` |
 
-All three callsites are `verified-runtime`. For each class in run
-`767d2c76-e1f2-4ad2-8df7-a19de1829f9f`:
+All three callsites are `verified-runtime`. Each class satisfies this relation
+in the one-day class-tax fixture:
 
 ```text
 treasury receipt raw = floor(sum(serialized tax_income) * 32768 / 1000)
@@ -104,8 +103,7 @@ origination brackets and cannot be assigned to individual requested amounts.
 Subsequent observed ordinal-zero principal grows by `19996082` raw while the
 slot-zero lent value stays fixed: lent is not a mirror of outstanding zero-
 ordinal principal. Interest still skips zero-ordinal pending credit, and reviewed
-repayment skips zero-ordinal lender-bank reduction. Fixture, scope and capture
-identity are in [native banking observations](interest-payout.md#native-banking-observations).
+repayment skips zero-ordinal lender-bank reduction. Fixture and scope are in [native banking observations](interest-payout.md#native-banking-observations).
 
 ### Daily interest
 
@@ -130,11 +128,11 @@ contain unrelated construction refunds.
 debtor treasury. For a nonzero lender ordinal it also reduces the resolved
 lender's `CBank.money_lent`, clamped at zero; Shadowy Financiers skip the bank
 mutation. It removes creditor entries that reach zero; this is statically
-established and runtime-correlated by the full UI repayment below. The reviewed repayment path
-does not credit bank reserves.
+established and runtime-correlated by the full UI repayment below. The reviewed
+repayment path does not credit bank reserves.
 
-Run `3f63c64b-601f-4828-a85b-9ab234de7f4c` captured 12 calls with D01 -> ENG,
-BRZ -> USA, and SWE -> SWE identities. Every call satisfied:
+The seven-day repayment fixture captures 12 calls with D01 -> ENG, BRZ -> USA,
+and SWE -> SWE identities. Every call satisfied:
 
 ```text
 requested raw = -delta debtor treasury = -delta creditor debt
@@ -154,13 +152,6 @@ all seven creditors. Both before/after pairs have unchanged dates; bank
 reserves/pending and state savings/pools remain unchanged in each pair.
 This is principal consistency, not reserve-to-treasury conservation; it covers
 sufficient-treasury named repayment, not ordinal-zero repayment or shortfall.
-
-| Snapshot | SHA-256 |
-| --- | --- |
-| Loan before | `5200a4a94694b1511c24b4c42155bf3ff9fde3efaa1655d148458355fa0e37ef` |
-| Loan after | `f238dd6929a45b72a7bc82528d241a8797090f6bbab028b2327c1f9325e4b5cd` |
-| Repayment before | `c4ca99c7e6a78f3fbd2a0011076f965ed3b9419fbd56b9f2a15bc8d396c21345` |
-| Repayment after | `926c3e0f2e12767315337ea8bd1724d07cb3c0df3b833927cc0a822038bc4da5` |
 
 ### Interest shortfall and default
 
@@ -227,19 +218,18 @@ source or sink. Do not present it as categorized money or a world-money total.
 
 ## Retained runtime evidence
 
-| Run | Scope | Result |
-| --- | --- | --- |
-| `767d2c76-e1f2-4ad2-8df7-a19de1829f9f` | One-day class-tax bracket, 271 countries | Exact SWE class conversion; zero flags/drops; CSV SHA-256 `5ABA189D...` |
-| `eb378356` | 30-day daily-interest bracket | 8,130 rows; zero flags/drops; source save SHA-256 `F24F40665745B5FF01AC3ED84B138EFB54C634FB1C9A69EF3C06A75617295D3E` |
-| `5d5db709` | Bank-owner correlation | 4,065/4,065 owner matches |
-| `3f63c64b-601f-4828-a85b-9ab234de7f4c` | Seven-day repayment bracket | 12/12 exact treasury/debt reductions; CSV SHA-256 `135047B2...` |
-| Forced shortfall | VNZ, NZL, SWE handler calls | `money = -99999` did not force negative treasury; `-1000000000` did. These are test magnitudes, not a bankruptcy threshold. No synchronous accounting mutation; next-day SWE treasury recovery remains unattributed. |
+| Fixture | Result |
+| --- | --- |
+| One-day class-tax bracket, 271 countries | Exact SWE class conversion; zero flags/drops. |
+| 30-day daily-interest bracket | 8,130 rows; zero flags/drops; source save unchanged. |
+| Bank-owner correlation | 4,065/4,065 owner matches. |
+| Seven-day repayment bracket | 12/12 exact treasury/debt reductions. |
+| Forced shortfall: VNZ, NZL, SWE | `money = -99999` did not force negative treasury; `-1000000000` did. These are test magnitudes, not a bankruptcy threshold. No synchronous accounting mutation; next-day SWE treasury recovery remains unattributed. |
 
 ## Remaining unknowns
 
 - Runtime tariff amount correlation and gold/other treasury source identities.
 - Displayed bank-balance aggregation and rounding.
-- Runtime observation of complete repayment entry removal.
 - Default principal treatment and modifier/prestige outcomes.
 - Source of the forced negative-treasury recovery.
 - Semantics of `CCountry+0x40/+0x44`.
