@@ -57,6 +57,7 @@ behavior, or acceptance of a different implementation.
 
 | Lead | Scope |
 | --- | --- |
+| [Maxioten research import](research/maxioten-import.md) | Attributed engine, script, AI, technology and economy findings, selected mapping anchors and explicit conflicts. Research only, not runtime bindings. |
 | [AI static leads](research/ai-static-leads.md) | Unverified findings recovered from the Player Military AI package. |
 | [Retired engine mirrors](research/retired-engine-mirrors.md) | Historical model provenance; not supported C++ bindings. |
 

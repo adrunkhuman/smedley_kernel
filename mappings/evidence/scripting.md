@@ -10,8 +10,13 @@ are in [scripting](../../docs/scripting.md), with ABI requirements in
 ## Copied state
 
 The kernel consumes the native daily hook's country pointer and builds a
-checked fixed-size `SmedleyDailyEventV1`. Malformed or unavailable input
-suppresses dispatch rather than producing invented values. Only copied records
+checked fixed-size `SmedleyDailyEventV1`. Static callsite inspection places
+hook RVA `0x001085ae` in the earlier country pass (entry RVA `0x00108590`),
+not the later country update at RVA `0x001091a0`. The callback is therefore
+not an end-of-country-update or whole-day completion signal; see the
+[phase evidence](../research/engine-scheduling.md#existing-dailyupdateevent-observes-the-earlier-pass).
+Malformed or unavailable input suppresses dispatch rather than producing
+invented values. Only copied records
 cross to the script worker; no native pointer, game-owned string, mutable
 container, console manager, or Victoria II Lua value does.
 
