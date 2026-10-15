@@ -17,15 +17,6 @@ audit**, not a supported evaluator API or a parallel-execution implementation.
 | Address convention | Preferred-image VAs at base `0x00400000`; subtract that base for RVAs and add the loaded module base at runtime. |
 | Native findings below | `verified-static-callsites`: supported-image RTTI, raw vtable slots, instructions, caller pointer provenance and reachable callees were inspected. No live-game guard, race, behavior or performance verification. |
 | Caller safety rules | Inferences from those mechanisms; the event/MTTH rule below additionally relies on the existing `historical-unverified` event-loop account. It is explicitly `provisional`, not a newly verified loop mapping. |
-| Local audit source | `/home/adrunkhuman/Projects/v2/analysis/trigger-whitelist-audit-2026-10-15/`; source roles are listed below. This path is provenance, not a repository dependency. |
-
-| Audit source | Claims retained here |
-| --- | --- |
-| `REPORT.md`, `audit-merged.json` | Integrated RTTI coverage, per-instance restrictions and distinction between purity, dependency and cache lifetime. |
-| `audit-group-1.md`, `audit-group-2-helpers.md`, `audit-group-3.md`, `audit-overrides.json` | Virtual targets (including the guarded building-definition lookup), flags/variables, pointer-write destinations, initialization and reference-mode proofs. |
-| `audit-containers.md` | Scope copying/assignment, selectors, iterators and incoming-seed ownership. |
-| `audit-extra.md` | Non-suffix classes, modifier recursion, parser fallback and receiver-local MT evidence. |
-| `native/`, `extra-native/` and supplemental raw disassembly | Executable-derived primary evidence for the instruction/callsite anchors below; intentionally not imported. |
 
 The [Maxioten import](script-evaluation.md#why-the-write-scan-does-not-prove-thread-safety)
 already records trigger dispatch, shallow THIS aliases, ternary flag lookup and
@@ -209,10 +200,11 @@ or implicit money/militancy alias is created. Native `money` (`0x4f0`) and
 `militancy` (`0xa68`) are distinct trigger cases.
 
 Thus source-node counts need not match native trigger-tree counts. Definition
-search covered the supplied vanilla data and TGC main-mod snapshot
-`bda780249420efbcdd2b1e0ec905934a602c4c29`, not optional submods. This is static
-parser/data evidence, not a captured runtime diagnostic. Effects are a different
-parser domain; these findings do not reject the same spellings as effects.
+search covered the supplied vanilla data and
+[TGC main-mod snapshot `bda780249420efbcdd2b1e0ec905934a602c4c29`](https://github.com/The-Grand-Combination/The-Grand-Combo/tree/bda780249420efbcdd2b1e0ec905934a602c4c29),
+not optional submods. This is static parser/data evidence, not a captured runtime
+diagnostic. Effects are a different parser domain; these findings do not reject
+the same spellings as effects.
 Different definitions or a modified executable could change fallback
 resolution. No script repair is proposed here.
 
