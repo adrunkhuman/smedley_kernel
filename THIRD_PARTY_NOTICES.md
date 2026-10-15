@@ -1,5 +1,16 @@
 # Third-Party Notices
 
+## Victoria II reverse-engineering research
+
+The [Maxioten research summaries](mappings/research/maxioten-import.md) attribute
+factual findings to
+[maxioten/Victoria2-Reverse-Engineering](https://github.com/maxioten/Victoria2-Reverse-Engineering)
+at commit `e299a0214d32274239402e8ee22039e1d02e101f`. That tree supplies no
+license file. Summaries of semantic findings, selected address/field anchors
+and conflict annotations are independently written. No upstream tools, prose, reconstructed
+function bodies, or patch implementations are included. This attribution does
+not grant rights to upstream implementation or game material.
+
 ## Scripting Lua 5.1.5 runtime
 
 The optional scripting plugin fetches and compiles its private Lua 5.1.5 runtime
