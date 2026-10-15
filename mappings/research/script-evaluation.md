@@ -73,6 +73,13 @@ or plugins.
 
 ## Conditions and scopes
 
+The later [native trigger-purity audit](native-trigger-purity.md) independently
+checks the supported executable's inheritance/virtual targets, scope/seed
+ownership, evaluator writes and parser omissions. It supersedes the historical
+inventory's completeness and narrows several leads below with
+`verified-static-callsites` evidence; it does not promote this import as a whole
+or establish runtime thread safety.
+
 ### Boolean dispatch and evaluation order
 
 The [trigger notes][triggers] report 236 RTTI-identified classes. Their
